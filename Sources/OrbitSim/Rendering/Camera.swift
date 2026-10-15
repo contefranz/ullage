@@ -78,8 +78,18 @@ struct OrbitCamera {
         let offset = (horizontal * cos(pitch) + up * sin(pitch)) * distance
         position = targetPosition + offset
 
+        // Keep the camera above the ground near a surface.
+        if case .vessel(let id) = target, let v = sim.vessels.first(where: { $0.id == id }) {
+            let center = snap.position(v.reference)
+            let fromCenter = position - center
+            let minRadius = v.reference.radius + 2
+            if fromCenter.length < minRadius {
+                position = center + fromCenter.normalized * minRadius
+            }
+        }
+
         // Look at the target with `up` as the vertical reference.
-        let back = offset.normalized
+        let back = (position - targetPosition).normalized
         var camRight = up.cross(back)
         if camRight.length < 1e-6 { camRight = right }
         camRight = camRight.normalized

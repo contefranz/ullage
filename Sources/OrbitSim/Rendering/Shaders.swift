@@ -80,8 +80,12 @@ fragment DepthColorOut planet_fragment(FullscreenOut in [[stage_in]],
         float3 q = normalize(oc + d * max(-b, 0.0));
         float day = smoothstep(-0.25, 0.25, dot(q, sun));
         float a = clamp(density * 1.2, 0.0, 1.0) * day;
-        o.color = float4(u.atmosphere.rgb, a);
-        o.depth = 0.0;
+        // Premultiplied output; at most 85% opaque so the Sun still shows through.
+        o.color = float4(u.atmosphere.rgb * a, 0.85 * a);
+        // Depth of the ray's closest approach, so the sky covers bodies drawn
+        // earlier (bodies are drawn farthest first).
+        float tca = max(-b, R);
+        o.depth = clamp(u.params.w / (tca * -dView.z), 0.0, 1.0);
         return o;
     }
 
@@ -105,7 +109,7 @@ fragment DepthColorOut planet_fragment(FullscreenOut in [[stage_in]],
             float gridStep = M_PI_F / 12.0;      // 15 degree grid
             float2 g = float2(lon, lat) / gridStep;
             float2 w = fwidth(g);
-            float2 f = abs(fract(g + 0.5) - 0.5) / max(w, 1e-5);
+            float2 f = abs(fract(g + 0.5) - 0.5) / max(w, float2(1e-5));
             float gridLine = 1.0 - clamp(min(f.x, f.y), 0.0, 1.0);
             albedo = mix(albedo, float3(0.9, 0.9, 0.9), gridLine * 0.35);
         }
@@ -171,6 +175,7 @@ struct PointVertex {
 
 struct PointUniforms {
     float4x4 viewProjection;       // rotation-only view * projection
+    float4 params;                 // x: point-size scale
 };
 
 struct PointOut {
@@ -189,7 +194,7 @@ vertex PointOut point_vertex(uint vid [[vertex_id]],
         clip.z = 0.0;                // directions sit at infinity
     }
     o.position = clip;
-    o.pointSize = p.size.x;
+    o.pointSize = p.size.x * u.params.x;
     o.color = p.color;
     return o;
 }

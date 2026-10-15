@@ -59,7 +59,7 @@ final class Renderer: NSObject, MTKViewDelegate {
     private func buildPipelines(view: MTKView) throws {
         let library = try device.makeLibrary(source: shaderSource, options: nil)
 
-        func pipeline(_ vfn: String, _ ffn: String, blending: Bool) throws -> MTLRenderPipelineState {
+        func pipeline(_ vfn: String, _ ffn: String, blending: Bool, premultiplied: Bool = false) throws -> MTLRenderPipelineState {
             let d = MTLRenderPipelineDescriptor()
             d.vertexFunction = library.makeFunction(name: vfn)
             d.fragmentFunction = library.makeFunction(name: ffn)
@@ -70,14 +70,14 @@ final class Renderer: NSObject, MTKViewDelegate {
                 c.isBlendingEnabled = true
                 c.rgbBlendOperation = .add
                 c.alphaBlendOperation = .add
-                c.sourceRGBBlendFactor = .sourceAlpha
+                c.sourceRGBBlendFactor = premultiplied ? .one : .sourceAlpha
                 c.destinationRGBBlendFactor = .oneMinusSourceAlpha
                 c.sourceAlphaBlendFactor = .one
                 c.destinationAlphaBlendFactor = .oneMinusSourceAlpha
             }
             return try device.makeRenderPipelineState(descriptor: d)
         }
-        planetPipeline = try pipeline("planet_vertex", "planet_fragment", blending: true)
+        planetPipeline = try pipeline("planet_vertex", "planet_fragment", blending: true, premultiplied: true)
         meshPipeline = try pipeline("mesh_vertex", "mesh_fragment", blending: false)
         pointPipeline = try pipeline("point_vertex", "point_fragment", blending: true)
         linePipeline = try pipeline("line_vertex", "line_fragment", blending: true)
@@ -166,9 +166,14 @@ final class Renderer: NSObject, MTKViewDelegate {
 
     // MARK: MTKViewDelegate
 
-    func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
+    nonisolated func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
 
-    func draw(in view: MTKView) {
+    // MTKView calls its delegate on the main thread.
+    nonisolated func draw(in view: MTKView) {
+        MainActor.assumeIsolated { render(in: view) }
+    }
+
+    private func render(in view: MTKView) {
         let now = CACurrentMediaTime()
         let dt = min(now - lastTime, 0.1)
         lastTime = now
@@ -186,6 +191,8 @@ final class Renderer: NSObject, MTKViewDelegate {
         let proj = simd_float4x4.reversedInfinitePerspective(fovY: Float(cam.fovY), aspect: aspect, near: near)
         let view4 = simd_float4x4(rotation: cam.worldToView)
         let viewProj = proj * view4
+        let pointScale = Float(view.window?.backingScaleFactor ?? 2)
+        let pointParams = SIMD4<Float>(pointScale, 0, 0, 0)
         let snap = sim.snapshot
         let sunPos = snap.position(sim.system.sun)
 
@@ -193,7 +200,7 @@ final class Renderer: NSObject, MTKViewDelegate {
         if let starBuffer {
             enc.setRenderPipelineState(pointPipeline)
             enc.setDepthStencilState(noDepth)
-            var u = PointUniforms(viewProjection: viewProj)
+            var u = PointUniforms(viewProjection: viewProj, params: pointParams)
             enc.setVertexBuffer(starBuffer, offset: 0, index: 0)
             enc.setVertexBytes(&u, length: MemoryLayout<PointUniforms>.stride, index: 1)
             enc.drawPrimitives(type: .point, vertexStart: 0, vertexCount: starCount)
@@ -267,15 +274,22 @@ final class Renderer: NSObject, MTKViewDelegate {
 
         // 4. Orbit of the focus vessel.
         if model.showOrbit, let focus = sim.focus, focus.landed == nil {
-            let pts = Self.orbitPoints(vessel: focus, snapshot: snap, cameraPosition: cam.position)
+            let strips = Self.orbitStrips(vessel: focus, snapshot: snap, cameraPosition: cam.position)
+            let pts = strips.flatMap { $0 }
             if pts.count > 1, let buf = device.makeBuffer(bytes: pts, length: pts.count * MemoryLayout<LineVertex>.stride,
                                                            options: .storageModeShared) {
                 enc.setRenderPipelineState(linePipeline)
                 enc.setDepthStencilState(depthReadOnly)
-                var u = PointUniforms(viewProjection: viewProj)
+                var u = PointUniforms(viewProjection: viewProj, params: pointParams)
                 enc.setVertexBuffer(buf, offset: 0, index: 0)
                 enc.setVertexBytes(&u, length: MemoryLayout<PointUniforms>.stride, index: 1)
-                enc.drawPrimitives(type: .lineStrip, vertexStart: 0, vertexCount: pts.count)
+                var start = 0
+                for strip in strips {
+                    if strip.count > 1 {
+                        enc.drawPrimitives(type: .lineStrip, vertexStart: start, vertexCount: strip.count)
+                    }
+                    start += strip.count
+                }
             }
         }
 
@@ -285,7 +299,7 @@ final class Renderer: NSObject, MTKViewDelegate {
                                        options: .storageModeShared) {
             enc.setRenderPipelineState(pointPipeline)
             enc.setDepthStencilState(depthReadOnly)
-            var u = PointUniforms(viewProjection: viewProj)
+            var u = PointUniforms(viewProjection: viewProj, params: pointParams)
             enc.setVertexBuffer(buf, offset: 0, index: 0)
             enc.setVertexBytes(&u, length: MemoryLayout<PointUniforms>.stride, index: 1)
             enc.drawPrimitives(type: .point, vertexStart: 0, vertexCount: farPoints.count)
@@ -317,8 +331,9 @@ final class Renderer: NSObject, MTKViewDelegate {
         }
     }
 
-    /// Osculating Kepler orbit of `vessel` sampled as a line strip, camera-relative.
-    static func orbitPoints(vessel: Vessel, snapshot: SystemSnapshot, cameraPosition: Vec3) -> [LineVertex] {
+    /// Osculating Kepler orbit of `vessel` as line strips (split where the
+    /// orbit leaves the sphere of influence), camera-relative.
+    static func orbitStrips(vessel: Vessel, snapshot: SystemSnapshot, cameraPosition: Vec3) -> [[LineVertex]] {
         let mu = vessel.reference.gm
         let r = vessel.position, v = vessel.velocity
         let el = OrbitalElements(position: r, velocity: v, mu: mu)
@@ -333,7 +348,7 @@ final class Renderer: NSObject, MTKViewDelegate {
         let qHat = wHat.cross(pHat)
         let center = snapshot.position(vessel.reference) - cameraPosition
         let color = SIMD4<Float>(0.3, 1.0, 0.45, 0.8)
-        var pts: [LineVertex] = []
+        var strips: [[LineVertex]] = [[]]
         let n = 512
         var maxNu = Double.pi
         if e >= 1 {
@@ -343,10 +358,13 @@ final class Renderer: NSObject, MTKViewDelegate {
         for i in 0...n {
             let nu = e < 1 ? 2 * Double.pi * Double(i) / Double(n) : -maxNu + 2 * maxNu * Double(i) / Double(n)
             let radius = p / (1 + e * cos(nu))
-            if radius <= 0 || radius > min(soi, 5e9) { continue }
+            if radius <= 0 || radius > min(soi, 5e9) {
+                if !(strips.last?.isEmpty ?? true) { strips.append([]) }
+                continue
+            }
             let pos = (pHat * cos(nu) + qHat * sin(nu)) * radius
-            pts.append(LineVertex(position: SIMD4(center + pos, 1), color: color))
+            strips[strips.count - 1].append(LineVertex(position: SIMD4(center + pos, 1), color: color))
         }
-        return pts
+        return strips.filter { $0.count > 1 }
     }
 }

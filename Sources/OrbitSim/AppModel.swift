@@ -75,6 +75,10 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func reportError(_ message: String) {
+        DispatchQueue.main.async { self.loadError = message }
+    }
+
     func load(_ s: Scenario) {
         guard let system else { return }
         // Fresh body objects each time would be cleaner; the system is
@@ -119,7 +123,7 @@ final class AppModel: ObservableObject {
         for key in input.takePressed() {
             switch key {
             case "h": showHelp.toggle()
-            case "o": showOrbit.toggle()
+            case "m": showOrbit.toggle()
             case "p": sim.paused.toggle()
             case ".": setWarp(step: +1, sim: sim)
             case ",": setWarp(step: -1, sim: sim)

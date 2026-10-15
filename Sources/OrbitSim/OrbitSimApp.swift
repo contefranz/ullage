@@ -5,7 +5,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Needed when running the SwiftPM executable directly (no app bundle).
         NSApp.setActivationPolicy(.regular)
-        NSApp.activate(ignoringOtherApps: true)
+        NSApp.activate()
+        DispatchQueue.main.async { NSApp.windows.first?.makeKeyAndOrderFront(nil) }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
@@ -17,7 +18,8 @@ struct OrbitSimApp: App {
     @StateObject private var model = AppModel()
 
     var body: some Scene {
-        WindowGroup("OrbitSim") {
+        // A single window: a second one would add a second renderer ticking the same simulation.
+        Window("OrbitSim", id: "main") {
             ContentView(model: model)
         }
         .defaultSize(width: 1400, height: 900)

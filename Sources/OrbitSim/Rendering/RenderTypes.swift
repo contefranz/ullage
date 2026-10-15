@@ -1,3 +1,4 @@
+import Foundation
 import simd
 import OrbitCore
 
@@ -35,6 +36,7 @@ struct PointVertex {
 
 struct PointUniforms {
     var viewProjection: simd_float4x4
+    var params: SIMD4<Float>      // x: point-size scale (backing scale factor)
 }
 
 struct LineVertex {

@@ -20,6 +20,8 @@ struct MetalView: NSViewRepresentable {
             renderer.setStars(model.stars)
             view.delegate = renderer
             context.coordinator.renderer = renderer
+        } else {
+            model.reportError("Metal renderer could not be created (see the Xcode console for the shader error).")
         }
         return view
     }
@@ -146,7 +148,7 @@ struct HelpView: View {
         (". , /", "time warp up / down / reset     P pause"),
         ("Mouse drag / scroll", "orbit / zoom camera"),
         ("C / V", "camera target / camera frame"),
-        ("[ ]", "switch vessel     O orbit line     H this help"),
+        ("[ ]", "switch vessel     M orbit line     H this help"),
     ]
 
     var body: some View {

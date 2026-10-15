@@ -50,10 +50,31 @@ final class GameView: MTKView {
 
     override var acceptsFirstResponder: Bool { true }
 
+    private var resignObserver: NSObjectProtocol?
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        window?.makeFirstResponder(self)
         window?.acceptsMouseMovedEvents = true
+        // SwiftUI may claim first responder during its first layout pass.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.window?.makeFirstResponder(self)
+        }
+        if let resignObserver { NotificationCenter.default.removeObserver(resignObserver) }
+        resignObserver = nil
+        if let window {
+            // Key-up events are lost when the window loses focus (Cmd-Tab), so drop held keys.
+            resignObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.didResignKeyNotification, object: window, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.input?.releaseAll() }
+                }
+        }
+    }
+
+    override func flagsChanged(with event: NSEvent) {
+        // AppKit does not deliver key-up for keys released while Cmd is down.
+        if event.modifierFlags.contains(.command) { input?.releaseAll() }
+        super.flagsChanged(with: event)
     }
 
     override func keyDown(with event: NSEvent) {

@@ -52,7 +52,7 @@ grid. For real imagery, put equirectangular maps (8192×4096 or smaller) in
 | Mouse drag, scroll | Orbit and zoom the camera |
 | C / V | Cycle camera target / camera frame (horizon, vessel, inertial) |
 | [ ] | Switch vessel |
-| O / H | Toggle orbit line / help |
+| M / H | Toggle orbit line / help |
 
 Scenarios are in the **Scenario** menu: the test rocket on LC-39A on
 16 July 1969, a capsule in low Earth orbit, and a capsule in lunar orbit.
