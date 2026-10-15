@@ -8,7 +8,7 @@ struct Scenario: Identifiable {
     let summary: String
     let build: (SolarSystem) -> Simulation
 
-    static let all: [Scenario] = [pad39A, lowEarthOrbit, lunarOrbit]
+    static let all: [Scenario] = [pad39A, saturnVPad, lowEarthOrbit, lunarOrbit]
 
     /// Launch Complex 39A, Kennedy Space Center (pad centre).
     static let lc39A = (latitude: 28.60822, longitude: -80.60411)
@@ -22,6 +22,24 @@ struct Scenario: Identifiable {
             let rocket = VesselLibrary.testRocket()
             sim.add(rocket)
             sim.placeLanded(rocket, on: system.earth, latitude: lc39A.latitude, longitude: lc39A.longitude,
+                            azimuth: 72)
+            return sim
+        })
+
+    /// Apollo 11's Saturn V at first motion (range time 0.30 s). The pad
+    /// azimuth is 72° until the IU roll program exists. TODO (IU item): move
+    /// the pad to the geocentric latitude in `AS506.padLatitude`, which the
+    /// datasheet's orbit targets assume; on the map it sits 18 km south.
+    static let saturnVPad = Scenario(
+        id: "as506-pad",
+        name: "Saturn V (AS-506) on LC-39A",
+        summary: "Apollo 11 launch vehicle at first motion, 16 July 1969, 13:32:00.3 UTC. Z ignites (F-1 and J-2 do not throttle); space for the next staging event.",
+        build: { system in
+            let sim = Simulation(system: system, time: Epoch(utcYear: 1969, month: 7, day: 16, hour: 13, minute: 32,
+                                                             second: 0.3))
+            let stack = VesselLibrary.saturnV()
+            sim.add(stack)
+            sim.placeLanded(stack, on: system.earth, latitude: lc39A.latitude, longitude: lc39A.longitude,
                             azimuth: 72)
             return sim
         })

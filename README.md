@@ -3,9 +3,10 @@
 A native Apple Silicon space flight simulator in Swift and Metal, aimed at
 procedurally realistic Apollo and Space Shuttle missions.
 
-This is **milestone M0**: the physics core and a Metal viewer, flown with a
-generic two-stage test rocket and capsule. See [docs/ROADMAP.md](docs/ROADMAP.md)
-for the path to Apollo and the Shuttle.
+This is **milestone M0** (the physics core and a Metal viewer, flown with a
+generic two-stage test rocket and capsule) plus the first M1 item, Apollo 11's
+Saturn V stack. See [docs/ROADMAP.md](docs/ROADMAP.md) for the path to Apollo
+and the Shuttle.
 
 ## Build and run
 
@@ -44,7 +45,7 @@ grid. For real imagery, put equirectangular maps (8192×4096 or smaller) in
 | = / - (hold) | Throttle up / down |
 | W S A D Q E | Pitch down / up, yaw left / right, roll left / right |
 | I K J L U O | Translate up / down / left / right / forward / back |
-| Space | Jettison the bottom stage |
+| Space | Next staging event |
 | T | Kill rotation (toggle) |
 | 1–7, 0 | Prograde, retrograde, normal, anti-normal, radial out, radial in, hold level; 0 = autopilot off |
 | . , / | Time warp up / down / reset to 1× |
@@ -55,7 +56,8 @@ grid. For real imagery, put equirectangular maps (8192×4096 or smaller) in
 | M / H | Toggle orbit line / help |
 
 Scenarios are in the **Scenario** menu: the test rocket on LC-39A on
-16 July 1969, a capsule in low Earth orbit, and a capsule in lunar orbit.
+16 July 1969, Apollo 11's Saturn V (AS-506) on the same pad at first motion, a
+capsule in low Earth orbit, and a capsule in lunar orbit.
 
 ## How it works
 
@@ -90,6 +92,10 @@ Some design notes:
   atmosphere, rotation rate and orbital period, so time warp stays accurate.
 - **Earth orientation.** IAU 1976 precession plus GMST; nutation and polar
   motion are not yet modelled (errors below about 20 arcseconds).
+- **Vessel frame.** A vessel's origin follows its centre of mass as propellant
+  is used. Parts keep their construction coordinates,
+  `part.offset - vessel.structureOrigin` (for the Saturn V, its vehicle
+  stations in metres).
 
 ## Data sources
 

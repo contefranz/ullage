@@ -37,6 +37,11 @@ public final class Vessel: Identifiable {
     public var angularVelocity: Vec3
     public internal(set) var landed: LandedState?
     public internal(set) var status: VesselStatus = .flying
+    /// Where the origin of the frame the vessel was built in (its construction
+    /// frame, e.g. Saturn V stations) now sits in the vessel frame. The vessel
+    /// frame is re-centred on the CoM as propellant is used; construction
+    /// coordinates of a part are `part.offset - structureOrigin`.
+    public internal(set) var structureOrigin = Vec3.zero
 
     // MARK: Controls
     /// Main engine throttle 0...1.
@@ -76,10 +81,21 @@ public final class Vessel: Identifiable {
     public var thrusters: [Thruster] { parts.flatMap(\.thrusters) }
     public var tanks: [PropellantTank] { parts.flatMap(\.tanks) }
 
+    /// Centre of mass in the vessel frame. The simulation keeps it at the
+    /// origin: it re-centres after every step that uses propellant.
     public var centerOfMass: Vec3 {
         let m = mass
         guard m > 0 else { return .zero }
-        return parts.reduce(Vec3.zero) { $0 + $1.offset * $1.mass } / m
+        return parts.reduce(Vec3.zero) { $0 + ($1.offset + $1.centerOfMass) * $1.mass } / m
+    }
+
+    /// Centre of mass in construction coordinates (e.g. Saturn V stations, m).
+    public var structuralCenterOfMass: Vec3 { centerOfMass - structureOrigin }
+
+    /// Inertial position (relative to the reference body) of a point given in
+    /// construction coordinates.
+    public func inertialPosition(ofStructuralPoint p: Vec3) -> Vec3 {
+        position + attitude.rotate(p + structureOrigin)
     }
 
     /// Inertia tensor about the centre of mass, vessel frame, kg m^2.
@@ -87,10 +103,7 @@ public final class Vessel: Identifiable {
         let com = centerOfMass
         var total = Mat3.zero
         for p in parts {
-            let d = p.offset - com
-            let m = p.mass
-            let parallel = Mat3.identity * (m * d.lengthSquared) + Mat3(columns: d * (-m * d.x), d * (-m * d.y), d * (-m * d.z))
-            total = total + p.localInertia + parallel
+            total = total + p.localInertia + .parallelAxis(mass: p.mass, offset: p.offset + p.centerOfMass - com)
         }
         return total
     }
@@ -112,11 +125,13 @@ public final class Vessel: Identifiable {
     }
 
     /// Shift the vessel frame so its origin is at the centre of mass, keeping
-    /// the vessel physically where it is.
+    /// the vessel physically where it is: `position` and `velocity` become
+    /// those of the structural point at the new centre of mass.
     func recenter() {
         let com = centerOfMass
-        guard com.lengthSquared > 1e-12 else { return }
+        guard com.lengthSquared > 0 else { return }
         for p in parts { p.offset -= com }
+        structureOrigin -= com
         let shift = attitude.rotate(com)
         position += shift
         velocity += attitude.rotate(angularVelocity.cross(com))
@@ -136,7 +151,8 @@ public final class Vessel: Identifiable {
         let leaving = parts.filter { ids.contains(ObjectIdentifier($0)) }
         guard !leaving.isEmpty, leaving.count < parts.count else { return nil }
         let leavingMass = leaving.reduce(0) { $0 + $1.mass }
-        let leavingCom = leaving.reduce(Vec3.zero) { $0 + $1.offset * $1.mass } / max(leavingMass, 1e-9)
+        let leavingCom = leaving.reduce(Vec3.zero) { $0 + ($1.offset + $1.centerOfMass) * $1.mass }
+            / max(leavingMass, 1e-9)
         let oldLanded = landed
 
         parts.removeAll { ids.contains(ObjectIdentifier($0)) }
@@ -146,6 +162,8 @@ public final class Vessel: Identifiable {
         let other = Vessel(name: name, parts: leaving, reference: reference, position: position,
                            velocity: velocity, attitude: attitude, angularVelocity: angularVelocity)
         other.status = status
+        // Its offsets were in this vessel's frame, so it shares this construction origin.
+        other.structureOrigin += structureOrigin
         if let l = oldLanded {
             other.landed = LandedState(body: l.body,
                                        bodyFixedPosition: l.bodyFixedPosition + l.bodyFixedAttitude.rotate(leavingCom),
@@ -162,11 +180,32 @@ public final class Vessel: Identifiable {
         return other
     }
 
-    /// Separate the part with the lowest x (the bottom stage of a stack).
+    /// Separate the lowest `.bottomOfStack` part (the bottom stage of an M0 stack).
     @discardableResult
     public func jettisonBottomPart() -> Vessel? {
-        guard parts.count > 1, let bottom = parts.min(by: { $0.offset.x < $1.offset.x }) else { return nil }
+        guard parts.count > 1,
+              let bottom = parts.filter({ $0.staging == .bottomOfStack }).min(by: { $0.offset.x < $1.offset.x })
+        else { return nil }
         return separate(parts: [bottom], name: "\(name) – \(bottom.name)", separationSpeed: 1.0)
+    }
+
+    /// The Space key: separate every part of the lowest pending `.event(n)` as
+    /// one new vessel; with no events left, fall back to `jettisonBottomPart`.
+    /// `.fixed` parts never separate, and a vessel made only of one event's
+    /// parts (spent debris) does not split again.
+    @discardableResult
+    public func jettisonNextStage() -> Vessel? {
+        let pending = parts.compactMap { p -> Int? in if case .event(let n) = p.staging { return n } else { return nil } }
+        guard let next = pending.min() else { return jettisonBottomPart() }
+        let group = parts.filter { $0.staging == .event(next) }
+        guard let lowest = group.min(by: { $0.offset.x < $1.offset.x }) else { return nil }
+        return separate(parts: group, name: "\(name) – \(lowest.name)", separationSpeed: 1.0)
+    }
+
+    /// Lowest part with main engines, enabled or not: the stage the main
+    /// throttle drives.
+    public var activeStage: VesselPart? {
+        parts.filter { $0.thrusters.contains { $0.groups.contains(.main) } }.min { $0.offset.x < $1.offset.x }
     }
 
     // MARK: Control allocation
@@ -175,7 +214,7 @@ public final class Vessel: Identifiable {
     public func rotationAuthority() -> Vec3 {
         let com = centerOfMass
         var authority = Vec3.zero
-        for t in thrusters where t.hasPropellant {
+        for t in thrusters where t.isEnabled && t.hasPropellant {
             let torque = (t.position + offsetOfPart(owning: t) - com).cross(t.direction) * t.maxThrustVacuum
             if t.groups.contains(.rollRight) { authority.x += abs(torque.x) }
             if t.groups.contains(.pitchUp) { authority.y += abs(torque.y) }
@@ -194,14 +233,12 @@ public final class Vessel: Identifiable {
         for t in thrusters { t.level = 0 }
         func set(_ g: ThrusterGroup, _ level: Double) {
             guard level > 0 else { return }
-            for t in thrusters where t.groups.contains(g) { t.level = min(1, max(t.level, level)) }
+            for t in thrusters where t.groups.contains(g) { t.level = t.clampedLevel(max(t.level, level)) }
         }
         // Main engines: only the lowest part that has main engines (the active
         // stage of a stack) responds to the main throttle.
-        if mainThrottle > 0,
-           let active = parts.filter({ $0.thrusters.contains { $0.groups.contains(.main) } })
-                .min(by: { $0.offset.x < $1.offset.x }) {
-            for t in active.thrusters where t.groups.contains(.main) { t.level = min(1, mainThrottle) }
+        if mainThrottle > 0, let active = activeStage {
+            for t in active.thrusters where t.groups.contains(.main) { t.level = t.clampedLevel(mainThrottle) }
         }
         set(.retro, retroThrottle)
         set(rotation.pitch > 0 ? .pitchUp : .pitchDown, abs(rotation.pitch))
@@ -228,12 +265,16 @@ public final class Vessel: Identifiable {
         return (f, tq)
     }
 
-    func consumePropellant(dt: Double) {
-        for t in thrusters {
-            guard let tank = t.tank else { continue }
-            let flow = t.massFlow
-            if flow > 0 { tank.mass = max(0, tank.mass - flow * dt) }
+    /// Draw each firing thruster's propellant for `dt`. Returns true if any
+    /// propellant was drawn (the centre of mass may have moved).
+    @discardableResult
+    func consumePropellant(dt: Double) -> Bool {
+        var drew = false
+        for t in thrusters where t.massFlow > 0 {
+            t.draw(dt: dt)
+            drew = true
         }
+        return drew
     }
 
     // MARK: Derived quantities
@@ -256,16 +297,30 @@ public final class Vessel: Identifiable {
         return (asin(bf.z / bf.length), atan2(bf.y, bf.x))
     }
 
-    /// Δv available from the active stage's main engines (rocket equation, vacuum Isp).
+    /// Δv available from the active stage's main engines (rocket equation, vacuum
+    /// Isp): the enabled mains burn together at full level until the first tank
+    /// they draw from is down to its unusable mass. Effective Isp is ΣF / Σṁ.
     public var mainDeltaV: Double {
-        guard let active = parts.filter({ $0.thrusters.contains { $0.groups.contains(.main) } })
-            .min(by: { $0.offset.x < $1.offset.x }) else { return 0 }
-        let mains = active.thrusters.filter { $0.groups.contains(.main) && $0.hasPropellant }
-        guard let first = mains.first else { return 0 }
-        var seen = Set<ObjectIdentifier>()
-        var prop = 0.0
-        for t in mains { if let tk = t.tank, seen.insert(ObjectIdentifier(tk)).inserted { prop += tk.mass } }
+        guard let active = activeStage else { return 0 }
+        let mains = active.thrusters.filter { $0.groups.contains(.main) && $0.isEnabled && $0.hasPropellant }
+        var demand: [ObjectIdentifier: (tank: PropellantTank, rate: Double)] = [:]
+        var flow = 0.0, thrust = 0.0
+        for t in mains {
+            guard let feed = t.feed else { continue }
+            let mdot = t.rating.massFlow
+            flow += mdot
+            thrust += t.rating.thrustVacuum
+            let r = t.rating.mixtureRatio ?? 0
+            let shares: [(PropellantTank, Double)]
+            switch feed {
+            case .single(let tk): shares = [(tk, mdot)]
+            case let .bipropellant(o, f): shares = [(o, mdot * r / (1 + r)), (f, mdot / (1 + r))]
+            }
+            for (tk, rate) in shares { demand[ObjectIdentifier(tk), default: (tk, 0)].rate += rate }
+        }
+        guard flow > 0 else { return 0 }
+        let burnTime = demand.values.map { $0.tank.usableMass / $0.rate }.min() ?? 0
         let m0 = mass
-        return first.ispVacuum * standardGravity * log(m0 / (m0 - prop))
+        return thrust / flow * log(m0 / (m0 - flow * burnTime))
     }
 }

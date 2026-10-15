@@ -143,7 +143,7 @@ struct HelpView: View {
         ("= / -", "throttle up / down (hold)"),
         ("W S A D Q E", "pitch down/up, yaw left/right, roll left/right"),
         ("I K J L U O", "translate up/down/left/right/fwd/back"),
-        ("Space", "jettison bottom stage"),
+        ("Space", "next staging event"),
         ("T", "kill rotation   1-7 prograde, retro, normal, anti-normal, radial±, level   0 off"),
         (". , /", "time warp up / down / reset     P pause"),
         ("Mouse drag / scroll", "orbit / zoom camera"),

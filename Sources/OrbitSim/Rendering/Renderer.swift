@@ -261,7 +261,9 @@ final class Renderer: NSObject, MTKViewDelegate {
                 farPoints.append(PointVertex(position: SIMD4(rel, 1), color: SIMD4(1, 1, 1, 0.9), size: SIMD4(3, 0, 0, 0)))
                 continue
             }
-            let modelMatrix = simd_float4x4(rotation: v.attitude.matrix, translation: rel)
+            // Mesh vertices are in the construction frame; v.position is the CoM.
+            let modelMatrix = simd_float4x4(rotation: v.attitude.matrix,
+                                            translation: rel + v.attitude.rotate(v.structureOrigin))
             let toSun = (sunPos - (snap.position(v.reference) + v.position)).normalized
             var u = MeshUniforms(modelViewProjection: viewProj * modelMatrix, model: modelMatrix,
                                  sunDir: SIMD4(toSun, 0.08))

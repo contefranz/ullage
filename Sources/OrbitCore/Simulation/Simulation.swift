@@ -87,10 +87,10 @@ public final class Simulation {
 
     func maxStep(for v: Vessel) -> Double {
         if v.landed != nil {
-            return v.thrusters.contains(where: { $0.level > 0 }) ? 0.02 : 10
+            return v.thrusters.contains(where: { $0.isEnabled && $0.level > 0 }) ? 0.02 : 10
         }
         var h = 60.0
-        let thrusting = v.thrusters.contains { $0.level > 0 && $0.hasPropellant }
+        let thrusting = v.thrusters.contains { $0.isEnabled && $0.level > 0 && $0.hasPropellant }
         if thrusting || v.dynamicPressure > 1 { h = min(h, 0.02) }
         let w = v.angularVelocity.length
         if w > 1e-6 { h = min(h, 0.05 / w) }
@@ -180,7 +180,9 @@ public final class Simulation {
         v.attitude = y1.q.normalized
         v.angularVelocity = y1.w
         v.thrustAcceleration = thrustBody.length / mass
-        v.consumePropellant(dt: h)
+        // The step moved the structural point at the old CoM; keep the origin
+        // at the CoM, which propellant use has moved within the structure.
+        if v.consumePropellant(dt: h) { v.recenter() }
     }
 
     func stepLanded(_ v: Vessel, from t0: Epoch, to t1: Epoch) {
@@ -199,8 +201,10 @@ public final class Simulation {
             stepFlying(v, from: t0, h: t1 - t0)
             return
         }
-        v.consumePropellant(dt: t1 - t0)
-        setLandedKinematics(v, l, snapshot: system.snapshot(at: t1))
+        // Re-centring moves `landed.bodyFixedPosition` to the new CoM, so use
+        // the updated landed state rather than `l`.
+        if v.consumePropellant(dt: t1 - t0) { v.recenter() }
+        setLandedKinematics(v, v.landed ?? l, snapshot: system.snapshot(at: t1))
     }
 
     func setLandedKinematics(_ v: Vessel, _ l: LandedState, snapshot s: SystemSnapshot) {
@@ -260,10 +264,11 @@ public final class Simulation {
 
     // MARK: Staging
 
-    /// Jettison the bottom part of `v`; the spent part becomes its own vessel.
+    /// Separate the next staging event of `v` (`Vessel.jettisonNextStage`);
+    /// the spent parts become their own vessel.
     @discardableResult
     public func stage(_ v: Vessel) -> Vessel? {
-        guard let spent = v.jettisonBottomPart() else { return nil }
+        guard let spent = v.jettisonNextStage() else { return nil }
         add(spent)
         updateTelemetry(spent, snapshot: snapshot)
         updateTelemetry(v, snapshot: snapshot)

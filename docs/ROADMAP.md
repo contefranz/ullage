@@ -17,7 +17,8 @@ native macOS simulator. Each milestone should be flyable on its own.
 ## M1 — Saturn V to Earth parking orbit
 
 - Saturn V stack: S-IC, S-II, S-IVB, IU, CSM, LES; real masses, F-1/J-2 performance
-- Engine gimballing and thrust vector control (replace the stage "verniers")
+  *(done: AS-506 at first motion; attitude control by interim TVC stand-in couples)*
+- Engine gimballing and thrust vector control (replace the interim TVC stand-ins)
 - IU flight program: roll/pitch program, tilt-arrest, iterative guidance mode (IGM)
 - Interstage and LES jettison, ullage motors, engine-out
 - Aerodynamic normal force and moments for the launch stack

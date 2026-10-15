@@ -3,7 +3,8 @@ import Metal
 import OrbitCore
 
 /// Triangle list for a vessel built from its parts' primitive shapes, in the
-/// vessel frame (metres). Rebuilt whenever the vessel's part list changes.
+/// vessel's construction frame (metres; `part.offset - vessel.structureOrigin`).
+/// Rebuilt whenever the vessel's part list changes.
 struct VesselMesh {
     let buffer: MTLBuffer
     let vertexCount: Int
@@ -17,7 +18,7 @@ struct VesselMesh {
         var verts: [MeshVertex] = []
         for part in vessel.parts {
             for shape in part.shapes {
-                append(shape, offset: part.offset, to: &verts)
+                append(shape, offset: part.offset - vessel.structureOrigin, to: &verts)
             }
         }
         guard !verts.isEmpty,
