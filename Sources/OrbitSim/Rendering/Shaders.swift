@@ -1,0 +1,228 @@
+// Metal shader source, compiled at runtime with `makeLibrary(source:)` so the
+// package builds with plain SwiftPM (no .metal build step).
+//
+// Conventions shared with the Swift side:
+//  * "world" = ICRF axes, origin at the camera (camera-relative, float).
+//  * Reversed-Z infinite projection: depth = near / -z_view, cleared to 0,
+//    compare function greaterEqual.
+//  * Every uniform member is float4 / float4x4 so Swift and MSL layouts match.
+
+let shaderSource = #"""
+#include <metal_stdlib>
+using namespace metal;
+
+// ---------------------------------------------------------------- planets ---
+
+struct PlanetUniforms {
+    float4x4 viewToWorld;     // rotation only
+    float4x4 worldToBody;     // rotation only
+    float4 centerRadius;      // xyz: planet centre relative to camera (world), w: radius (m)
+    float4 params;            // x: camera altitude (m), y: tan(fovX/2), z: tan(fovY/2), w: near plane (m)
+    float4 sunDir;            // xyz: unit vector planet -> Sun (world), w: 1 if this body is the Sun
+    float4 baseColor;         // rgb: base albedo (linear), w: 1 if a texture is bound
+    float4 atmosphere;        // rgb: sky colour (linear), w: visual scale height (m), 0 = none
+    float4 options;           // x: draw lat/lon grid, y: ambient light
+};
+
+struct FullscreenOut {
+    float4 position [[position]];
+    float2 ndc;
+};
+
+vertex FullscreenOut planet_vertex(uint vid [[vertex_id]]) {
+    float2 p = float2(float((vid << 1) & 2), float(vid & 2));
+    FullscreenOut o;
+    o.ndc = p * 2.0 - 1.0;
+    o.position = float4(o.ndc, 0.0, 1.0);
+    return o;
+}
+
+struct DepthColorOut {
+    float4 color [[color(0)]];
+    float depth [[depth(any)]];
+};
+
+// Longitude-seam-free texture lookup (Tarini's method).
+static float4 sampleEquirect(texture2d<float> tex, sampler smp, float lon, float lat) {
+    float v = 0.5 - lat / M_PI_F;
+    float u1 = fract(lon / (2.0 * M_PI_F) + 0.5);
+    float u2 = fract(lon / (2.0 * M_PI_F)) ;
+    float u = fwidth(u1) <= fwidth(u2) + 1e-6 ? u1 : fract(u2 + 0.5);
+    float2 g1 = float2(fwidth(u1) <= fwidth(u2) + 1e-6 ? dfdx(u1) : dfdx(u2), dfdx(v));
+    float2 g2 = float2(fwidth(u1) <= fwidth(u2) + 1e-6 ? dfdy(u1) : dfdy(u2), dfdy(v));
+    return tex.sample(smp, float2(u, v), gradient2d(g1, g2));
+}
+
+fragment DepthColorOut planet_fragment(FullscreenOut in [[stage_in]],
+                                       constant PlanetUniforms &u [[buffer(0)]],
+                                       texture2d<float> tex [[texture(0)]],
+                                       sampler smp [[sampler(0)]]) {
+    float3 dView = normalize(float3(in.ndc.x * u.params.y, in.ndc.y * u.params.z, -1.0));
+    float3 d = (u.viewToWorld * float4(dView, 0.0)).xyz;
+    float3 oc = -u.centerRadius.xyz;            // camera relative to planet centre
+    float R = u.centerRadius.w;
+    float alt = u.params.x;
+    float b = dot(oc, d);
+    float c = alt * (alt + 2.0 * R);            // |oc|^2 - R^2, from the precise CPU altitude
+    float disc = b * b - c;
+    bool hit = disc >= 0.0 && (b < 0.0 || c < 0.0);
+
+    float3 sun = u.sunDir.xyz;
+    float H = u.atmosphere.w;
+    DepthColorOut o;
+
+    if (!hit) {
+        if (H <= 0.0) { discard_fragment(); }
+        // Altitude of the ray's closest approach to the centre (stable form).
+        float hca = b >= 0.0 ? alt : (-disc) / (sqrt(max(R * R - disc, 0.0)) + R);
+        float density = exp(-max(hca, 0.0) / H);
+        if (density < 1e-3) { discard_fragment(); }
+        float3 q = normalize(oc + d * max(-b, 0.0));
+        float day = smoothstep(-0.25, 0.25, dot(q, sun));
+        float a = clamp(density * 1.2, 0.0, 1.0) * day;
+        o.color = float4(u.atmosphere.rgb, a);
+        o.depth = 0.0;
+        return o;
+    }
+
+    float t = c / (-b + sqrt(disc));             // near intersection, stable near the surface
+    if (c < 0.0) { t = -b + sqrt(disc); }        // camera inside the sphere (should not happen)
+    float3 p = oc + d * t;                       // hit point relative to centre
+    float3 n = normalize(p);
+
+    float3 color;
+    if (u.sunDir.w > 0.5) {
+        color = u.baseColor.rgb * 4.0;
+    } else {
+        float3 nb = normalize((u.worldToBody * float4(n, 0.0)).xyz);
+        float lat = asin(clamp(nb.z, -1.0, 1.0));
+        float lon = atan2(nb.y, nb.x);
+        float3 albedo = u.baseColor.rgb;
+        if (u.baseColor.w > 0.5) {
+            albedo = sampleEquirect(tex, smp, lon, lat).rgb;
+        }
+        if (u.options.x > 0.5) {
+            float gridStep = M_PI_F / 12.0;      // 15 degree grid
+            float2 g = float2(lon, lat) / gridStep;
+            float2 w = fwidth(g);
+            float2 f = abs(fract(g + 0.5) - 0.5) / max(w, 1e-5);
+            float gridLine = 1.0 - clamp(min(f.x, f.y), 0.0, 1.0);
+            albedo = mix(albedo, float3(0.9, 0.9, 0.9), gridLine * 0.35);
+        }
+        float diffuse = max(dot(n, sun), 0.0);
+        color = albedo * (diffuse + u.options.y);
+        if (H > 0.0) {
+            float density = exp(-max(alt, 0.0) / H);
+            float haze = 1.0 - exp(-t * density / (12.0 * H));
+            float day = smoothstep(-0.2, 0.3, dot(n, sun));
+            color = mix(color, u.atmosphere.rgb * day, clamp(haze, 0.0, 0.85));
+        }
+    }
+    float3 hitView = dView * t;
+    o.color = float4(color, 1.0);
+    o.depth = clamp(u.params.w / max(-hitView.z, 1e-6), 0.0, 1.0);
+    return o;
+}
+
+// ------------------------------------------------------------------ meshes ---
+
+struct MeshVertex {
+    float4 position;   // xyz (vessel frame, m), w = 1
+    float4 normal;     // xyz
+    float4 color;      // rgb linear
+};
+
+struct MeshUniforms {
+    float4x4 modelViewProjection;
+    float4x4 model;                // rotation + translation into camera-relative world
+    float4 sunDir;                 // xyz world, w = ambient
+};
+
+struct MeshOut {
+    float4 position [[position]];
+    float3 normal;
+    float3 color;
+};
+
+vertex MeshOut mesh_vertex(uint vid [[vertex_id]],
+                           const device MeshVertex *verts [[buffer(0)]],
+                           constant MeshUniforms &u [[buffer(1)]]) {
+    MeshVertex v = verts[vid];
+    MeshOut o;
+    o.position = u.modelViewProjection * v.position;
+    o.normal = (u.model * float4(v.normal.xyz, 0.0)).xyz;
+    o.color = v.color.rgb;
+    return o;
+}
+
+fragment float4 mesh_fragment(MeshOut in [[stage_in]], constant MeshUniforms &u [[buffer(1)]]) {
+    float3 n = normalize(in.normal);
+    float diffuse = max(dot(n, u.sunDir.xyz), 0.0);
+    return float4(in.color * (diffuse + u.sunDir.w), 1.0);
+}
+
+// ------------------------------------------------------------------ points ---
+
+struct PointVertex {
+    float4 position;   // xyz: direction or camera-relative position (world), w: 0 = direction, 1 = point
+    float4 color;      // rgb, a = brightness
+    float4 size;       // x: point size in pixels
+};
+
+struct PointUniforms {
+    float4x4 viewProjection;       // rotation-only view * projection
+};
+
+struct PointOut {
+    float4 position [[position]];
+    float pointSize [[point_size]];
+    float4 color;
+};
+
+vertex PointOut point_vertex(uint vid [[vertex_id]],
+                             const device PointVertex *pts [[buffer(0)]],
+                             constant PointUniforms &u [[buffer(1)]]) {
+    PointVertex p = pts[vid];
+    PointOut o;
+    float4 clip = u.viewProjection * float4(p.position.xyz, 1.0);
+    if (p.position.w < 0.5) {
+        clip.z = 0.0;                // directions sit at infinity
+    }
+    o.position = clip;
+    o.pointSize = p.size.x;
+    o.color = p.color;
+    return o;
+}
+
+fragment float4 point_fragment(PointOut in [[stage_in]], float2 pc [[point_coord]]) {
+    float r = length(pc - 0.5) * 2.0;
+    float a = clamp(1.0 - r, 0.0, 1.0);
+    a = a * a;
+    return float4(in.color.rgb, in.color.a * a);
+}
+
+// ------------------------------------------------------------------- lines ---
+
+struct LineVertex {
+    float4 position;   // camera-relative world position, w = 1
+    float4 color;
+};
+
+struct LineOut {
+    float4 position [[position]];
+    float4 color;
+};
+
+vertex LineOut line_vertex(uint vid [[vertex_id]],
+                           const device LineVertex *verts [[buffer(0)]],
+                           constant PointUniforms &u [[buffer(1)]]) {
+    LineOut o;
+    o.position = u.viewProjection * verts[vid].position;
+    o.color = verts[vid].color;
+    return o;
+}
+
+fragment float4 line_fragment(LineOut in [[stage_in]]) {
+    return in.color;
+}
+"""#

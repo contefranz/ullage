@@ -1,0 +1,323 @@
+import Foundation
+
+public struct SimEvent: Identifiable {
+    public let id = UUID()
+    public let time: Epoch
+    public let message: String
+}
+
+/// Rigid-body state integrated by RK4.
+struct RigidState {
+    var r: Vec3, v: Vec3, q: Quat, w: Vec3
+
+    static func + (a: RigidState, b: RigidState) -> RigidState {
+        RigidState(r: a.r + b.r, v: a.v + b.v, q: a.q + b.q, w: a.w + b.w)
+    }
+    static func * (a: RigidState, s: Double) -> RigidState {
+        RigidState(r: a.r * s, v: a.v * s, q: a.q * s, w: a.w * s)
+    }
+}
+
+public final class Simulation {
+    public let system: SolarSystem
+    public private(set) var time: Epoch
+    public var warp: Double = 1
+    public var paused = false
+    public private(set) var vessels: [Vessel] = []
+    public var focus: Vessel?
+    public private(set) var events: [SimEvent] = []
+
+    /// Upper bound on integration steps per `advance` call; time warp is
+    /// effectively reduced when the bound is hit.
+    public var maxSubsteps = 20_000
+    /// Set when the last `advance` hit `maxSubsteps`.
+    public private(set) var warpLimited = false
+
+    public init(system: SolarSystem, time: Epoch) {
+        self.system = system
+        self.time = time
+    }
+
+    public var snapshot: SystemSnapshot { system.snapshot(at: time) }
+
+    public func add(_ v: Vessel) {
+        vessels.append(v)
+        if focus == nil { focus = v }
+    }
+
+    public func remove(_ v: Vessel) {
+        vessels.removeAll { $0 === v }
+        if focus === v { focus = vessels.first }
+    }
+
+    public func log(_ message: String) {
+        events.append(SimEvent(time: time, message: message))
+        if events.count > 200 { events.removeFirst(events.count - 200) }
+    }
+
+    /// Jump to a new epoch without integrating (vessels keep their relative state).
+    public func setTime(_ t: Epoch) { time = t }
+
+    // MARK: Time stepping
+
+    /// Advance by `realSeconds` of wall-clock time multiplied by `warp`.
+    public func advance(by realSeconds: Double) {
+        guard !paused else { return }
+        var remaining = realSeconds * warp
+        var count = 0
+        warpLimited = false
+        while remaining > 1e-9 {
+            for v in vessels { prepareControls(v) }
+            let h = min(remaining, maxStep())
+            step(h)
+            remaining -= h
+            count += 1
+            if count >= maxSubsteps { warpLimited = true; break }
+        }
+    }
+
+    /// Largest stable step for the current situation.
+    func maxStep() -> Double {
+        var h = 60.0
+        for v in vessels where v.status != .crashed {
+            h = min(h, maxStep(for: v))
+        }
+        return h
+    }
+
+    func maxStep(for v: Vessel) -> Double {
+        if v.landed != nil {
+            return v.thrusters.contains(where: { $0.level > 0 }) ? 0.02 : 10
+        }
+        var h = 60.0
+        let thrusting = v.thrusters.contains { $0.level > 0 && $0.hasPropellant }
+        if thrusting || v.dynamicPressure > 1 { h = min(h, 0.02) }
+        let w = v.angularVelocity.length
+        if w > 1e-6 { h = min(h, 0.05 / w) }
+        let r = v.position.length
+        let orbital = (r * r * r / v.reference.gm).squareRoot()   // = period / 2π for a circle
+        h = min(h, 2 * Double.pi / 1000 * orbital)
+        return max(h, 1e-3)
+    }
+
+    func prepareControls(_ v: Vessel) {
+        guard v.status != .crashed else {
+            for t in v.thrusters { t.level = 0 }
+            return
+        }
+        var cmd = v.rotationInput
+        if cmd.isZero, let ap = v.autopilot { cmd = v.autopilotCommand(ap) }
+        v.applyControls(rotation: cmd)
+    }
+
+    /// Advance every vessel by `h` seconds of simulation time.
+    public func step(_ h: Double) {
+        let t0 = time
+        let t1 = time + h
+        for v in vessels {
+            if v.status == .crashed {
+                if let l = v.landed { setLandedKinematics(v, l, snapshot: system.snapshot(at: t1)) }
+            } else if v.landed != nil {
+                stepLanded(v, from: t0, to: t1)
+            } else {
+                stepFlying(v, from: t0, h: h)
+            }
+        }
+        time = t1
+        let snap = system.snapshot(at: time)
+        for v in vessels where v.status != .crashed {
+            updateTelemetry(v, snapshot: snap)
+            if v.landed == nil {
+                checkSurfaceContact(v, snapshot: snap)
+                checkReferenceBody(v, snapshot: snap)
+            }
+        }
+    }
+
+    func environment(_ v: Vessel, r: Vec3, snapshot s: SystemSnapshot) -> (alt: Double, atm: AtmosphereState) {
+        let alt = r.length - v.reference.radius
+        guard let atm = v.reference.atmosphere, alt < atm.ceiling else { return (alt, .vacuum) }
+        return (alt, atm.state(altitude: alt))
+    }
+
+    func stepFlying(_ v: Vessel, from t0: Epoch, h: Double) {
+        let mass = v.mass
+        let inertia = v.inertia
+        let invInertia = inertia.inverse
+        let s0 = system.snapshot(at: t0)
+        let env0 = environment(v, r: v.position, snapshot: s0)
+        let p0 = v.reference.atmosphere?.seaLevelPressure ?? 0
+        let (thrustBody, torqueBody) = v.thrustForceAndTorque(ambientPressure: env0.atm.pressure, seaLevelPressure: p0)
+        let dragArea = v.dragArea
+        let ref = v.reference
+
+        func deriv(_ t: Epoch, _ s: RigidState) -> RigidState {
+            let snap = system.snapshot(at: t)
+            var a = system.acceleration(relativeTo: ref, at: s.r, snapshot: snap)
+            a += s.q.rotate(thrustBody) / mass
+            if let atm = ref.atmosphere {
+                let alt = s.r.length - ref.radius
+                if alt < atm.ceiling {
+                    let rho = atm.state(altitude: alt).density
+                    let air = s.v - snap.orientation(ref).angularVelocity.cross(s.r)
+                    a += air * (-0.5 * rho * air.length * dragArea / mass)
+                }
+            }
+            let iw = inertia * s.w
+            let dw = invInertia * (torqueBody - s.w.cross(iw))
+            return RigidState(r: s.v, v: a, q: s.q.derivative(bodyRate: s.w), w: dw)
+        }
+
+        let y = RigidState(r: v.position, v: v.velocity, q: v.attitude, w: v.angularVelocity)
+        let k1 = deriv(t0, y)
+        let k2 = deriv(t0 + h / 2, y + k1 * (h / 2))
+        let k3 = deriv(t0 + h / 2, y + k2 * (h / 2))
+        let k4 = deriv(t0 + h, y + k3 * h)
+        let y1 = y + (k1 + k2 * 2 + k3 * 2 + k4) * (h / 6)
+
+        v.position = y1.r
+        v.velocity = y1.v
+        v.attitude = y1.q.normalized
+        v.angularVelocity = y1.w
+        v.thrustAcceleration = thrustBody.length / mass
+        v.consumePropellant(dt: h)
+    }
+
+    func stepLanded(_ v: Vessel, from t0: Epoch, to t1: Epoch) {
+        guard let l = v.landed else { return }
+        let s0 = system.snapshot(at: t0)
+        // Lift-off when thrust exceeds weight along the local vertical.
+        let env = environment(v, r: v.position, snapshot: s0)
+        let p0 = v.reference.atmosphere?.seaLevelPressure ?? 0
+        let thrust = v.attitude.rotate(v.thrustForceAndTorque(ambientPressure: env.atm.pressure, seaLevelPressure: p0).force)
+        let g = system.acceleration(relativeTo: v.reference, at: v.position, snapshot: s0)
+        let up = v.position.normalized
+        if (thrust + g * v.mass).dot(up) > 0 {
+            v.landed = nil
+            v.status = .flying
+            log("\(v.name): liftoff")
+            stepFlying(v, from: t0, h: t1 - t0)
+            return
+        }
+        v.consumePropellant(dt: t1 - t0)
+        setLandedKinematics(v, l, snapshot: system.snapshot(at: t1))
+    }
+
+    func setLandedKinematics(_ v: Vessel, _ l: LandedState, snapshot s: SystemSnapshot) {
+        let o = s.orientation(l.body)
+        let bodyToICRF = Quat(matrix: o.icrfToBody.transposed)
+        v.reference = l.body
+        v.position = o.toInertial(l.bodyFixedPosition)
+        v.velocity = o.angularVelocity.cross(v.position)
+        v.attitude = (bodyToICRF * l.bodyFixedAttitude).normalized
+        v.angularVelocity = v.attitude.inverseRotate(o.angularVelocity)
+    }
+
+    func updateTelemetry(_ v: Vessel, snapshot s: SystemSnapshot) {
+        let env = environment(v, r: v.position, snapshot: s)
+        v.altitude = env.alt
+        v.atmosphere = env.atm
+        let air = v.surfaceVelocity(snapshot: s)
+        v.airspeed = air.length
+        v.dynamicPressure = 0.5 * env.atm.density * v.airspeed * v.airspeed
+        v.mach = env.atm.speedOfSound > 0 && env.atm.density > 0 ? v.airspeed / env.atm.speedOfSound : 0
+    }
+
+    func checkSurfaceContact(_ v: Vessel, snapshot s: SystemSnapshot) {
+        let clearance = min(v.baseHeight, v.boundingRadius)
+        guard v.altitude < clearance * 0.9 else { return }
+        let speed = v.surfaceVelocity(snapshot: s).length
+        let o = s.orientation(v.reference)
+        let up = v.position.normalized
+        // Put the vessel back on the surface.
+        let surfacePos = up * (v.reference.radius + clearance)
+        let bf = o.toBody(surfacePos)
+        let icrfToBodyQ = Quat(matrix: o.icrfToBody)
+        let landed = LandedState(body: v.reference, bodyFixedPosition: bf,
+                                 bodyFixedAttitude: (icrfToBodyQ * v.attitude).normalized)
+        v.landed = landed
+        if speed < 5 {
+            v.status = .landed
+            log(String(format: "%@: touchdown at %.1f m/s", v.name, speed))
+        } else {
+            v.status = .crashed
+            for t in v.thrusters { t.level = 0 }
+            log(String(format: "%@: impact at %.0f m/s", v.name, speed))
+        }
+        setLandedKinematics(v, landed, snapshot: s)
+    }
+
+    func checkReferenceBody(_ v: Vessel, snapshot s: SystemSnapshot) {
+        let bary = s.position(v.reference) + v.position
+        let best = system.dominantBody(forBarycentric: bary, snapshot: s)
+        guard best !== v.reference else { return }
+        let baryVel = s.velocity(v.reference) + v.velocity
+        v.position = bary - s.position(best)
+        v.velocity = baryVel - s.velocity(best)
+        log("\(v.name): entered \(best.name) sphere of influence")
+        v.reference = best
+    }
+
+    // MARK: Staging
+
+    /// Jettison the bottom part of `v`; the spent part becomes its own vessel.
+    @discardableResult
+    public func stage(_ v: Vessel) -> Vessel? {
+        guard let spent = v.jettisonBottomPart() else { return nil }
+        add(spent)
+        updateTelemetry(spent, snapshot: snapshot)
+        updateTelemetry(v, snapshot: snapshot)
+        log("\(v.name): staged \(spent.parts.first?.name ?? "part")")
+        return spent
+    }
+
+    // MARK: Placement helpers
+
+    /// Stand `v` upright on the surface at `lat`/`lon` (degrees). The vessel's
+    /// -z axis (its "up" for the crew) faces `azimuth` degrees from north.
+    public func placeLanded(_ v: Vessel, on body: CelestialBody, latitude: Double, longitude: Double,
+                            azimuth: Double = 90, elevation: Double = 0) {
+        let deg = Double.pi / 180
+        let lat = latitude * deg, lon = longitude * deg, az = azimuth * deg
+        let up = Vec3(cos(lat) * cos(lon), cos(lat) * sin(lon), sin(lat))
+        let east = Vec3(-sin(lon), cos(lon), 0)
+        let north = up.cross(east)
+        let dir = north * cos(az) + east * sin(az)
+        let x = up, z = -dir, y = z.cross(x)
+        let att = Quat(matrix: Mat3(columns: x, y, z))
+        let l = LandedState(body: body, bodyFixedPosition: up * (body.radius + elevation + v.baseHeight),
+                            bodyFixedAttitude: att)
+        v.landed = l
+        v.status = .landed
+        v.reference = body
+        setLandedKinematics(v, l, snapshot: snapshot)
+        updateTelemetry(v, snapshot: snapshot)
+    }
+
+    /// Put `v` on a circular orbit, facing prograde with its +z axis towards the body.
+    public func placeInCircularOrbit(_ v: Vessel, around body: CelestialBody, altitude: Double,
+                                     inclination: Double = 0, ascendingNode: Double = 0, argumentOfLatitude: Double = 0) {
+        let deg = Double.pi / 180
+        let snap = snapshot
+        let pole = snap.orientation(body).pole
+        var xRef = Vec3.unitZ.cross(pole)
+        xRef = xRef.length < 1e-9 ? .unitX : xRef.normalized
+        let yRef = pole.cross(xRef)
+        let r = body.radius + altitude
+        let speed = (body.gm / r).squareRoot()
+        // Perifocal -> equatorial: Rz(Ω) Rx(i) Rz(u)
+        let m = Mat3.rotZ(ascendingNode * deg) * Mat3.rotX(inclination * deg) * Mat3.rotZ(argumentOfLatitude * deg)
+        let pLocal = m * Vec3(r, 0, 0)
+        let vLocal = m * Vec3(0, speed, 0)
+        let toICRF = Mat3(columns: xRef, yRef, pole)
+        v.reference = body
+        v.landed = nil
+        v.status = .flying
+        v.position = toICRF * pLocal
+        v.velocity = toICRF * vLocal
+        let x = v.velocity.normalized, z = -v.position.normalized, y = z.cross(x)
+        v.attitude = Quat(matrix: Mat3(columns: x, y, z))
+        v.angularVelocity = .zero
+        updateTelemetry(v, snapshot: snap)
+    }
+}
