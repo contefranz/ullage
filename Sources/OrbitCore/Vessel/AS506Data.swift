@@ -83,11 +83,13 @@ enum AS506 {
     //
     // AS-506's own flight sequence comes from its Flight Evaluation Report,
     // MPR-SAT-FE-69-9 (FER): Table 2-1 (time bases) and Table 2-2 (event
-    // times, actual and from the time base, H). The guidance presettings it
-    // does not give (the pitch polynomial, the tower-clearance yaw command,
-    // the program-start test) are SA-504's, from Boeing D5-15706-4, "Saturn V
-    // Launch Vehicle Guidance Equations, SA-504" (15 July 1967; GE504),
-    // standing in for AS-506 until its own are found (M as a proxy).
+    // times, actual and from the time base, H), and from its flight manual,
+    // MSFC-MAN-506 (MAN506): Figure 2-1 (predicted sequence, 16 July 1969
+    // window, 72° azimuth) and Figure 2-2 (commanded pitch). The guidance
+    // presettings neither gives (the pitch polynomial, the program-start
+    // test) are SA-504's, from Boeing D5-15706-4, "Saturn V Launch Vehicle
+    // Guidance Equations, SA-504" (15 July 1967; GE504), standing in for
+    // AS-506's (M as a proxy).
 
     /// Guidance reference release: the ST-124 platform goes inertial, fixing
     /// the space-fixed frame (launch vertical, flight azimuth).
@@ -98,13 +100,16 @@ enum AS506 {
     /// flight azimuth (datasheet §7.1). GE504: initial roll command A_Z - 90°.
     static let padAzimuth = 90.0               // deg; Oikofuge; Popular Science (M)
     static let flightAzimuth = 72.058          // deg; SP-4029 ("rolled from a launch pad azimuth of 90°"), FER (H)
-    /// Tower-clearance yaw, away from the tower: GE504 Table 4-II commands
-    /// chi_Z = 1.25° from T1 + 1.0 s to T1 + 8.75 s, which at the 1°/s limit
-    /// ends the manoeuvre at T1 + 10.0 s, the FER's prediction (actual T1 +
-    /// 9.0, "accurate to a major computation cycle").
-    static let towerYawOn = 1.0                // s from T1; FER Table 2-2 (H); GE504
-    static let towerYawOff = 8.75              // s from T1; GE504 Table 4-II (M as AS-506 proxy)
-    static let towerYawAngle = 1.25            // deg; GE504 Table 4-II (M as AS-506 proxy)
+    /// Tower-clearance yaw, away from the tower: "ramped to 1.25 degrees at
+    /// the rate of 1.0 degrees per second starting at 1.39 seconds from first
+    /// motion and ... ramped back to zero degrees 9 seconds later" (MAN506
+    /// §2, Liftoff Clearance). GE504 Table 4-II commands the same chi_Z =
+    /// 1.25° from T1 + 1.0 s to T1 + 8.75 s, so the manoeuvre ends at T1 +
+    /// 10.0 s, the FER's prediction (actual T1 + 9.0, "accurate to a major
+    /// computation cycle").
+    static let towerYawOn = 1.0                // s from T1; FER Table 2-2; MAN506 (H)
+    static let towerYawOff = 8.75              // s from T1; GE504 Table 4-II; MAN506 (H)
+    static let towerYawAngle = 1.25            // deg; MAN506; GE504 (H)
     /// The roll and pitch programs start once the vehicle has risen 137 m,
     /// with a 13.0 s time backup (GE504 §4.1.2, Table 5-I t_1). On AS-506
     /// they began at T1 + 12.6 s (FER Table 2-2; predicted T1 + 13.1).
@@ -127,14 +132,19 @@ enum AS506 {
     /// Tilt arrest, s from T1: AS-506's at range 160.0 s (FER Table 2-2, T2 +
     /// 24.7 s; predicted T2 + 25.5). SA-504's preset was 153.0 s (GE504).
     static let tiltArrest = 160.0 - liftoff    // FER (H for the time, to a computation cycle)
-    /// AS-506's own polynomial (its July operational trajectory) was not
-    /// found. SA-504's, flown by this model, leaves the S-IC 1.6° steeper and
-    /// 3.7 km higher at OECO than AS-506 flew; 3 % more tilt, fitted to the
-    /// nearest 0.01 on AS-506's OECO flight-path angle (19.114°, FER Table
-    /// 4-2), brings OECO to within 0.1°, and CECO's angle, altitude and
-    /// velocity, OECO's altitude and velocity, and both headings, which are
-    /// not fitted, within the datasheet's tolerances (datasheet §8).
-    static let pitchScale = 1.03               // fitted (see above)
+    /// AS-506's commanded pitch (MAN506 Figure 2-2) follows SA-504's
+    /// polynomial to within the figure's reading accuracy, about 1°: -20° a
+    /// minute after first motion, -56° at two minutes and -67.5° at the
+    /// arrest, against -20.6, -56.5 and -68.0°. Flown by this model, which
+    /// climbs faster than AS-506 in the first minute (datasheet §8.5), that
+    /// program leaves the S-IC 1.6° steeper and 3.7 km higher at OECO than
+    /// AS-506 flew. The IU here therefore tilts 3 % more: a compensation for
+    /// the model, not AS-506 data, fitted to the nearest 0.01 on AS-506's
+    /// OECO flight-path angle (19.114°, FER Table 4-2). CECO's angle,
+    /// altitude and velocity, OECO's altitude and velocity, and both
+    /// headings, which are not fitted, then fall within the datasheet's
+    /// tolerances. Set it back to 1 once the S-IC propulsion matches the FER.
+    static let pitchScale = 1.03               // fitted model compensation (see above)
     static var tiltProgram: TiltProgram {
         TiltProgram(boundaries: pitchSegmentBoundaries,
                     coefficients: pitchCoefficients.map { $0.map { $0 * pitchScale } }, arrest: tiltArrest)
@@ -144,12 +154,16 @@ enum AS506 {
     static let cantOn = 20.0                   // s from T1; FER Table 2-2 (H)
     static let cantAngle = 2.0                 // deg radial; EL; EH 8.13 (M angle, L axis)
     static let cantRampRate = 0.2              // deg/s, PLACEHOLDER
-    /// Flight control computer gains (a0 deg/deg, a1 s) by time from liftoff
-    /// (S-IC) and from S-II ignition (S-II): TN D-5869 Table 3, "typical" (L for AS-506).
+    /// Flight control computer gains (a0 deg/deg, a1 s): TN D-5869 Table 3,
+    /// "typical" Saturn V values, read from the page image (L for AS-506).
+    /// They switch at the IU's switch points: S-IC at T1 + 105.0 and 130.0 s,
+    /// S-II at T3 + 61.4 and 191.4 s (SA-507 flight sequence ICD 40M33627B,
+    /// also the AS-508 timeline; M for AS-506), the S-II's first band from its
+    /// ignition.
     static let sICGains: [(start: Double, a0: Double, a1: Double)] = [(0, 0.9, 0.69), (105, 0.45, 0.44),
-                                                                       (130, 0.30, 0.32)]
-    static let sIIGains: [(start: Double, a0: Double, a1: Double)] = [(0, 1.12, 1.9), (60, 0.65, 1.1),
-                                                                       (190, 0.44, 0.74)]
+                                                                       (130, 0.32, 0.30)]   // s from T1
+    static let sIIGains: [(start: Double, a0: Double, a1: Double)] = [(2.4, 1.12, 1.9), (61.4, 0.65, 1.1),
+                                                                       (191.4, 0.44, 0.74)]   // s from T3
     /// S-IC centre engine cutoff, commanded by the IU at T1 + 134.56 s (range
     /// 135.20, FER Table 2-2 and §5.1, H); the LVDC senses it and starts T2.
     static let sICCenterCutoffTime = 134.56    // s from T1; FER (H)
@@ -161,6 +175,9 @@ enum AS506 {
     static let sIIIgnitionTime = 2.4           // s from T3; FER (H)
     static let interstageJettisonTime = 30.7   // s from T3; FER (H)
     static let lesJettisonTime = 36.2          // s from T3; FER (H)
+    /// IGM phase 1 initiated (204.1 s range; FER Table 2-2). Not modelled yet:
+    /// the IU logs it and holds the attitude of the tilt arrest.
+    static let igmStartTime = 42.4             // s from T3; FER (H)
     static let sIICenterCutoffTime = 299.0     // s from T3; FER (H)
     /// The S-II mixture-ratio shift. On AS-506 the IU commanded it at ESC +
     /// 331.8 s (range 494.8) on reaching a preset characteristic velocity, and

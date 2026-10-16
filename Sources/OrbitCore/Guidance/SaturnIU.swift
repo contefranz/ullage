@@ -40,13 +40,14 @@ public struct TiltProgram {
 ///   space-fixed frame fixed at guidance reference release, with each
 ///   commanded angle rate-limited. The outboard F-1 cant, the S-IC
 ///   flight-control gain switches and the tilt arrest.
-/// - T2 (time-based): S-IC centre engine cutoff.
-/// - T3 at S-IC outboard cutoff (LOX depletion): separation, S-II ignition,
-///   S-II gains, aft interstage and LET jettison, S-II centre cutoff and the
-///   mixture-ratio shift.
-/// - T4 at S-II cutoff (LOX depletion): separation and S-IVB ignition, whose
-///   J-2 flies the vehicle's own `tvcGains` law.
-/// - T5 at S-IVB cutoff: APS ullage burn, then local horizontal in orbit.
+/// - T2 when the LVDC senses the centre engine's cutoff, which T1 commands.
+/// - T3 when it senses the S-IC outboard cutoff (LOX depletion): separation,
+///   S-II ignition, S-II gains, aft interstage and LET jettison, S-II centre
+///   cutoff and the mixture-ratio shift.
+/// - T4 when it senses the S-II cutoff (LOX depletion): separation and S-IVB
+///   ignition, whose J-2 flies the vehicle's own `tvcGains` law.
+/// - T5 when it senses the S-IVB cutoff: APS ullage burn, then the local
+///   horizontal in orbit.
 ///
 /// Iterative guidance (IGM) is not modelled yet: the attitude stays where the
 /// tilt was arrested through the S-II and S-IVB burns, and the S-IVB cuts off
@@ -64,7 +65,6 @@ public final class SaturnIU: FlightProgram {
 
     /// What a timed event does.
     public enum Action: Equatable {
-        case startTimeBase(TimeBase)
         /// Shut down the named engine.
         case engineCutoff(String)
         case mainThrottle(Double)
@@ -281,8 +281,6 @@ public final class SaturnIU: FlightProgram {
 
     private func perform(_ action: Action, at: Epoch, _ v: Vessel, _ sim: Simulation) {
         switch action {
-        case .startTimeBase(let b):
-            if timeBases[b] == nil { timeBases[b] = at }
         case .engineCutoff(let name):
             v.thrusters.first { $0.name == name }?.isEnabled = false
         case .mainThrottle(let level):

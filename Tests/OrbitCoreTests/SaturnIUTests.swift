@@ -61,14 +61,21 @@ final class SaturnIUTests: XCTestCase {
     // pre-IGM pitch polynomial join (to within 0.05°; a misread digit would
     // break that), the command is near zero where the program starts (12-13 s),
     // the pitch rate never exceeds the 1°/s command limit, and the command is
-    // -66.59° at SA-504's 153 s arrest and held there. AS-506's program is
-    // the same polynomial times `pitchScale`, arrested at T1 + 159.37 s.
+    // -66.59° at SA-504's 153 s arrest and held there. It follows AS-506's
+    // commanded pitch (MAN-506 Figure 2-2, read to about 1°: -20° a minute
+    // after first motion, -56° at two minutes, -67.5° at the arrest; first
+    // motion is T1 - 0.4 s there). The IU flies it times `pitchScale`,
+    // arrested at T1 + 159.37 s (FER: 160.0 s range).
     func testPitchPolynomialTranscription() {
         let p = TiltProgram(boundaries: AS506.pitchSegmentBoundaries, coefficients: AS506.pitchCoefficients,
                             arrest: 153)
         let as506 = AS506.tiltProgram
         XCTAssertEqual(as506.pitch(at: 150), AS506.pitchScale * p.pitch(at: 150), accuracy: 1e-12)
         XCTAssertEqual(as506.arrest, 160.0 - 0.63, accuracy: 1e-12)
+        let unscaled = TiltProgram(boundaries: p.boundaries, coefficients: p.coefficients, arrest: as506.arrest)
+        XCTAssertEqual(unscaled.pitch(at: 59.6) / deg, -20, accuracy: 2)
+        XCTAssertEqual(unscaled.pitch(at: 119.6) / deg, -56, accuracy: 2)
+        XCTAssertEqual(unscaled.pitch(at: 170) / deg, -67.5, accuracy: 2)
         func segment(_ k: Int, _ t: Double) -> Double {
             p.coefficients[k].reversed().reduce(0.0) { $0 * t + $1 }
         }
@@ -281,8 +288,9 @@ final class SaturnIUTests: XCTestCase {
             ("S-II ignition", 164.0, 0.2),                         // FER 164.0, T3 + 2.4
             ("S-II aft interstage jettison", 192.3, 0.2),          // FER 192.3
             ("launch escape tower jettison", 197.9, 0.2),          // FER 197.9
-            ("S-II flight control gains", t3 + 2.4 + 60, 0.2),
-            ("S-II flight control gains", t3 + 2.4 + 190, 0.2),
+            ("IGM phase 1 (not modelled: attitude held)", 204.1, 0.2),  // FER 204.1, T3 + 42.4
+            ("S-II flight control gains", t3 + 61.4, 0.2),         // SA-507 ICD switch point 3
+            ("S-II flight control gains", t3 + 191.4, 0.2),        // switch point 4
             ("S-II centre engine cutoff", 460.6, 0.2),             // FER 460.6
             ("S-II mixture ratio shift", 491.0, 0.2),              // the model's (FER 494.8, §8)
             ("T4: S-II outboard engine cutoff sensed", 548.24, 0.3),  // FER Table 2-1

@@ -670,8 +670,8 @@ Each axis is a rate-limited position servo: |δ̇| ≤ the rate above, |δ| ≤ 
 | gain_switching | discrete steps at preset times (switch-selector commands from time-base sequencing; no sensing) | — | EL; TN5869 | H (mechanism) | The AS-506 switch times were not found. |
 | sic_gains_0_105 | a0 0.9, a1 0.69 s | deg/deg, deg/(deg/s) | TN5869 Table 3 | M (reading), L (AS-506) | TN5869 calls them "typical". The time reference is presumably liftoff. |
 | sic_gains_105_130 | a0 0.45, a1 0.44 s | | TN5869 | M (reading), L (AS-506) | Conflicts with EL's "single switchpoint" at 100 s. |
-| sic_gains_130_cutoff | a0 0.30, a1 0.32 s | | TN5869 | M (reading), L (AS-506) | |
-| sii_gains | 0–60 s: 1.12 / 1.9 s; 60–190 s: 0.65 / 1.1 s; 190 s–cutoff: 0.44 / 0.74 s | (a0, a1) | TN5869 (klabs copy) | L | Assigned to the S-II because a 190 s edge cannot be S-IC time and a verifier extract placed the last row under "Second Stage Propulsion Period". Time is presumably from S-II ignition (164.0). |
+| sic_gains_130_cutoff | a0 0.32, a1 0.30 s | | TN5869 Table 3 (page image, §8) | H (reading), L (AS-506) | Corrected in §8: an earlier extract had the pair swapped (0.30 / 0.32). |
+| sii_gains | 0–60 s: 1.12 / 1.9 s; 60–190 s: 0.65 / 1.1 s; 190 s–cutoff: 0.44 / 0.74 s | (a0, a1) | TN5869 Table 3 "Second Stage Propulsion Period" (page image, §8) | H (reading), L (AS-506) | The IU switches them at T3 + 61.4 and T3 + 191.4 s (SA-507 ICD, §8). |
 | sivb_gains_burn1 | a0 0.81, a1 0.97 s | | TN5869 (garbled continuation; footnote mentions the S-IVB first burn) | L | The stage assignment is uncertain. It conflicts with TN5869's third-stage control frequency of 0.2–0.5 Hz (see the check below). |
 | sivb_gains_burn2 | 0–260 s: a0 0.70, a1 0.81 s | | TN5869 (footnote "first 260 seconds of the second burn") | L | M2 only. Gains after 260 s were not found. |
 | roll_gains | not found | — | — | — | **Placeholder: the same a0 and a1 as pitch and yaw (not data).** This gives 0.17–0.43 Hz with ζ 0.7–1.4 on the S-IC and S-II (sim). |
@@ -688,8 +688,8 @@ Each axis is a rate-limited position servo: |δ̇| ≤ the rate above, |δ| ≤ 
 | S-IC release (0.30) | 0.784 | 0.9 / 0.69 | 0.134 | 0.32 | 0.77 | 3.9 |
 | S-IC max Q (83.0) | 1.086 | 0.9 / 0.69 | 0.157 | 0.38 | 0.77 | 5.4 |
 | S-IC 105, band 1 → 2 | 1.270 | 0.9 → 0.45 | 0.170 → 0.120 | 0.41 → 0.37 | 0.77 → 0.98 | 6.3 |
-| S-IC 130, band 2 → 3 | 1.690 | 0.45 → 0.30 | 0.139 → 0.113 | 0.43 → 0.38 | 0.98 → 1.07 | 8.4 |
-| S-IC OECO (161.6) | 3.369 | 0.30 / 0.32 | 0.160 | 0.54 | 1.07 | 16.8 |
+| S-IC 130, band 2 → 3 | 1.690 | 0.45 → 0.32 | 0.139 → 0.117 | 0.43 → 0.34 | 0.98 → 0.94 | 8.4 |
+| S-IC OECO (161.6) | 3.369 | 0.32 / 0.30 | 0.165 | 0.49 | 0.94 | 16.8 |
 | S-II ignition (164.0) | 0.366 | 1.12 / 1.9 | 0.102 | 0.54 | 1.70 | 2.6 |
 | S-II +60 s, band 2 | 0.427 | 0.65 / 1.1 | 0.084 | 0.45 | 1.69 | 3.0 |
 | S-II CECO (460.6) | 1.188 | 0.44 / 0.74 | 0.115 | 0.61 | 1.68 | 8.3 |
@@ -932,8 +932,8 @@ Every published control-performance figure (FER maximum deflections, attitude er
   - ±5° (EH 8.13) versus 5.25° "full travel" (EH 8.10) versus 6° (a cone per HR, per axis per apollomaniacs) versus 8°30′ (TM X-53532).
   - The per-axis nesting in §7.1 is an interpretation (L). ±5.15° appears in no source.
 - **F-1 gimbal rate:** 5°/s versus 5.25°/s or 10.5°/s implied by "5.25° in 1 s". Loaded or no-load is unknown for every stage.
-- **S-IC gain switches:** TN5869 has two switches (105 s, 130 s); EL says one switchpoint at 100 s. TN5869 calls its values "typical", not AS-506.
-- **S-II gain rows:** the stage assignment is inferred from band edges. If wrong, the S-IC and S-II rows are swapped.
+- **S-IC gain switches:** TN5869 has two switches (105 s, 130 s); EL says one switchpoint at 100 s. TN5869 calls its values "typical", not AS-506. *The SA-507 flight sequence ICD and the AS-508 timeline put FCC switch points 1 and 2 at T1 + 105.0 and 130.0 s (§8).*
+- **S-II gain rows:** ~~the stage assignment is inferred from band edges.~~ *Resolved (§8): TN5869 Table 3 labels them "Second Stage Propulsion Period".*
 - **S-IVB gains:** the 0.81/0.97 pair gives 0.11–0.13 Hz in the sim against TN5869's 0.2–0.5 Hz third-stage frequency. Either the pair or the frequency definition is misread. The S-IVB gimbal height (L, ±1 m) changes this by only ±5%.
 - **Cant axis:** 2° radial (1.41° per actuator) versus 2° per actuator (2.83° radial).
 - **Cant purpose:** misalignment sensitivity (EL paraphrase) versus engine-out load relief (plausible, unsourced). The ramp rate and the hold-to-OECO are unknown.
@@ -988,9 +988,13 @@ Compiled on 2026-10-16 for the first half of the IU item: the flight sequence on
 
 - FER: *Saturn V Launch Vehicle Flight Evaluation Report AS-506, Apollo 11 Mission*, MPR-SAT-FE-69-9 (ibiblio.org/apollo/Documents/lvfea-AS506-Apollo11.pdf, 280 pp). Table 2-1 (time bases), Table 2-2 (event times, actual and from the time base), Table 4-1 and 4-2 (trajectory events), Table 5-1 and Figure 5-3 (S-IC propulsion), §6 (S-II propellant utilisation), §10 and §11 (guidance, control). Read as text, with the tables checked against the page images.
 - GE504: Boeing D5-15706-4, *Saturn V Launch Vehicle Guidance Equations, SA-504* (15 July 1967; ibiblio.org/apollo/Documents/SaturnVLaunchVehicleGuidanceEquations.pdf). Figure 1-1 (coordinate systems), §2.1.2 (command constraints), §4.1.2 and Table 4-II (pre-IGM guidance), §4.1.11 (orbital guidance), Table 5-I (presettings, read from the page images), Table 2-1 (SA-504 reference sequence).
-- MAN503: MSFC-MAN-503, *Saturn V Flight Manual SA-503*, Figure 2-1 (critical event sequence). Used only where the FER is silent.
+- MAN506: MSFC-MAN-506, *Saturn V Flight Manual SA-506* (ibiblio.org/apollo/Documents/Saturn_V_Flight_Manual_SA-506.pdf). Figure 2-1 (AS-506 predicted critical events, 16 July 1969 window, 72° azimuth), Figure 2-2 (commanded pitch angle), §2 "Liftoff Clearance" (the yaw manoeuvre), §7 (IU flight program).
+- ICD507: 40M33627B, *Definition of Saturn SA-507 Flight Sequence Program* (5 Dec 1967; ibiblio). FCC switch points; read from the page images.
+- TN5869 Table 3, read from the page image of NASA TN D-5869 (ibiblio.org/apollo/Documents/tn_d-5869_1970023342.pdf).
+- MAN503: MSFC-MAN-503, *Saturn V Flight Manual SA-503*, Figure 2-1. Context only.
+- PFT: Boeing D5-15560-6, *Apollo/Saturn V Postflight Trajectory AS-506* (ibiblio.org/apollo/Documents/19920075301.pdf): Table B-II gives the LVDC navigation state every 2 s in the space-fixed frame. Not used yet; the reference for IGM in part 2.
 
-AS-506's own guidance presettings (its *Operational Trajectory* and *Flight Sequence Program* ICD 40M33626B, cited by the FER) were not found. GE504's SA-504 presettings stand in for them, graded M as a proxy.
+AS-506's own guidance presettings (its *Operational Trajectory* and *Flight Sequence Program* ICD 40M33626B, cited by the FER) were not found. GE504's SA-504 presettings stand in for the pitch polynomial and the program-start test, graded M as a proxy; MAN506 confirms the yaw command and that AS-506's commanded pitch follows SA-504's polynomial (§8.4).
 
 ### 8.1 Frames and command conventions
 
@@ -1022,20 +1026,20 @@ Offsets are vehicle time from the time base, from FER Table 2-2 unless marked; t
 | event | base + offset (s) | FER range time (s) | notes |
 |---|---|---|---|
 | S-IC flight-control gains, band 1 | T1 + 0 | — | §7.2 schedule (TN5869, L) |
-| tower-clearance yaw on | T1 + 1.0 | 1.7 | GE504: chi_Z = 1.25° from 1.0 to 8.75 s |
-| yaw command back to zero | T1 + 8.75 (GE504) | 9.7 (end of manoeuvre) | At 1°/s the manoeuvre ends at T1 + 10.0, the FER's predicted end; the FER's actual T1 + 9.0 is "accurate to a major computation cycle". |
-| roll and pitch programs | rise of 137 m, or T1 + 13.0 | 13.2 (T1 + 12.6; predicted 13.1) | GE504 §4.1.2. The model reaches 137 m at T1 + 10.4 (§8.5). |
+| tower-clearance yaw on | T1 + 1.0 | 1.7 | chi_Z = 1.25° at 1°/s, "starting at 1.39 seconds from first motion" (MAN506); GE504 the same |
+| yaw command back to zero | T1 + 8.75 (GE504) | 9.7 (end of manoeuvre) | "ramped back to zero degrees 9 seconds later" (MAN506): at 1°/s the manoeuvre ends at T1 + 10.0, the FER's predicted end; the FER's actual T1 + 9.0 is "accurate to a major computation cycle". |
+| roll and pitch programs | rise of 137 m, or T1 + 13.0 | 13.2 (T1 + 12.6; FER predicted 13.1, MAN506 11.9) | GE504 §4.1.2. The model reaches 137 m at T1 + 10.4 (§8.5). |
 | S-IC outboard cant | T1 + 20.0 | 20.6 | 2° radial, 0.2°/s ramp (§7.1; ramp is a placeholder) |
-| S-IC gains, bands 2 and 3 | T1 + 105, T1 + 130 | — | TN5869 (L) |
+| S-IC gains, bands 2 and 3 | T1 + 105.0, T1 + 130.0 | — | FCC switch points 1 and 2 (ICD507, M); band 3 is a0 0.32, a1 0.30 (TN5869 page image) |
 | S-IC CECO | T1 + 134.56 | 135.20 | commanded by the IU (FER §5.1) |
-| tilt arrest | T1 + 159.37 | 160.0 (T2 + 24.7; predicted T2 + 25.5) | SA-504's preset was 153.0 s |
+| tilt arrest | T1 + 159.37 | 160.0 (T2 + 24.7; predicted T2 + 25.5; MAN506 T2 + 25.0) | SA-504's preset was 153.0 s |
 | S-IC OECO | LOX depletion | 161.63 | propellant model; the IU sets the throttle to 0 at T3 so the S-II does not light at separation |
 | S-IC/S-II separation | T3 + 0.7 | (command) 162.3 | |
 | S-II ignition and gains, band 1 | T3 + 2.4 | 164.0 | engine solenoid activation; the model lights the J-2s at full thrust here (§1.2) |
 | aft interstage jettison | T3 + 30.7 | 192.3 | |
 | LET jettison | T3 + 36.2 | 197.9 | |
-| IGM phase 1 | T3 + 42.4 | 204.1 | part 2; the model holds the attitude of the tilt arrest |
-| S-II gains, bands 2 and 3 | T3 + 62.4, T3 + 192.4 | — | 60 and 190 s after S-II ignition (TN5869, L) |
+| IGM phase 1 | T3 + 42.4 (logged) | 204.1 | part 2; the model holds the attitude of the tilt arrest |
+| S-II gains, bands 2 and 3 | T3 + 61.4, T3 + 191.4 | — | FCC switch points 3 and 4 (ICD507, page images; M) |
 | S-II CECO | T3 + 299.0 | 460.6 | |
 | S-II EMR shift | T3 + 329.37 (the model's 491.0 s) | command 494.8, shift 498.0 | See §8.7: kept at the propulsion model's calibration. |
 | S-II OECO | LOX depletion | 548.22 | propellant model |
@@ -1059,7 +1063,15 @@ GE504 Table 4-II: chi_Y = Σ F_kn t^n (n = 0…4; t in s from T1) on four segmen
 
 Checks: the segments join within 0.04° (5.59/5.62° at 35 s, 35.16° at 80 s, 54.67° at 115 s); the command is −0.04° at 12 s, where the program starts; no segment exceeds 1°/s; it reaches −66.59° at SA-504's 153.0 s arrest. Other GE504 pre-IGM presettings: engine-out freeze B11 −0.62, B12 40.9 s, B21 −0.3611, B22 29.25 s, t_1 13.0 s (start backup), t_2 25, t_3 36, t_4 45, t_5 81 s; ΔtLET 35.1 s. The engine-out freeze logic is not modelled (item 4).
 
-**AS-506 adjustment (fitted, not data).** Flown by this model with AS-506's 160.0 s arrest, SA-504's polynomial leaves the S-IC 1.6° steeper and 3.7 km higher at OECO than AS-506 flew. Multiplying the polynomial by 1.03 (`AS506.pitchScale`, fitted to the nearest 0.01 on the OECO flight-path angle) gives:
+**AS-506's commanded pitch.** MAN506 Figure 2-2 plots AS-506's typical commanded pitch for the July window; read to about 1°, it follows SA-504's polynomial (time from first motion, which is T1 − 0.4 s in MAN506):
+
+| time from first motion | MAN506 Fig. 2-2 | SA-504 polynomial |
+|---|---|---|
+| 1 min | −20° | −20.6° |
+| 2 min | −56° | −56.5° |
+| tilt arrest (plateau) | −67.5° | −68.0° (at T1 + 159.37) |
+
+**Model compensation (fitted, not data).** Flown by this model with AS-506's 160.0 s arrest, the polynomial leaves the S-IC 1.6° steeper and 3.7 km higher at OECO than AS-506 flew, because the model climbs faster than AS-506 in the first minute (§8.5). So that the S-II starts from AS-506's state, the IU multiplies the polynomial by 1.03 (`AS506.pitchScale`, fitted to the nearest 0.01 on the OECO flight-path angle), 2° more pitch at the arrest than AS-506 commanded. Set it back to 1 once the S-IC propulsion matches the FER (§8.7). It gives:
 
 | | quantity | FER (Table 4-2) | model, ×1.00 | model, ×1.03 | tolerance (§5) |
 |---|---|---|---|---|---|
@@ -1081,11 +1093,11 @@ Only the OECO flight-path angle was fitted; everything else in the table is a ch
 ### 8.5 Known deviations of the S-IC ascent
 
 - **The model climbs faster than AS-506 in the first minute.** It reaches 137 m at T1 + 10.4 s (AS-506: T1 + 12.6), Mach 1 at 64.4 s (66.3) and max Q at 75.2 s (83.0). The FER's stage thrust at liftoff (Figure 5-3, about 34 MN, against the model's 34.6 MN) accounts for little of this. The model has no controlled-release mechanism (the FER gives 1.07 g total acceleration at first motion), no thrust build-up, a placeholder drag coefficient and the US-1976 atmosphere (the July Cape atmosphere was about 14% denser near max Q, §1.6). Max Q's time and the program-start time are therefore not test targets.
-- **The pitch polynomial is SA-504's, scaled.** Replace it with AS-506's own presettings if its operational trajectory or flight sequence program turns up.
+- **The pitch polynomial is SA-504's, scaled 3 % to compensate.** AS-506's commanded pitch matches it unscaled (MAN506 Fig. 2-2); replace both the polynomial and the scale with AS-506's presettings if its operational trajectory turns up, and drop the scale once the propulsion is recalibrated.
 
 ### 8.6 Flight control and APS logic as implemented
 
-- **FCC law** (§7.2): β = a0·e − a1·ω on each gimbal-flown axis, in the IU's hold, with the §7.2 gain schedule on the S-IC and S-II and the same pair in roll (placeholder). β is each engine's deflection: per actuator in pitch and yaw, tangential in roll. Checks: the roll program is tracked 0.77° behind at 1.00°/s, and a 0.5° pitch step at liftoff mass in vacuum (c = 0.898 s⁻², so ωn = 0.90 rad/s and ζ = 0.345) overshoots 32% at 3.7 s, as §7.4 B's formulas predict.
+- **FCC law** (§7.2): β = a0·e − a1·ω on each gimbal-flown axis, in the IU's hold, with TN5869's gain schedule on the S-IC and S-II switched at the IU's switch points (§8.3), and the same pair in roll (placeholder). β is each engine's deflection: per actuator in pitch and yaw, tangential in roll. Checks: the roll program is tracked 0.77° behind at 1.00°/s, and a 0.5° pitch step at liftoff mass in vacuum (c = 0.898 s⁻², so ωn = 0.90 rad/s and ζ = 0.345) overshoots 32% at 3.7 s, as §7.4 B's formulas predict.
 - **S-IVB burn**: the vehicle's own self-tuned gimbal law (`tvcGains`) flies the J-2, because TN5869's S-IVB pair contradicts its stated control frequency (§7.5).
 - **APS phase plane** (§7.2): ±1° dead band; error clipped at 2.5° in pitch and yaw and 3.5° in roll; switching line e − 5 s × ω (placeholder slope); 0.06 s minimum on-time; full-thrust pulses, no hysteresis. It flies the APS in every autopilot mode except kill rotation, and in the IU's hold. Measured: manoeuvres at 0.30°/s in pitch and 0.51°/s in roll; on the light S-IVB after TLI, Prograde uses 0.2 kg of APS propellant an hour, where M0's law emptied both modules (298 kg) within the hour.
 - **Orbital attitude**: after T5 + 19.8 s the IU commands the local horizontal (+x along the horizontal velocity, +z down), turning at the orbital rate; the APS holds it within 1.9° (dead band plus 5 s × the 0.07°/s orbital rate on each axis). The FER's mission description has the vehicle "aligned with the local horizontal" from about 10 s after insertion through the parking orbit; GE504's SA-504 landmark-sighting manoeuvres (a 180° roll and 20° nose-down from insertion + 45 min) do not appear in it and are not modelled.
@@ -1110,20 +1122,20 @@ The propulsion and mass model of §1–§3 was calibrated without the FER. These
 | test | checks | depends on |
 |---|---|---|
 | `testOnThePad` | geocentric pad, nose up, Position I east, IU idle until liftoff | §1.6, §7.1 (M) |
-| `testPitchPolynomialTranscription` | GE504 segments join, start near 0, rates under 1°/s, −66.59° at 153 s; AS-506 = 1.03 × SA-504 to 159.37 s | GE504 (H for SA-504) |
+| `testPitchPolynomialTranscription` | GE504 segments join, start near 0, rates under 1°/s, −66.59° at 153 s; unscaled within 2° of MAN506 Fig. 2-2; the IU's = 1.03 × SA-504 to 159.37 s | GE504 (H for SA-504), MAN506 (figure reading) |
 | `testTowerYawAndRollProgram` | yaw to 1.25° at ≤ 1°/s and away from the tower; start at 137 m; roll lag 0.77° and rate 1.00°/s; Position I on 72.058° | GE504, FER, TN5869 (gains L) |
 | `testSICAscentMatchesApollo11` | the §8.4 table, except the fitted angle (±0.2°) | FER Table 4-1/4-2 (H); `pitchScale` (fitted) |
 | `testOutboardCantSchedule` | cant from T1 + 20.0 s to 2° radial | FER (H), EL (M) |
 | `testFlightControlStepResponse` | ωn and overshoot of the FCC law | TN5869 (L), model mass properties |
-| `testFlightSequenceFollowsTheApollo11Timeline` | every IU event against FER Tables 2-1 and 2-2; staging by part; S-II at low EMR; ullage 86.7 s; local horizontal held within 1.9° | FER (H) |
+| `testFlightSequenceFollowsTheApollo11Timeline` | every IU event against FER Tables 2-1 and 2-2 (S-II gain switches against ICD507); staging by part; S-II at low EMR; ullage 86.7 s; local horizontal held within 1.9° | FER (H), ICD507 (M) |
 | `testIUStagesByPartAfterAManualSpacePress` | a pilot's Space press and attitude takeover leave the sequence intact | — |
 | `testAPSPhasePlaneSlewsAndHolds`, `testAPSDoesNotDrainHoldingPrograde` | §8.6 APS figures | EH 8.30 (M); placeholders K and minimum on-time |
 | `testStepsEndOnFlightProgramEvents` | the simulation ends a step on a program's event at any warp | — |
 
 ### 8.9 Remaining gaps (IU)
 
-1. AS-506's own pre-IGM presettings (pitch polynomial, t_AR, start test, yaw times): its July 1969 Operational Trajectory or the SA-506 Flight Sequence Program ICD (40M33626B). The *Saturn V Flight Manual SA-506* on archive.org is the next place to look (its data servers were not reachable).
-2. The AS-506 *Postflight Trajectory* (Boeing, archive.org): a time history to check the whole S-IC ascent, not two points.
+1. AS-506's own pre-IGM presettings (pitch polynomial, t_AR, start test): its July 1969 Operational Trajectory or the SA-506 Flight Sequence Program ICD (40M33626B).
+2. PFT Table B-II/B-III: the S-IC time history, to check the whole ascent rather than two points (the tables are scanned and must be read from the page images).
 3. IGM presettings for AS-506 (part 2): GE504 §4 and Table 5-I give SA-504's; FER Table 10-4 and Figure 10-4 give AS-506's IGM phase times and attitude commands.
 4. The S-II EMR shift by characteristic velocity (needs the S-II recalibration of §8.7).
 

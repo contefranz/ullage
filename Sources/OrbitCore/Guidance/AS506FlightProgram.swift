@@ -17,10 +17,11 @@ extension SaturnIU {
             Event(.t1, tilt.arrest, "tilt arrest", .arrestTilt),
             Event(.t3, 0, "S-IC outboard engine cutoff", .mainThrottle(0)),
             Event(.t3, D.sICSeparationTime, "S-IC/S-II separation", .separate("S-IC")),
-            Event(.t3, D.sIIIgnitionTime, "S-II flight control gains", gains(D.sIIGains[0])),
+            Event(.t3, D.sIIGains[0].start, "S-II flight control gains", gains(D.sIIGains[0])),
             Event(.t3, D.sIIIgnitionTime, "S-II ignition", .mainThrottle(1)),
             Event(.t3, D.interstageJettisonTime, "S-II aft interstage jettison", .separate("S-IC/S-II interstage")),
             Event(.t3, D.lesJettisonTime, "launch escape tower jettison", .separate("LES")),
+            Event(.t3, D.igmStartTime, "IGM phase 1 (not modelled: attitude held)", .note),
             Event(.t3, D.sIICenterCutoffTime, "S-II centre engine cutoff", .engineCutoff("S-II engine 5")),
             Event(.t3, D.sIIMixtureRatioShiftTime, "S-II mixture ratio shift", .rating(part: "S-II", D.sIIJ2LowEMR)),
             Event(.t4, 0, "S-II outboard engine cutoff", .mainThrottle(0)),
@@ -37,7 +38,7 @@ extension SaturnIU {
             sequence.append(Event(.t1, g.start, "S-IC flight control gains", gains(g)))
         }
         for g in D.sIIGains.dropFirst() {
-            sequence.append(Event(.t3, D.sIIIgnitionTime + g.start, "S-II flight control gains", gains(g)))
+            sequence.append(Event(.t3, g.start, "S-II flight control gains", gains(g)))
         }
 
         return SaturnIU(plan: Plan(
