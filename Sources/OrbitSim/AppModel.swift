@@ -108,7 +108,11 @@ final class AppModel: ObservableObject {
 
         let wasLanded = sim.focus?.landed != nil
         sim.advance(by: dt)
-        if wasLanded, let f = sim.focus, f.landed == nil { missionStart = sim.time }
+        // The mission clock starts at liftoff, logged at the start of the step
+        // that left the ground: at time warp a frame holds many steps.
+        if wasLanded, let f = sim.focus, f.landed == nil {
+            missionStart = sim.events.last(where: { $0.message == "\(f.name): liftoff" })?.time ?? sim.time
+        }
 
         let mouse = input.takeMouse()
         if mouse.dx != 0 || mouse.dy != 0 { camera.orbit(dx: mouse.dx, dy: mouse.dy) }

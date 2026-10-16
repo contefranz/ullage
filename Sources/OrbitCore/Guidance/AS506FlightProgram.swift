@@ -50,6 +50,7 @@ extension SaturnIU {
             programStart: (D.programStartRise, D.programStartBackup),
             tilt: tilt,
             commandRateLimit: D.commandRateLimit * deg,
+            coastRateLimit: Vec3(D.coastRateLimit.roll, D.coastRateLimit.pitch, D.coastRateLimit.yaw) * deg,
             cant: (D.cantAngle * deg, D.cantRampRate * deg),
             sequence: sequence,
             stages: ("S-IC", "S-II", "S-IVB"), centreEngine: "S-IC engine 5"))

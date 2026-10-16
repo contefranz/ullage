@@ -286,9 +286,20 @@ final class SaturnIUTests: XCTestCase {
     // long after T4 as on the flight (T4 + 151.10 s).
     func testFlightSequenceFollowsTheApollo11Timeline() throws {
         let f = try launch()
-        var ullage = 0.0
+        var ullage = 0.0, lastCommand: Quat?, commandRate = Vec3.zero, pitchError: [Double] = []
         f.fly(to: 787) {
             if f.v.thrusters.contains(where: { $0.name.hasSuffix("ullage") && $0.level > 0 }) { ullage += 0.02 }
+            guard f.iu.log.contains(where: { $0.event == "orbital guidance: local horizontal" }),
+                  let q = f.v.attitudeCommand?.attitude else { return }
+            if let last = lastCommand {
+                let d = rotationVector(last.conjugate * q) / 0.02
+                commandRate = Vec3(max(commandRate.x, abs(d.x)), max(commandRate.y, abs(d.y)),
+                                   max(commandRate.z, abs(d.z)))
+            }
+            lastCommand = q
+            for m in [721.0, 727.0] where abs(f.range() - m) < 0.01 {
+                pitchError.append(rotationVector(f.v.attitude.conjugate * q).y)
+            }
         }
         // Range times from FER Table 2-2 (actual), or the time base plus the
         // FER's offset where the model's time base differs by a step.
@@ -346,11 +357,22 @@ final class SaturnIUTests: XCTestCase {
         XCTAssertTrue(f.iu.status.hasPrefix("T5+"), f.iu.status)
 
         // Orbital guidance (GE504 §4.1.11): +x along the local horizontal in
-        // the direction of motion, +z towards the Earth. The APS slews there
-        // from the attitude held since the tilt arrest and holds it within
-        // the dead band, offset by the switching line's 5 s times the
-        // orbital rate (0.07°/s: 0.33°), so within (1 + 0.33)° on each of two
-        // axes.
+        // the direction of motion, +z towards the Earth. The IU's command
+        // slews there from the attitude held since the tilt arrest within the
+        // orbital rate limits, 0.4°/s in pitch and yaw and 0.6°/s in roll
+        // (Astrionics System Handbook Table 3.1-3), reaching them; the pitch
+        // error grows at about 0.35°/s from 721 to 727 s, as AS-506's did
+        // (0.33-0.37°/s, FER Figure 11-12 digitised: L-M). The model's slew is
+        // 54° against AS-506's 6°: without IGM the stack is still at the tilt
+        // arrest's attitude. The APS then holds the local horizontal within
+        // the dead band, offset by the switching line's 5 s times the orbital
+        // rate (0.07°/s: 0.33°), so within (1 + 0.33)° on each of two axes.
+        XCTAssertLessThan(commandRate.x, 0.6 * deg + 1e-9)
+        XCTAssertLessThan(commandRate.y, 0.4 * deg + 1e-9)
+        XCTAssertLessThan(commandRate.z, 0.4 * deg + 1e-9)
+        XCTAssertGreaterThan(commandRate.y, 0.399 * deg)
+        guard pitchError.count == 2 else { return XCTFail("missing local-horizontal errors") }
+        XCTAssertEqual(abs(pitchError[1] - pitchError[0]) / 6 / deg, 0.35, accuracy: 0.05)
         let aps = f.v.tanks.dropFirst(2), before = aps.reduce(0) { $0 + $1.mass }
         for _ in 0..<400 { f.sim.advance(by: 1) }
         let up = f.v.position.normalized
@@ -358,6 +380,30 @@ final class SaturnIUTests: XCTestCase {
         XCTAssertLessThan(angleBetween(f.v.attitude.rotate(.unitX), horizontal), 1.9 * deg)
         XCTAssertLessThan(angleBetween(f.v.attitude.rotate(.unitZ), -up), 1.9 * deg)
         XCTAssertLessThan(before - aps.reduce(0) { $0 + $1.mass }, 5)
+
+        // A hand-back in orbit: the pilot rolls the stack by hand for 10 s
+        // (the hold stays selected). On release the command restarts from
+        // the attitude and returns to the local horizontal within the
+        // orbital rate limits.
+        f.v.rotationInput = RotationCommand(roll: 1, pitch: 0, yaw: 0)
+        for _ in 0..<500 { f.sim.tick() }
+        let off = rotationVector(f.v.attitude.conjugate * f.v.attitudeCommand!.attitude).length
+        f.v.rotationInput = RotationCommand()
+        f.sim.tick()
+        XCTAssertTrue(f.iu.log.last?.event == "attitude back to the IU")
+        var last = try XCTUnwrap(f.v.attitudeCommand?.attitude), worst = Vec3.zero
+        XCTAssertLessThan(rotationVector(f.v.attitude.conjugate * last).length, 0.7 * deg)
+        for _ in 0..<5_000 {
+            f.sim.tick()
+            let q = f.v.attitudeCommand!.attitude, d = rotationVector(last.conjugate * q) / 0.02
+            worst = Vec3(max(worst.x, abs(d.x)), max(worst.y, abs(d.y)), max(worst.z, abs(d.z)))
+            last = q
+        }
+        XCTAssertGreaterThan(off, 5 * deg)
+        XCTAssertLessThan(worst.x, 0.6 * deg + 1e-9)
+        XCTAssertLessThan(max(worst.y, worst.z), 0.4 * deg + 1e-9)
+        let upNow = f.v.position.normalized
+        XCTAssertLessThan(angleBetween(f.v.attitude.rotate(.unitZ), -upNow), 1.9 * deg)
     }
 
     // Before T3 the IU refuses Space: it would drop the S-IC full and
@@ -558,29 +604,29 @@ final class SaturnIUTests: XCTestCase {
     }
 
     // A minimum pulse lasts the minimum on-time (0.06 s) whatever the frame
-    // rate: the simulation ends a step where a pulse ends. One pulse from
-    // rest, flown in the app's 1/60 s frames and in 1 ms frames, leaves the
-    // same rate (four 1/60 s steps, 0.067 s, without that).
+    // rate: the simulation ends a step where a pulse ends. A command 1.005°
+    // away, just past the dead band, takes one pulse from rest. In 1 ms
+    // frames (one step each) the pitch engine is on for exactly 0.06 s; in
+    // the app's 1/60 s frames the same pulse leaves the same rate (four 1/60 s
+    // steps, 0.067 s, without the step end).
     func testAPSPulseLastsTheMinimumOnTimeAtAnyFrameRate() throws {
-        var rates: [Double] = [], pulses: [Int] = []
+        var rates: [Double] = [], onTime: [Double] = []
         for frame in [1.0 / 60, 0.001] {
             let sim = try Simulation.forTests(perturbations: false)
             let v = sIVBInOrbit(sim)
             sim.placeInFreeSpace(v)
             v.autopilot = .attitudeHold
             sim.tick()
-            v.attitudeCommand = AttitudeCommand(attitude: v.attitude * Quat(axis: .unitY, angle: 1.02 * deg))
-            var on = false, count = 0
+            v.attitudeCommand = AttitudeCommand(attitude: v.attitude * Quat(axis: .unitY, angle: 1.005 * deg))
+            var on = 0.0
             for _ in 0..<Int((0.5 / frame).rounded()) {
                 sim.advance(by: frame)
-                let firing = v.thrusters.contains { $0.name.hasSuffix("pitch") && $0.level > 0 }
-                if firing && !on { count += 1 }
-                on = firing
+                if v.thrusters.contains(where: { $0.name.hasSuffix("pitch") && $0.level > 0 }) { on += frame }
             }
             rates.append(v.angularVelocity.y)
-            pulses.append(count)
+            onTime.append(on)
         }
-        XCTAssertEqual(pulses, [1, 1])
+        XCTAssertEqual(onTime[1], AS506.apsMinimumOnTime, accuracy: 1e-9)
         XCTAssertGreaterThan(rates[1], 0)
         XCTAssertEqual(rates[0], rates[1], accuracy: 1e-3 * rates[1])
     }

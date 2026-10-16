@@ -1,8 +1,9 @@
 import Foundation
 
 /// Orbiter-style attitude modes. Axes flown by the rotation groups (RCS, APS)
-/// use the vessel's `phasePlane` law if it has one (kill rotation excepted),
-/// otherwise the M0 law. Axes flown by gimballed engines use the attitude law
+/// use the vessel's `phasePlane` law if it has one (kill rotation excepted,
+/// and roll in the pointing modes, which set no roll attitude and keep M0's
+/// rate damping), otherwise the M0 law. Axes flown by gimballed engines use the attitude law
 /// of `TVCGains`, or in the hold the flight control computer's law when the
 /// vessel has `fccGains` and an `attitudeCommand` (the Saturn's IU).
 public enum AttitudeAutopilot: String, CaseIterable, Codable {

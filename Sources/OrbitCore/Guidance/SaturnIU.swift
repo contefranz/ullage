@@ -47,7 +47,8 @@ public struct TiltProgram {
 /// - T4 when it senses the S-II cutoff (LOX depletion): separation and S-IVB
 ///   ignition, whose J-2 flies the vehicle's own `tvcGains` law.
 /// - T5 when it senses the S-IVB cutoff: APS ullage burn, then the local
-///   horizontal in orbit.
+///   horizontal in orbit, the command moving there within the orbital rate
+///   limits.
 ///
 /// Iterative guidance (IGM) is not modelled yet: the attitude stays where the
 /// tilt was arrested through the S-II and S-IVB burns, and the S-IVB cuts off
@@ -57,12 +58,14 @@ public struct TiltProgram {
 /// Each time base runs its own switch-selector events; when the next one
 /// starts, the earlier ones' pending events are dropped, as the LVDC moved to
 /// the new base's table. The IU stages by part and skips a part already
-/// gone, so a pilot's Space press from T3 on leaves the rest of the sequence
-/// intact; before T3 it refuses manual staging. It sets `.attitudeHold` at T1 and
-/// writes `attitudeCommand` every step. A pilot who selects another mode or
-/// gives manual input flies the attitude while the IU keeps the sequence;
-/// back in the hold (key 8), the IU restarts its command from the attitude
-/// then and returns to its program at the command rate limit.
+/// gone, so a pilot's Space press from T3 on does the sequence no harm; the
+/// S-II dropped by hand starts T4 early, which leaves the S-II's remaining
+/// events behind. Before T3 it refuses manual staging. It sets
+/// `.attitudeHold` at T1 and writes `attitudeCommand` every step. A pilot who
+/// gives manual input, or selects another mode, flies the attitude while the
+/// IU keeps the sequence. When the hold flies again (input released, or key
+/// 8), the IU restarts its command from the attitude then and returns to its
+/// program within its command rate limits.
 public final class SaturnIU: FlightProgram {
     public enum TimeBase: Int, CaseIterable, Comparable, CustomStringConvertible {
         case t1 = 1, t2, t3, t4, t5
@@ -119,8 +122,11 @@ public final class SaturnIU: FlightProgram {
         /// at `backup` s from T1.
         public var programStart: (rise: Double, backup: Double)
         public var tilt: TiltProgram
-        /// Limit on the rate of each commanded angle, rad/s.
+        /// Limit on the rate of each commanded angle in powered flight, rad/s.
         public var commandRateLimit: Double
+        /// Limit on the command's rate about each body axis in orbit (roll,
+        /// pitch, yaw), rad/s.
+        public var coastRateLimit: Vec3
         /// Outboard cant: radial angle (rad, thrust lines inwards) and ramp rate (rad/s).
         public var cant: (angle: Double, rate: Double)
         public var sequence: [Event]
@@ -210,7 +216,7 @@ public final class SaturnIU: FlightProgram {
         let pilot = v.autopilot != .attitudeHold || !v.rotationInput.isZero
         if pilotHasAttitude && !pilot, let angles = eulerAngles(of: v.attitude) {
             chi = angles
-            lastCommand = nil
+            lastCommand = v.attitude
             log.append((now, "attitude back to the IU"))
         }
         pilotHasAttitude = pilot
@@ -376,11 +382,27 @@ public final class SaturnIU: FlightProgram {
         let command: Quat
         if localHorizontal {
             // Orbital attitude: +x along the horizontal velocity, +z (Position
-            // I) towards the Earth, turning at the orbital rate.
+            // I) towards the Earth, turning at the orbital rate. The command
+            // moves there within the orbital rate limits about each axis.
             let r = v.position, vel = v.velocity
             let down = -r.normalized, x = (vel - r.normalized * vel.dot(r.normalized)).normalized
-            command = Quat(matrix: Mat3(columns: x, down.cross(x), down))
-            v.attitudeCommand = AttitudeCommand(attitude: command, rate: r.cross(vel) / r.lengthSquared)
+            let target = Quat(matrix: Mat3(columns: x, down.cross(x), down))
+            var rate = r.cross(vel) / r.lengthSquared
+            if let last = lastCommand {
+                let turn = rotationVector(last.conjugate * target)   // the command's body axes
+                let limit = plan.coastRateLimit * dt
+                let step = Vec3(max(-limit.x, min(limit.x, turn.x)), max(-limit.y, min(limit.y, turn.y)),
+                                max(-limit.z, min(limit.z, turn.z)))
+                if (step - turn).length > 1e-12 {
+                    command = step.length > 0 ? last * Quat(axis: step, angle: step.length) : last
+                    rate = dt > 0 ? last.rotate(step) / dt : .zero
+                } else {
+                    command = target
+                }
+            } else {
+                command = target
+            }
+            v.attitudeCommand = AttitudeCommand(attitude: command, rate: rate)
             lastCommand = command
             return
         }
