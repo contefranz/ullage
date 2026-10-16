@@ -38,7 +38,8 @@ final class SaturnIUTests: XCTestCase {
     // The stack stands on the pad as Apollo 11 did: at LC-39A's geocentric
     // latitude (SP-4029, H), nose up, Position I (+z) east, the 90° pad
     // azimuth (TVC datasheet §7.1; GE504's initial roll A_Z - 90°), with the
-    // IU armed and nothing commanded yet.
+    // IU armed and nothing commanded yet. Space is refused: it would drop the
+    // S-IC on the pad.
     func testOnThePad() throws {
         let sim = try Simulation.forTests(perturbations: true)
         let v = VesselLibrary.apollo11OnPad(in: sim)
@@ -54,7 +55,11 @@ final class SaturnIUTests: XCTestCase {
         XCTAssertEqual(v.status, .landed)
         XCTAssertNil(v.autopilot)
         XCTAssertNil(iu.timeBases[.t1])
-        XCTAssertEqual(iu.status, "IU: on the pad")
+        XCTAssertEqual(iu.status, "on the pad")
+        let parts = v.parts.map(\.name)
+        XCTAssertNil(sim.stage(v))
+        XCTAssertEqual(v.parts.map(\.name), parts)
+        XCTAssertEqual(sim.events.last?.message, "Apollo 11: staging inhibited by the flight program")
     }
 
     // GE504 Table 5-I, read from the page images: the four segments of the
@@ -102,18 +107,25 @@ final class SaturnIUTests: XCTestCase {
     }
 
     // The first 45 s. The tower-clearance yaw commands chi_Z = 1.25° from T1
-    // + 1.0 s to T1 + 9.0 s (GE504 Table 4-II; MAN503), at the 1°/s command
-    // limit (GE504 §2.1.2), so the nose leans away from the tower (north). The
-    // roll and pitch programs start when the stack has risen 137 m (GE504
-    // §4.1.2; the 13 s backup is not needed). The roll takes Position I from
-    // the 90° pad azimuth to the 72.058° flight azimuth (SP-4029, H) at
-    // 1.00°/s, which the flight control law tracks (a1/a0) x 1°/s = 0.77°
-    // behind (S-IC gains 0.9 and 0.69 s, TN D-5869: datasheet §7.4 C), and
-    // settles on it. No commanded angle ever moves faster than 1°/s.
+    // + 1.0 s to T1 + 8.75 s (GE504 Table 4-II), at the 1°/s command limit
+    // (GE504 §2.1.2), so the manoeuvre ends at T1 + 10.0 s (the FER's
+    // prediction; MAN503 lists its end at T1 + 9.0): the nose leans away from
+    // the tower, which stands to the north. The roll and pitch programs start
+    // when the stack has risen 137 m (GE504 §4.1.2; the 13 s backup is not
+    // needed). The roll takes Position I from the 90° pad azimuth to the
+    // 72.058° flight azimuth (SP-4029, H) at 1.00°/s. With the S-IC roll
+    // gains (0.245 and 0.15 s, Boeing D5-15481-1 Table 3-IV: L) the start
+    // overshoots: AS-506 peaked at a 0.92° roll error and a 1.38°/s roll rate
+    // (FER Table 11-2), the model at 1.18° and 1.39°/s (2 and 3 s after the
+    // start, against 0.6 and 1.2 s: its roll loop is slower than AS-506's).
+    // Later in the ramp the law tracks it (a1/a0) x 1°/s =
+    // 0.61° behind, and the stack settles on the flight azimuth. No commanded
+    // angle ever moves faster than 1°/s.
     func testTowerYawAndRollProgram() throws {
         let f = try launch()
         var lastChi: Vec3?, worstRate = 0.0, maxYaw = 0.0, northward = 1.0
         var riseAtStart: Double?, previousRise = 0.0, rollLag: [Double] = [], rollRate: [Double] = []
+        var peakRollError = 0.0, peakRollRate = 0.0
         let r0 = f.v.position.length
         let north = { () -> Vec3 in
             let up = f.v.position.normalized, pole = f.sim.snapshot.orientation(f.sim.system.earth).pole
@@ -134,14 +146,16 @@ final class SaturnIUTests: XCTestCase {
             let t = f.range()
             if t > 4 && t < 9 { northward = min(northward, -f.v.attitude.rotate(.unitX).dot(north())) }
             let t1 = t - AS506.liftoff
-            if let started = f.iu.programStarted, t1 > started + 6, t1 < started + 16,
-               let actual = f.iu.eulerAngles(of: f.v.attitude) {
+            guard let started = f.iu.programStarted, let actual = f.iu.eulerAngles(of: f.v.attitude) else { return }
+            peakRollError = max(peakRollError, abs(chi.x - actual.x) / deg)
+            peakRollRate = max(peakRollRate, abs(f.v.angularVelocity.x) / deg)
+            if t1 > started + 9, t1 < started + 17 {
                 rollLag.append((chi.x - actual.x) / deg)
                 rollRate.append(f.v.angularVelocity.x / deg)
             }
         }
         // Yaw: up to 1.25°, nose to the south of the vertical (towards +Y,
-        // azimuth 162°), back to zero after T1 + 9.0 + 1.25 s.
+        // azimuth 162°), back to zero by T1 + 10.0 s.
         XCTAssertEqual(maxYaw / deg, 1.25, accuracy: 1e-9)
         XCTAssertGreaterThan(northward, 0.01)   // southward lean of the nose, at least 0.57°
         XCTAssertLessThan(worstRate, 1 * deg * 0.02 + 1e-12)
@@ -149,10 +163,14 @@ final class SaturnIUTests: XCTestCase {
         let started = try XCTUnwrap(f.iu.programStarted)
         XCTAssertEqual(try XCTUnwrap(riseAtStart), 137.15, accuracy: 0.15)
         XCTAssertLessThan(started, AS506.programStartBackup)
-        // Roll: lag and rate mid-ramp, then Position I on the flight azimuth.
+        // Roll: the start's peaks, lag and rate late in the ramp, then
+        // Position I on the flight azimuth.
+        XCTAssertEqual(peakRollRate, 1.38, accuracy: 0.1)
+        XCTAssertEqual(peakRollError, 0.92, accuracy: 0.35)
         XCTAssertFalse(rollLag.isEmpty)
-        for lag in rollLag { XCTAssertEqual(lag, 0.69 / 0.9, accuracy: 0.05) }
-        for rate in rollRate { XCTAssertEqual(rate, 1, accuracy: 0.02) }
+        XCTAssertEqual(rollLag.reduce(0, +) / Double(rollLag.count), 0.15 / 0.245, accuracy: 0.03)
+        for lag in rollLag { XCTAssertEqual(lag, 0.15 / 0.245, accuracy: 0.08) }
+        for rate in rollRate { XCTAssertEqual(rate, 1, accuracy: 0.07) }
         let angles = try XCTUnwrap(f.iu.eulerAngles(of: f.v.attitude))
         XCTAssertEqual(angles.x / deg, 0, accuracy: 0.05)
         XCTAssertEqual(f.iu.chi.x, 0, accuracy: 1e-12)
@@ -223,9 +241,9 @@ final class SaturnIUTests: XCTestCase {
     // The FCC law at liftoff mass in free space with the S-IC band-1 gains
     // (a0 0.9, a1 0.69 s; TN D-5869 Table 3): a 0.5° pitch command step is a
     // second-order response with wn = sqrt(a0 c) and zeta = a1 c / (2 wn),
-    // c = 4 F L / Iyy from the model's own geometry (datasheet §7.4 B: about
-    // 0.84 rad/s and 0.32 at release, a 35 % overshoot at 3.95 s). Mass
-    // properties frozen; self-consistency of law, gains and model.
+    // c = 4 F L / Iyy from the model's own geometry, in vacuum (datasheet
+    // §8.6: c 0.898 s^-2, wn 0.90 rad/s, zeta 0.345, a 32 % overshoot at
+    // 3.7 s). Mass properties frozen; self-consistency of law, gains and model.
     func testFlightControlStepResponse() throws {
         let sim = try Simulation.forTests(perturbations: false)
         let v = VesselLibrary.saturnV()
@@ -252,17 +270,20 @@ final class SaturnIUTests: XCTestCase {
         let peak = pitch.max { $0.1 < $1.1 }!
         XCTAssertEqual(peak.0, Double.pi / wd, accuracy: 0.1 * Double.pi / wd)
         XCTAssertEqual(peak.1 / step - 1, exp(-zeta * Double.pi / (1 - zeta * zeta).squareRoot()), accuracy: 0.05)
-        XCTAssertEqual(wn, 0.84, accuracy: 0.84 * 0.15)
+        XCTAssertEqual(c, 0.898, accuracy: 0.005)
+        XCTAssertEqual(wn, 0.90, accuracy: 0.005)
     }
 
     // One flight, first motion to T5 + 87 s, against AS-506's sequence of
     // events (FER Tables 2-1 and 2-2). Timed events are logged at their
     // scheduled time and act within a step (0.02 s); T2-T5 start when the IU
-    // sees the cutoff, a step after it (the LVDC took 0.03-0.23 s), and the
-    // propellant model puts the S-IC and S-II burnouts at 161.63 and 548.22
-    // s. The stack ends as S-IVB, IU, SLA, LM and CSM, with every spent part
-    // its own vessel, the S-II on its low mixture ratio, and the APS ullage
-    // burn over. IGM is not modelled, so the S-IVB cuts off at its time.
+    // sees the cutoff, one or two steps after it (the LVDC took 0.03-0.23 s).
+    // The propellant model puts the S-IC burnout at 161.63 s and the S-II's
+    // at 548.28 s (its J-2s light at 164.04 s, the model being calibrated
+    // from 164.00). The stack ends as S-IVB, IU, SLA, LM and CSM, with every
+    // spent part its own vessel, the S-II on its low mixture ratio, and the
+    // APS ullage burn over. IGM is not modelled, so the S-IVB cuts off as
+    // long after T4 as on the flight (T4 + 151.10 s).
     func testFlightSequenceFollowsTheApollo11Timeline() throws {
         let f = try launch()
         var ullage = 0.0
@@ -298,7 +319,7 @@ final class SaturnIUTests: XCTestCase {
             ("S-II/S-IVB separation", t4 + 0.8, 0.3),
             ("S-IVB flight control law", 552.2, 0.3),
             ("S-IVB ignition", 552.2, 0.3),                        // FER 552.2
-            ("S-IVB cutoff (at Apollo 11's time: IGM not modelled)", 699.34, 0.3),  // FER 699.34
+            ("S-IVB cutoff (Apollo 11's burn time: IGM not modelled)", 699.34, 0.3),  // FER 699.34
             ("T5: S-IVB cutoff sensed", t5, 0.3),                  // FER 699.57: 0.23 s sensing
             ("APS ullage on", t5 + 0.3, 0.3),                      // FER 699.8
             ("orbital guidance: local horizontal", t5 + 19.8, 0.3),  // FER 719.3
@@ -339,13 +360,17 @@ final class SaturnIUTests: XCTestCase {
         XCTAssertLessThan(before - aps.reduce(0) { $0 + $1.mass }, 5)
     }
 
-    // A pilot's Space press does not upset the IU, which stages by part: the
-    // aft interstage jettisoned by hand at 170 s, the IU's own jettison at
-    // 192.3 s finds nothing to separate, and the LET still goes at 197.9 s.
-    // A pilot who takes the attitude (kill rotation) leaves the sequence
-    // running.
+    // Before T3 the IU refuses Space: it would drop the S-IC full and
+    // burning. From T3 a pilot's Space press does not upset the IU, which
+    // stages by part: the aft interstage jettisoned by hand at 170 s, the
+    // IU's own jettison at 192.3 s finds nothing to separate and says so, and
+    // the LET still goes at 197.9 s. A pilot who takes the attitude (kill
+    // rotation) leaves the sequence running.
     func testIUStagesByPartAfterAManualSpacePress() throws {
         let f = try launch()
+        f.fly(to: 100)
+        XCTAssertNil(f.sim.stage(f.v))
+        XCTAssertEqual(f.v.parts.first?.name, "S-IC")
         f.fly(to: 170)
         XCTAssertEqual(f.sim.stage(f.v)?.parts.map(\.name), ["S-IC/S-II interstage"])
         f.v.autopilot = .killRotation
@@ -353,7 +378,72 @@ final class SaturnIUTests: XCTestCase {
         XCTAssertEqual(f.sim.vessels.map(\.name), ["Apollo 11", "Apollo 11 – S-IC", "Apollo 11 – S-IC/S-II interstage",
                                                   "Apollo 11 – LES"])
         XCTAssertTrue(f.v.parts.contains { $0.name == "S-II" })
+        XCTAssertTrue(f.iu.log.contains { $0.event == "S-II aft interstage jettison (nothing to do: gone)" })
+        XCTAssertTrue(f.iu.log.contains { $0.event == "launch escape tower jettison" })
         XCTAssertTrue(f.iu.status.hasSuffix("(attitude: pilot)"), f.iu.status)
+    }
+
+    // The LVDC leaves a time base's table when the next one starts: the S-II
+    // dropped by hand at 200 s (T3 + 38 s) starts T4 at once, and the S-II's
+    // pending events (IGM note, gain switches, centre engine cutoff, mixture
+    // ratio shift) never fire into the S-IVB, which keeps its own law.
+    func testEarlierTimeBaseEventsDropWhenTheNextStarts() throws {
+        let f = try launch()
+        f.fly(to: 200)
+        for _ in 0..<3 where f.v.parts.contains(where: { $0.name == "S-II" }) { f.sim.stage(f.v) }
+        XCTAssertFalse(f.v.parts.contains { $0.name == "S-II" })
+        f.fly(to: 260)
+        let t4 = try XCTUnwrap(f.iu.timeBases[.t4])
+        XCTAssertEqual(f.range(t4), 200, accuracy: 0.03)
+        XCTAssertEqual(f.iu.log.filter { $0.time >= t4 }.map(\.event),
+                       ["T4: S-II outboard engine cutoff sensed", "S-II outboard engine cutoff",
+                        "S-II/S-IVB separation (nothing to do: gone)", "S-IVB flight control law", "S-IVB ignition"])
+        XCTAssertNil(f.v.fccGains)
+        XCTAssertEqual(f.v.mainThrottle, 1)
+    }
+
+    // The pilot takes the attitude (kill rotation) at 40 s and hands it back
+    // (8) at 60 s, 13° off the program. The IU restarts its command from the
+    // attitude then and returns to the program at the 1°/s command limit, so
+    // the stack turns back at about that rate (1.3°/s at most) rather than
+    // swinging back on the whole error at once (7.7°/s near max Q without it).
+    func testAttitudeHandBackReturnsAtTheCommandRate() throws {
+        let f = try launch()
+        f.fly(to: 40)
+        f.v.autopilot = .killRotation
+        f.fly(to: 60)
+        let command = try XCTUnwrap(f.v.attitudeCommand?.attitude)
+        let offProgram = rotationVector(f.v.attitude.conjugate * command).length
+        f.v.autopilot = .attitudeHold
+        var worstRate = 0.0
+        f.fly(to: 120) { worstRate = max(worstRate, f.v.angularVelocity.length) }
+        XCTAssertGreaterThan(offProgram, 3 * deg)
+        XCTAssertTrue(f.iu.log.contains { $0.event == "attitude back to the IU" })
+        XCTAssertLessThan(worstRate, 1.5 * deg)
+        // Back on the program (the IU's last update was a step ago).
+        let angles = try XCTUnwrap(f.iu.eulerAngles(of: f.v.attitude))
+        XCTAssertEqual(f.iu.chi.y, AS506.tiltProgram.pitch(at: f.range() - 0.02 - AS506.liftoff), accuracy: 1e-6)
+        XCTAssertEqual(f.iu.chi.x, 0, accuracy: 1e-12)
+        XCTAssertEqual(f.iu.chi.z, 0, accuracy: 1e-12)
+        XCTAssertEqual(angles.y, f.iu.chi.y, accuracy: 1 * deg)
+    }
+
+    // An IU attached to a stack already flying (here coasting in orbit) takes
+    // its first update as first motion and its rise from there: the roll and
+    // pitch programs wait for the 137 m rise or the 13 s backup rather than
+    // start with T1.
+    func testIUStartedInFlightWaitsForTheProgramStart() throws {
+        let sim = try Simulation.forTests(perturbations: false)
+        let v = VesselLibrary.saturnV()
+        sim.add(v)
+        sim.placeInCircularOrbit(v, around: sim.system.earth, altitude: 185_000, inclination: 32.5)
+        let iu = SaturnIU.as506()
+        v.flightProgram = iu
+        let start = sim.time
+        sim.run(seconds: 20)
+        let t1 = try XCTUnwrap(iu.timeBases[.t1])
+        XCTAssertEqual(t1 - start, AS506.liftoff - AS506.firstMotion, accuracy: 1e-6)
+        XCTAssertEqual(try XCTUnwrap(iu.programStarted), AS506.programStartBackup, accuracy: 0.021)
     }
 
     /// The S-IVB stack just after the first burn (147.13 s; SP-4029), in
@@ -433,6 +523,83 @@ final class SaturnIUTests: XCTestCase {
         XCTAssertGreaterThan(perHour[1], 298)
     }
 
+    // The phase plane decides once a step, so the simulation ends a coasting
+    // step where an axis reaches the switching line. Holding in free space
+    // (no orbital-period cap on the step) after the slew above, with the
+    // app's 1/60 s frames, the APS works as little at 10,000x as at 1x
+    // (under 1 kg/h; 47 kg/h at 10,000x with steps up to 60 s), and the
+    // error stays inside the dead band plus one pulse.
+    func testAPSHoldAtTimeWarp() throws {
+        var perHour: [Double] = [], worst: [Double] = []
+        for (warp, seconds) in [(1.0, 900.0), (10_000, 7200)] {
+            let sim = try Simulation.forTests(perturbations: false)
+            let v = sIVBInOrbit(sim)
+            sim.placeInFreeSpace(v)
+            v.autopilot = .attitudeHold
+            sim.tick()
+            v.attitudeCommand = AttitudeCommand(attitude: v.attitude * Quat(axis: .unitY, angle: 20 * deg)
+                                                * Quat(axis: .unitX, angle: 30 * deg))
+            sim.run(seconds: 600)
+            let aps = v.tanks.dropFirst(2), before = aps.reduce(0) { $0 + $1.mass }
+            let start = sim.time
+            var error = 0.0
+            sim.warp = warp
+            while sim.time - start < seconds {
+                sim.advance(by: 1.0 / 60)
+                let e = rotationVector(v.attitude.conjugate * v.attitudeCommand!.attitude)
+                error = max(error, abs(e.x), abs(e.y), abs(e.z))
+            }
+            perHour.append((before - aps.reduce(0) { $0 + $1.mass }) * 3600 / (sim.time - start))
+            worst.append(error)
+        }
+        XCTAssertLessThan(perHour[0], 1.5)
+        XCTAssertEqual(perHour[1], perHour[0], accuracy: 0.25 * perHour[0])
+        for e in worst { XCTAssertLessThan(e, 1.1 * deg) }
+    }
+
+    // A minimum pulse lasts the minimum on-time (0.06 s) whatever the frame
+    // rate: the simulation ends a step where a pulse ends. One pulse from
+    // rest, flown in the app's 1/60 s frames and in 1 ms frames, leaves the
+    // same rate (four 1/60 s steps, 0.067 s, without that).
+    func testAPSPulseLastsTheMinimumOnTimeAtAnyFrameRate() throws {
+        var rates: [Double] = [], pulses: [Int] = []
+        for frame in [1.0 / 60, 0.001] {
+            let sim = try Simulation.forTests(perturbations: false)
+            let v = sIVBInOrbit(sim)
+            sim.placeInFreeSpace(v)
+            v.autopilot = .attitudeHold
+            sim.tick()
+            v.attitudeCommand = AttitudeCommand(attitude: v.attitude * Quat(axis: .unitY, angle: 1.02 * deg))
+            var on = false, count = 0
+            for _ in 0..<Int((0.5 / frame).rounded()) {
+                sim.advance(by: frame)
+                let firing = v.thrusters.contains { $0.name.hasSuffix("pitch") && $0.level > 0 }
+                if firing && !on { count += 1 }
+                on = firing
+            }
+            rates.append(v.angularVelocity.y)
+            pulses.append(count)
+        }
+        XCTAssertEqual(pulses, [1, 1])
+        XCTAssertGreaterThan(rates[1], 0)
+        XCTAssertEqual(rates[0], rates[1], accuracy: 1e-3 * rates[1])
+    }
+
+    // The pointing modes set no roll attitude, so the APS damps roll rates
+    // there (M0's rate loop) instead of leaving any rate under the phase
+    // plane's dead band / rate gain (0.2°/s) to run on: a 0.15°/s roll in
+    // Prograde on the light S-IVB dies out.
+    func testAPSDampsRollInThePointingModes() throws {
+        let sim = try Simulation.forTests(perturbations: false)
+        let v = sIVBInOrbit(sim, light: true)
+        v.autopilot = .prograde
+        sim.run(seconds: 120)
+        v.angularVelocity.x += 0.15 * deg
+        sim.run(seconds: 60)
+        XCTAssertLessThan(abs(v.angularVelocity.x), 0.02 * deg)
+        XCTAssertLessThan(angleBetween(v.attitude.rotate(.unitX), v.velocity), 1.5 * deg)
+    }
+
     /// A program with one timed event, to test the simulation's hooks.
     final class OneEvent: FlightProgram {
         let at: Epoch
@@ -445,17 +612,24 @@ final class SaturnIUTests: XCTestCase {
 
     // The simulation ends a step on a flight program's next event, so the
     // program acts on time at any warp: a capsule coasting in orbit (steps of
-    // several seconds) still gets an update at the event's exact epoch.
+    // several seconds), or standing on the pad (10 s steps), still gets an
+    // update at the event's exact epoch.
     func testStepsEndOnFlightProgramEvents() throws {
-        let sim = try Simulation.forTests(perturbations: false)
-        let v = VesselLibrary.capsule()
-        sim.add(v)
-        sim.placeInCircularOrbit(v, around: sim.system.earth, altitude: 200_000)
-        let program = OneEvent(at: sim.time + 7.123)
-        v.flightProgram = program
-        sim.warp = 100
-        sim.advance(by: 0.5)
-        XCTAssertTrue(program.updates.contains { abs($0 - program.at) < 1e-6 })
-        XCTAssertGreaterThan(program.updates.count, 2)
+        for landed in [false, true] {
+            let sim = try Simulation.forTests(perturbations: false)
+            let v = VesselLibrary.capsule()
+            sim.add(v)
+            if landed {
+                sim.placeLanded(v, on: sim.system.earth, latitude: 28.6, longitude: -80.6)
+            } else {
+                sim.placeInCircularOrbit(v, around: sim.system.earth, altitude: 200_000)
+            }
+            let program = OneEvent(at: sim.time + 7.123)
+            v.flightProgram = program
+            sim.warp = 100
+            sim.advance(by: 0.5)
+            XCTAssertTrue(program.updates.contains { abs($0 - program.at) < 1e-6 }, "landed \(landed)")
+            XCTAssertGreaterThan(program.updates.count, 2, "landed \(landed)")
+        }
     }
 }

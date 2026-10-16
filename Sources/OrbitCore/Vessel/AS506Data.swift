@@ -164,6 +164,12 @@ enum AS506 {
                                                                        (130, 0.32, 0.30)]   // s from T1
     static let sIIGains: [(start: Double, a0: Double, a1: Double)] = [(2.4, 1.12, 1.9), (61.4, 0.65, 1.1),
                                                                        (191.4, 0.44, 0.74)]   // s from T3
+    /// Roll gains (a0, a1), the same in every band of a stage: Boeing
+    /// D5-15481-1 (AS-504 reference trajectory, 1967) Table 3-IV, the only
+    /// roll values found (L for AS-506). The S-IVB's single J-2 cannot roll:
+    /// its APS does.
+    static let sICRollGains = (a0: 0.245, a1: 0.15)    // D5-15481-1 (L)
+    static let sIIRollGains = (a0: 0.25, a1: 0.20)     // D5-15481-1 (L)
     /// S-IC centre engine cutoff, commanded by the IU at T1 + 134.56 s (range
     /// 135.20, FER Table 2-2 and §5.1, H); the LVDC senses it and starts T2.
     static let sICCenterCutoffTime = 134.56    // s from T1; FER (H)
@@ -181,19 +187,20 @@ enum AS506 {
     static let sIICenterCutoffTime = 299.0     // s from T3; FER (H)
     /// The S-II mixture-ratio shift. On AS-506 the IU commanded it at ESC +
     /// 331.8 s (range 494.8) on reaching a preset characteristic velocity, and
-    /// the engines reached the low EMR, 4.34 on average, at 498.0 s (FER §6.8
-    /// and Table 2-2). The propulsion model shifts at `sIIMixtureRatioShift`
+    /// the engines reached the low EMR, 4.34 on average, at 498.0 s (FER §6.5,
+    /// p. 6-8, and Table 2-2). The propulsion model shifts at `sIIMixtureRatioShift`
     /// to its 4.7 setting, which matches its 548.22 s depletion; the IU uses
     /// that time until the S-II model is recalibrated to the FER.
     static let sIIMixtureRatioShiftTime = sIIMixtureRatioShift - sICOutboardCutoff  // s from T3
     /// From T4, S-II outboard cutoff sensed: separation command and S-IVB
     /// ignition (STDV open, range 552.2; FER Table 2-2, H). The S-IVB velocity
-    /// cutoff command came at 699.34 s, T4 + 151.1, and the LVDC sensed it
-    /// and started T5 0.23 s later (FER); until IGM is modelled the IU cuts
-    /// off at that time and senses it on the next step.
+    /// cutoff command came at 699.34 s, T4 + 151.10 (T4 at 548.24, FER Table
+    /// 2-1), and the LVDC sensed it and started T5 0.23 s later (FER); until
+    /// IGM is modelled the IU cuts off that long after its own T4 and senses
+    /// it on the next step.
     static let sIISeparationTime = 0.8         // s from T4; FER (H)
     static let sIVBIgnitionTime = 4.0          // s from T4; FER (H)
-    static let sIVBCutoffTime = 699.34 - sIIOutboardCutoff  // s from T4; FER (H)
+    static let sIVBCutoffTime = 699.34 - 548.24  // s from T4; FER Tables 2-1 and 2-2 (H)
     /// From T5, S-IVB cutoff sensed: APS ullage engines on and off (No. 1;
     /// No. 2 follows 0.1 s later), and the manoeuvre to the local horizontal
     /// (FER Table 2-2, H). T2, T3 and T4 also start on the LVDC sensing a

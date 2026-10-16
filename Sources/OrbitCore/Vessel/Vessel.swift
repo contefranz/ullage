@@ -65,10 +65,12 @@ public final class Vessel: Identifiable {
     /// it flies the gimbal axes in `.attitudeHold` with an `attitudeCommand`,
     /// in place of the `tvcGains` law. The IU sets it per flight phase.
     public var fccGains: FCCGains?
-    /// On/off law of the rotation groups (the Saturn's APS) in the pointing
-    /// modes and the hold; nil uses M0's law. Kill rotation always uses M0's.
+    /// On/off law of the rotation groups (the Saturn's APS): every axis in
+    /// the hold, pitch and yaw in the pointing modes (roll keeps M0's rate
+    /// damping there); nil uses M0's law. Kill rotation always uses M0's.
     public var phasePlane: PhasePlaneLaw?
-    /// Program flying the vessel (the Saturn's IU); nil when hand-flown.
+    /// Program aboard (the Saturn's IU), which sequences the flight and
+    /// writes `attitudeCommand`; nil when the vessel carries none.
     public var flightProgram: FlightProgram?
     /// Attitude `.attitudeHold` captured (body -> ICRF).
     var heldAttitude: Quat?
@@ -80,6 +82,9 @@ public final class Vessel: Identifiable {
     /// Phase-plane pulses in progress on the group axes: direction (-1, 0,
     /// +1 per axis) and the minimum on-time still to run, s.
     var groupPulse = (direction: Vec3.zero, remaining: Vec3.zero)
+    /// Predicted time until a coasting group axis reaches the phase plane's
+    /// switching line, s (infinity when none is heading there).
+    var groupSwitch = Double.infinity
 
     // MARK: Telemetry (updated every step)
     public internal(set) var altitude = 0.0

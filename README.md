@@ -48,10 +48,10 @@ grid. For real imagery, put equirectangular maps (8192×4096 or smaller) in
 | = / - (hold) | Throttle up / down |
 | W S A D Q E | Pitch down / up, yaw left / right, roll left / right |
 | I K J L U O | Translate up / down / left / right / forward / back |
-| Space | Next staging event |
+| Space | Next staging event (on the Saturn V, only after the S-IC cutoff) |
 | T | Kill rotation (toggle; damps rates only) |
 | 1–7 | Prograde, retrograde, normal, anti-normal, radial out, radial in, hold level |
-| 8, 0 | Hold attitude; autopilot off |
+| 8, 0 | Hold attitude (on the Saturn V, gives the attitude back to the IU); autopilot off |
 | . , / | Time warp up / down / reset to 1× |
 | P | Pause |
 | Mouse drag, scroll | Orbit and zoom the camera |
@@ -63,14 +63,19 @@ Scenarios are in the **Scenario** menu: the test rocket on LC-39A on
 16 July 1969, Apollo 11's Saturn V (AS-506) on the same pad at first motion, a
 capsule in low Earth orbit, and a capsule in lunar orbit.
 
-On the Saturn V, Z lights the F-1s and the Instrument Unit takes over at
-liftoff: the tower-clearance yaw, the roll to the 72.058° flight azimuth, the
-pitch program, the engine cutoffs, every separation and ignition on Apollo 11's
-times, and the local-horizontal attitude in orbit; the HUD's IU row shows its
-time base and phase. Selecting another autopilot mode takes the attitude away
-from the IU, which keeps sequencing the flight. Iterative guidance is not
-modelled yet, so after the S-IC the IU holds the attitude it had when the tilt
-was arrested.
+The Saturn V opens paused at first motion with the F-1s at full thrust: P
+releases it, and the Instrument Unit takes over at liftoff: the
+tower-clearance yaw, the roll to the 72.058° flight azimuth, the pitch
+program, the engine cutoffs, every separation and ignition on Apollo 11's
+times, and the turn to the local horizontal after the S-IVB cutoff; the HUD's
+IU row shows its time base and phase. Space does nothing until the S-IC has
+burned out. Flying by hand or selecting another autopilot mode takes the
+attitude away from the IU, which keeps sequencing the flight; 8 gives it back,
+and the IU returns to its program at 1°/s. Iterative guidance is not modelled
+yet, so after the S-IC the IU holds the attitude it had when the tilt was
+arrested, and the S-IVB, cut off after Apollo 11's burn time, ends suborbital:
+it coasts up to about 760 km and comes down about 42 minutes after liftoff
+unless you burn it again (Z).
 
 ## How it works
 

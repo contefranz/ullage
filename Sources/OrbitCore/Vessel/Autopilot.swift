@@ -1,8 +1,10 @@
 import Foundation
 
 /// Orbiter-style attitude modes. Axes flown by the rotation groups (RCS, APS)
-/// use the M0 law; axes flown by gimballed engines use the attitude law of
-/// `TVCGains`.
+/// use the vessel's `phasePlane` law if it has one (kill rotation excepted),
+/// otherwise the M0 law. Axes flown by gimballed engines use the attitude law
+/// of `TVCGains`, or in the hold the flight control computer's law when the
+/// vessel has `fccGains` and an `attitudeCommand` (the Saturn's IU).
 public enum AttitudeAutopilot: String, CaseIterable, Codable {
     /// Rate damping only, on every axis (Orbiter-like): it does not hold the
     /// attitude against a steady torque such as an engine out.
@@ -15,13 +17,15 @@ public enum AttitudeAutopilot: String, CaseIterable, Codable {
     case radialIn = "Radial-"
     case horizonLevel = "Hold Level"
     /// Hold `Vessel.attitudeCommand`, or the attitude captured when selected
-    /// or when manual input ends. With gimbals flying, the hold first damps
-    /// the turn and captures once their law can take over without saturating
-    /// (`Vessel.holdCanCapture`); it steers to either attitude only from
-    /// then. The captured attitude lies short of where the turn stops by up
-    /// to the law's swing, about 0.4 alpha rad with the default gains (alpha
-    /// the gimbal angular acceleration: 1.8° in pitch and 12° in roll at
-    /// liftoff).
+    /// or when manual input ends. With gimbals flying the `TVCGains` law, the
+    /// hold first damps the turn and captures once that law can take over
+    /// without saturating (`Vessel.holdCanCapture`); it steers to either
+    /// attitude only from then. The captured attitude lies short of where the
+    /// turn stops by up to the law's swing, about 0.4 alpha rad with the
+    /// default gains (alpha the gimbal angular acceleration: 1.8° in pitch
+    /// and 12° in roll at liftoff). Under the FCC law it captures at once.
+    /// With a flight program writing `attitudeCommand` (the Saturn's IU),
+    /// selecting it hands the attitude back to the program.
     case attitudeHold = "Hold Att"
 
     /// Desired direction of the vessel +x axis (ICRF), or nil for rate damping
@@ -79,15 +83,20 @@ public struct TVCGains: Equatable {
 /// term and no feed-forward of the command's rate, so a ramp is tracked a1/a0
 /// times its rate behind. Beta is each engine's deflection: per actuator in
 /// pitch and yaw, tangential in roll. The IU switches the gains by flight
-/// phase; the same pair flies roll (a placeholder: no roll gains were found).
+/// phase; roll has its own pair, the pitch and yaw one unless given.
 public struct FCCGains: Equatable {
-    /// Attitude gain, deg of deflection per deg of error.
+    /// Attitude gain in pitch and yaw, deg of deflection per deg of error.
     public var a0: Double
-    /// Rate gain, deg of deflection per deg/s of body rate (s).
+    /// Rate gain in pitch and yaw, deg of deflection per deg/s of body rate (s).
     public var a1: Double
-    public init(a0: Double, a1: Double) {
+    /// The same two gains in roll.
+    public var rollA0: Double
+    public var rollA1: Double
+    public init(a0: Double, a1: Double, rollA0: Double? = nil, rollA1: Double? = nil) {
         self.a0 = a0
         self.a1 = a1
+        self.rollA0 = rollA0 ?? a0
+        self.rollA1 = rollA1 ?? a1
     }
 }
 
@@ -186,10 +195,28 @@ extension Vessel {
         // turn involves: pitch and yaw (M0's pointing modes turn the nose),
         // and roll too in the hold. With no group axis left it is M0's
         // pitch/yaw value.
+        let response = 0.5  // s
+        /// M0's command on one axis for the rate error `e`: a 0.5 s rate loop.
+        func axisCommand(_ e: Double, _ a: Double) -> Double {
+            guard a > 0 else { return 0 }
+            let c = e / (a * response)
+            if abs(c) < 0.02 && abs(e) < 2e-4 { return 0 }
+            return max(-1, min(1, c))
+        }
         var command: RotationCommand
         if let law = phasePlane, mode != .killRotation {
+            // The pointing modes set no roll attitude, so roll keeps M0's rate
+            // damping: the phase plane alone would leave rates under its
+            // dead band / rate gain (0.2°/s on the Saturn's APS) undamped.
+            let holdsRoll = mode == .attitudeHold
+            // The error's rate while coasting: the command's rate less the
+            // body's (the pointing modes' targets taken as fixed).
+            let commandRate = holdsRoll ? attitude.inverseRotate(attitudeCommand?.rate ?? .zero) : .zero
             command = phasePlaneCommand(law, error: pointing.map { $0.axis * $0.angle } ?? .zero,
-                                        flown: (!byGimbal.roll, !byGimbal.pitch, !byGimbal.yaw), alpha: alpha)
+                                        errorRate: commandRate - angularVelocity,
+                                        flown: (!byGimbal.roll && holdsRoll, !byGimbal.pitch, !byGimbal.yaw),
+                                        alpha: alpha)
+            if !holdsRoll && !byGimbal.roll { command.roll = axisCommand(-angularVelocity.x, alpha.x) }
         } else {
             var desired = Vec3.zero
             if let (axis, angle) = pointing {
@@ -201,13 +228,6 @@ extension Vessel {
                 if angle < 0.002 { desired = .zero }
             }
             let err = desired - angularVelocity
-            let response = 0.5  // s
-            func axisCommand(_ e: Double, _ a: Double) -> Double {
-                guard a > 0 else { return 0 }
-                let c = e / (a * response)
-                if abs(c) < 0.02 && abs(e) < 2e-4 { return 0 }
-                return max(-1, min(1, c))
-            }
             command = RotationCommand(roll: axisCommand(err.x, alpha.x), pitch: axisCommand(err.y, alpha.y),
                                       yaw: axisCommand(err.z, alpha.z))
         }
@@ -225,12 +245,12 @@ extension Vessel {
             referenceRate = .zero
             let e = rotationVector(attitude.conjugate * goal), w = angularVelocity
             let per = control.deflectionPerCommand
-            func law(_ ek: Double, _ wk: Double, _ pk: Double) -> Double {
-                pk > 0 ? max(-1, min(1, (fcc.a0 * ek - fcc.a1 * wk) / pk)) : 0
+            func law(_ a0: Double, _ a1: Double, _ ek: Double, _ wk: Double, _ pk: Double) -> Double {
+                pk > 0 ? max(-1, min(1, (a0 * ek - a1 * wk) / pk)) : 0
             }
-            if byGimbal.roll { command.roll = law(e.x, w.x, per.x) }
-            if byGimbal.pitch { command.pitch = law(e.y, w.y, per.y) }
-            if byGimbal.yaw { command.yaw = law(e.z, w.z, per.z) }
+            if byGimbal.roll { command.roll = law(fcc.rollA0, fcc.rollA1, e.x, w.x, per.x) }
+            if byGimbal.pitch { command.pitch = law(fcc.a0, fcc.a1, e.y, w.y, per.y) }
+            if byGimbal.yaw { command.yaw = law(fcc.a0, fcc.a1, e.z, w.z, per.z) }
             return command
         }
 
@@ -294,15 +314,20 @@ extension Vessel {
 
     /// The phase-plane law on the `flown` axes with authority (`alpha` > 0),
     /// for the attitude error `error` (body axes, rad): -1, 0 or +1 per axis.
-    /// A pulse runs for at least the law's minimum on-time.
-    func phasePlaneCommand(_ law: PhasePlaneLaw, error: Vec3, flown: (Bool, Bool, Bool),
+    /// A pulse runs for at least the law's minimum on-time. It also predicts,
+    /// from the error's rate `errorRate` and a steady body rate, when a
+    /// coasting axis will reach the switching line (`groupSwitch`), so the
+    /// simulation can end a step there: the law decides once a step.
+    func phasePlaneCommand(_ law: PhasePlaneLaw, error: Vec3, errorRate: Vec3, flown: (Bool, Bool, Bool),
                            alpha: Vec3) -> RotationCommand {
         let on = [flown.0 && alpha.x > 0, flown.1 && alpha.y > 0, flown.2 && alpha.z > 0]
         let e = [error.x, error.y, error.z], w = [angularVelocity.x, angularVelocity.y, angularVelocity.z]
+        let de = [errorRate.x, errorRate.y, errorRate.z]
         let limit = [law.errorLimit.x, law.errorLimit.y, law.errorLimit.z]
         var direction = [groupPulse.direction.x, groupPulse.direction.y, groupPulse.direction.z]
         var remaining = [groupPulse.remaining.x, groupPulse.remaining.y, groupPulse.remaining.z]
         var c = [0.0, 0.0, 0.0]
+        var next = Double.infinity
         for k in 0..<3 {
             guard on[k] else {
                 remaining[k] = 0
@@ -316,8 +341,16 @@ extension Vessel {
             c[k] = s > law.deadband ? 1 : s < -law.deadband ? -1 : 0
             direction[k] = c[k]
             remaining[k] = c[k] != 0 ? law.minimumOnTime : 0
+            guard c[k] == 0, abs(de[k]) > 1e-12 else { continue }
+            if abs(e[k]) >= limit[k] {
+                // The clip holds s until the error comes back inside the limit.
+                if e[k] * de[k] < 0 { next = min(next, (abs(e[k]) - limit[k]) / abs(de[k])) }
+            } else {
+                next = min(next, max(0, ((de[k] > 0 ? law.deadband : -law.deadband) - s) / de[k]))
+            }
         }
         groupPulse = (Vec3(direction[0], direction[1], direction[2]), Vec3(remaining[0], remaining[1], remaining[2]))
+        groupSwitch = next
         return RotationCommand(roll: c[0], pitch: c[1], yaw: c[2])
     }
 

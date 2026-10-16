@@ -44,7 +44,8 @@ struct HUDState: Equatable {
     var mass = 0.0
     var tanks: [TankInfo] = []
     var autopilot: String? = nil
-    /// The flight program's state (the Saturn's IU); nil when hand-flown.
+    /// The flight program's HUD line (the Saturn's IU); nil when the vessel
+    /// carries no program.
     var program: String? = nil
     /// Largest deflection of a firing gimballed engine and its range; nil when none fires.
     var gimbal: String? = nil

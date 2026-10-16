@@ -12,4 +12,10 @@ public protocol FlightProgram: AnyObject {
     func timeToNextEvent(at now: Epoch) -> Double?
     /// One line for the HUD.
     var status: String { get }
+    /// Whether the pilot may stage `vessel` now (the Space key).
+    func allowsManualStaging(of vessel: Vessel) -> Bool
+}
+
+extension FlightProgram {
+    public func allowsManualStaging(of vessel: Vessel) -> Bool { true }
 }

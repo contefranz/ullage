@@ -80,11 +80,11 @@ final class SaturnVControlTests: XCTestCase {
         }
     }
 
-    // S4: attitude hold after a (0.57, 0.57, -0.43)°/s kick: back within
-    // 0.05° in 7 s, no actuator faster than its rate limit. On the S-IVB the
-    // APS holds roll inside its ±1° dead band (EH 8.30, M) plus one minimum
-    // pulse, and its pitch engines never fire while the J-2 burns.
-    // Self-consistency only.
+    // S4: attitude hold after a (0.57, 0.57, -0.43)°/s kick: never more than
+    // 0.8° off, back within 0.05° in 7 s, no actuator faster than its rate
+    // limit. On the S-IVB the APS holds roll inside its ±1° dead band (EH
+    // 8.30, M) plus one minimum pulse throughout, and its pitch engines never
+    // fire while the J-2 burns. Self-consistency only.
     func testHoldAfterKick() throws {
         for phase in [Phase.liftoff, .sIIIgnition, .sIVBIgnition] {
             let (sim, v) = try freeSpace(phase)
@@ -92,21 +92,26 @@ final class SaturnVControlTests: XCTestCase {
             sim.run(seconds: 1)
             let held = v.heldAttitude!
             v.angularVelocity += Vec3(0.01, 0.01, -0.0075)
-            var last = gimbalAngles(v), worst = 0.0, tooFast = 0, apsPitch = 0
+            var last = gimbalAngles(v), worst = 0.0, worstRoll = 0.0, tooFast = 0, apsPitch = 0
             let rates = v.thrusters.flatMap { $0.gimbal.map(\.rateLimit) }
+            // The APS's roll on the S-IVB is bounded on its own (below).
+            let apsRoll = phase == .sIVBIgnition
             sim.run(seconds: 7) {
                 let now = gimbalAngles(v)
                 for k in now.indices where abs(now[k] - last[k]) > rates[k] * 0.02 + 1e-15 { tooFast += 1 }
                 last = now
-                worst = max(worst, rotationVector(v.attitude.conjugate * held).length)
+                let e = rotationVector(v.attitude.conjugate * held)
+                worst = max(worst, apsRoll ? (e.y * e.y + e.z * e.z).squareRoot() : e.length)
+                worstRoll = max(worstRoll, abs(e.x))
                 if firingAPS(v).contains(where: { $0.hasSuffix("pitch") }) { apsPitch += 1 }
             }
             let e = rotationVector(v.attitude.conjugate * held)
             XCTAssertEqual(tooFast, 0, "\(phase)")
             XCTAssertEqual(apsPitch, 0, "\(phase)")
             XCTAssertLessThan(worst, 0.8 * deg, "\(phase)")
+            if apsRoll { XCTAssertLessThan(worstRoll, 1.1 * deg, "\(phase)") }
             XCTAssertLessThan((e.y * e.y + e.z * e.z).squareRoot(), 0.05 * deg, "\(phase)")
-            XCTAssertLessThan(abs(e.x), phase == .sIVBIgnition ? 1.1 * deg : 0.05 * deg, "\(phase)")
+            XCTAssertLessThan(abs(e.x), apsRoll ? 1.1 * deg : 0.05 * deg, "\(phase)")
         }
     }
 

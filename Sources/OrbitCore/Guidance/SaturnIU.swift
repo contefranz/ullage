@@ -36,10 +36,10 @@ public struct TiltProgram {
 ///
 /// - T1 starts at liftoff. The tower-clearance yaw, then, once the vehicle
 ///   has risen clear of the tower, the roll program from the pad azimuth to
-///   the flight azimuth and the pitch program, all relative to the
-///   space-fixed frame fixed at guidance reference release, with each
-///   commanded angle rate-limited. The outboard F-1 cant, the S-IC
-///   flight-control gain switches and the tilt arrest.
+///   the flight azimuth and the pitch program until the tilt arrest, all
+///   relative to the space-fixed frame fixed at guidance reference release,
+///   with each commanded angle rate-limited. The outboard F-1 cant and the
+///   S-IC flight-control gain switches.
 /// - T2 when the LVDC senses the centre engine's cutoff, which T1 commands.
 /// - T3 when it senses the S-IC outboard cutoff (LOX depletion): separation,
 ///   S-II ignition, S-II gains, aft interstage and LET jettison, S-II centre
@@ -51,11 +51,18 @@ public struct TiltProgram {
 ///
 /// Iterative guidance (IGM) is not modelled yet: the attitude stays where the
 /// tilt was arrested through the S-II and S-IVB burns, and the S-IVB cuts off
-/// at the flight's time rather than on reaching orbit.
+/// at the flight's time rather than on reaching orbit, which leaves the stack
+/// suborbital.
 ///
-/// It sets `.attitudeHold` at T1 and writes `attitudeCommand` every step; a
-/// pilot who selects another mode flies the attitude while the IU keeps the
-/// sequence. It stages by part, so an early Space press does no harm.
+/// Each time base runs its own switch-selector events; when the next one
+/// starts, the earlier ones' pending events are dropped, as the LVDC moved to
+/// the new base's table. The IU stages by part and skips a part already
+/// gone, so a pilot's Space press from T3 on leaves the rest of the sequence
+/// intact; before T3 it refuses manual staging. It sets `.attitudeHold` at T1 and
+/// writes `attitudeCommand` every step. A pilot who selects another mode or
+/// gives manual input flies the attitude while the IU keeps the sequence;
+/// back in the hold (key 8), the IU restarts its command from the attitude
+/// then and returns to its program at the command rate limit.
 public final class SaturnIU: FlightProgram {
     public enum TimeBase: Int, CaseIterable, Comparable, CustomStringConvertible {
         case t1 = 1, t2, t3, t4, t5
@@ -76,7 +83,6 @@ public final class SaturnIU: FlightProgram {
         case startCant(String)
         case gains(FCCGains?)
         case ullage(Bool)
-        case arrestTilt
         case localHorizontal
         /// Nothing but the log entry.
         case note
@@ -137,7 +143,7 @@ public final class SaturnIU: FlightProgram {
     /// Attitude (body -> ICRF) of a body aligned with the space-fixed frame:
     /// +x the launch vertical, +z the flight azimuth, +y to its right.
     public private(set) var spaceFixed: Quat?
-    public private(set) var status = "IU: on the pad"
+    public private(set) var status = "on the pad"
     /// What the IU did and when (the scheduled time of a timed event; a
     /// detected one at the step that saw it), in order.
     public private(set) var log: [(time: Epoch, event: String)] = []
@@ -153,7 +159,9 @@ public final class SaturnIU: FlightProgram {
     private var tiltArrested = false
     private var cantStart: (part: String, at: Epoch)?
     private var ullageOn = false
+    private var secondStageLit = false
     private var thirdStageLit = false
+    private var pilotHasAttitude = false
     private var localHorizontal = false
     private var lastCommand: Quat?
 
@@ -181,11 +189,15 @@ public final class SaturnIU: FlightProgram {
             startRadius = v.position.length
             return
         }
-        if firstMotion == nil { firstMotion = lastLanded ?? now }
+        if firstMotion == nil {
+            firstMotion = lastLanded ?? now
+            // Never seen on the ground: rise from here.
+            if lastLanded == nil { startRadius = v.position.length }
+        }
         if timeBases[.t1] == nil {
             let t1 = firstMotion! + plan.liftoffDelay
             guard now - t1 >= -1e-9 else {
-                status = "IU: first motion"
+                status = "first motion"
                 return
             }
             startT1(at: t1, v, sim)
@@ -194,9 +206,21 @@ public final class SaturnIU: FlightProgram {
         runDueEvents(v, sim, now: now)
         if let cant = cantStart { applyCant(v, part: cant.part, since: now - cant.at) }
         if ullageOn { v.translationInput.x = 1 }
+        // Back from the pilot: restart the command from the attitude now.
+        let pilot = v.autopilot != .attitudeHold || !v.rotationInput.isZero
+        if pilotHasAttitude && !pilot, let angles = eulerAngles(of: v.attitude) {
+            chi = angles
+            lastCommand = nil
+            log.append((now, "attitude back to the IU"))
+        }
+        pilotHasAttitude = pilot
         commandAttitude(v, sim, now: now)
         status = statusLine(v, now: now)
     }
+
+    /// The pilot may stage from T3 on: before it, Space would drop the S-IC
+    /// on the pad, or full and burning in flight.
+    public func allowsManualStaging(of vessel: Vessel) -> Bool { timeBases[.t3] != nil }
 
     public func timeToNextEvent(at now: Epoch) -> Double? {
         var next: Double?
@@ -242,9 +266,12 @@ public final class SaturnIU: FlightProgram {
             guard let p = part(name) else { return true }
             return !p.thrusters.contains { $0.groups.contains(.main) && $0.isEnabled && $0.hasPropellant }
         }
+        func firing(_ name: String) -> Bool { stageFiring(v, name) }
         func start(_ b: TimeBase, _ what: String) {
             timeBases[b] = now
             log.append((now, "\(b): \(what) sensed"))
+            // The LVDC leaves the earlier time bases' tables.
+            for (i, e) in plan.sequence.enumerated() where e.base < b { done.insert(i) }
         }
         if timeBases[.t2] == nil
             && v.thrusters.first(where: { $0.name == plan.centreEngine }).map({ !$0.isEnabled }) ?? true {
@@ -254,13 +281,15 @@ public final class SaturnIU: FlightProgram {
             if timeBases[.t2] == nil { start(.t2, "centre engine cutoff") }
             start(.t3, "S-IC outboard engine cutoff")
         }
-        if timeBases[.t3] != nil && timeBases[.t4] == nil && burnedOut(plan.stages.second) {
-            start(.t4, "S-II outboard engine cutoff")
+        if timeBases[.t3] != nil && timeBases[.t4] == nil {
+            if burnedOut(plan.stages.second) {
+                start(.t4, "S-II outboard engine cutoff")
+            } else if firing(plan.stages.second) {
+                secondStageLit = true
+            }
         }
-        if timeBases[.t4] != nil && timeBases[.t5] == nil, let third = part(plan.stages.third) {
-            let firing = third.thrusters.contains { $0.groups.contains(.main) && $0.level > 0 && $0.isEnabled
-                                                    && $0.hasPropellant }
-            if firing { thirdStageLit = true } else if thirdStageLit { start(.t5, "S-IVB cutoff") }
+        if timeBases[.t4] != nil && timeBases[.t5] == nil && part(plan.stages.third) != nil {
+            if firing(plan.stages.third) { thirdStageLit = true } else if thirdStageLit { start(.t5, "S-IVB cutoff") }
         }
     }
 
@@ -273,40 +302,49 @@ public final class SaturnIU: FlightProgram {
             guard let (i, at) = due.min(by: { $0.1 < $1.1 }) else { return }
             done.insert(i)
             let e = plan.sequence[i]
-            log.append((at, e.name))
-            sim.log("\(v.name): \(e.name)")
-            perform(e.action, at: at, v, sim)
+            let name = perform(e.action, at: at, v, sim) ? e.name : "\(e.name) (nothing to do: gone)"
+            log.append((at, name))
+            sim.log("\(v.name): \(name)")
         }
     }
 
-    private func perform(_ action: Action, at: Epoch, _ v: Vessel, _ sim: Simulation) {
+    /// Carry out `action`; false when its part or engine is gone.
+    private func perform(_ action: Action, at: Epoch, _ v: Vessel, _ sim: Simulation) -> Bool {
         switch action {
         case .engineCutoff(let name):
-            v.thrusters.first { $0.name == name }?.isEnabled = false
+            guard let engine = v.thrusters.first(where: { $0.name == name }) else { return false }
+            engine.isEnabled = false
         case .mainThrottle(let level):
             v.mainThrottle = level
         case .separate(let name):
-            if let part = v.parts.first(where: { $0.name == name }), case .event(let n) = part.staging {
-                sim.stage(v, event: n)
+            guard let part = v.parts.first(where: { $0.name == name }), case .event(let n) = part.staging else {
+                return false
             }
+            sim.stage(v, event: n)
         case let .rating(name, rating):
-            for t in v.parts.first(where: { $0.name == name })?.thrusters ?? [] where t.groups.contains(.main) {
-                t.rating = rating
-            }
+            guard let part = v.parts.first(where: { $0.name == name }) else { return false }
+            for t in part.thrusters where t.groups.contains(.main) { t.rating = rating }
         case .startCant(let name):
+            guard v.parts.contains(where: { $0.name == name }) else { return false }
             cantStart = (name, at)
         case .gains(let g):
             v.fccGains = g
         case .ullage(let on):
             ullageOn = on
             if !on { v.translationInput.x = 0 }
-        case .arrestTilt:
-            tiltArrested = true
         case .localHorizontal:
             localHorizontal = true
         case .note:
             break
         }
+        return true
+    }
+
+    /// Whether a main engine of the named part delivers thrust.
+    private func stageFiring(_ v: Vessel, _ name: String) -> Bool {
+        v.parts.first { $0.name == name }?.thrusters.contains {
+            $0.groups.contains(.main) && $0.level > 0 && $0.isEnabled && $0.hasPropellant
+        } ?? false
     }
 
     /// Bias the gimballed engines of `part` so each thrust line leans inwards
@@ -353,9 +391,15 @@ public final class SaturnIU: FlightProgram {
             log.append((now, "roll and pitch program"))
             sim.log("\(v.name): roll and pitch program")
         }
+        if !tiltArrested && t >= plan.tilt.arrest {
+            tiltArrested = true
+            log.append((t1 + plan.tilt.arrest, "tilt arrest"))
+            sim.log("\(v.name): tilt arrest")
+        }
         let yaw = t >= plan.towerYaw.start && t < plan.towerYaw.end ? plan.towerYaw.angle : 0
         let roll = programStarted != nil ? 0 : initialRoll
-        let pitch = tiltArrested ? chi.y : programStarted != nil ? plan.tilt.pitch(at: t) : 0
+        // The program holds its value from the arrest on.
+        let pitch = programStarted != nil ? plan.tilt.pitch(at: t) : 0
         let step = plan.commandRateLimit * dt
         func toward(_ a: Double, _ b: Double) -> Double { a + max(-step, min(step, b - a)) }
         chi = Vec3(toward(chi.x, roll), toward(chi.y, pitch), toward(chi.z, yaw))
@@ -370,8 +414,10 @@ public final class SaturnIU: FlightProgram {
     // MARK: HUD
 
     private func statusLine(_ v: Vessel, now: Epoch) -> String {
-        guard let (base, start) = timeBases.max(by: { $0.key < $1.key }) else { return "IU: on the pad" }
+        guard let (base, start) = timeBases.max(by: { $0.key < $1.key }) else { return "on the pad" }
         let t1 = timeBases[.t1].map { now - $0 } ?? 0
+        let pilot = v.autopilot != .attitudeHold || !v.rotationInput.isZero
+        let held = pilot ? "" : ", attitude held (no IGM)"
         let phase: String
         switch base {
         case .t1, .t2:
@@ -380,11 +426,31 @@ public final class SaturnIU: FlightProgram {
             else if programStarted != nil && abs(chi.x) > 1e-6 { phase = "roll and pitch program" }
             else if programStarted != nil { phase = "pitch program" }
             else { phase = "vertical rise" }
-        case .t3: phase = v.mainThrottle > 0 ? "S-II burn, attitude held (no IGM)" : "S-IC/S-II staging"
-        case .t4: phase = v.mainThrottle > 0 ? "S-IVB burn, attitude held (no IGM)" : "S-II/S-IVB staging"
-        case .t5: phase = localHorizontal ? "orbit, local horizontal" : ullageOn ? "APS ullage" : "S-IVB cutoff"
+        case .t3:
+            phase = stageFiring(v, plan.stages.second) ? "S-II burn" + held
+                : secondStageLit ? "S-II engines off" : "S-IC/S-II staging"
+        case .t4:
+            phase = stageFiring(v, plan.stages.third) ? "S-IVB burn" + held
+                : thirdStageLit ? "S-IVB engine off" : "S-II/S-IVB staging"
+        case .t5:
+            if localHorizontal {
+                phase = "local horizontal, " + (Self.periapsisRadius(v) > v.reference.radius + 100_000
+                                                 ? "parking orbit" : "suborbital (no IGM)")
+            } else {
+                phase = ullageOn ? "APS ullage" : "S-IVB cutoff"
+            }
         }
-        let manual = v.autopilot == .attitudeHold ? "" : "  (attitude: pilot)"
-        return String(format: "%@+%.0f %@%@", base.description, now - start, phase, manual)
+        return String(format: "%@+%.0f %@%@", base.description, now - start, phase, pilot ? "  (attitude: pilot)" : "")
+    }
+
+    /// Two-body periapsis radius about the vessel's reference body, m (0 for
+    /// an orbit that does not close).
+    static func periapsisRadius(_ v: Vessel) -> Double {
+        let r = v.position, w = v.velocity, mu = v.reference.gm
+        let energy = w.lengthSquared / 2 - mu / r.length
+        guard energy < 0 else { return 0 }
+        let a = -mu / (2 * energy)
+        let e = (w.cross(r.cross(w)) / mu - r.normalized).length
+        return a * (1 - e)
     }
 }

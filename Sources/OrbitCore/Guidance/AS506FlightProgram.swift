@@ -8,16 +8,17 @@ extension SaturnIU {
         typealias D = AS506
         let deg = D.degree
         let tilt = tilt ?? D.tiltProgram
-        func gains(_ g: (start: Double, a0: Double, a1: Double)) -> Action { .gains(FCCGains(a0: g.a0, a1: g.a1)) }
+        func gains(_ g: (start: Double, a0: Double, a1: Double), roll: (a0: Double, a1: Double)) -> Action {
+            .gains(FCCGains(a0: g.a0, a1: g.a1, rollA0: roll.a0, rollA1: roll.a1))
+        }
 
         var sequence: [Event] = [
-            Event(.t1, 0, "S-IC flight control gains", gains(D.sICGains[0])),
+            Event(.t1, 0, "S-IC flight control gains", gains(D.sICGains[0], roll: D.sICRollGains)),
             Event(.t1, D.cantOn, "S-IC outboard engine cant", .startCant("S-IC")),
             Event(.t1, D.sICCenterCutoffTime, "S-IC centre engine cutoff", .engineCutoff("S-IC engine 5")),
-            Event(.t1, tilt.arrest, "tilt arrest", .arrestTilt),
             Event(.t3, 0, "S-IC outboard engine cutoff", .mainThrottle(0)),
             Event(.t3, D.sICSeparationTime, "S-IC/S-II separation", .separate("S-IC")),
-            Event(.t3, D.sIIGains[0].start, "S-II flight control gains", gains(D.sIIGains[0])),
+            Event(.t3, D.sIIGains[0].start, "S-II flight control gains", gains(D.sIIGains[0], roll: D.sIIRollGains)),
             Event(.t3, D.sIIIgnitionTime, "S-II ignition", .mainThrottle(1)),
             Event(.t3, D.interstageJettisonTime, "S-II aft interstage jettison", .separate("S-IC/S-II interstage")),
             Event(.t3, D.lesJettisonTime, "launch escape tower jettison", .separate("LES")),
@@ -28,17 +29,17 @@ extension SaturnIU {
             Event(.t4, D.sIISeparationTime, "S-II/S-IVB separation", .separate("S-II")),
             Event(.t4, D.sIVBIgnitionTime, "S-IVB flight control law", .gains(nil)),
             Event(.t4, D.sIVBIgnitionTime, "S-IVB ignition", .mainThrottle(1)),
-            // Until IGM exists, the cutoff comes at the flight's time.
-            Event(.t4, D.sIVBCutoffTime, "S-IVB cutoff (at Apollo 11's time: IGM not modelled)", .mainThrottle(0)),
+            // Until IGM exists, the cutoff comes as long after T4 as on the flight.
+            Event(.t4, D.sIVBCutoffTime, "S-IVB cutoff (Apollo 11's burn time: IGM not modelled)", .mainThrottle(0)),
             Event(.t5, D.tb5UllageOn, "APS ullage on", .ullage(true)),
             Event(.t5, D.orbitalGuidanceStart, "orbital guidance: local horizontal", .localHorizontal),
             Event(.t5, D.tb5UllageOff, "APS ullage off", .ullage(false)),
         ]
         for g in D.sICGains.dropFirst() {
-            sequence.append(Event(.t1, g.start, "S-IC flight control gains", gains(g)))
+            sequence.append(Event(.t1, g.start, "S-IC flight control gains", gains(g, roll: D.sICRollGains)))
         }
         for g in D.sIIGains.dropFirst() {
-            sequence.append(Event(.t3, g.start, "S-II flight control gains", gains(g)))
+            sequence.append(Event(.t3, g.start, "S-II flight control gains", gains(g, roll: D.sIIRollGains)))
         }
 
         return SaturnIU(plan: Plan(
@@ -58,8 +59,8 @@ extension SaturnIU {
 extension VesselLibrary {
     /// Apollo 11 as it stood on LC-39A at first motion: `saturnV()` at the
     /// pad's geocentric latitude, with Position I (+z) east (the 90° pad
-    /// azimuth) and the IU's flight program aboard. Z lights the F-1s; the IU
-    /// takes over at liftoff.
+    /// azimuth) and the IU's flight program aboard, engines off. Full
+    /// throttle lights the F-1s; the IU takes over at liftoff.
     @discardableResult
     public static func apollo11OnPad(in sim: Simulation, program: SaturnIU = .as506()) -> Vessel {
         let v = saturnV()

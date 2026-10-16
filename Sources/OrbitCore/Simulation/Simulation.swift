@@ -86,17 +86,29 @@ public final class Simulation {
     }
 
     func maxStep(for v: Vessel) -> Double {
-        if v.landed != nil {
-            return v.thrusters.contains(where: { $0.isEnabled && $0.level > 0 }) ? 0.02 : 10
-        }
         var h = 60.0
-        let thrusting = v.thrusters.contains { $0.isEnabled && $0.level > 0 && $0.hasPropellant }
-        if thrusting || v.dynamicPressure > 1 { h = min(h, 0.02) }
-        let w = v.angularVelocity.length
-        if w > 1e-6 { h = min(h, 0.05 / w) }
-        let r = v.position.length
-        let orbital = (r * r * r / v.reference.gm).squareRoot()   // = period / 2π for a circle
-        h = min(h, 2 * Double.pi / 1000 * orbital)
+        if v.landed != nil {
+            h = v.thrusters.contains(where: { $0.isEnabled && $0.level > 0 }) ? 0.02 : 10
+        } else {
+            let thrusting = v.thrusters.contains { $0.isEnabled && $0.level > 0 && $0.hasPropellant }
+            if thrusting || v.dynamicPressure > 1 { h = min(h, 0.02) }
+            let w = v.angularVelocity.length
+            if w > 1e-6 { h = min(h, 0.05 / w) }
+            let r = v.position.length
+            let orbital = (r * r * r / v.reference.gm).squareRoot()   // = period / 2π for a circle
+            h = min(h, 2 * Double.pi / 1000 * orbital)
+            // The phase-plane law decides once a step: end the step where a
+            // coasting axis reaches its switching line, and turn no more than
+            // its dead band in any step, so it never sees the line late (a
+            // limit cycle at warp otherwise).
+            if let law = v.phasePlane, let mode = v.autopilot, mode != .killRotation {
+                h = min(h, v.groupSwitch)
+                if w > 1e-12 { h = min(h, law.deadband / w) }
+            }
+        }
+        // End steps where a phase-plane pulse ends and on the program's next event.
+        let pulse = v.groupPulse.remaining
+        for r in [pulse.x, pulse.y, pulse.z] where r > 1e-9 { h = min(h, r) }
         if let next = v.flightProgram?.timeToNextEvent(at: time), next > 0 { h = min(h, next) }
         return max(h, 1e-3)
     }
@@ -111,6 +123,7 @@ public final class Simulation {
         }
         v.flightProgram?.update(v, in: self)
         v.applyThrottles()
+        v.groupSwitch = .infinity   // the phase-plane law sets it again if it runs
         var cmd = v.rotationInput
         let control = cmd.isZero && v.autopilot == nil ? ControlAllocation() : v.controlAllocation()
         if cmd.isZero, let ap = v.autopilot {
@@ -280,9 +293,14 @@ public final class Simulation {
 
     /// Separate the next staging event of `v` (`Vessel.jettisonNextStage`),
     /// or staging event `event` if given (`Vessel.jettison(event:)`); the
-    /// spent parts become their own vessel.
+    /// spent parts become their own vessel. Without an event (the pilot's
+    /// Space key) a flight program aboard may refuse it.
     @discardableResult
     public func stage(_ v: Vessel, event: Int? = nil) -> Vessel? {
+        if event == nil, let program = v.flightProgram, !program.allowsManualStaging(of: v) {
+            log("\(v.name): staging inhibited by the flight program")
+            return nil
+        }
         let separated: Vessel?
         if let event { separated = v.jettison(event: event) } else { separated = v.jettisonNextStage() }
         guard let spent = separated else { return nil }
