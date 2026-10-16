@@ -14,6 +14,11 @@ import Foundation
 ///   NASA SP-8120 (J-2 throat); enginehistory.org; This Day in Aviation;
 ///   Braeunig; DLR "Apollo 11 Reloaded"; Saturn V News Reference; Apollo 11
 ///   press kit.
+/// - Gimbals and the S-IVB APS (datasheet §7, 2026-10-16): enginehistory.org
+///   RPE pages 8.10-8.30 (EH); Haynes Saturn V manual; Project Apollo
+///   Coordinate System Standards (CSS); Coates and Donald, SA-501 S-IVB APS
+///   flight anomalies, NTRS 19690016846 (APS-TN); AS-507 Flight Evaluation
+///   Report (FER-507); AS-201 flight results; National Air and Space Museum.
 ///
 /// Confidence as graded by the datasheet: (H) high, (M) medium, (L) low.
 /// "Derived" is arithmetic on published values, "estimate" is the datasheet's
@@ -25,6 +30,7 @@ enum AS506 {
     static let foot = 0.3048                 // m
     static let pound = 0.45359237            // kg
     static let poundForce = 4.4482216152605  // N
+    static let degree = Double.pi / 180      // rad
 
     /// Construction x (m) of Saturn V vehicle station `sta` (in). The
     /// construction frame of `VesselLibrary.saturnV` is the station frame in metres.
@@ -126,7 +132,10 @@ enum AS506 {
 
     /// S-IVB stage: structure, aft skirt, J-2 (dry); aft interstage and IU excluded.
     static let sIVBDry = 24_852.0                // SP-4029 Ground Ignition Weights (H)
-    /// Not itemised; probably APS propellant, helium and the 2 ullage motors.
+    /// Not itemised. It holds the APS propellant, which the builder moves into
+    /// the APS tanks (2 x (`apsOxidizerLoad` + `apsFuelLoad`) = 657 lb); the
+    /// other 999 lb are helium, the TX-280 ullage-motor propellant (117.4 lb),
+    /// motor cases and the rest (datasheet §7.3).
     static let sIVBOther = 1_656.0               // SP-4029 Ground Ignition Weights (H)
     static let sIVBLOXLoad = 192_497.0           // SP-4029 Ground Ignition Weights (H)
     static let sIVBLH2Load = 43_608.0            // SP-4029 Ground Ignition Weights (H)
@@ -184,7 +193,12 @@ enum AS506 {
     static let f1 = EngineRating.fixedNozzle(name: "F-1 (AS-506 flight-matched)", thrustVacuum: f1ThrustVacuum,
                                              ispVacuum: f1RatedIspVacuum, exitArea: f1ExitArea,
                                              mixtureRatio: sICMixtureRatio)
-    static let f1GimbalRange = 5.0                   // deg, outboard only, enginehistory.org (M); for the TVC item
+    /// Outboard engines only, each with a pitch-plane and a yaw-plane actuator
+    /// (square pattern); the centre engine is fixed. Single secondary source.
+    /// It is the control limit: the actuator stop (5.25°) and the bearing
+    /// envelope (6°) lie outside it (datasheet §7.1).
+    static let f1GimbalRange = 5.0                   // deg per actuator, control limit, EH 8.13 (L)
+    static let f1GimbalRate = 5.0                    // deg/s, EH 8.13 (L); loaded or no-load not stated
 
     // J-2: one nozzle for every setting, with the geometric exit area 3.011 m^2.
     static let j2ThroatDiameter = 14.7               // in, NASA SP-8120 (H)
@@ -222,7 +236,12 @@ enum AS506 {
                       * poundForce,
         ispVacuum: sIIJ2IspVacuum + 4 * (sIIHighMixtureRatio - sIILowMixtureRatio), exitArea: j2ExitArea,
         mixtureRatio: sIILowMixtureRatio)
-    static let sIIJ2GimbalRange = 7.0                // deg, outboard only, enginehistory.org (M); S-IVB range not found
+    /// Outboard J-2s only, pitch-plane and yaw-plane actuators like the F-1's.
+    static let sIIJ2GimbalRange = 7.0                // deg per actuator, EH 8.20 (M)
+    static let sIIJ2GimbalRate = 8.0                 // deg/s, EH 8.20 (M-L)
+    static let sIVBJ2GimbalRange = 7.0               // deg per actuator, "7.0° square pattern", EH 8.30; Haynes (M)
+    /// Not found: the S-II value as a placeholder, not data.
+    static let sIVBJ2GimbalRate = 8.0                // deg/s, PLACEHOLDER
 
     // MARK: Geometry
     //
@@ -250,7 +269,7 @@ enum AS506 {
     static let lesRadius = 0.5                       // m, estimate (L): tower and motor ≈ 0.66 m across
 
     /// F-1 gimbal plane, the aft end of the S-IC thrust structure.
-    static let f1GimbalStation = 100.0               // STA, recalled (L)
+    static let f1GimbalStation = 100.0               // STA, Project Apollo Coordinate System Standards (M)
     static let f1OutboardRadius = 182.0              // in, fan wiki only (L); the bells sit under the fairings
     static let sIIJ2GimbalHeight = 48.4              // m, estimate ±1 m (L)
     static let sIIJ2ExitHeight = 45.0                // m, estimate ±1 m (L)
@@ -258,8 +277,8 @@ enum AS506 {
     /// About 1 m below the S-IVB part's own aft end (`sIVBAftSkirt`, h 72.68),
     /// as is the LOX extent's aft apex (72.5): the estimates disagree within
     /// their ±1 m, and the alternative separation plane (STA ≈ 2646, h 70.15)
-    /// would resolve it. No effect while the thrust is on the axis; the TVC
-    /// item must settle it, since its lever arm runs from this point.
+    /// would resolve it. Still unresolved: the J-2's lever arm runs from this
+    /// point, and ±1 m changes its pitch and yaw authority by about ±11 %.
     static let sIVBJ2GimbalHeight = 71.7             // m, estimate ±1 m (L)
     static let sIVBJ2ExitHeight = 68.3               // m, estimate ±1 m (L)
 
@@ -293,14 +312,26 @@ enum AS506 {
     /// drag data was sourced. Tests must not depend on it.
     static let bodyDragCoefficient = 0.45
 
-    // MARK: Interim attitude control (not data)
+    // MARK: S-IVB Auxiliary Propulsion System (datasheet §7.3)
 
-    /// Thrust of each TVC stand-in (N), chosen so pitch and yaw accelerate at
-    /// about 1 deg/s^2 at each stage's ignition, counting the stand-ins of every
-    /// stage still attached. The TVC item deletes them.
-    static let sICStandInThrust = 390_000.0
-    static let sIIStandInThrust = 120_000.0
-    static let sIVBStandInThrust = 21_000.0
-    /// Near-zero flow: under 0.05 kg/s per firing stand-in.
-    static let standInIsp = 1e6
+    /// Two self-contained modules on the aft skirt, 180° apart, at Positions I
+    /// (+z) and III (-z): inferred from the engine roles, which only work with
+    /// the modules in the pitch plane (L).
+    static let apsModuleHeight = 73.4                // m above the base, estimate (L)
+    static let apsModuleRadius = 3.5                 // m, nozzle radius, estimate (L)
+    /// Three TR-204 attitude engines per module: one pitch, two roll/yaw.
+    static let apsAttitudeThrust = 147.0             // lbf, "operate at" (150 nominal), APS-TN (M)
+    /// Effective Isp with pulse losses: the sim's pulses run at full thrust.
+    static let apsAttitudeIsp = 245.0                // s, AS-201 flight averages 237 and 250 s (L)
+    /// One SE-7-1 ullage engine per module, thrust along +x.
+    static let apsUllageThrust = 72.0                // lbf, "operated at" (70 nominal), APS-TN; NASM (H)
+    static let apsUllageIsp = 290.0                  // s, PLACEHOLDER (not found)
+    /// Per module: the AS-507 loads at liftoff (AS-506 not found) split
+    /// equally between the modules. They leave `sIVBOther`, so the S-IVB part
+    /// total is unchanged.
+    static let apsOxidizerLoad = 202.5               // lb N2O4, FER-507 405 lb / 2 (M as a proxy; split L)
+    static let apsFuelLoad = 126.0                   // lb MMH, FER-507 252 lb / 2 (M as a proxy; split L)
+    /// Feed mixture ratio: the load ratio, 1.607, so both tanks empty together
+    /// (the engines' operating ratio was not found).
+    static let apsMixtureRatio = apsOxidizerLoad / apsFuelLoad   // derived (M): FER-507 load ratio 405 / 252 lb = 1.607
 }

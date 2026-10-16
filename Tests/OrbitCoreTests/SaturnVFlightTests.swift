@@ -57,8 +57,8 @@ final class SaturnVFlightTests: XCTestCase {
     // C3: vertical S-IC flight, centre engine cut at the published CECO: LOX
     // depletion ends the burn at the published OECO, and the origin stays at
     // the CoM. With no attitude control at all the stack stays vertical: the
-    // thrust has no moment about the CoM (a symmetry check; the stand-ins are
-    // tested in closed loop below).
+    // thrust has no moment about the CoM and the gimbals stay at null (a
+    // symmetry check; closed loop is tested below and in SaturnVControlTests).
     func testVerticalSICFlight() throws {
         let sim = try Simulation.forTests(perturbations: true)
         let v = onPad(sim)
@@ -68,7 +68,7 @@ final class SaturnVFlightTests: XCTestCase {
         // Range time 135.20 s (SP-4029 Apollo 11 Timeline) is simulation time
         // 134.90 s, since simulation time 0 is first motion at range 0.30 s.
         let cecoStep = Int((134.90 / 0.02).rounded())
-        var steps = 0, worstCoM = 0.0, worstTilt = 0.0, acceleration = 0.0
+        var steps = 0, worstCoM = 0.0, worstTilt = 0.0, acceleration = 0.0, deflected = 0
         while engines[0].hasPropellant && steps < 9_000 {
             acceleration = v.thrustAcceleration
             sim.tick()
@@ -76,8 +76,10 @@ final class SaturnVFlightTests: XCTestCase {
             if steps == cecoStep { engines[4].isEnabled = false }
             worstCoM = max(worstCoM, v.centerOfMass.length)
             worstTilt = max(worstTilt, angleBetween(v.attitude.rotate(.unitX), v.position))
+            if v.thrusters.contains(where: { $0.gimbal.contains { $0.angle != 0 } }) { deflected += 1 }
         }
         XCTAssertEqual(v.status, .flying)
+        XCTAssertEqual(deflected, 0)
         XCTAssertLessThan(worstCoM, 1e-9)
         XCTAssertLessThan(worstTilt, 0.5 * deg)
         // Consistency: the F-1 flow was derived from these times and the
@@ -92,23 +94,31 @@ final class SaturnVFlightTests: XCTestCase {
     }
 
     // C3 in closed loop: a pitch and yaw kick of 0.29°/s just after liftoff.
-    // Kill-rotation fires the stand-ins, which bring the rate back to the
-    // autopilot's dead band (2e-4 rad/s per axis) in about 2 s; the nose turns
-    // about 0.2° on the way. Uncontrolled, it would turn 0.87° in those 3 s.
-    func testKillRotationDampsAKickWithTheStandIns() throws {
+    // Kill-rotation deflects the outboard F-1s, which bring the rate back
+    // below 2.5e-4 rad/s per axis in about 2 s; the nose turns about 0.2° on
+    // the way. Uncontrolled, it would turn 0.87° in those 3 s. The APS stays
+    // off, and the S-II and S-IVB engines stay at null (TVC datasheet §7.1:
+    // locked until S-IC/S-II separation and S-IVB ignition).
+    func testKillRotationDampsAKickWithGimbals() throws {
         let sim = try Simulation.forTests(perturbations: true)
         let v = onPad(sim)
-        let standIns = v.thrusters.filter { $0.name.contains("TVC stand-in") }
+        let outboard = mains(v, "S-IC").prefix(4)
+        let upper = mains(v, "S-II") + mains(v, "S-IVB")
+        let aps = v.thrusters.filter { $0.name.hasPrefix("APS") }
         v.autopilot = .killRotation
         v.mainThrottle = 1
         sim.run(seconds: 1)
         XCTAssertEqual(v.status, .flying)
-        XCTAssertFalse(standIns.contains { $0.level > 0 })
         v.angularVelocity += Vec3(0, 0.004, -0.003)
         let nose = v.attitude.rotate(.unitX)
-        var firing = 0
-        sim.run(seconds: 3) { if standIns.contains(where: { $0.level > 0 }) { firing += 1 } }
-        XCTAssertGreaterThan(firing, 0)
+        var peak = 0.0
+        sim.run(seconds: 3) {
+            peak = max(peak, outboard.flatMap { $0.gimbal.map { abs($0.angle) } }.max()!)
+            XCTAssertFalse(aps.contains { $0.level > 0 })
+            XCTAssertFalse(upper.contains { $0.gimbal.contains { $0.angle != 0 } })
+        }
+        XCTAssertGreaterThan(peak, 0.05 * deg)
+        XCTAssertLessThan(peak, 1 * deg)
         XCTAssertLessThan(abs(v.angularVelocity.y), 2.5e-4)
         XCTAssertLessThan(abs(v.angularVelocity.z), 2.5e-4)
         XCTAssertLessThan(angleBetween(v.attitude.rotate(.unitX), nose), 0.3 * deg)
@@ -154,35 +164,79 @@ final class SaturnVFlightTests: XCTestCase {
         XCTAssertEqual(v.mass / lb, 262_613 + 4_275 + 109_646 - 8_890, accuracy: 1e-6)
     }
 
-    // C5: the interim stand-ins give 0.5 to 3 deg/s^2 in pitch and yaw at each
-    // stage's ignition, as pure couples, and burn almost nothing.
-    func testTVCStandInAuthority() {
+    // C5: gimbal authority at each stage's ignition (vacuum), from the
+    // model's own geometry (gimbal heights and the F-1 radius are L, so no
+    // published torque is used): pitch and yaw n F L delta, roll 4 F R sqrt(2) delta for the
+    // clusters (both actuators of a diagonal engine), the single J-2 none,
+    // leaving roll to the APS (2 x 147 lbf at 3.5 m). Unit commands give
+    // torque about their own axis only.
+    func testGimbalAuthority() {
         let v = VesselLibrary.saturnV()
-        func check(_ label: String) {
-            let inertia = v.inertia
-            for (command, axis) in [(RotationCommand(pitch: 1), 1), (RotationCommand(yaw: 1), 2)] {
+        func check(_ label: String, engines n: Double, range: Double) {
+            v.mainThrottle = 1
+            v.applyThrottles()
+            let c = v.controlAllocation()
+            let e = v.activeStage!.thrusters.first { !$0.gimbal.isEmpty }!
+            let L = -(e.position.x + v.activeStage!.offset.x), f = e.maxThrustVacuum, delta = range * deg
+            let radius = (e.position.y * e.position.y + e.position.z * e.position.z).squareRoot()
+            XCTAssertEqual(c.gimbalAuthority.y, n * f * L * delta, accuracy: n * f * L * delta * 1e-12, label)
+            XCTAssertEqual(c.gimbalAuthority.z, n * f * L * delta, accuracy: n * f * L * delta * 1e-12, label)
+            XCTAssertEqual(c.gimbalAuthority.x, n * f * radius * 2.squareRoot() * delta, accuracy: 1e-3, label)
+            for (command, axis) in [(RotationCommand(roll: 1), 0), (RotationCommand(pitch: 1), 1),
+                                    (RotationCommand(yaw: 1), 2)] {
                 v.applyControls(rotation: command)
-                let (force, torque) = v.thrustForceAndTorque(ambientPressure: 0, seaLevelPressure: 0)
-                let alpha = [torque.x, torque.y, torque.z][axis] / inertia[axis, axis] / deg
-                XCTAssertGreaterThan(alpha, 0.5, label)
-                XCTAssertLessThan(alpha, 3, label)
-                XCTAssertLessThan(force.length, 1e-6, label)
+                v.advanceActuators(dt: 10)
+                let tq = v.thrustForceAndTorque(ambientPressure: 0, seaLevelPressure: 0).torque
+                let parts = [tq.x, tq.y, tq.z]
+                for k in 0..<3 where k != axis { XCTAssertLessThan(abs(parts[k]), 1e-6 * abs(parts[axis]), label) }
             }
+            v.mainThrottle = 0
+            v.applyControls(rotation: RotationCommand())
+            v.advanceActuators(dt: 10)
         }
-        check("liftoff")
-        // Full command for 160 s draws under 100 kg, all of it fuel.
-        v.applyControls(rotation: RotationCommand(roll: 1, pitch: 1, yaw: 1))
-        let before = v.tanks.map(\.mass)
-        v.consumePropellant(dt: 160)
-        let drawn = zip(before, v.tanks.map(\.mass)).map { $0 - $1 }
-        XCTAssertLessThan(drawn.reduce(0, +), 100)
-        for i in [0, 2, 4] { XCTAssertEqual(drawn[i], 0, v.tanks[i].name) }
-
+        // F-1 ±5°; S-II J-2 ±7°; S-IVB J-2 ±7° (engine radii from the model).
+        check("liftoff", engines: 4, range: 5)
         v.jettisonNextStage()
-        check("S-II ignition")
+        check("S-II ignition", engines: 4, range: 7)
         for _ in 0..<3 { v.jettisonNextStage() }
         XCTAssertEqual(v.parts[0].name, "S-IVB")
-        check("S-IVB ignition")
+        check("S-IVB ignition", engines: 1, range: 7)
+        XCTAssertEqual(v.rotationAuthority().x, 2 * 147 * lbf * 3.5, accuracy: 1e-6)
+    }
+
+    // C5, the outboard cant (TVC datasheet §7.1 and §7.4 A): an actuator bias
+    // that leans each outboard F-1's thrust line 2° radially inwards
+    // ("approximately 2 degrees" outboard nozzles: EL, EH 8.13, M; the radial
+    // reading is L) leaves no net lateral force or torque, cuts the outboard
+    // axial thrust by cos 2° = 0.99939, and leaves 3.59° of the ±5° travel on
+    // the cant side. Only the mechanism: the 20.6 s ramp is the IU item's.
+    func testOutboardCantBias() {
+        let v = VesselLibrary.saturnV()
+        let outboard = Array(mains(v, "S-IC").prefix(4)), cant = 2 * deg
+        let f = outboard[0].maxThrustVacuum
+        for e in outboard {
+            let r = (e.position.y * e.position.y + e.position.z * e.position.z).squareRoot()
+            e.gimbal[0].bias = atan(-e.position.z / r * tan(cant))   // pitch plane, tilt +z
+            e.gimbal[1].bias = atan(e.position.y / r * tan(cant))    // yaw plane, tilt -y
+        }
+        v.mainThrottle = 1
+        v.applyControls(rotation: RotationCommand())
+        v.advanceActuators(dt: 10)
+        for e in outboard {
+            let d = e.thrustDirection, outwards = Vec3(0, e.position.y, e.position.z).normalized
+            XCTAssertEqual(angleBetween(d, .unitX), cant, accuracy: 1e-12, e.name)
+            XCTAssertEqual(angleBetween(d - Vec3.unitX * d.x, -outwards), 0, accuracy: 1e-9, e.name)
+        }
+        let (force, torque) = v.thrustForceAndTorque(ambientPressure: 0, seaLevelPressure: 0)
+        XCTAssertLessThan(Vec3(0, force.y, force.z).length, 1e-6 * force.x)
+        XCTAssertLessThan(torque.length, 1e-6 * f)
+        XCTAssertEqual((force.x - f) / (4 * f), 0.99939, accuracy: 1e-5)
+        // The gimbal authority scales with the travel left about the bias.
+        let travel = outboard[0].gimbal[0].travel
+        XCTAssertEqual(travel / deg, 3.59, accuracy: 0.005)
+        let canted = v.controlAllocation().gimbalAuthority
+        for e in outboard { for i in e.gimbal.indices { e.gimbal[i].bias = 0 } }
+        XCTAssertEqual(canted.y / v.controlAllocation().gimbalAuthority.y, travel / (5 * deg), accuracy: 1e-12)
     }
 
     // C6, with A8 and A11 on the real stack: in free space the HUD's stage Δv

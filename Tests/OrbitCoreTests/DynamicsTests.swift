@@ -158,4 +158,83 @@ final class DynamicsTests: XCTestCase {
         XCTAssertLessThan(angle, 1.0)
         XCTAssertLessThan(v.angularVelocity.length, 0.01)
     }
+
+    // Attitude hold on an RCS-only vessel (the M0 law on the full attitude
+    // error, roll included): it returns to the attitude captured when
+    // selected after a kick, then turns 86° about a skew axis to a commanded
+    // attitude. Self-consistency only.
+    func testAttitudeHoldOnRCS() throws {
+        let sim = try makeSim(perturbations: false)
+        let v = VesselLibrary.capsule()
+        sim.add(v)
+        sim.placeInCircularOrbit(v, around: sim.system.earth, altitude: 200_000)
+        v.autopilot = .attitudeHold
+        sim.advance(by: 0.1)
+        let held = v.attitude
+        v.angularVelocity += Vec3(0.01, -0.02, 0.005)
+        for _ in 0..<(60 * 10) { sim.advance(by: 0.1) }
+        XCTAssertLessThan(angleBetween(v.attitude.rotate(.unitX), held.rotate(.unitX)) * 180 / .pi, 0.2)
+        XCTAssertLessThan(angleBetween(v.attitude.rotate(.unitZ), held.rotate(.unitZ)) * 180 / .pi, 0.2)
+        let target = Quat(axis: Vec3(0.3, 1, 0.2), angle: 1.5) * held
+        v.attitudeCommand = AttitudeCommand(attitude: target)
+        for _ in 0..<(60 * 10) { sim.advance(by: 0.1) }
+        XCTAssertLessThan(angleBetween(v.attitude.rotate(.unitX), target.rotate(.unitX)) * 180 / .pi, 0.2)
+        XCTAssertLessThan(angleBetween(v.attitude.rotate(.unitZ), target.rotate(.unitZ)) * 180 / .pi, 0.2)
+        XCTAssertLessThan(v.angularVelocity.length, 1e-3)
+    }
+
+    // The hold captures afresh after manual input and after a mode change,
+    // rather than going back to an attitude captured before: on RCS, where
+    // the input is released (after a 3 s pitch pulse, 19° away), and where
+    // radial-out left the capsule. Self-consistency only.
+    func testAttitudeHoldRecaptures() throws {
+        let sim = try makeSim(perturbations: false)
+        let v = VesselLibrary.capsule()
+        sim.add(v)
+        sim.placeInCircularOrbit(v, around: sim.system.earth, altitude: 200_000)
+        func degrees(_ a: Quat, _ b: Quat) -> Double { rotationVector(a.conjugate * b).length * 180 / .pi }
+        v.autopilot = .attitudeHold
+        sim.advance(by: 0.1)
+        let first = v.attitude
+        v.rotationInput = RotationCommand(pitch: 1)
+        for _ in 0..<30 { sim.advance(by: 0.1) }
+        v.rotationInput = RotationCommand()
+        let released = v.attitude
+        for _ in 0..<(60 * 10) { sim.advance(by: 0.1) }
+        XCTAssertGreaterThan(degrees(first, released), 10)
+        XCTAssertLessThan(degrees(v.attitude, released), 0.2)
+        v.autopilot = .radialOut
+        for _ in 0..<(60 * 10) { sim.advance(by: 0.1) }
+        v.autopilot = .attitudeHold
+        sim.advance(by: 0.1)
+        let reselected = v.attitude
+        for _ in 0..<(30 * 10) { sim.advance(by: 0.1) }
+        XCTAssertGreaterThan(degrees(released, reselected), 10)
+        XCTAssertLessThan(degrees(v.attitude, reselected), 0.2)
+    }
+
+    // The hold's approach rate is profiled on the weakest group axis the turn
+    // involves, roll included: on the drum, whose roll accelerates 3.5 times
+    // slower than its pitch and yaw, a 30° roll command overshoots by under
+    // 0.005 rad (the dead band is 0.002 rad; profiled on pitch, as M0's
+    // pointing modes are, it overshoots by 0.15 rad). Self-consistency only.
+    func testHoldProfilesRollWhenItIsTheWeakestAxis() throws {
+        let sim = try makeSim(perturbations: false)
+        let v = Toy.rollWeakDrum()
+        sim.add(v)
+        sim.placeInCircularOrbit(v, around: sim.system.earth, altitude: 200_000)
+        let alpha = v.rotationAuthority().x / v.inertia[0, 0]
+        XCTAssertLessThan(alpha, v.rotationAuthority().y / v.inertia[1, 1])
+        v.autopilot = .attitudeHold
+        sim.advance(by: 0.1)
+        let goal = v.attitude * Quat(axis: .unitX, angle: 30 * .pi / 180)
+        v.attitudeCommand = AttitudeCommand(attitude: goal)
+        var overshoot = 0.0
+        for _ in 0..<(60 * 10) {
+            sim.advance(by: 0.1)
+            overshoot = max(overshoot, -rotationVector(v.attitude.conjugate * goal).x)
+        }
+        XCTAssertLessThan(overshoot, 0.005)
+        XCTAssertLessThan(rotationVector(v.attitude.conjugate * goal).length, 0.003)
+    }
 }

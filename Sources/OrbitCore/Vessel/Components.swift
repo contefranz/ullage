@@ -130,8 +130,16 @@ public final class Thruster {
     public let name: String
     /// A point on the thrust line (the gimbal point for engines), part frame, m.
     public var position: Vec3
-    /// Unit direction of the force applied to the vessel (opposite to the exhaust).
+    /// Unit direction of the force applied to the vessel (opposite to the
+    /// exhaust), with the gimbal at null.
     public var direction: Vec3
+    /// Gimbal actuators (none: a fixed nozzle). Each tilts the thrust in its
+    /// own plane through `position`; see `GimbalActuator`.
+    public var gimbal: [GimbalActuator]
+    /// True for thrusters that take rotation and translation commands only
+    /// while their part is the vessel's `activeStage` (the S-IVB APS, which
+    /// was inactive during S-IC and S-II flight).
+    public var activeStageOnly = false
     /// Current operating setting; assigning it changes thrust, flow and the
     /// propellant split from the next step.
     public var rating: EngineRating { didSet { checkMixtureRatio() } }
@@ -145,8 +153,11 @@ public final class Thruster {
     /// Commanded level 0...1 (set by controls each step).
     public var level: Double = 0
 
+    /// `gimbal` holds at most two actuators, their tilts perpendicular to
+    /// `direction` and to each other.
     public init(name: String, position: Vec3, direction: Vec3, rating: EngineRating, feed: PropellantFeed?,
-                groups: Set<ThrusterGroup>, throttleRange: ClosedRange<Double> = 0...1) {
+                groups: Set<ThrusterGroup>, throttleRange: ClosedRange<Double> = 0...1,
+                gimbal: [GimbalActuator] = []) {
         self.name = name
         self.position = position
         self.direction = direction.normalized
@@ -154,7 +165,26 @@ public final class Thruster {
         self.feed = feed
         self.groups = groups
         self.throttleRange = throttleRange
+        self.gimbal = gimbal
         checkMixtureRatio()
+        precondition(gimbal.count <= 2, "\(name): at most two gimbal actuators")
+        for (i, a) in gimbal.enumerated() {
+            precondition(abs(a.tilt.dot(self.direction)) < 1e-9, "\(name): gimbal tilt not perpendicular to the thrust")
+            for b in gimbal[..<i] {
+                precondition(abs(a.tilt.dot(b.tilt)) < 1e-9, "\(name): gimbal tilts not perpendicular")
+            }
+        }
+    }
+
+    /// Direction of the force with the gimbal's current angles: `direction`
+    /// tilted by tan(angle) towards each actuator's `tilt`, so each angle is
+    /// the deflection projected on that actuator's plane. Exactly `direction`
+    /// at null.
+    public var thrustDirection: Vec3 {
+        guard gimbal.contains(where: { $0.angle != 0 }) else { return direction }
+        var v = direction
+        for a in gimbal where a.angle != 0 { v += a.tilt * tan(a.angle) }
+        return v.normalized
     }
 
     /// Single-tank thruster with an M0-style rating.

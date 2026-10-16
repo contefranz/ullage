@@ -8,13 +8,17 @@ extension VesselLibrary {
     /// Ten parts, bottom to top: S-IC, S-IC/S-II interstage, S-II, S-II/S-IVB
     /// interstage, S-IVB, IU, SLA, LM, CSM, LES. The Space key separates the
     /// S-IC, the interstage, the LES, then the S-II with the aft interstage;
-    /// the rest never separates. F-1 and J-2 engines are on/off, and each stage
-    /// carries interim TVC stand-ins for attitude control.
+    /// the rest never separates. F-1 and J-2 engines are on/off. The outboard
+    /// engines of the S-IC and S-II and the S-IVB J-2 gimbal, each on a
+    /// pitch-plane and a yaw-plane actuator; the centre engines are fixed. The
+    /// S-IVB APS works once the S-IVB is the active stage: roll during its
+    /// burn, three axes in coast.
     ///
     /// The construction frame is the Saturn V station frame in metres (x = STA
-    /// x 0.0254 m). Engines 1-4 are outboard, on the diagonals between the ±y
-    /// and ±z axes, and engine 5 is the centre engine; how 1-4 map to Saturn
-    /// positions I-IV is not established, so the layout is only symmetric.
+    /// x 0.0254 m), whose y and z are the Saturn Y and Z: +z towards Position
+    /// I, +y towards Position IV. Engines 1-4 are outboard under fins A-D, on
+    /// the diagonals between Positions I-II, II-III, III-IV and IV-I, and
+    /// engine 5 is the centre engine.
     public static func saturnV(name: String = "Apollo 11") -> Vessel {
         typealias D = AS506
         let lb = D.pound
@@ -49,23 +53,26 @@ extension VesselLibrary {
                                                     density: density))
         }
         /// Five engines on one bipropellant feed, gimballed at `gimbal`: engines
-        /// 1-4 at `radius` on the diagonals, engine 5 on the axis. Nozzle shapes
-        /// run from the exit plane `exit` to the gimbal.
+        /// 1-4 at `radius` on the diagonals under fins A-D, with `actuators`;
+        /// engine 5 fixed on the axis. Nozzle shapes run from the exit plane
+        /// `exit` to the gimbal.
         func cluster(_ p: VesselPart, rating: EngineRating, gimbal: Double, exit: Double, radius: Double,
-                     exitArea: Double, oxidizer: PropellantTank, fuel: PropellantTank) {
+                     exitArea: Double, oxidizer: PropellantTank, fuel: PropellantTank, actuators: [GimbalActuator]) {
             let d = radius / 2.squareRoot(), exitRadius = (exitArea / Double.pi).squareRoot()
-            for (i, (y, z)) in [(d, -d), (-d, -d), (-d, d), (d, d), (0, 0)].enumerated() {
+            for (i, (y, z)) in [(-d, d), (-d, -d), (d, -d), (d, d), (0, 0)].enumerated() {
                 p.thrusters.append(Thruster(name: "\(p.name) engine \(i + 1)", position: local(p, gimbal, y, z),
                                             direction: .unitX, rating: rating,
                                             feed: .bipropellant(oxidizer: oxidizer, fuel: fuel), groups: [.main],
-                                            throttleRange: 1...1))
+                                            throttleRange: 1...1, gimbal: i < 4 ? actuators : []))
                 p.shapes.append(frustum(p, exit, gimbal, exitRadius, 0.3 * exitRadius, dark, y: y, z: z))
             }
         }
-        /// Stand-in couples at ±0.45 of the part length about its middle.
-        func standIns(_ p: VesselPart, thrust: Double, tank: PropellantTank) {
-            addTVCStandIns(to: p, prefix: p.name, foreX: 0.45 * p.length, aftX: -0.45 * p.length, radius: p.radius,
-                           thrust: thrust, tank: tank)
+        /// Pitch-plane and yaw-plane actuators, parallel to the vehicle Y and Z
+        /// axes. With the gimbal aft of the CoM a positive angle gives a positive
+        /// pitch or yaw torque, the sign of the Saturn's δp and δy.
+        func actuators(range: Double, rate: Double) -> [GimbalActuator] {
+            [GimbalActuator(tilt: .unitZ, limit: range * D.degree, rateLimit: rate * D.degree),
+             GimbalActuator(tilt: -Vec3.unitY, limit: range * D.degree, rateLimit: rate * D.degree)]
         }
 
         let body = D.bodyDiameter / 2 * D.inch, upper = D.sIVBDiameter / 2 * D.inch
@@ -82,8 +89,8 @@ extension VesselLibrary {
         sIC.tanks = [sICLOX, sICRP1]
         sIC.shapes = [frustum(sIC, D.station(D.f1GimbalStation), D.station(D.sICTop), body, body, white)]
         cluster(sIC, rating: D.f1, gimbal: D.station(D.f1GimbalStation), exit: D.station(D.baseStation),
-                radius: D.f1OutboardRadius * D.inch, exitArea: D.f1ExitArea, oxidizer: sICLOX, fuel: sICRP1)
-        standIns(sIC, thrust: D.sICStandInThrust, tank: sICRP1)
+                radius: D.f1OutboardRadius * D.inch, exitArea: D.f1ExitArea, oxidizer: sICLOX, fuel: sICRP1,
+                actuators: actuators(range: D.f1GimbalRange, rate: D.f1GimbalRate))
 
         let interstage = part("S-IC/S-II interstage", D.station(D.sICTop), D.station(D.sIIAftSkirt), radius: body,
                               dryMass: D.sICSIIInterstage * lb, dragCoefficient: D.bodyDragCoefficient,
@@ -101,8 +108,8 @@ extension VesselLibrary {
         sII.tanks = [sIILOX, sIILH2]
         sII.shapes = [frustum(sII, D.station(D.sIIAftSkirt), D.station(D.sIITop), body, body, white)]
         cluster(sII, rating: D.sIIJ2, gimbal: D.height(D.sIIJ2GimbalHeight), exit: D.height(D.sIIJ2ExitHeight),
-                radius: D.sIIOutboardCircle / 2 * D.foot, exitArea: D.j2ExitArea, oxidizer: sIILOX, fuel: sIILH2)
-        standIns(sII, thrust: D.sIIStandInThrust, tank: sIILH2)
+                radius: D.sIIOutboardCircle / 2 * D.foot, exitArea: D.j2ExitArea, oxidizer: sIILOX, fuel: sIILH2,
+                actuators: actuators(range: D.sIIJ2GimbalRange, rate: D.sIIJ2GimbalRate))
 
         let aftInterstage = part("S-II/S-IVB interstage", D.station(D.sIITop), D.station(D.sIVBAftSkirt),
                                  radius: body, dryMass: D.sIISIVBInterstage * lb,
@@ -110,9 +117,11 @@ extension VesselLibrary {
         aftInterstage.shapes = [frustum(aftInterstage, D.station(D.sIITop), D.station(D.sIVBAftSkirt), body, upper,
                                         white)]
 
-        // S-IVB: one J-2, inside the aft interstage until the S-II leaves.
+        // S-IVB: one J-2, inside the aft interstage until the S-II leaves. The
+        // APS propellant, booked in `sIVBOther`, moves to the APS tanks.
         let sIVB = part("S-IVB", D.station(D.sIVBAftSkirt), D.station(D.sIVBTop), radius: upper,
-                        dryMass: (D.sIVBDry + D.sIVBOther) * lb, staging: .fixed)
+                        dryMass: (D.sIVBDry + D.sIVBOther - 2 * (D.apsOxidizerLoad + D.apsFuelLoad)) * lb,
+                        staging: .fixed)
         let sIVBLOX = tank("S-IVB LOX", in: sIVB, load: D.sIVBLOXLoad, unusable: D.sIVBLOXUnusable,
                            extent: D.sIVBLOXExtent, density: D.loxDensity)
         let sIVBLH2 = tank("S-IVB LH2", in: sIVB, load: D.sIVBLH2Load, unusable: D.sIVBLH2Unusable,
@@ -122,11 +131,19 @@ extension VesselLibrary {
         sIVB.thrusters.append(Thruster(name: "S-IVB engine", position: local(sIVB, D.height(D.sIVBJ2GimbalHeight)),
                                        direction: .unitX, rating: D.sIVBJ2Burn1,
                                        feed: .bipropellant(oxidizer: sIVBLOX, fuel: sIVBLH2), groups: [.main],
-                                       throttleRange: 1...1))
+                                       throttleRange: 1...1,
+                                       gimbal: actuators(range: D.sIVBJ2GimbalRange, rate: D.sIVBJ2GimbalRate)))
         sIVB.shapes = [frustum(sIVB, D.station(D.sIVBAftSkirt), D.station(D.sIVBTop), upper, upper, white),
                        frustum(sIVB, D.height(D.sIVBJ2ExitHeight), D.height(D.sIVBJ2GimbalHeight), j2ExitRadius,
                                0.3 * j2ExitRadius, dark)]
-        standIns(sIVB, thrust: D.sIVBStandInThrust, tank: sIVBLH2)
+        // APS groups follow the sign of each engine's torque about a point on
+        // the axis 8 m ahead of the modules, near the CoM of the S-IVB stack
+        // (h 80.9 at ignition, 82.0 at insertion).
+        for (module, side) in [("I", 1.0), ("III", -1.0)] {
+            addAPSModule(to: sIVB, name: "APS \(module)",
+                         at: local(sIVB, D.height(D.apsModuleHeight), 0, side * D.apsModuleRadius),
+                         controlPoint: local(sIVB, D.height(D.apsModuleHeight) + 8))
+        }
 
         let iu = part("IU", D.station(D.sIVBTop), D.station(D.iuTop), radius: upper, dryMass: D.iu * lb,
                       staging: .fixed)
@@ -163,31 +180,43 @@ extension VesselLibrary {
                       reference: placeholderBody)
     }
 
-    /// Interim attitude control for a stage until the TVC item replaces it:
-    /// pitch, yaw and roll couples (no net force, no translation groups) of
-    /// `thrust` each, at `foreX` / `aftX` and `radius` in the part frame. They
-    /// draw from `tank` at a negligible rate (`AS506.standInIsp`). Names are
-    /// "<prefix> TVC stand-in <place>".
-    static func addTVCStandIns(to part: VesselPart, prefix: String, foreX: Double, aftX: Double, radius r: Double,
-                               thrust: Double, tank: PropellantTank) {
-        let rating = EngineRating(name: "TVC stand-in", thrustVacuum: thrust, ispVacuum: AS506.standInIsp)
-        func add(_ place: String, _ position: Vec3, _ direction: Vec3, _ group: ThrusterGroup) {
-            part.thrusters.append(Thruster(name: "\(prefix) TVC stand-in \(place)", position: position,
-                                           direction: direction, rating: rating, feed: .single(tank),
-                                           groups: [group]))
+    /// One S-IVB APS module at `p` (part frame, off the axis): a pitch engine
+    /// firing radially inwards, two tangential roll/yaw engines and an ullage
+    /// engine along +x, all fed from the module's own N2O4 and MMH point tanks
+    /// (appended to the part). The attitude engines' groups follow the sign of
+    /// their torque about `controlPoint`. Every APS engine is
+    /// `activeStageOnly`: the APS was inactive during S-IC and S-II flight, so
+    /// it responds from S-II separation, when the S-IVB becomes the active
+    /// stage. Until the J-2 lights it flies all three axes, pitch engines
+    /// included, where datasheet §7.3 lists roll only (and that roll from
+    /// separation is itself assumed, L); then roll only during the burn. Low
+    /// confidence: the IU item may gate it on its own discrete.
+    static func addAPSModule(to part: VesselPart, name: String, at p: Vec3, controlPoint c: Vec3) {
+        typealias D = AS506
+        let lb = D.pound, lbf = D.poundForce
+        let ox = PropellantTank(name: "\(name) N2O4", capacity: D.apsOxidizerLoad * lb, geometry: .point(p))
+        let fuel = PropellantTank(name: "\(name) MMH", capacity: D.apsFuelLoad * lb, geometry: .point(p))
+        part.tanks += [ox, fuel]
+        let n = Vec3(0, p.y, p.z).normalized, tangent = Vec3.unitX.cross(n)
+        let attitude = EngineRating(name: "APS attitude", thrustVacuum: D.apsAttitudeThrust * lbf,
+                                    ispVacuum: D.apsAttitudeIsp, mixtureRatio: D.apsMixtureRatio)
+        let ullage = EngineRating(name: "APS ullage", thrustVacuum: D.apsUllageThrust * lbf,
+                                  ispVacuum: D.apsUllageIsp, mixtureRatio: D.apsMixtureRatio)
+        func add(_ label: String, _ direction: Vec3, _ rating: EngineRating, _ groups: Set<ThrusterGroup>? = nil) {
+            let torque = (p - c).cross(direction), tiny = 1e-6 * torque.length
+            var derived: Set<ThrusterGroup> = []
+            if torque.x > tiny { derived.insert(.rollRight) } else if torque.x < -tiny { derived.insert(.rollLeft) }
+            if torque.y > tiny { derived.insert(.pitchUp) } else if torque.y < -tiny { derived.insert(.pitchDown) }
+            if torque.z > tiny { derived.insert(.yawRight) } else if torque.z < -tiny { derived.insert(.yawLeft) }
+            let t = Thruster(name: "\(name) \(label)", position: p, direction: direction, rating: rating,
+                             feed: .bipropellant(oxidizer: ox, fuel: fuel), groups: groups ?? derived)
+            t.activeStageOnly = true
+            part.thrusters.append(t)
         }
-        // Body axes as in `VesselPart.addRCS`: pitch up turns the nose towards -z.
-        add("fwd -z", Vec3(foreX, 0, r), Vec3(0, 0, -1), .pitchUp)
-        add("aft +z", Vec3(aftX, 0, -r), Vec3(0, 0, 1), .pitchUp)
-        add("fwd +z", Vec3(foreX, 0, -r), Vec3(0, 0, 1), .pitchDown)
-        add("aft -z", Vec3(aftX, 0, r), Vec3(0, 0, -1), .pitchDown)
-        add("fwd +y", Vec3(foreX, -r, 0), Vec3(0, 1, 0), .yawRight)
-        add("aft -y", Vec3(aftX, r, 0), Vec3(0, -1, 0), .yawRight)
-        add("fwd -y", Vec3(foreX, r, 0), Vec3(0, -1, 0), .yawLeft)
-        add("aft +y", Vec3(aftX, -r, 0), Vec3(0, 1, 0), .yawLeft)
-        add("roll R1", Vec3(foreX, 0, -r), Vec3(0, 1, 0), .rollRight)
-        add("roll R2", Vec3(foreX, 0, r), Vec3(0, -1, 0), .rollRight)
-        add("roll L1", Vec3(foreX, 0, -r), Vec3(0, -1, 0), .rollLeft)
-        add("roll L2", Vec3(foreX, 0, r), Vec3(0, 1, 0), .rollLeft)
+        add("pitch", -n, attitude)
+        add("roll/yaw +t", tangent, attitude)
+        add("roll/yaw -t", -tangent, attitude)
+        // The U key for now; the restart ullage burns come with M2.
+        add("ullage", .unitX, ullage, [.translateForward])
     }
 }

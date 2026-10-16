@@ -48,11 +48,25 @@ public final class Vessel: Identifiable {
     public var mainThrottle = 0.0
     /// Hover/retro levels 0...1.
     public var retroThrottle = 0.0
-    /// Manual rotation input (RCS).
+    /// Manual rotation input (RCS and gimbals).
     public var rotationInput = RotationCommand()
     /// Manual translation input, body axes, -1...1.
     public var translationInput = Vec3.zero
-    public var autopilot: AttitudeAutopilot?
+    public var autopilot: AttitudeAutopilot? {
+        didSet { if autopilot != oldValue { resetAttitudeReference() } }
+    }
+    /// What `.attitudeHold` steers to; nil holds the attitude captured when
+    /// the mode was selected or manual input last moved the vessel (see
+    /// `AttitudeAutopilot.attitudeHold`).
+    public var attitudeCommand: AttitudeCommand?
+    /// Gains of the attitude law on axes the gimbals fly.
+    public var tvcGains = TVCGains()
+    /// Attitude `.attitudeHold` captured (body -> ICRF).
+    var heldAttitude: Quat?
+    /// Rate-limited reference the gimbal law tracks (body -> ICRF), and its
+    /// rate (ICRF, rad/s). Nil while no axis is flown by the gimbals.
+    var referenceAttitude: Quat?
+    var referenceRate = Vec3.zero
 
     // MARK: Telemetry (updated every step)
     public internal(set) var altitude = 0.0
@@ -210,11 +224,24 @@ public final class Vessel: Identifiable {
 
     // MARK: Control allocation
 
-    /// Torque authority about each body axis (N m) for the rotation groups.
-    public func rotationAuthority() -> Vec3 {
-        let com = centerOfMass
+    /// Torque authority about each body axis (N m): per axis, the larger of
+    /// the gimballed engines' at their current thrust and the rotation
+    /// groups'. Gimbal authority follows the engine levels, so it is only
+    /// meaningful once the throttles have been applied for the step.
+    public func rotationAuthority() -> Vec3 { controlAllocation().authority }
+
+    /// Whether a thruster takes rotation and translation commands now
+    /// (`active` is the vessel's `activeStage`).
+    func responds(_ t: Thruster, activeStage active: VesselPart?) -> Bool {
+        !t.activeStageOnly || active?.thrusters.contains(where: { $0 === t }) == true
+    }
+
+    /// Torque authority of the rotation groups (M0's sum at full vacuum
+    /// thrust, over the thrusters that respond now), N m.
+    func rcsAuthority() -> Vec3 {
+        let com = centerOfMass, active = activeStage
         var authority = Vec3.zero
-        for t in thrusters where t.isEnabled && t.hasPropellant {
+        for t in thrusters where t.isEnabled && t.hasPropellant && responds(t, activeStage: active) {
             let torque = (t.position + offsetOfPart(owning: t) - com).cross(t.direction) * t.maxThrustVacuum
             if t.groups.contains(.rollRight) { authority.x += abs(torque.x) }
             if t.groups.contains(.pitchUp) { authority.y += abs(torque.y) }
@@ -228,25 +255,58 @@ public final class Vessel: Identifiable {
         return .zero
     }
 
-    /// Set thruster levels from throttles, rotation and translation commands.
+    /// Set thruster levels and gimbal commands from the throttles, rotation
+    /// and translation commands.
     func applyControls(rotation: RotationCommand) {
+        applyThrottles()
+        applyRotation(rotation, control: controlAllocation())
+    }
+
+    /// Main and retro levels from the throttles; every other level 0.
+    func applyThrottles() {
         for t in thrusters { t.level = 0 }
-        func set(_ g: ThrusterGroup, _ level: Double) {
-            guard level > 0 else { return }
-            for t in thrusters where t.groups.contains(g) { t.level = t.clampedLevel(max(t.level, level)) }
-        }
         // Main engines: only the lowest part that has main engines (the active
         // stage of a stack) responds to the main throttle.
         if mainThrottle > 0, let active = activeStage {
             for t in active.thrusters where t.groups.contains(.main) { t.level = t.clampedLevel(mainThrottle) }
         }
-        set(.retro, retroThrottle)
-        set(rotation.pitch > 0 ? .pitchUp : .pitchDown, abs(rotation.pitch))
-        set(rotation.yaw > 0 ? .yawRight : .yawLeft, abs(rotation.yaw))
-        set(rotation.roll > 0 ? .rollRight : .rollLeft, abs(rotation.roll))
+        if retroThrottle > 0 {
+            for t in thrusters where t.groups.contains(.retro) { t.level = t.clampedLevel(max(t.level, retroThrottle)) }
+        }
+    }
+
+    /// Rotation and translation, after `applyThrottles`. Each rotation axis
+    /// goes to the gimbals when they beat the rotation groups on it (see
+    /// `ControlAllocation`), otherwise to the groups. A group thruster's
+    /// level is the signed sum of the commands of the axes it serves, so a
+    /// thruster in one rotation group gets M0's level.
+    func applyRotation(_ rotation: RotationCommand, control: ControlAllocation) {
+        let byGimbal = control.gimbalAxes, active = activeStage
+        let c = Vec3(byGimbal.roll ? 0 : rotation.roll, byGimbal.pitch ? 0 : rotation.pitch,
+                     byGimbal.yaw ? 0 : rotation.yaw)   // what the groups fly
+        if c != .zero {
+            for t in thrusters where responds(t, activeStage: active) {
+                var s = 0.0
+                if t.groups.contains(.pitchUp) { s += c.y }
+                if t.groups.contains(.pitchDown) { s -= c.y }
+                if t.groups.contains(.yawRight) { s += c.z }
+                if t.groups.contains(.yawLeft) { s -= c.z }
+                if t.groups.contains(.rollRight) { s += c.x }
+                if t.groups.contains(.rollLeft) { s -= c.x }
+                if s > 0 { t.level = t.clampedLevel(max(t.level, s)) }
+            }
+        }
+        func set(_ g: ThrusterGroup, _ level: Double) {
+            guard level > 0 else { return }
+            for t in thrusters where t.groups.contains(g) && responds(t, activeStage: active) {
+                t.level = t.clampedLevel(max(t.level, level))
+            }
+        }
         set(translationInput.x > 0 ? .translateForward : .translateBack, abs(translationInput.x))
         set(translationInput.y > 0 ? .translateRight : .translateLeft, abs(translationInput.y))
         set(translationInput.z > 0 ? .translateDown : .translateUp, abs(translationInput.z))
+        commandGimbals(Vec3(byGimbal.roll ? rotation.roll : 0, byGimbal.pitch ? rotation.pitch : 0,
+                            byGimbal.yaw ? rotation.yaw : 0), control: control)
     }
 
     /// Total thrust force and torque about the CoM, vessel frame.
@@ -257,7 +317,7 @@ public final class Vessel: Identifiable {
             for t in part.thrusters {
                 let mag = t.thrust(ambientPressure: p, seaLevelPressure: p0)
                 guard mag > 0 else { continue }
-                let force = t.direction * mag
+                let force = t.thrustDirection * mag
                 f += force
                 tq += (t.position + part.offset - com).cross(force)
             }

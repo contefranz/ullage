@@ -53,6 +53,42 @@ enum Toy {
                reference: VesselLibrary.placeholderBody)
     }
 
+    /// A pitch-plane (+z) and a yaw-plane (-y) actuator, ±5° at 5°/s unless given.
+    static func actuators(limit: Double = 5 * .pi / 180, rate: Double = 5 * .pi / 180,
+                          lag: Double = 0) -> [GimbalActuator] {
+        [GimbalActuator(tilt: .unitZ, limit: limit, rateLimit: rate, timeConstant: lag),
+         GimbalActuator(tilt: -Vec3.unitY, limit: limit, rateLimit: rate, timeConstant: lag)]
+    }
+
+    /// `rocket` with a five-engine cluster instead of its two engines, all on
+    /// one feed with their gimbal points at construction x = 0: engines 1-4 on
+    /// the diagonals at radius 2 m with `actuators` (`actuators()` unless
+    /// given), engine 5 fixed on the axis. `engines` keeps only the first ones.
+    static func clusterRocket(engines: Int = 5, actuators: [GimbalActuator] = Toy.actuators()) -> Vessel {
+        let s = stage(offset: Vec3(10, 0, 0))
+        s.thrusters.removeAll()
+        let d = 2 / 2.squareRoot()
+        for (i, (y, z)) in [(-d, d), (-d, -d), (d, -d), (d, d), (0.0, 0.0)].prefix(engines).enumerated() {
+            s.thrusters.append(Thruster(name: "Engine \(i + 1)", position: Vec3(-10, y, z), direction: .unitX,
+                                        rating: engine, feed: .bipropellant(oxidizer: s.tanks[0], fuel: s.tanks[1]),
+                                        groups: [.main], throttleRange: 1...1, gimbal: i < 4 ? actuators : []))
+        }
+        return Vessel(name: "Cluster", parts: [s, block("Payload", from: 20, to: 24, mass: 2_000, staging: .fixed)],
+                      reference: VesselLibrary.placeholderBody)
+    }
+
+    /// A squat drum, 2 m long and 3 m in radius, 5 t dry, with `addRCS`
+    /// thrusters of 200 N at radius 0.5 m, 1 m fore and aft of its middle, on
+    /// a 100 kg lumped tank. Roll is its weakest axis: 200 N m on Ixx 22,950
+    /// kg m^2 is 0.0087 rad/s^2, against 400 N m on Iyy 13,175 (0.030) in
+    /// pitch and yaw.
+    static func rollWeakDrum() -> Vessel {
+        let tank = PropellantTank(name: "Drum RCS", capacity: 100)
+        let part = VesselPart(name: "Drum", dryMass: 5_000, length: 2, radius: 3, tanks: [tank], staging: .fixed)
+        part.addRCS(foreX: 1, aftX: -1, radius: 0.5, thrust: 200, isp: 280, tank: tank)
+        return Vessel(name: "Drum", parts: [part], reference: VesselLibrary.placeholderBody)
+    }
+
     /// Saturn-like staging on toy parts, bottom to top (construction stations):
     /// Booster 0-20 `.event(1)`, Interstage 20-22 `.event(2)`, Core 22-42 and
     /// Adapter 42-44 `.event(4)`, Upper 44-64 and Payload 64-68 `.fixed`,

@@ -91,7 +91,7 @@ Read from `Sources/OrbitCore` as of M0, before the stack was built. Since then t
 | tower-clearance yaw | 1.7 – 9.7 | TL | M | |
 | pitch and roll program start | 13.2 | TL | H | |
 | roll end | 31.1 | TL | M | Armstrong's 34 s call is a voice lag. |
-| S-IC outboard engine cant | 20.6 | FER (garbled) | L | Cant angle not found; recalled ≈ 2°, unverified. |
+| S-IC outboard engine cant | 20.6 | FER sequence table (OCR); EL | M | About 2° outboard (EL; EH 8.13; M). Ramp and axis in §7.1. |
 | Mach 1 | 66.3 | TL, AP | H | |
 | max Q | 83.0 | SP-4029 Ascent Data | H | |
 | S-IC CECO (command) | 135.20 | TL, AP | H | The SP-4029 timeline entry at 91.5 s is an error. |
@@ -123,7 +123,7 @@ Read from `Sources/OrbitCore` as of M0, before the stack was built. Since then t
 | s_ic_thrust_liftoff (5 engines) | 34.02 MN | 7,648,000 lbf | TDiA, Braeunig | M | Basis unknown. The 7,552,000 lbf "from the LVFER" is probably a reduced-to-sea-level average (−0.62% vs predicted). |
 | s_ic_thrust "max" | — | 9,180,000 lbf | TDiA | **rejected** | Exceeds 5 × the rated F_vac by 5% (verifier). |
 | f1_effective_exit_area | 9.93 m² (rated), 9.96 m² (sim set) | | derived (F_vac − F_SL)/p0 | M | Equivalent diameter 3.556 m. 12.2–12.3 ft is the engine envelope, refuted as the gas-path exit (verifier). |
-| f1_gimbal_limit | ±5° (0.0873 rad), 5 °/s | | EH | M / L | Other sources give 5.25° and 6°. The centre engine is fixed. |
+| f1_gimbal_limit | ±5° (0.0873 rad) per actuator axis, 5 °/s | | EH 8.13 | L | One secondary source. The 5.25° and 6° of other sources are read as the actuator stop and the bearing envelope (§7.1). The centre engine is fixed. |
 | j2_rated_emr5.5 | 1,023,091 N, Isp_vac 425 s, 245.474 kg/s | 230,000 lbf | NTRS 20100032986, J-2X heritage paper | H (thrust), M (Isp) | Chosen over 232,250 / 228,000 / 225,000 lbf. It reproduces 1.82 g at S-II CECO (§2.4). |
 | j2_emr_range (PU valve) | 4.5 (full open) … 5.5 (closed) | | EH | M | |
 | s_ii_low_emr | 4.7 | | TIS-501 | L | AS-506 value not found. EH's 4.3 lies below the PU hardware limit. With a 491 s shift, 4.7 closes the LOX budget (§2). |
@@ -131,10 +131,10 @@ Read from `Sources/OrbitCore` as of M0, before the stack was built. Since then t
 | j2_isp_vac_emr5.0 | 427 s | | Braeunig (via researcher) | L-M | Gives burn-1 consumption 31,665 kg, consistent with the Δv budget (§5). |
 | s_ivb_tli_thrust | 894,364 N | 201,061 lbf | TDiA | M | M2 only. |
 | j2_throat / area ratio | 0.37338 m / 27.5 | 14.7 in | SP-8120; Wikipedia, Purdue | H / H | The geometric exit area of 3.011 m² (Ø 1.958 m) is derived. The Wikipedia sea-level figures (486 kN, 200 s) are refuted. |
-| j2_gimbal_limit (S-II outboard) | ±7° (0.1222 rad) | | EH | M | S-IVB range not found. |
+| j2_gimbal_limit (S-II outboard, S-IVB) | ±7° (0.1222 rad) per actuator axis | | EH 8.20; EH 8.30, Haynes | M | S-IVB: "7.0° square pattern" (§7.1). |
 | sps | 91,188.5 N, 314.5 s, MR 1.6, ε 62.5 | 20,500 lbf | Apollo press kits; Aerojet NTRS 20100027319; TN D-7375 | M | The 314.5 s comes from 100 psia tests, where thrust was 21,500–21,900 lbf, so the pair may not describe one operating point (±2%). |
 | sm_rcs | 16 × 444.8 N | 100 lbf | Apollo-era sources | H | Isp not found (§3). |
-| aps (S-IVB) | 2 modules × (3 × 667.2 N attitude + 1 × 320.3 N ullage) | 150 / 72 lbf | NASM, Wikipedia, collectSPACE | H | Isp not found. Loads per module of 150 lb N2O4 and 115 lb MMH (L) give O/F 1.30, which is suspect. |
+| aps (S-IVB) | 2 modules × (3 × 653.9 N attitude + 1 × 320.3 N ullage) | 147 / 72 lbf as operated (150 / 70 nominal) | APS-TN, NASM, collectSPACE | M (attitude), H (ullage) | Isp not found (§3, §7.3). Loads: the AS-507 proxy 405 lb N2O4 + 252 lb MMH for both modules (FER-507), O/F 1.607; Wikipedia's 150 + 115 lb per module is rejected (§7.3). |
 | solid motors | see §3 | | | | Propellant masses chosen by impulse checks: S-IC retro 278 lb (not 208); S-IVB ullage 58.7 lb (not 29.7). |
 
 ### 1.4 Geometry: stack interfaces (the full table is in §4)
@@ -180,7 +180,7 @@ Read from `Sources/OrbitCore` as of M0, before the stack was built. Since then t
 | max Q | 35,200 Pa at 83.0 s, 13,567 m geodetic, V_rel 503.96 m/s | SP-4029 | H | US-1976 gives about 30,970 Pa at that state; the real July Cape atmosphere was about 14% denser (verifier). |
 | pad (LC-39A) | geocentric latitude 28.4470° N, longitude 80.6041° W; r = 6,373.355 km | AP; Fischer-1960 radius derived | H / M | Place the sim pad at **geocentric** 28.447° so that Earth-rotation speed and inclination geometry match. |
 | liftoff inertial velocity | 408.64 m/s (1,340.7 ft/s), heading 90° | AP | H | This is Earth rotation. The sim sphere gives 408.94 m/s. |
-| flight azimuth | 72.058° | **recalled** (AFJ / SP-4029) | L | Unverified this run. Test inclination rather than azimuth. |
+| flight azimuth | 72.058° | SP-4029 ("rolled from a launch pad azimuth of 90° to a flight azimuth of 72.058°"); FER text; AFJ | H | Verified in §7.1. |
 
 ### 1.7 Where verifiers disagreed with researchers (or flagged an issue): decisions
 
@@ -210,7 +210,7 @@ Mass in kg, with lb in brackets. "Usable" means consumed between the sim ignitio
 | **S-IC** | **164,884.5** (363,508): dry 287,531 + LOX on board at OECO 39,772 + RP-1 at OECO 30,763 + other 5,442 | LOX **1,481,439.0** (3,266,014) | RP-1 **632,364.9** (1,394,126) | 2,278,688.4 (5,023,648) |
 | **S-IC/S-II interstage** | **5,205.9** (11,477), including 4 ullage motors. Optional split: 4,596.3 structure + 609.6 solid propellant | — | — | 5,205.9 |
 | **S-II + S-II/S-IVB interstage** | **44,599.6** (98,325): dry 79,714 + other 1,260 + aft interstage 8,076 (with the S-II retros) + LOX not consumed 2,214 + LH2 not consumed 7,061 | LOX **370,510.5** (816,836) | LH2 **68,517.3** (151,055) | 483,627.4 (1,066,216) |
-| **S-IVB** | **16,255.6** (35,837): dry 24,852 + other 1,656 (APS propellant, He, ullage-motor propellant) + LOX 4,229 + LH2 5,100 not consumed by burn 1 or TLI (boost and orbital venting, residuals) | LOX **85,397.0** (188,268) = burn 1 26,387.7 + TLI 59,009.3 | LH2 **17,466.7** (38,508) = burn 1 5,277.5 + TLI 12,189.2 | 119,119.3 (262,613) |
+| **S-IVB** | **16,255.6** (35,837): dry 24,852 + other 1,656 (APS propellant, He, ullage-motor propellant) + LOX 4,229 + LH2 5,100 not consumed by burn 1 or TLI (boost and orbital venting, residuals). The model moves the APS propellant, 298.0 (657), out of "other" into four APS tanks, leaving dry_sim 15,957.4 (35,180) (§7.3) | LOX **85,397.0** (188,268) = burn 1 26,387.7 + TLI 59,009.3 | LH2 **17,466.7** (38,508) = burn 1 5,277.5 + TLI 12,189.2 | 119,119.3 (262,613) |
 | **IU** | 1,939.1 (4,275) | — | — | 1,939.1 |
 | **SLA** | 1,834.8 (4,045) | — | — | 1,834.8 |
 | **LM** | 15,067.4 (33,218), DPS/APS/RCS propellant included (not split) | — | — | 15,067.4 |
@@ -336,8 +336,8 @@ For the F(p) model, Isp_SL is chosen so that F_vac − F_SL = p0 × Ae_eff. "Fli
 | J-2 TLI (reference) | M2 check | 894,364 | — | — | — | — | ≈ 5.0 | — | TDiA | M |
 | SPS (AJ10-137) | M2 | 91,188.5 | — (vacuum only; set Isp_SL = Isp_vac) | 314.5 | — | 29.566 | 1.6 | 18.195 / 11.372 | press kit plus Aerojet; pair ±2% | M |
 | SM RCS (R-4D) × 16 | attitude | 444.8 | — | ≈ 290 (placeholder; generic R-4D 312) | — | 0.1564 | ≈ 2.0 (L) | | | thrust H, Isp L |
-| S-IVB APS attitude × 6 | coast attitude, burn roll | 667.2 | — | ≈ 290 (placeholder) | — | 0.2346 | — | | | thrust H, Isp L |
-| S-IVB APS ullage × 2 | restart ullage (M2) | 320.3 | — | ≈ 290 (placeholder) | — | 0.1126 | — | | | thrust H, Isp L |
+| S-IVB APS attitude × 6 | coast attitude, burn roll | 653.9 | — | 245 (effective; AS-201 flight averages) | — | 0.2722 | 1.607 (load ratio) | | 147 lbf as operated (APS-TN) | thrust M, Isp L |
+| S-IVB APS ullage × 2 | restart ullage (M2) | 320.3 | — | ≈ 290 (placeholder) | — | 0.1126 | 1.607 (load ratio) | | 72 lbf as operated (APS-TN) | thrust H, Isp L |
 
 **J-2 sea-level Isp.** The J-2 Isp_SL values come from the geometric exit area of 3.011 m² (full-flowing bell). They only matter as a ratio in F(p) and are irrelevant above 66 km, where p is about 8 Pa.
 
@@ -364,14 +364,14 @@ For the F(p) model, Isp_SL is chosen so that F_vac − F_SL = p0 × Ae_eff. "Fli
 
 ## 4. Geometry: heights above the vehicle base along the axis
 
-**Datum derivation.** The S-IC is 138 ft = 1,656 in long and ends at the separation plane, STA 1541 (recalled from MSFC-MAN-503), so the base is at STA −115. The recalled F-1 gimbal at STA 100 then sits 215 in (17.9 ft) above the nozzle exit, consistent with a 19 ft engine. The LES tip at 363 ft is Xa ≈ 1485. Vehicle station = Xa + 2756 follows from SLA base Xa 502 = IU top STA 3258 (recalled).
+**Datum derivation.** The S-IC is 138 ft = 1,656 in long and ends at the separation plane, STA 1541 (recalled from MSFC-MAN-503), so the base is at STA −115. The F-1 gimbal at STA 100 (CSS, M; §7.1), which CSS also places 100 in above station 0, then sits 215 in (17.9 ft) above the nozzle exit, consistent with a 19 ft engine. The LES tip at 363 ft is Xa ≈ 1485. Vehicle station = Xa + 2756 follows from SLA base Xa 502 = IU top STA 3258 (recalled).
 
 **Interfaces**
 
 | feature | station | h (m) | conf |
 |---|---|---|---|
 | F-1 nozzle-exit plane = vehicle base | STA −115 | 0.000 | L-M |
-| F-1 gimbal plane; S-IC body (thrust-structure) aft end | STA 100 | 5.461 | L |
+| F-1 gimbal plane; S-IC body (thrust-structure) aft end | STA 100 | 5.461 | M (CSS, §7.1) |
 | S-IC/S-II separation plane (S-IC top) | 1541 | 42.062 | M-L |
 | second plane (S-II aft skirt base, interstage top) | 1760 | 47.625 | L |
 | S-II forward skirt top = aft interstage base | 2519 | 66.904 | L-M |
@@ -405,7 +405,7 @@ Set each part's `offset.x` to its CoM in the vessel frame. Midpoints are accepta
 | engine | gimbal h | exit h | radial offset | exit diameter | conf |
 |---|---|---|---|---|---|
 | F-1 centre (fixed) | 5.461 | 0.000 | 0 | 3.556 effective (3.76 envelope) | L / M |
-| F-1 outboard × 4 (±5°) | 5.461 | 0.000 | 4.623 (182 in) | 3.556 | L (radius from fan wiki). Azimuth relative to the pitch plane unknown; use a symmetric layout. The 20.6 s outboard cant (≈ 2°, L) costs 0.06% of thrust and can be ignored. |
+| F-1 outboard × 4 (±5°) | 5.461 | 0.000 | 4.623 (182 in) | 3.556 | L (radius from fan wiki). Engines 1–4 sit under fins A–D, on the diagonals 45° from the pitch plane (M, §7.1); the S-II numbering is the same. The 20.6 s outboard cant (≈ 2°, M) costs only 0.06% of thrust, but it shortens the outboard moment arms by 21–34% (§7.1). |
 | J-2 S-II centre (fixed) and outboard × 4 (±7°) | ≈ 48.4 ± 1.0 | ≈ 45.0 ± 1.0 | 0 / 2.667 | 1.958 (derived; 2.07 envelope) | L / M radius |
 | J-2 S-IVB | ≈ 71.7 ± 1.0 | ≈ 68.3 ± 1.0 | 0 | 1.958 | L |
 | SPS | ≈ 94.08 (Xa 833) | ≈ 91.08 (Xa 715) | 0 | ≈ 2.5 (recalled) | L |
@@ -486,7 +486,7 @@ Set each part's `offset.x` to its CoM in the vessel frame. Midpoints are accepta
 - **First-engine ignition.** −6.4 versus −6.1 s. All-engines-running at −1.6 versus −1.92 s.
 - **Spacecraft breakdown.** CM predicted versus as-flown, SM 51,243 versus 51,160, LM 33,218 (by closure) versus 33,200, SLA predicted only.
 - **LES escape motor.** 147,000 versus 155,000 lbf; propellant 4,700 lb against the burn time.
-- **Other figures.** SPS thrust/Isp pair; APS loads (O/F 1.30); R-4D Isp; S-IVB ullage thrust 3,390–3,460 lbf; S-IC retro 0.6–0.667 s.
+- **Other figures.** SPS thrust/Isp pair; APS loads (O/F 1.30, superseded by the FER-507 proxy in §7.3); R-4D Isp; S-IVB ullage thrust 3,390–3,460 lbf; S-IC retro 0.6–0.667 s.
 - **S-IVB acceleration at cutoff.** 0.69 g against T/m of 0.680 g. FER insertion mass 135,669 kg against the 135,095 kg budget.
 
 **Gaps (next research turn, highest value first)**
@@ -523,6 +523,457 @@ Set each part's `offset.x` to its CoM in the vessel frame. Midpoints are accepta
 - Spacecraft breakdown (only the 49,734.6 kg total is H).
 - LES motor data, SPS/RCS/APS Isp, APS loads.
 - The placeholder Cd(M), and the max-Q value (atmosphere-dependent).
-- F-1 outboard radius, azimuth and cant.
-- Flight azimuth 72.058° (recalled).
+- F-1 outboard radius, and the cant ramp and axis (§7.5).
 - Solid-motor propellant masses.
+
+---
+
+## 7. Thrust vector control, flight control and the S-IVB APS
+
+Compiled on 2026-10-16 for the M1 item "engine gimballing and TVC" from three research categories, each independently re-verified: TVC hardware, flight-control laws, and the S-IVB APS. The conventions are those of the header (t is range time, h is height above the vehicle base, STA converts as h = (STA + 115) × 0.0254, SI units, H/M/L grades).
+
+**Limits.** As before, no NASA document could be fetched; every value comes from search extracts. No AS-506 Flight Evaluation Report (FER) control-performance or APS-consumption number was retrieved, so §7.4 has no FER targets. Rows marked **derived** are arithmetic on sourced values. Rows marked **sim** come from the current `VesselLibrary.saturnV()` model, evaluated in a probe run on 2026-10-16. They inherit that model's L-graded geometry: gimbal heights, tank extents and CoM placement.
+
+**Status.** M1 item 2 implemented the §7.1 actuator model, the §7.2 command seam and the §7.3 APS; the gain schedules, cant schedule and APS phase-plane logic are left to the IU item. Where this section says "today", "the builder" or "the current model", and in the rows marked **sim** and the test names of §7.4, it describes the model before item 2. Item 2 moved the APS propellant into point tanks at r = 3.5 m, which shifts the S-IVB inertias by under 0.4% (insertion Ixx 5.877e5 kg m², S-IVB ignition Iyy 1.312e7 kg m²), and renamed `testKillRotationDampsAKickWithTheStandIns` to `testKillRotationDampsAKickWithGimbals`.
+
+**New source keys**
+
+- TN5869: Haeussermann, NASA TN D-5869 (1970), *Description and Performance of the Saturn Launch Vehicle's Navigation, Guidance, and Control System*, Table 3 and text.
+- EL: *The Enduring Legacy of Saturn V Launch Vehicle Flight Control*, NASA MSFC, IAC-19-D6.2 (NTRS 20200002830).
+- MBC: Saturn V manual backup control study (NTRS 19690018640).
+- CSS: Project Apollo Coordinate System Standards (NTRS 19700076120).
+- APS-TN: Coates and Donald, *Investigation of SA-501 S-IVB APS Flight Anomalies* (NTRS 19690016846).
+- FER-507: AS-507 (Apollo 12) Flight Evaluation Report (Scribd OCR copy).
+- AS201: *Results of the First Saturn IB Launch Vehicle Test Flight, AS-201*.
+- GE504: *Saturn V Launch Vehicle Guidance Equations, SA-504* (IBM).
+- MAN503: Saturn V Flight Manual SA-503, MSFC-MAN-503 (degraded OCR).
+- SP4029: SP-4029 (Apollo by the Numbers), Apollo 11 timeline and summary text.
+- H&P: *Hydraulics & Pneumatics* (1963), two Saturn V gimbal articles.
+- SAE650304: Kalange and Alcott, *Saturn V S-IC Stage Engine Gimbal Actuation System* (abstract).
+- TMX53532: NASA TM X-53532, *Propellant Feed Ducting and Engine Gimbal Lines*.
+- Bramlet: *Saturn V Launch Vehicle Program* (NTRS 19720063751).
+- Haynes: *NASA Saturn V 1967–1973 Owners' Workshop Manual*.
+- HR: heroicrelics.org (F-1 gimbal bearing; S-IC positions).
+- Oik: Oikofuge, *Coordinate Axes of Apollo-Saturn*, Parts 1 and 2.
+- NASM: National Air and Space Museum APS object records.
+- EDS: *AGC and Manual Control of the Saturn V* (slides) and NTRS 20190033307.
+- EH pages: RPE 8.10 (S-IC), 8.13 (*F-1, One Second*), 8.20 (S-II), 8.30 (S-IVB).
+
+### 7.1 Gimbal hardware per stage
+
+**Engines that gimbal, ranges and rates**
+
+| id | chosen (SI) | original | source | conf | notes |
+|---|---|---|---|---|---|
+| sic_gimballed_engines | engines 1–4 (outboard); engine 5 fixed | 4 of 5 | MSFC-0600318 caption, TIS-501, Bramlet, MBC, H&P | H | Unchanged from §1.3. |
+| sic_actuators | 8: two per outboard engine, one in the vehicle pitch plane and one in the yaw plane | "swiveled in the pitch and yaw planes by separate hydraulic actuators" | MBC; EH 8.10; H&P | M | The axes are parallel to the vehicle Y and Z axes, **not** radial and tangential, even though the engines sit on the 45° diagonals. Roll comes from combining the pitch and yaw actuators (MBC; TIS-501: "the 8 hydraulic actuators of the S-IC and S-II stages ... provide control in all axes"). |
+| f1_gimbal_limit (control) | ±0.08727 rad per actuator axis | ±5° "thrust vector change from center" | EH 8.13 only | **L** | Downgraded from the §1.3 "M / L": there is one secondary source and no primary. The per-axis reading follows from the actuator arrangement (MBC). The square corner is 7.05° (derived). |
+| f1_actuator_stop | ±0.09163 rad per axis | 5.25° "full travel" | EH 8.10, Apollo11Space (one source) | L | Read as the actuator stroke limit just outside the control limit. Stroke 11 in (0.2794 m); actuator about 300 lb (136.1 kg) and about 5 ft long. Inventory only. |
+| f1_gimbal_envelope | ±0.10472 rad per axis (design / bearing) | 6° | apollomaniacs ("about engine X and Z axes"); HR ("6° any direction from center", from Rocketdyne R-3896-11) | M value, L definition | See the reconciliation below. Never a control limit. |
+| f1_feedline_label | 0.14835 rad | "8°30′" | TMX53532 Fig. 19 (garbled OCR) | L | Equals the corner of a ±6° square: cos θ = cos² 6° gives 8.48° (derived). |
+| f1_gimbal_rate | 0.08727 rad/s | 5°/s maximum | EH 8.13 | L | Loaded or no-load is not stated. "5.25° in about 1 s" (EH 8.10) gives 5.25°/s null-to-stop or 10.5°/s stop-to-stop. |
+| sic_hydraulics | 13.79 MPa, RP-1 from the F-1 turbopump ("fueldraulic") | 2,000 psi (design, 1963) | H&P; SAE650304 (fluid source only) | L | Ground supply RJ-1, lowered to 1,500 psi (10.34 MPa) just before launch. Not needed by the sim. |
+| sii_gimballed_engines | engines 1–4 (outboard); engine 5 fixed | 4 of 5 | EH 8.20; Bramlet; Haynes | H | Each outboard engine has its own closed hydraulic system: an engine-driven pump, an accumulator, and two perpendicular servoactuators in the stage pitch and yaw planes. |
+| sii_j2_gimbal_limit | ±0.12217 rad per axis (pitch, yaw) | ±7° "in the pitch and yaw planes" | EH 8.20 (citing the Saturn V News Reference); Haynes for the J-2 in general | M | Downgraded from the researcher's H, since only EH was verified. Square corner 9.85–9.88° (derived). |
+| sii_j2_gimbal_rate | 0.13963 rad/s | 8°/s | EH 8.20 | M-L | Single source; loaded or no-load not stated. |
+| sii_hydraulics | 24.13 MPa | 3,500 psi closed system; main pump 8 gpm | EH 8.20; RR Auction (S-II engineering course) | M | Actuators locked until after S-IC/S-II separation, when a switch-selector command opens the accumulator lockup valves. Until then the S-II engines are at null. |
+| sivb_j2_gimbal_limit | ±0.12217 rad per axis (pitch, yaw) | "7.0° square pattern"; "up to 7° from the stage's centreline" | EH 8.30; Haynes | M | **Fills the §1.3 gap** ("S-IVB range not found"). Square corner 9.85–9.88° (derived). Two linear actuators, an engine-driven main pump, an electric auxiliary pump, and an accumulator/reservoir. The original Douglas actuators were replaced by stiffer Moog units (EH). |
+| sivb_j2_gimbal_rate | not found | — | — | — | **Placeholder for the sim: 8°/s (0.1396 rad/s), not data.** Do not cite it as the S-IVB value. |
+| sivb_j2_boost_null | J-2 held at null from liftoff through S-II flight and S-II/S-IVB separation | — | EH 8.30 | M | The S-IVB TVC becomes active at S-IVB ignition (552.20). |
+| actuator_dynamics | not found | quadratic s² + 5.35 s + 2547 (ω 50.5 rad/s, ζ 0.053) | NTRS 19700003412 (garbled) | L | The damping is too low for a servo bandwidth; SAE650304 mentions "damping of load resonance", so this is probably an engine/structure load resonance. **Do not use.** The actuators are mechanical-feedback hydraulic servos with dynamic-pressure-feedback load stabilisation (EL; SAE650304). |
+| gimballed_inertia | not found | — | R-3896-1 has a "Weight, CG, Moment of Inertia" section, unread | — | Tail-wags-dog terms (engine first and second moments about the gimbal) cannot be modelled. |
+
+**F-1 range reconciliation (L).** Read every value per actuator axis and the set nests consistently:
+
+| level | per axis | square corner |
+|---|---|---|
+| control limit | 5.00° | 7.05° |
+| actuator stop | 5.25° | 7.40° |
+| bearing and feed-line design envelope | 6.00° | 8.45–8.48° |
+
+The last corner is TM X-53532's 8°30′ label. If the 6° were instead a cone ("any direction", HR), a ±5° square command would hit it at the corners (7.05° > 6°). That reading leaves the 8°30′ label unexplained, so the square reading is preferred. **For the sim:** clamp each actuator at ±5° (F-1) or ±7° (J-2) and add no radial clamp. A 6° radial clamp would bind only when both axes exceed 4.24°, which never happens in nominal flight.
+
+**Gimbal points**
+
+| id | chosen | original | source | conf | notes |
+|---|---|---|---|---|---|
+| f1_gimbal_plane | h 5.461 m | STA 100; "structural body axes origin 100 in below the gimbal reference plane" | CSS (primary, search extract); §4 (recalled) | **M** | Upgraded from L. This also confirms station 0 = 100 in below the gimbal plane, consistent with the §4 datum. |
+| sii_j2_gimbal | h ≈ 48.4 ± 1.0 m | — | §4 estimate | L | Not found. In the sim the lever arm to the CoM is 11.8 m at S-II ignition and 27.7 m at OECO, so ±1 m changes control effectiveness by ±8% falling to ±4%. |
+| sivb_j2_gimbal | h ≈ 71.7 ± 1.0 m | — | §4 estimate | L | Not found. It lies below the S-IVB part's own aft end (72.68 m); this is still unresolved (see `AS506.sIVBJ2GimbalHeight`). In the sim the lever arm is 9.2 m at ignition and 10.3 m at cutoff, so ±1 m changes effectiveness by about ±10%. |
+
+**Outboard cant (S-IC)**
+
+| id | chosen (SI) | original | source | conf | notes |
+|---|---|---|---|---|---|
+| sic_cant_angle | 0.03491 rad, nozzle exits outboard (thrust lines inward) | "approximately 2 degrees" outboard | EL; EH 8.13 ("two degrees outboard of center") | **M** | Upgrades §1.2's recalled ≈ 2° (L). Electronic: a ramp generator in the Flight Control Computer (FCC) adds a bias to the outboard actuator commands. No mechanical mounting cant. |
+| sic_cant_axis | radial on each diagonal engine, i.e. 2°/√2 = 1.414° on each actuator | — | inference | L | The alternative, 2° on each actuator, gives 2.83° radial. EL's wording ("vectored ... outboard approximately 2 degrees") favours the thrust-vector (radial) angle. |
+| sic_cant_start | t 20.6 s (TB1 + 20.0 s; sim time 20.3) | "20 seconds following liftoff"; FER event 20.6 / 20.0 | EL; FER sequence table (OCR) | **M** | Upgrades §1.2 from L. 0.63 s liftoff + 20.0 = 20.63. AS-508 FER lists the same event. |
+| sic_cant_ramp | not found | "ramp generator" | EL | — | **Placeholder for the sim: 0.2°/s radial (complete at 30.6 s), not data.** Assumed held to OECO. |
+| sic_cant_at_liftoff | none (engines at null plus control) | — | inference from EL | L | No source says the engines were canted on the pad. |
+| sii_cant | none found | — | — | — | Do not model one. |
+
+Effects of the cant (derived):
+
+- **Axial thrust.** Each outboard engine loses 1 − cos 2° = 0.061% of axial thrust. The ideal Δv lost between 20.6 s and OECO is about 1.8 m/s. §4 called this "ignorable", which is true for Δv but not for torque.
+- **Torque.** The cant moves each outboard thrust line closer to the CoM. The moment arm is (r − L tan 2°) cos 2°, with r = 4.623 m (L) and L the gimbal-to-CoM distance in the sim:
+
+  | t (s) | L (m) | moment arm (m) | change |
+  |---|---|---|---|
+  | 20.6 | 27.7 | 3.65 | −21% |
+  | 83 | 30.0 | 3.57 | −23% |
+  | 130 | 36.4 | 3.35 | −28% |
+  | 161.6 | 45.6 | 3.03 | −34% |
+
+  This is the engine-out disturbance torque. EL gives the purpose as reducing sensitivity to thrust-vector misalignment (paraphrase); an engine-out rationale is physically plausible but unsourced.
+- **Travel.** On the radial reading, the cant uses 1.41° of each actuator's ±5°, so control travel toward the cant side falls to 3.59°.
+
+**Engine clocking and the pitch plane**
+
+| id | chosen | source | conf | notes |
+|---|---|---|---|---|
+| engine_numbering | Engine *n* sits under fin *n* (1 = A, 2 = B, 3 = C, 4 = D); 5 is the centre. Opposite pairs are 1–3 and 2–4. | Oik (citing TN D-5399 diagrams); collectSPACE (SA-500F photo); HR (from R-3896-1) | M-H | The S-II numbering is "basically the same" (HR). Ignition order 5, 1–3, 2–4 at about 0.3 s intervals (secondary). |
+| positions | I–IV lie midway between fins (Position II between fins A and B). Letters and numerals run anticlockwise seen from above. | Oik; HR | M | |
+| pad_orientation | Tower to the north. Position I faces east (downrange for the 90° pad azimuth), II north (tower), III west, IV south (Mobile Service Structure side). | Oik; Popular Science; MSS geometry | M | Photographs from the press site show the tower on the north side. |
+| saturn_axes | +X along the axis toward the nose; +Z toward Position I; +Y toward Position IV (right-handed). Roll is about X, pitch about Y, yaw about Z. The pitch plane is X–Z (I–III) and the yaw plane X–Y (II–IV). | CSS; Astrionics System Handbook; Oik | M | Popular Science's pitch-axis naming contradicts CSS and is rejected. |
+| orbitsim_mapping | Saturn (X, Y, Z) = OrbitSim (x, y, z), one to one. After pitch-over, Position I (+z) faces the ground. | derived (both researchers and the verifier) | M | Same handedness. The roll program is a **positive** roll about +x of 17.942° (Position I from azimuth 90° to 72.058°). The tilt toward downrange is a rotation about **−y** (nose toward +z), i.e. negative in `RotationCommand.pitch`. The tower-clearance yaw is toward +y (south, away from the tower), positive yaw. |
+| flight_azimuth | 72.058° | SP4029 ("rolled from a launch pad azimuth of 90° to a flight azimuth of 72.058°"); FER text; AFJ | **H** | Upgrades §1.6 from "recalled, L". |
+
+Engine positions in the vessel frame (y, z), with d = r/√2: d = 3.269 m for the F-1 (r 4.623 m, L) and 1.886 m for the S-II J-2 (r 2.667 m, M).
+
+| engine | fin | between positions | on the pad | (y, z) | `cluster(...)` before item 2 |
+|---|---|---|---|---|---|
+| 1 | A | I–II | NE | (−d, +d) | (+d, −d): **swapped with 3** |
+| 2 | B | II–III | NW | (−d, −d) | matches |
+| 3 | C | III–IV | SW | (+d, −d) | (−d, +d): **swapped with 1** |
+| 4 | D | IV–I | SE | (+d, +d) | matches |
+| 5 | — | centre | — | (0, 0) | matches |
+
+The swap matters only for engine-out tests and display. Separately, the flight tests call `placeLanded(..., azimuth: 72)`, which points −z downrange and so puts Position III downrange. For Saturn-consistent signs, place the stack with azimuth 270 (+z, Position I, east on the pad) and command the +17.942° roll program. Alternatively, use 252.058 for the post-roll orientation. Tests that are symmetric in engine number are unaffected.
+
+**Recommended sim actuator model (not data).** For each gimballed engine, use two projected deflection angles:
+
+- δp: the thrust vector projected on the x–z plane;
+- δy: the thrust vector projected on the x–y plane.
+
+The thrust direction (force on the vehicle) is normalise(1, −tan δy, tan δp). Positive δp gives a positive (nose toward −z) pitch torque and positive δy a positive yaw torque.
+
+Each axis is a rate-limited position servo: |δ̇| ≤ the rate above, |δ| ≤ the per-axis limit, with the limit applied to the command plus the cant bias. No servo lag, no load resonance, no engine inertia. The control bandwidth is 0.08–0.17 Hz (§7.2), far below any plausible servo bandwidth, so the lag is immaterial to every §7.4 target.
+
+### 7.2 Flight-control laws
+
+**Control law and gains**
+
+| id | chosen (SI) | original | source | conf | notes |
+|---|---|---|---|---|---|
+| fcc_law | β = −(a0·e + a1·ω) per axis | β_c = a0·H0(s)·ψ + a1·H1(s)·ψ̇ | EL; TN5869; Astrionics System Handbook | H (form) | e is the attitude error from the LVDC: the small-angle rotation from commanded to actual attitude, in body axes. ω is the body rate from the IU rate gyros. Proportional-derivative only: no integral term. H0 and H1 are bending filters (first bending mode ≈ 1 Hz, EL, L). Omit them, since the sim has no bending. |
+| accelerometer_feedback | g2 = 0 | "deleted from the Saturn V" | EL; TN5869 | H | Accelerometer load relief flew on Saturn IB only. |
+| gain_switching | discrete steps at preset times (switch-selector commands from time-base sequencing; no sensing) | — | EL; TN5869 | H (mechanism) | The AS-506 switch times were not found. |
+| sic_gains_0_105 | a0 0.9, a1 0.69 s | deg/deg, deg/(deg/s) | TN5869 Table 3 | M (reading), L (AS-506) | TN5869 calls them "typical". The time reference is presumably liftoff. |
+| sic_gains_105_130 | a0 0.45, a1 0.44 s | | TN5869 | M (reading), L (AS-506) | Conflicts with EL's "single switchpoint" at 100 s. |
+| sic_gains_130_cutoff | a0 0.30, a1 0.32 s | | TN5869 | M (reading), L (AS-506) | |
+| sii_gains | 0–60 s: 1.12 / 1.9 s; 60–190 s: 0.65 / 1.1 s; 190 s–cutoff: 0.44 / 0.74 s | (a0, a1) | TN5869 (klabs copy) | L | Assigned to the S-II because a 190 s edge cannot be S-IC time and a verifier extract placed the last row under "Second Stage Propulsion Period". Time is presumably from S-II ignition (164.0). |
+| sivb_gains_burn1 | a0 0.81, a1 0.97 s | | TN5869 (garbled continuation; footnote mentions the S-IVB first burn) | L | The stage assignment is uncertain. It conflicts with TN5869's third-stage control frequency of 0.2–0.5 Hz (see the check below). |
+| sivb_gains_burn2 | 0–260 s: a0 0.70, a1 0.81 s | | TN5869 (footnote "first 260 seconds of the second burn") | L | M2 only. Gains after 260 s were not found. |
+| roll_gains | not found | — | — | — | **Placeholder: the same a0 and a1 as pitch and yaw (not data).** This gives 0.17–0.43 Hz with ζ 0.7–1.4 on the S-IC and S-II (sim). |
+| lvdc_minor_loop | 0.04 s (25 Hz) | about 25 times per second; 40 ms interrupt | TN5869; Wikipedia LVDC | M-H | Attitude-error update rate. The FCC itself is analogue, so rates are continuous. |
+| bending_mode_1 | ≈ 6.3 rad/s | ≈ 1 Hz | EL | L | Context only. |
+
+**Consistency of the gains with the sim (derived, no aero).**
+
+- Control effectiveness is c = N·F·L/I. N·F is the gimballed thrust: 4 outboard engines, or the single S-IVB J-2. L is the gimbal-to-CoM distance and I the pitch inertia, both taken from the sim.
+- The closed-loop rigid-body response then has ωn = √(a0·c), ζ = a1·c/(2ωn), and a steady ramp-tracking lag of (a1/a0) × rate.
+
+| point (t) | c (s⁻²) | gains | f_n (Hz) | ζ | lag (s) | α at full deflection (°/s²) |
+|---|---|---|---|---|---|---|
+| S-IC release (0.30) | 0.784 | 0.9 / 0.69 | 0.134 | 0.32 | 0.77 | 3.9 |
+| S-IC max Q (83.0) | 1.086 | 0.9 / 0.69 | 0.157 | 0.38 | 0.77 | 5.4 |
+| S-IC 105, band 1 → 2 | 1.270 | 0.9 → 0.45 | 0.170 → 0.120 | 0.41 → 0.37 | 0.77 → 0.98 | 6.3 |
+| S-IC 130, band 2 → 3 | 1.690 | 0.45 → 0.30 | 0.139 → 0.113 | 0.43 → 0.38 | 0.98 → 1.07 | 8.4 |
+| S-IC OECO (161.6) | 3.369 | 0.30 / 0.32 | 0.160 | 0.54 | 1.07 | 16.8 |
+| S-II ignition (164.0) | 0.366 | 1.12 / 1.9 | 0.102 | 0.54 | 1.70 | 2.6 |
+| S-II +60 s, band 2 | 0.427 | 0.65 / 1.1 | 0.084 | 0.45 | 1.69 | 3.0 |
+| S-II CECO (460.6) | 1.188 | 0.44 / 0.74 | 0.115 | 0.61 | 1.68 | 8.3 |
+| S-II OECO (548.0) | 2.675 | 0.44 / 0.74 | 0.173 | 0.91 | 1.68 | 18.7 |
+| S-IVB ignition (552.2) | 0.636 | 0.81 / 0.97 | 0.114 | 0.43 | 1.20 | 4.4 |
+| S-IVB cutoff (699.3) | 0.770 | 0.81 / 0.97 | 0.126 | 0.47 | 1.20 | 5.4 |
+
+Sim inputs used for the table:
+
+| quantity | values |
+|---|---|
+| Iyy (kg m²) | 9.758e8 at release, 4.294e8 at S-IC OECO, 1.321e8 at S-II ignition, 3.42e7 at S-II OECO, 1.311e7 at S-IVB ignition, 1.201e7 at insertion |
+| CoM height (m) | 33.08 at release, 51.07 at S-IC OECO, 60.20 at S-II ignition, 76.06 at S-II OECO, 80.94 at S-IVB ignition, 81.96 at insertion |
+
+Findings:
+
+1. **S-IC.** TN5869's schedule keeps the sim between 0.11 and 0.17 Hz, consistent with TN5869's "≈ 0.15 Hz" first-stage frequency. The steps at 105 s and 130 s are what hold it there. This supports the TN5869 gains, the sim inertia and the 5.461 m gimbal plane together (L-M).
+2. **S-IVB.** The 0.81/0.97 pair gives 0.11–0.13 Hz. Reaching 0.2 Hz would need a0 ≈ 2.0–2.5, and 0.5 Hz would need a0 ≈ 13–16. Either the pair is not the S-IVB burn-1 gain, or TN5869's 0.2–0.5 Hz covers TLI, where c rises as the stage empties. Unresolved (§7.5).
+3. **Rate demand.** At these frequencies, actuator rates in response to 1° errors are below 1°/s, far from the 5–8°/s limits. Rate limits matter only for staging transients and engine-out.
+
+**Limits and command constraints**
+
+| id | chosen (SI) | original | source | conf | notes |
+|---|---|---|---|---|---|
+| fcc_output_limits | the §7.1 per-axis actuator limits | — | §7.1 | L (F-1), M (J-2) | No separate FCC command limit was found. |
+| guidance_rate_limit_pitch_yaw | 0.017453 rad/s | "guidance-command angle rate shall not exceed one degree per second in pitch and yaw" | GE504 | M | SA-504 document. Applies to the tilt program and upper-stage guidance. IU item. |
+| roll_program_rate | 0.017494 rad/s (derived) | 17.942° in 17.9 s, 13.2 → 31.1 s | SP4029, TL (inputs H/M); derived | M | Consistent with a 1°/s rate-limited roll command, but not proof of a roll limit. Model it as a +1°/s ramp from 13.2 s until 17.942° is reached at 31.14 s. |
+| guidance_yaw_cmd_limit | 0.7854 rad | "shall not exceed 45" (unit assumed) | GE504 (truncated) | L | IU item. |
+| powered_attitude_error_limits | not found | — | — | — | The LVDC/LVDA ladder limits in powered flight are a gap. Do not invent a clip for the boost stages. |
+| aps_deadband | ±0.017453 rad, each axis | ±1° (2° effective band) | EH 8.30; ASTP SA-210 report (Saturn IB) | M | Whether it also applies to roll-only control during J-2 burns is not stated. |
+| aps_error_limits | ±0.04363 rad pitch/yaw; ±0.06109 rad roll | ±2.5° / ±3.5° | EH 8.30 | M | They clip the error entering the APS phase-plane logic, which bounds the manoeuvre rate. |
+| aps_switching_line | not found | — | — | — | **Placeholder: fire when e_clip + K·ω exceeds the deadband, with K = 5 s (not data).** This gives manoeuvre rates of about 0.3°/s in pitch/yaw and 0.5°/s in roll. No hysteresis. |
+| aps_min_impulse | 33.36 N·s | 7.5 lbf·s minimum impulse bit, required | APS-TN | M-H | 51 ms at 147 lbf (derived). The "≈ 70 ms" minimum pulse (EH 8.30, L) is a command width. With the 0.02 s integrator, use a 0.06 s minimum on-time at full thrust: 39.2 N·s, 18% above the requirement. |
+| eds_roll_overrate | 0.3491 rad/s | 20°/s | EDS (two sources) | M | Abort-monitor limit, not a control parameter. |
+| eds_pitch_yaw_overrate | 0.0524–0.0698 rad/s early in boost | 3, 4 or 5°/s; about 9°/s later | EDS | L | Sources disagree. Use only as a sanity bound. |
+
+**Roll distribution**
+
+- **S-IC and S-II: differential outboard deflection** (MBC; Bramlet; TIS-501). The FCC summing equations were not found. A derived mixing that decouples the axes exactly, for engine i at (yi, zi) with r = √(yi² + zi²):
+  - δp,i = βp + (yi/r)·βr − (zi/r)·κ
+  - δy,i = βy + (zi/r)·βr + (yi/r)·κ
+  - Here βr is the tangential (roll) deflection, κ the radial outboard cant, and engine 5 stays at 0.
+  - Torques: τy = 4·F·L·βp, τz = 4·F·L·βy, τx = 4·F·r·βr. The cant adds no net torque.
+  - On the diagonals each roll and cant term splits 1/√2 per actuator. Whether the real roll gain is defined per actuator or tangentially only rescales the roll gain by √2.
+- **S-IVB.** The J-2 gives pitch and yaw only. Roll comes from the APS in roll-only mode during burns (APS-TN; EH 8.30).
+
+**What the TVC item should implement now**
+
+1. **Remove the stand-ins.** Delete the TVC stand-ins on the S-IC, S-II and S-IVB (`addTVCStandIns`, `AS506.*StandInThrust`).
+2. **Gimballed thrusters.**
+   - Give each gimballed thruster two projected deflection axes with limits and rate limits as in §7.1, applied about the gimbal point (`Thruster.position`). Centre engines stay fixed.
+   - S-II engines are held at null until S-IC/S-II separation (162.30), and the S-IVB J-2 until S-IVB ignition (552.20).
+3. **FCC.**
+   - PD law with g2 = 0 and no bending filters.
+   - Attitude error sampled and held at 25 Hz (every second 0.02 s step); body rates continuous.
+   - Gains as data per stage with discrete switch times: S-IC from liftoff (0.63), S-II from 164.0, S-IVB from ignition.
+   - Roll gains as a labelled placeholder.
+4. **Mixing as above** for the S-IC and S-II.
+5. **S-IC cant.** Ramp in the bias at 20.6 s (placeholder ramp rate) and hold it to OECO.
+6. **APS (§7.3).** Thrusters, tanks, roll-only mode during J-2 burns, and three-axis phase-plane control in coast (deadband, error clip, placeholder K, minimum on-time).
+7. **Command source.** An interface that takes a commanded attitude (or attitude and rate) from a simple source: hold the current attitude, or a test-supplied profile. The IU item then plugs into it.
+
+**What to leave for the IU item**
+
+- The time-tilt pitch program, the roll program and the tower-clearance yaw (1.7–9.7 s, toward +y; its angle is not in the inputs, recalled ≈ 1.25°, L).
+- Tilt arrest and IGM.
+- The 1°/s guidance command-rate limit and the 45° yaw-command limit.
+- Time bases, and switch-selector timing of the gain switches and the cant. Range-time triggers are fine for now.
+- APS mode switching by time base (TB5/TB6) and the ullage-burn sequencing.
+- The EDS overrate monitor (abort item).
+
+### 7.3 S-IVB APS
+
+**Layout and engines**
+
+| id | chosen (SI) | original | source | conf | notes |
+|---|---|---|---|---|---|
+| aps_modules | 2 self-contained modules, 180° apart on the aft skirt | — | APS-TN; EH 8.30; NASM | H | Each module has its own oxidizer, fuel and helium. Spaceline's "80 degrees" is a typo. |
+| aps_module_positions | Positions I (+z) and III (−z) | — | inferred from the role split; recalled from MAN503 | L | One radial pitch engine and two tangential roll/yaw engines per module only work with the modules in the pitch plane (I–III). |
+| aps_module_location | h ≈ 73.4 m; nozzle radius ≈ 3.5 m | — | §4 estimate | L | Unchanged. The S-IVB skin radius is 3.302 m. |
+| aps_attitude_engines | 3 per module (TRW TR-204), 6 in all | — | APS-TN; EH 8.30; NASM | H | |
+| aps_attitude_thrust | **653.9 N** each | 147 lbf "operate at" (150 lbf nominal) | APS-TN (two extracts) | M | **Replaces** the §1.3 and §3 value of 667.2 N (150 lbf nominal); the difference is 2.0%. Vacuum basis implied. |
+| aps_roles | per module: 1 pitch + 2 roll/yaw | "two control roll and yaw, while one controlled pitch" | APS-TN; EH 8.30 | M | Wikipedia's "2 roll/pitch + 1 yaw" is rejected. AS-501 data hint that engines 1 and 3 of a module are roll/yaw, 2 is pitch and 4 is ullage (L). |
+| aps_ullage_engines | 1 per module (Rocketdyne SE-7-1), 2 in all | — | APS-TN; EH; NASM | H | Thrust along +x (nozzle aft). Separate from the 2 solid TX-280 motors fired at S-II/S-IVB separation. |
+| aps_ullage_thrust | 320.3 N each | 72 lbf "operated at" (70 lbf nominal) | APS-TN; NASM; collectSPACE | **H** | Upgraded from M. 70 lbf (EH, Wikipedia, MAN503) is the rounded rating. |
+| aps_min_pulse | ≈ 0.07 s command | "about 70 ms" | EH 8.30 | L | See aps_min_impulse (§7.2). |
+| aps_engine_life | 300 s cumulative per attitude engine (design) | 5 min | NASM | L | Design duty limit. |
+| tr204_mass | 12.0 kg each | 26.5 lb; 15.5 in long, 6.5 in nozzle | RR Auction | L | Ablative silica-phenolic chamber; quad-redundant valves. |
+
+**Thruster directions in the vessel frame (inferred, L)**
+
+Module I is at (x_a, 0, +r) and module III at (x_a, 0, −r), with r ≈ 3.5 m and x_a at h ≈ 73.4 m. Forces are on the vehicle.
+
+| module | engine | force direction | OrbitSim groups | torque |
+|---|---|---|---|---|
+| I | pitch | −z (exhaust radially out) | pitchDown | −F·L_a about y |
+| III | pitch | +z | pitchUp | +F·L_a about y |
+| I | roll/yaw a | −y | rollRight, yawRight | +F·r about x; +F·L_a about z |
+| I | roll/yaw b | +y | rollLeft, yawLeft | −F·r; −F·L_a |
+| III | roll/yaw a | +y | rollRight, yawLeft | +F·r; −F·L_a |
+| III | roll/yaw b | −y | rollLeft, yawRight | −F·r; +F·L_a |
+| I, III | ullage | +x | (APS ullage; not a rotation group) | none |
+
+L_a is the CoM height minus 73.4 m. Pure roll fires I-a with III-a; pure yaw fires the two same-direction engines; pitch fires a single engine. Nozzle cant angles were not found, so the directions are purely radial and tangential.
+
+Authority at insertion in the sim (L_a 8.56 m, Iyy 1.201e7, Ixx 5.856e5 kg m²):
+
+| axis | engines | torque (N·m) | angular acceleration (°/s²) |
+|---|---|---|---|
+| pitch | 1 | 5,600 | 0.027 |
+| yaw | 2 | 11,200 | 0.053 |
+| roll | 2 | 4,577 | 0.45 (0.35 at S-IVB ignition) |
+
+**Propellants and pressurant**
+
+| id | chosen (SI) | original | source | conf | notes |
+|---|---|---|---|---|---|
+| aps_n2o4_total | 183.70 kg | 405 lbm, both modules, at liftoff | FER-507 (verbatim, re-checked) | M as an AS-506 proxy | **AS-507, not AS-506.** The AS-506 FER APS section is unread. |
+| aps_mmh_total | 114.31 kg | 252 lbm | FER-507 | M as proxy | |
+| aps_per_module | N2O4 91.852 kg + MMH 57.153 kg | 202.5 + 126 lbm | derived (equal split assumed) | L | |
+| aps_load_ratio | 1.607 | 405 / 252 | derived | M | The loaded ratio. Use it as the feed mixture ratio, so that both tanks deplete together. The engine operating MR was not found. |
+| aps_wikipedia_load | **rejected** | 150 lb N2O4 + 115 lb MMH per module (O/F 1.30) | Wikipedia | — | Twice it (530 lb) contradicts FER-507's 657 lb at liftoff. |
+| aps_helium | 21.37 MPa gauge bottle; regulator 1.351 MPa (196 psia), backup 1.379 MPa (200 psia) | 3,100 psig; 196 / 200 psia | APS-TN | M-L | FER-507 tank ullage pressures of 188–194 psia support the regulator value. Helium mass and bottle volume not found: keep them in dry mass. |
+| aps_module_dry_mass | not found | — | — | — | Stays in the S-IVB stage dry mass. |
+| aps_isp_attitude | **245 s effective** (2,403 m/s) | AS-201 flight averages 237 and 250 s (pulse losses included) | AS201 | L | **Replaces the 290 s placeholder** for the TR-204, since the sim's pulses deliver full thrust for their duration. AS-201 is a Saturn IB with a different APS and no ullage engines. No steady-state or pulse Isp was found for the TR-204. |
+| aps_isp_ullage | 290 s (placeholder) | — | none | L | Steady burns. Unsourced; kept from §3. |
+
+**How the APS propellant relates to "sivb_other" (1,656 lb, 751.1 kg).**
+
+- **What is in the row.** FER-507's 657 lb of APS propellant plus the 117.4 lb (53.25 kg) of TX-280 solid propellant leaves 881.6 lb (399.9 kg) for helium (APS and stage), solid-motor cases and other items. The row is therefore not contradicted.
+- **What to move.** Take 657 lb (298.01 kg) out of the S-IVB part's dry mass into four point tanks: per module, N2O4 91.852 kg and MMH 57.153 kg, at Positions I and III, h 73.4 m, r 3.5 m.
+  - The S-IVB dry mass becomes 24,852 + 1,656 − 657 = **25,851 lb (11,725.8 kg)**.
+  - §2.1's S-IVB dry_sim becomes 35,837 − 657 = **35,180 lb (15,957.4 kg)**.
+  - The part total stays 119,119.3 kg and the ignition total 2,938,314.7 kg.
+- **TX-280 propellant.** Leave the 117.4 lb in dry mass until the ullage-motor item models the TX-280s as solid thrusters on the S-IVB (§3).
+- **Usable versus loaded.** Not known. Set unusable to 0 (L).
+
+**When each function is active**
+
+| phase | t (s) | J-2 TVC | APS attitude | APS ullage | source / conf |
+|---|---|---|---|---|---|
+| S-IC and S-II boost | 0.30 – 549.0 | J-2 at null | inactive (roll by the S-IC/S-II engines) | off | EH 8.30 / M |
+| S-II/S-IVB separation | 549.0 – 552.2 | null | roll (assumed from separation; not stated) | off; TX-280 solids fire | L |
+| S-IVB burn 1 | 552.20 – 699.33 | pitch, yaw | **roll only** | off | APS-TN ("roll control during J-2 powered phases"); EH / H |
+| first cutoff (TB5) | 699.33 | off | pitch and yaw enabled: three axes | on for **88 s** (to 787.3) | MAN503; EH ("1:28 minutes") / L-M (nominal SA-503 sequence; AS-506 times unread) |
+| parking orbit | 787 – ≈ 9,779 | — | three axes, ±1° deadband | off | EH / M |
+| before restart (TB6) | ≈ 9,779 – 9,856.2 | — | three axes | on ≈ 77 s (fact sheet) or "≈ 1 minute" (EH) | L |
+| TLI (M2) | 9,856.20 – 10,203.03 | pitch, yaw | roll only (pitch and yaw drop out at restart) | off | EH / M |
+| post-TLI (M2) | — | — | three axes: transposition and docking hold, LM extraction | slingshot disposal burn (with LOX dump and LH2 vent) | FER summary; SP4029 lead (≈ 280 s burn, unverified) / L |
+
+### 7.4 Validation targets for tests
+
+**What the sim can reproduce once the TVC item is done.**
+
+- Masses, inertias and the CoM, from the current model.
+- Gimballed thrust, the FCC law and the APS.
+- **Not** aerodynamic normal force or moments (separate M1 item).
+- **Not** winds, thrust misalignment, CoM offsets, slosh or bending.
+- **Not** guidance (IU item).
+
+Every published control-performance figure (FER maximum deflections, attitude errors and rates at max Q and staging) is driven by those missing effects, so tests must not use them yet.
+
+**A. Hardware, mixing and cant (static or one step; exact)**
+
+| target | value | tolerance | depends on |
+|---|---|---|---|
+| per-axis clamp | F-1 ±0.08727 rad (outboard only); J-2 ±0.12217 rad (S-II outboard, S-IVB); centre engines never move | exact | §7.1 data (F-1 L, J-2 M) |
+| rate limit | 5°/s F-1; 8°/s S-II; 8°/s S-IVB placeholder | per step | data L / M-L / placeholder |
+| decoupling | unit βp, βy or βr gives torque only about its axis | off-axis below 1e-6 of on-axis | mixing geometry |
+| torque per deflection | τy = 4·F·L·sin β (S-IC, S-II), F·L·sin β (S-IVB), with the sim's own F, L and I. Sim α at full deflection: 3.9 / 2.6 / 4.4 °/s² at release / S-II ignition / S-IVB ignition | 0.5% against the formula | formula only: L depends on L-graded gimbal heights, so never compare with a published inertia |
+| cant geometry | after the ramp, each outboard thrust line is 2.000° inward (radial), the net lateral force and torque are 0, axial thrust is × 0.99939, and the start is at 20.6 s | 1e-6; start ± one step | cant axis definition (L); ramp shape is a placeholder, so test only the end state |
+| null holds | S-II engines at 0 until 162.30; S-IVB J-2 at 0 until 552.20 | exact | EH (M) |
+
+**B. Closed-loop behaviour (sim, no aero)**
+
+| target | published | sim expectation | tolerance | depends on |
+|---|---|---|---|---|
+| S-IC rigid-body control frequency | ≈ 0.15 Hz (TN5869) | 0.134 Hz at release, 0.157 at max Q, 0.11–0.17 across bands | 0.10–0.20 Hz | TN5869 gains (L), sim L and I (L). Aero would lower it near max Q, so the band applies only to the no-aero sim. |
+| step response, S-IC at about 5 s | — | ωn 0.84 rad/s, ζ 0.32: first peak 3.95 s, overshoot 35% for a 0.5° attitude-command step | ±10% on time; ±5 points on overshoot | self-consistency of law, gains and mass properties. Keep the step at or below 0.5°: the command jumps by a0 × step (0.45°), so the 5°/s rate limit binds for under 0.1 s and the position limit never. |
+| ramp-tracking lag | — | (a1/a0) × rate: 0.77° at 1°/s (S-IC band 1), 1.70° (S-II band 1), 1.20° (S-IVB) | ±0.05° once settled | self-consistency. It holds exactly only with no disturbance torques, which is the case in the sim. |
+| kick damping | — | a 0.29°/s pitch and yaw kick after liftoff decays to below 0.015°/s within about 3 envelope time constants: 1/(ζωn) = 3.7 s, so about 11 s | factor 1.5 | same; replaces the stand-in test `testKillRotationDampsAKickWithTheStandIns` |
+| deflection in nominal no-wind flight | FER values unusable | below 1° except during command-rate changes and staging | sanity | no aero or misalignment, so any large deflection is a bug |
+| S-IVB control frequency | 0.2–0.5 Hz (TN5869) | 0.11–0.13 Hz with 0.81/0.97 | **do not test** | §7.5 conflict |
+
+**C. Commanded manoeuvres** (the test supplies the command profile until the IU item exists)
+
+| target | published | sim expectation | tolerance | depends on |
+|---|---|---|---|---|
+| roll program | roll from 90° to 72.058° azimuth, 13.2 → 31.1 s (SP4029, TL: H/M); +1°/s ramp, derived | command ends at 31.14 s; vehicle roll rate 1.00°/s mid-ramp; lag 0.77° (placeholder roll gains); Position I settles at 72.058° by 40 s | ±0.02°/s; ±0.05° on lag; ±0.05° on final azimuth | the command profile (derived) and the roll-gain placeholder. Test the lag formula, not a published lag. |
+| roll direction and sign | Position I swings from east toward north | positive rotation about +x | exact | §7.1 mapping (M); needs Saturn-consistent placement (azimuth 270) |
+| no EDS overrate in nominal flight | roll 20°/s (M); pitch/yaw 3–5°/s (L) | peaks about 1°/s | below 3°/s pitch/yaw and 20°/s roll | sanity only |
+
+**D. APS (coast and S-IVB burn)**
+
+| target | published | sim expectation | tolerance | depends on |
+|---|---|---|---|---|
+| thruster geometry | roles: APS-TN, EH (M) | each engine's torque has the sign of its group; roll pairs give no yaw and yaw pairs no roll | exact | inferred directions (L) |
+| roll authority | — | 2 × 653.9 N × r = 4,577 N·m at r = 3.5 m | formula | r (L) |
+| TB5 ullage burn | 88 s, 2 × 72 lbf (MAN503, EH; APS-TN) | Δv = 0.4173 m/s at the sim's 135,093 kg (0.4155 at the FER-OCR 135,669); propellant = 2·F·88/(Isp·g0) = 19.8 kg at 290 s | ±0.5% on Δv; propellant formula only | thrust (H), duration (L-M). Never test the Isp. |
+| effect on the parking orbit | — | the 88 s burn raises a by ≈ 0.70 km and the period by ≈ 0.85 s after insertion | — | Compare §5's parking-orbit targets at insertion (709.33 s), or allow for this. It is within §5's ±2 km and ±6 s. |
+| coast attitude hold | ±1° deadband (EH, M) | with a 0.1°/s disturbance, error stays within ±(1° + one minimum-impulse overshoot); roll Δω per minimum-impulse pair 0.023°/s | ±1.1° | deadband (M); switching line and minimum on-time are placeholders |
+| roll-only mode during the S-IVB burn | APS-TN (H) | a roll-rate kick is removed by the APS; APS pitch and yaw thrusters stay off; the J-2 carries pitch and yaw | exact on the inhibits | phase logic only |
+| propellant bookkeeping | FER-507 proxy | APS tanks 298.01 kg; S-IVB part total unchanged at 119,119.3 kg; ignition total unchanged | ±1 kg | §7.3 accounting |
+
+**E. Deferred** (they need the AS-506 FER read, plus aero normal force, winds, guidance and possibly slosh)
+
+- FER control tables:
+  - "Maximum Control Parameters" during S-IC burn, S-II burn, S-IVB first burn and S-IVB second burn: attitude errors, rates and average engine deflections per axis, at liftoff, Mach 1 to max Q, CECO, OECO and staging.
+  - "S-IC Engine Deflection Response to Propellant Slosh".
+  - Pitch- and yaw-plane winds and angle of attack.
+  - The pitch-arrest time.
+  - The S-IC/S-II and S-II/S-IVB separation transients.
+- FER APS data: "S-IVB APS Propellants Remaining Versus Range Time" (modules 1 and 2), and APS ullage start and stop times (TB5, TB6). FER-507 Table 7-4 is the AS-507 equivalent.
+- Pitch (tilt) program rates: not found; the IU item will test them against the 1°/s command limit.
+
+### 7.5 Remaining conflicts, gaps, and values tests must not depend on
+
+**Changes to §1–§6 that this section implies**
+
+- **§1.2.** Outboard cant at 20.6 s: L → M, angle ≈ 2° (M).
+- **§1.3.**
+  - f1_gimbal_limit: "M / L" → L, defined per actuator axis.
+  - j2_gimbal_limit: the S-IVB value is now found (±7° per axis, M).
+  - aps: attitude engines 653.9 N (147 lbf, M); ullage 320.3 N (H).
+  - APS loads: AS-507 proxy 405/252 lbm, O/F 1.607.
+- **§1.6.** Flight azimuth 72.058°: recalled L → H.
+- **§2.1.** S-IVB dry_sim 35,180 lb plus APS tanks 657 lb.
+- **§3.** APS rows:
+  - attitude 653.9 N at 245 s effective Isp (0.2722 kg/s);
+  - ullage 320.3 N at 290 s (0.1126 kg/s), unchanged;
+  - feed MR 1.607.
+- **§4.**
+  - F-1 gimbal plane STA 100: L → M.
+  - Outboard azimuths: engines 1–4 under fins A–D, 45° from the pitch plane (M). The builder's engines 1 and 3 were swapped (fixed in item 2).
+- **§6.** Remove "flight azimuth (recalled)" and "F-1 outboard azimuth" from the must-not-depend list. The F-1 outboard radius stays L.
+
+**Unresolved conflicts**
+
+- **F-1 gimbal range:**
+  - ±5° (EH 8.13) versus 5.25° "full travel" (EH 8.10) versus 6° (a cone per HR, per axis per apollomaniacs) versus 8°30′ (TM X-53532).
+  - The per-axis nesting in §7.1 is an interpretation (L). ±5.15° appears in no source.
+- **F-1 gimbal rate:** 5°/s versus 5.25°/s or 10.5°/s implied by "5.25° in 1 s". Loaded or no-load is unknown for every stage.
+- **S-IC gain switches:** TN5869 has two switches (105 s, 130 s); EL says one switchpoint at 100 s. TN5869 calls its values "typical", not AS-506.
+- **S-II gain rows:** the stage assignment is inferred from band edges. If wrong, the S-IC and S-II rows are swapped.
+- **S-IVB gains:** the 0.81/0.97 pair gives 0.11–0.13 Hz in the sim against TN5869's 0.2–0.5 Hz third-stage frequency. Either the pair or the frequency definition is misread. The S-IVB gimbal height (L, ±1 m) changes this by only ±5%.
+- **Cant axis:** 2° radial (1.41° per actuator) versus 2° per actuator (2.83° radial).
+- **Cant purpose:** misalignment sensitivity (EL paraphrase) versus engine-out load relief (plausible, unsourced). The ramp rate and the hold-to-OECO are unknown.
+- **APS:**
+  - Engine roles: TN and EH versus Wikipedia.
+  - Module Positions I and III: inferred.
+  - Thrust 147 versus 150 lbf (operating versus nominal) and 72 versus 70 lbf (resolved the same way).
+  - Loads: FER-507 versus Wikipedia (rejected).
+  - Isp: 290 s placeholder versus the AS-201 237/250 s averages.
+  - Minimum impulse: the 7.5 lbf·s requirement versus 70 ms × full thrust (46 N·s).
+  - Pre-restart ullage: 77 s versus "≈ 1 minute".
+- **EDS pitch/yaw overrate:** 3, 4 or 5°/s (≈ 9°/s later).
+- **Sim placement:** the flight tests' azimuth 72 (−z downrange) puts Position III downrange. This is harmless for symmetric tests but wrong for engine-out, APS-module and yaw-direction tests.
+- **S-IVB J-2 gimbal height:** 71.7 m (L) lies below the S-IVB part's aft end at 72.68 m (§4; L).
+
+**Gaps (next research turn, highest value first)**
+
+1. AS-506 FER control-system section (the tables listed in §7.4 E), the FCC gain-switch and cant times in the sequence-of-events table, and the APS consumption figures.
+2. MSFC-MAN-503/506 flight-control and APS sections:
+   - FCC summing (mixing) equations and roll gains;
+   - S-IVB burn gains;
+   - APS phase-plane switching line, hysteresis and minimum pulse;
+   - powered-flight attitude-error limits;
+   - APS module positions, stations and nozzle cant;
+   - J-2 gimbal stations (S-II and S-IVB).
+3. A clean read of TN5869 Table 3 (all stages and time references).
+4. Primary F-1 gimbal limit, rate and pattern: SAE650304, TMX53532 Fig. 19, R-3896-1. S-IVB J-2 gimbal rate.
+5. Actuator bandwidth and dynamic-pressure-feedback parameters. Gimballed mass and inertia about the gimbal for the F-1 and J-2 (tail-wags-dog).
+6. Cant ramp duration and axis definition.
+7. TR-204 and SE-7-1 steady-state and pulse-mode Isp, and the operating mixture ratio. APS helium mass, module dry mass, and usable versus loaded propellant. AS-506 APS loads per module.
+8. Pitch-program rates and the tilt-arrest time (IU item).
+
+**Values a test must not depend on**
+
+- Every gain (TN5869 S-IC M as a reading but L for AS-506; S-II and S-IVB L); the roll-gain placeholder; switch times.
+- F-1 gimbal limit (±5°, L) and rate (L); S-II rate (M-L); the S-IVB rate placeholder; any actuator dynamics.
+- Cant ramp rate and axis definition. The 2° angle and 20.6 s start (M) may be used only for the end state and the start time.
+- J-2 gimbal heights (S-II and S-IVB), and therefore every absolute torque, control frequency or angular acceleration. Test formulas against the sim's own mass properties, not published inertias.
+- APS module positions, radius, height, nozzle directions and cant. APS Isp (both values). APS switching-line K and minimum on-time. Per-module loads (equal split assumed) and the AS-507 proxy totals.
+- APS pre-restart ullage duration; the slingshot burn duration (lead only).
+- EDS pitch/yaw overrate thresholds, except as a loose sanity bound.
+- TN5869's S-IVB 0.2–0.5 Hz control frequency.
+- Any FER control-performance or APS-consumption value until the FER is read and the sim has aero normal force, winds and guidance.

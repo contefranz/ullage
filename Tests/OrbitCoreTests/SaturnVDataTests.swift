@@ -8,19 +8,22 @@ import XCTest
 /// derived from, say so: they guard the data entry, not the physics.
 final class SaturnVDataTests: XCTestCase {
     let lb = 0.45359237, lbf = 4.4482216152605, g0 = 9.80665, inch = 0.0254, ft = 0.3048
+    let deg = Double.pi / 180
 
     func part(_ v: Vessel, _ name: String) -> VesselPart { v.parts.first { $0.name == name }! }
     func pounds(_ parts: [VesselPart]) -> Double { parts.reduce(0) { $0 + $1.mass } / lb }
 
     // A13: names are unique (the HUD and the IU item address them), tank names
-    // fit the HUD column, and every engine draws from its own stage.
+    // fit the HUD column, and every engine draws from its own stage. Engine
+    // layout, gimbals and the S-IVB APS against the TVC datasheet (§7).
     func testNamesFeedsAndStagingRules() {
         let v = VesselLibrary.saturnV()
         XCTAssertEqual(v.parts.map(\.name), ["S-IC", "S-IC/S-II interstage", "S-II", "S-II/S-IVB interstage",
                                              "S-IVB", "IU", "SLA", "LM", "CSM", "LES"])
         XCTAssertEqual(v.parts.map(\.staging), [.event(1), .event(2), .event(4), .event(4),
                                                 .fixed, .fixed, .fixed, .fixed, .fixed, .event(3)])
-        XCTAssertEqual(v.tanks.map(\.name), ["S-IC LOX", "S-IC RP-1", "S-II LOX", "S-II LH2", "S-IVB LOX", "S-IVB LH2"])
+        XCTAssertEqual(v.tanks.map(\.name), ["S-IC LOX", "S-IC RP-1", "S-II LOX", "S-II LH2", "S-IVB LOX", "S-IVB LH2",
+                                             "APS I N2O4", "APS I MMH", "APS III N2O4", "APS III MMH"])
         for t in v.tanks { XCTAssertLessThanOrEqual(t.name.count, 14, t.name) }
         let names = v.thrusters.map(\.name)
         XCTAssertEqual(Set(names).count, names.count)
@@ -41,11 +44,72 @@ final class SaturnVDataTests: XCTestCase {
             XCTAssertEqual(e.position.y, 0)
             XCTAssertEqual(e.position.z, 0)
         }
-        // Interim stand-ins: 12 per powered stage, attitude groups only.
-        let standIns = v.thrusters.filter { $0.name.contains("TVC stand-in") }
-        XCTAssertEqual(standIns.count, 36)
-        let attitude: Set<ThrusterGroup> = [.pitchUp, .pitchDown, .yawLeft, .yawRight, .rollLeft, .rollRight]
-        for t in standIns { XCTAssertTrue(t.groups.isSubset(of: attitude), t.name) }
+        // Engine n under fin n, with +z towards Position I and +y towards IV
+        // (Oikofuge after TN D-5399; heroicrelics; CSS): 1 between Positions I
+        // and II at (-y, +z), 2 at (-y, -z), 3 at (+y, -z), 4 at (+y, +z).
+        for stage in ["S-IC", "S-II"] {
+            for (n, signs) in [(1, (-1.0, 1.0)), (2, (-1, -1)), (3, (1, -1)), (4, (1, 1))] {
+                let e = v.thrusters.first { $0.name == "\(stage) engine \(n)" }!
+                XCTAssertEqual(e.position.y.sign, signs.0.sign, e.name)
+                XCTAssertEqual(e.position.z.sign, signs.1.sign, e.name)
+                XCTAssertEqual(abs(e.position.y), abs(e.position.z), accuracy: 1e-12, e.name)
+            }
+        }
+        // Gimbals on the outboard engines and the S-IVB J-2, each with a
+        // pitch-plane and a yaw-plane actuator; centre engines fixed.
+        // Transcriptions: F-1 ±5° and 5°/s (EH 8.13); S-II J-2 ±7° and 8°/s
+        // (EH 8.20); S-IVB J-2 ±7° (EH 8.30; Haynes) at the S-II rate, a
+        // placeholder.
+        for e in mains {
+            let gimballed = e.position.y != 0 || e.position.z != 0 || e.name == "S-IVB engine"
+            XCTAssertEqual(e.gimbal.map(\.tilt), gimballed ? [.unitZ, -Vec3.unitY] : [], e.name)
+            let (range, rate) = e.name.hasPrefix("S-IC") ? (5.0, 5.0) : (7.0, 8.0)
+            for a in e.gimbal {
+                XCTAssertEqual(a.range.upperBound, range * deg, accuracy: 1e-15, e.name)
+                XCTAssertEqual(a.range.lowerBound, -range * deg, accuracy: 1e-15, e.name)
+                XCTAssertEqual(a.rateLimit, rate * deg, accuracy: 1e-15, e.name)
+                XCTAssertEqual(a.timeConstant, 0, e.name)
+                XCTAssertEqual(a.bias, 0, e.name)
+            }
+        }
+        // S-IVB APS: two modules of one pitch, two roll/yaw and one ullage
+        // engine (APS-TN; EH 8.30), thrust 147 lbf "operate at" and 72 lbf
+        // (APS-TN), responding only while the S-IVB is the active stage.
+        let aps = v.thrusters.filter { $0.name.hasPrefix("APS") }
+        XCTAssertEqual(aps.map(\.name), ["I", "III"].flatMap { m in
+            ["pitch", "roll/yaw +t", "roll/yaw -t", "ullage"].map { "APS \(m) \($0)" } })
+        for t in aps {
+            XCTAssertTrue(t.activeStageOnly, t.name)
+            XCTAssertEqual(t.maxThrustVacuum, (t.name.hasSuffix("ullage") ? 72 : 147) * lbf, accuracy: 1e-9, t.name)
+            XCTAssertTrue(t.gimbal.isEmpty, t.name)
+        }
+        XCTAssertEqual(v.thrusters.filter { $0.activeStageOnly }.count, 8)
+        // Roles (datasheet §7.3 table, inferred directions): module I at +z,
+        // III at -z. Pure roll fires one tangential engine per module, pure
+        // yaw the two that push the same way, pitch a single engine.
+        let groups = Dictionary(uniqueKeysWithValues: aps.map { ($0.name, $0.groups) })
+        XCTAssertEqual(groups["APS I pitch"], [.pitchDown])
+        XCTAssertEqual(groups["APS III pitch"], [.pitchUp])
+        XCTAssertEqual(groups["APS I roll/yaw +t"], [.rollRight, .yawRight])
+        XCTAssertEqual(groups["APS I roll/yaw -t"], [.rollLeft, .yawLeft])
+        XCTAssertEqual(groups["APS III roll/yaw +t"], [.rollRight, .yawLeft])
+        XCTAssertEqual(groups["APS III roll/yaw -t"], [.rollLeft, .yawRight])
+        XCTAssertEqual(groups["APS I ullage"], [.translateForward])
+        XCTAssertEqual(groups["APS III ullage"], [.translateForward])
+        for t in aps where !t.name.hasSuffix("ullage") {
+            XCTAssertEqual(t.position.z, t.name.hasPrefix("APS I ") ? 3.5 : -3.5, accuracy: 1e-12, t.name)
+        }
+        // APS loads: FER-507's 405 lb N2O4 and 252 lb MMH at liftoff (AS-507
+        // as a proxy), split equally between the modules (transcription). The
+        // feed mixture ratio is the load ratio, so both tanks empty together.
+        for t in aps { XCTAssertEqual(t.rating.mixtureRatio!, 405.0 / 252, accuracy: 1e-12, t.name) }
+        for m in ["I", "III"] {
+            XCTAssertEqual(part(v, "S-IVB").tanks.first { $0.name == "APS \(m) N2O4" }!.capacity, 202.5 * lb,
+                           accuracy: 1e-9)
+            XCTAssertEqual(part(v, "S-IVB").tanks.first { $0.name == "APS \(m) MMH" }!.capacity, 126 * lb,
+                           accuracy: 1e-9)
+        }
+        XCTAssertFalse(v.thrusters.contains { $0.name.contains("stand-in") })
     }
 
     // B3: the vehicle at first motion is the ground-ignition stack less the

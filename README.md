@@ -4,9 +4,9 @@ A native Apple Silicon space flight simulator in Swift and Metal, aimed at
 procedurally realistic Apollo and Space Shuttle missions.
 
 This is **milestone M0** (the physics core and a Metal viewer, flown with a
-generic two-stage test rocket and capsule) plus the first M1 item, Apollo 11's
-Saturn V stack. See [docs/ROADMAP.md](docs/ROADMAP.md) for the path to Apollo
-and the Shuttle.
+generic two-stage test rocket and capsule) plus the first two M1 items: Apollo
+11's Saturn V stack, and its engine gimballing and thrust vector control. See
+[docs/ROADMAP.md](docs/ROADMAP.md) for the path to Apollo and the Shuttle.
 
 ## Build and run
 
@@ -46,8 +46,9 @@ grid. For real imagery, put equirectangular maps (8192×4096 or smaller) in
 | W S A D Q E | Pitch down / up, yaw left / right, roll left / right |
 | I K J L U O | Translate up / down / left / right / forward / back |
 | Space | Next staging event |
-| T | Kill rotation (toggle) |
-| 1–7, 0 | Prograde, retrograde, normal, anti-normal, radial out, radial in, hold level; 0 = autopilot off |
+| T | Kill rotation (toggle; damps rates only) |
+| 1–7 | Prograde, retrograde, normal, anti-normal, radial out, radial in, hold level |
+| 8, 0 | Hold attitude; autopilot off |
 | . , / | Time warp up / down / reset to 1× |
 | P | Pause |
 | Mouse drag, scroll | Orbit and zoom the camera |
@@ -68,7 +69,7 @@ Sources/OrbitCore      Pure Swift + Foundation (builds on Linux too)
   Ephemeris/           JPL DE421 Chebyshev reader, lunar libration, star catalogue
   Bodies/              Bodies, Earth/Moon orientation, J2 gravity, US Std Atmosphere 1976
   Orbit/               Osculating elements
-  Vessel/              Parts, tanks, thrusters, staging, RCS autopilots
+  Vessel/              Parts, tanks, thrusters, staging, gimballed engines, TVC and RCS/APS autopilots
   Simulation/          RK4 rigid-body integration, time warp, landing, SOI switching
 Sources/OrbitSim       macOS app: SwiftUI shell, Metal renderer, input, HUD
 Tests/OrbitCoreTests   Validation against JPL/SPICE reference values and physics checks

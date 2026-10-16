@@ -100,14 +100,23 @@ public final class Simulation {
         return max(h, 1e-3)
     }
 
+    /// This step's levels and gimbal commands. The allocation needs the
+    /// engine levels, so the throttles go first; it is skipped when nothing
+    /// commands a rotation.
     func prepareControls(_ v: Vessel) {
         guard v.status != .crashed else {
             for t in v.thrusters { t.level = 0 }
             return
         }
+        v.applyThrottles()
         var cmd = v.rotationInput
-        if cmd.isZero, let ap = v.autopilot { cmd = v.autopilotCommand(ap) }
-        v.applyControls(rotation: cmd)
+        let control = cmd.isZero && v.autopilot == nil ? ControlAllocation() : v.controlAllocation()
+        if cmd.isZero, let ap = v.autopilot {
+            cmd = v.autopilotCommand(ap, control: control)
+        } else {
+            v.resetAttitudeReference()   // manual input: the hold recaptures once released
+        }
+        v.applyRotation(cmd, control: control)
     }
 
     /// Advance every vessel by `h` seconds of simulation time.
@@ -122,6 +131,9 @@ public final class Simulation {
             } else {
                 stepFlying(v, from: t0, h: h)
             }
+            // The step used the actuator angles at t0 (held, like the levels);
+            // now move them, with this step's commands, to t1.
+            if v.status != .crashed { v.advanceControlState(dt: h) }
         }
         time = t1
         let snap = system.snapshot(at: time)

@@ -44,6 +44,8 @@ struct HUDState: Equatable {
     var mass = 0.0
     var tanks: [TankInfo] = []
     var autopilot: String? = nil
+    /// Largest deflection of a firing gimballed engine and its range; nil when none fires.
+    var gimbal: String? = nil
     var events: [String] = []
 }
 
@@ -147,6 +149,7 @@ final class AppModel: ObservableObject {
             case "5": v.autopilot = .radialOut
             case "6": v.autopilot = .radialIn
             case "7": v.autopilot = .horizonLevel
+            case "8": v.autopilot = .attitudeHold
             case "0": v.autopilot = nil
             default: break
             }
@@ -252,8 +255,18 @@ final class AppModel: ObservableObject {
             TankInfo(id: "\($0.offset)", name: $0.element.name, fraction: $0.element.fraction, mass: $0.element.mass)
         }
         h.autopilot = v.autopilot?.rawValue
+        h.gimbal = Self.gimbalSummary(v)
         h.events = sim.events.suffix(6).map { "\(Self.formatDuration($0.time - missionStart))  \($0.message)" }
         if h != hud { hud = h }
+    }
+
+    /// "1.2° / 5.0°": the largest deflection of a firing gimballed engine and
+    /// its range; nil when no gimballed engine fires.
+    static func gimbalSummary(_ v: Vessel) -> String? {
+        let firing = v.thrusters.filter { $0.isEnabled && $0.level > 0 && $0.hasPropellant && !$0.gimbal.isEmpty }
+        guard let range = firing.flatMap({ $0.gimbal.map(\.range.upperBound) }).max() else { return nil }
+        let worst = firing.flatMap { $0.gimbal.map { abs($0.angle) } }.max() ?? 0
+        return String(format: "%.1f° / %.1f°", worst * 180 / .pi, range * 180 / .pi)
     }
 
     static func formatDuration(_ seconds: Double) -> String {
