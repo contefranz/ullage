@@ -4,12 +4,16 @@ Native Apple Silicon space flight simulator (Swift + Metal), aiming at
 procedurally realistic Apollo and Space Shuttle missions. Owner: Francesco
 Grossetti (Franz). Read `README.md` for architecture and `docs/ROADMAP.md` for
 milestones; M0 (physics core + Metal viewer) is done, M1 (Saturn V to parking
-orbit) is next.
+orbit) is in progress: its first item, the AS-506 stack, is done.
 
 ## Rules
 
 - Commits and PRs: no `Co-Authored-By`, no "Generated with Claude Code", no
   other trace of Claude as co-author. Author commits as the repo owner.
+- Branches: short descriptive names that say what the work is, e.g.
+  `m1-saturn-v-stack` or `fix-hud-mass-column`; never `claude/...` or other
+  generated names. If a session starts on a generated branch, do the work on a
+  descriptively named branch instead.
 - Keep `OrbitCore` pure Swift + Foundation (no Apple-only frameworks, no
   `simd`): it must build and test on Linux, which is where cloud sessions run.
 - Every physics change gets a test in `Tests/OrbitCoreTests`, preferably
