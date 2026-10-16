@@ -2,7 +2,7 @@ import XCTest
 @testable import OrbitCore
 
 /// Closed-loop attitude control of `VesselLibrary.saturnV()` by its gimbals
-/// and the S-IVB APS (design tests S3-S8, and S9-S10; TVC datasheet §7.4).
+/// and the S-IVB APS (design tests S3-S8, and S9-S13; TVC datasheet §7.4).
 /// There are no aerodynamic moments or IU yet, so no published control
 /// performance (FER deflections, attitude errors) can be a target: the
 /// external references are the SP-4029 roll program, the APS roles and the
@@ -377,5 +377,106 @@ final class SaturnVControlTests: XCTestCase {
         }
         XCTAssertLessThan(settled[0], 7)
         XCTAssertEqual(settled[1], settled[0], accuracy: 1)
+    }
+
+    // S11: released from a short manual tap (1.0 and 1.3 s in pitch, 1.0 s
+    // in roll, at liftoff mass), the hold waits for the actuators to unwind
+    // before it captures: on release they are still at full deflection and
+    // speed the turn up for about a second. It settles past the release,
+    // within the law's swing (about 0.4 alpha: 1.8° in pitch, 12° in roll)
+    // of where the turn stops, the longer tap further, and no actuator
+    // reaches a stop after the capture. Self-consistency only.
+    func testHoldAfterAShortTapSettlesPastTheRelease() throws {
+        var finals: [Double] = []
+        for (pitch, tap) in [(true, 1.0), (true, 1.3), (false, 1.0)] {
+            let (sim, v) = try freeSpace(.liftoff)
+            v.autopilot = .attitudeHold
+            sim.run(seconds: 1)
+            let full = v.tanks.map(\.mass)
+            func freeze() {
+                for (tank, m) in zip(v.tanks, full) { tank.mass = m }
+                v.recenter()
+            }
+            v.rotationInput = pitch ? RotationCommand(pitch: 1) : RotationCommand(roll: 1)
+            sim.run(seconds: tap, afterEach: freeze)
+            v.rotationInput = RotationCommand()
+            let released = v.attitude
+            var angle: [Double] = [], onStop = 0
+            sim.run(seconds: 20) {
+                freeze()
+                let r = rotationVector(released.conjugate * v.attitude)
+                angle.append(pitch ? r.y : r.x)
+                if v.heldAttitude != nil
+                    && v.thrusters.contains(where: { $0.gimbal.contains { abs($0.angle) >= $0.range.upperBound } }) {
+                    onStop += 1
+                }
+            }
+            let peak = angle.max()!, final = angle.last!, label = "\(pitch ? "pitch" : "roll") \(tap) s"
+            XCTAssertEqual(onStop, 0, label)
+            XCTAssertGreaterThan(final, 0.6 * peak, label)
+            XCTAssertLessThan(peak - final, (pitch ? 2.5 : 14) * deg, label)
+            XCTAssertLessThan(rotationVector(v.attitude.conjugate * v.heldAttitude!).length, 0.01 * deg, label)
+            finals.append(final)
+        }
+        XCTAssertGreaterThan(finals[1], finals[0])
+    }
+
+    // S12: hold selected while the stack turns about all three axes, each
+    // below its own single-axis capture rate (Kd w = alpha). Roll uses the
+    // travel pitch and yaw leave on the same actuators, so the hold damps
+    // first and captures once the damping command fits all of them at once:
+    // no actuator reaches a stop after the capture, and the roll swing stays
+    // within the law's single-axis swing (0.41 alpha rad with the default
+    // gains). Mass properties frozen. Self-consistency only.
+    func testHoldCapturesAThreeAxisTurnOffTheStops() throws {
+        for (roll, pitchYaw) in [(0.6, 0.95), (0.95, 0.95)] {
+            let (sim, v) = try freeSpace(.liftoff)
+            let full = v.tanks.map(\.mass)
+            func freeze() {
+                for (tank, m) in zip(v.tanks, full) { tank.mass = m }
+                v.recenter()
+            }
+            sim.run(seconds: 0.2, afterEach: freeze)
+            v.applyThrottles()
+            let control = v.controlAllocation(), inertia = v.inertia, gains = v.tvcGains
+            let alpha = Vec3(control.authority.x / inertia[0, 0], control.authority.y / inertia[1, 1],
+                             control.authority.z / inertia[2, 2])
+            let kd = 2 * gains.dampingRatio * min(gains.naturalFrequency, 3 / control.slewTime)
+            v.angularVelocity = Vec3(roll * alpha.x, pitchYaw * alpha.y, pitchYaw * alpha.z) * (1 / kd)
+            v.autopilot = .attitudeHold
+            var onStop = 0, swing = 0.0
+            sim.run(seconds: 10) {
+                freeze()
+                guard let held = v.heldAttitude else { return }
+                if v.thrusters.contains(where: { $0.gimbal.contains { abs($0.angle) >= $0.range.upperBound } }) {
+                    onStop += 1
+                }
+                swing = max(swing, abs(rotationVector(held.conjugate * v.attitude).x))
+            }
+            XCTAssertNotNil(v.heldAttitude, "\(roll)")
+            XCTAssertEqual(onStop, 0, "\(roll)")
+            XCTAssertLessThan(swing, 0.42 * alpha.x, "\(roll)")
+        }
+    }
+
+    // S13: in the S-IVB burn, a hold command with the nose exactly reversed
+    // (a 180° yaw, or a half turn about another axis across the nose) turns
+    // the nose about the command's own axis, as for a command a hair short
+    // of reversed: it arrives with the command's roll, so the APS has no
+    // roll to fly. Self-consistency only.
+    func testSIVBBurnNoseReversalTurnsAboutTheCommandsAxis() throws {
+        for axis in [Vec3.unitZ, Vec3(0, 0.5, 0.75.squareRoot())] {
+            let (sim, v) = try freeSpace(.sIVBIgnition)
+            v.autopilot = .attitudeHold
+            sim.tick()
+            v.attitudeCommand = AttitudeCommand(attitude: v.attitude * Quat(axis: axis, angle: .pi))
+            var aps = 0, roll = 0.0
+            sim.run(seconds: 5) {
+                if !firingAPS(v).isEmpty { aps += 1 }
+                roll = max(roll, abs(v.angularVelocity.x))
+            }
+            XCTAssertEqual(aps, 0, "\(axis)")
+            XCTAssertLessThan(roll, 0.001 * deg, "\(axis)")
+        }
     }
 }

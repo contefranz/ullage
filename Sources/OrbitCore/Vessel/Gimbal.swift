@@ -79,6 +79,8 @@ struct ControlAllocation {
         let index: Int
         /// Deflection (rad) per unit command on each axis (roll, pitch, yaw).
         let perCommand: Vec3
+        /// Torque per radian of deflection from the bias, N m (linearised at null).
+        let torque: Vec3
     }
     var channels: [Channel] = []
     /// Torque about each body axis at a full single-axis gimbal command, N m;
@@ -98,6 +100,30 @@ struct ControlAllocation {
     var authority: Vec3 {
         Vec3(max(gimbalAuthority.x, groupAuthority.x), max(gimbalAuthority.y, groupAuthority.y),
              max(gimbalAuthority.z, groupAuthority.z))
+    }
+
+    /// Actuator commands (rad, one per channel) for the normalised command
+    /// `c` (roll, pitch, yaw): pitch and yaw are scaled together to fit the
+    /// travel, keeping their direction, and roll gets what is left. `scale`
+    /// is the smaller of the two factors: 1 when `c` fits as it is.
+    func deflections(_ c: Vec3) -> (angles: [Double], scale: Double) {
+        var base = channels.map { $0.thruster.gimbal[$0.index].bias }
+        /// Largest s <= 1 keeping base + s d inside every range.
+        func fit(_ d: [Double]) -> Double {
+            var s = 1.0
+            for (k, ch) in channels.enumerated() {
+                let r = ch.thruster.gimbal[ch.index].range
+                if d[k] > 0 { s = min(s, max(0, (r.upperBound - base[k]) / d[k])) }
+                if d[k] < 0 { s = min(s, max(0, (r.lowerBound - base[k]) / d[k])) }
+            }
+            return s
+        }
+        let pitchYaw = channels.map { $0.perCommand.y * c.y + $0.perCommand.z * c.z }
+        let s1 = fit(pitchYaw)
+        for k in base.indices { base[k] += s1 * pitchYaw[k] }
+        let roll = channels.map { $0.perCommand.x * c.x }
+        let s2 = fit(roll)
+        return (zip(base, roll).map { $0 + s2 * $1 }, min(s1, s2))
     }
 }
 
@@ -159,7 +185,8 @@ extension Vessel {
         out.gimbalAuthority = Vec3(full(\.x), full(\.y), full(\.z))
         for (column, pattern) in zip(columns, patterns) {
             out.channels.append(.init(thruster: column.thruster, index: column.index,
-                                      perCommand: pattern.scaled(by: out.gimbalAuthority) * column.travel))
+                                      perCommand: pattern.scaled(by: out.gimbalAuthority) * column.travel,
+                                      torque: column.torque / column.travel))
             let a = column.thruster.gimbal[column.index]
             out.slewTime = max(out.slewTime, column.travel / a.rateLimit + a.timeConstant)
         }
@@ -175,23 +202,9 @@ extension Vessel {
             for i in t.gimbal.indices { t.gimbal[i].setCommand(t.gimbal[i].bias) }
         }
         guard !control.channels.isEmpty else { return }
-        var base = control.channels.map { $0.thruster.gimbal[$0.index].bias }
-        /// Largest s <= 1 keeping base + s d inside every range.
-        func fit(_ d: [Double]) -> Double {
-            var s = 1.0
-            for (k, ch) in control.channels.enumerated() {
-                let r = ch.thruster.gimbal[ch.index].range
-                if d[k] > 0 { s = min(s, max(0, (r.upperBound - base[k]) / d[k])) }
-                if d[k] < 0 { s = min(s, max(0, (r.lowerBound - base[k]) / d[k])) }
-            }
-            return s
+        for (ch, angle) in zip(control.channels, control.deflections(c).angles) {
+            ch.thruster.gimbal[ch.index].setCommand(angle)
         }
-        let pitchYaw = control.channels.map { $0.perCommand.y * c.y + $0.perCommand.z * c.z }
-        let s1 = fit(pitchYaw)
-        for k in base.indices { base[k] += s1 * pitchYaw[k] }
-        let roll = control.channels.map { $0.perCommand.x * c.x }
-        let s2 = fit(roll)
-        for (k, ch) in control.channels.enumerated() { ch.thruster.gimbal[ch.index].setCommand(base[k] + s2 * roll[k]) }
     }
 
     /// Move every gimbal actuator towards its command for `dt` seconds.

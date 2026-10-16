@@ -15,8 +15,13 @@ public enum AttitudeAutopilot: String, CaseIterable, Codable {
     case radialIn = "Radial-"
     case horizonLevel = "Hold Level"
     /// Hold `Vessel.attitudeCommand`, or the attitude captured when selected
-    /// (with gimbals flying, once the turn is slow enough for their law to
-    /// damp without saturating: about where it stops).
+    /// or when manual input ends. With gimbals flying, the hold first damps
+    /// the turn and captures once their law can take over without saturating
+    /// (`Vessel.holdCanCapture`); it steers to either attitude only from
+    /// then. The captured attitude lies short of where the turn stops by up
+    /// to the law's swing, about 0.4 alpha rad with the default gains (alpha
+    /// the gimbal angular acceleration: 1.8° in pitch and 12° in roll at
+    /// liftoff).
     case attitudeHold = "Hold Att"
 
     /// Desired direction of the vessel +x axis (ICRF), or nil for rate damping
@@ -109,18 +114,16 @@ extension Vessel {
         let kp = wn * wn, kd = 2 * g.dampingRatio * wn, kr = wn / (2 * g.dampingRatio)
 
         // Pointing error: the M0 target direction (body axis and angle), or
-        // the full attitude error of the hold. The hold captures the attitude
-        // once no gimbal axis turns faster than the gimbal law can damp
-        // without saturating (kd |w| <= alpha), and only damps rates until
-        // then: captured mid-turn, it would swing back past the capture with
-        // the actuators on their stops. A steady drift (an engine out under
-        // kill rotation) is within that bound, so it captures at once.
+        // the full attitude error of the hold. With gimbals flying, the hold
+        // only damps rates until `holdCanCapture`: captured while the
+        // actuators still push the turn on, or with more damping to do than
+        // they have travel, it would swing back past the capture with the
+        // actuators on their stops.
         var pointing: (axis: Vec3, angle: Double)?
         if mode == .attitudeHold {
-            let w = angularVelocity
-            let turning = (byGimbal.roll && kd * abs(w.x) > alpha.x) || (byGimbal.pitch && kd * abs(w.y) > alpha.y)
-                || (byGimbal.yaw && kd * abs(w.z) > alpha.z)
-            if landed != nil || heldAttitude == nil && !turning { heldAttitude = attitude }
+            if landed != nil || heldAttitude == nil && holdCanCapture(control, alpha: alpha, kd: kd) {
+                heldAttitude = attitude
+            }
             if let held = heldAttitude {
                 let e = rotationVector(attitude.conjugate * (attitudeCommand?.attitude ?? held))
                 let angle = e.length
@@ -181,13 +184,17 @@ extension Vessel {
                 // during a burn), so the gimbals track the nose only: the
                 // reference takes the vehicle's roll and turns its nose the
                 // shortest way to the goal's. A roll change then neither
-                // slows the nose's slew nor mixes into its error.
+                // slows the nose's slew nor mixes into its error. A nose
+                // exactly reversed turns about the goal's own half-turn axis
+                // (perpendicular to the nose), so it arrives with the goal's
+                // roll, as it does for a goal a hair short of reversed.
                 let nose = reference.rotate(.unitX)
                 reference = shortestTurn(from: attitude.rotate(.unitX), to: nose,
                                          fallbackAxis: attitude.rotate(.unitY)) * attitude
                 referenceAttitude = reference
-                goal = shortestTurn(from: nose, to: goal!.rotate(.unitX), fallbackAxis: reference.rotate(.unitY))
-                    * reference
+                let turn = rotationVector(goal! * reference.conjugate), across = turn - nose * turn.dot(nose)
+                goal = shortestTurn(from: nose, to: goal!.rotate(.unitX),
+                                    fallbackAxis: across.length > 1e-9 ? across : reference.rotate(.unitY)) * reference
             }
         } else if let (axis, angle) = pointing, angle > 0 {
             goal = Quat(axis: attitude.rotate(axis), angle: angle) * attitude   // the nose's shortest turn
@@ -217,6 +224,39 @@ extension Vessel {
         if byGimbal.pitch { command.pitch = law(e.y, wReference.y, w.y, alpha.y) }
         if byGimbal.yaw { command.yaw = law(e.z, wReference.z, w.z, alpha.z) }
         return command
+    }
+
+    /// Whether `.attitudeHold` can capture the attitude now: at once when no
+    /// axis is gimbal-flown, otherwise once the gimbal law can take over
+    /// without saturating. The actuators must no longer push the turn on
+    /// (after manual input or another mode's slew they take up to a second
+    /// to unwind, and the turn speeds up meanwhile), and the law's first
+    /// command, rate damping relative to `attitudeCommand`'s rate, must fit
+    /// their travel on every axis at once (roll shares the actuators of
+    /// pitch and yaw). A steady drift that rate damping balances (an engine
+    /// out under kill rotation) passes, so it captures at once. A slew to a
+    /// distant `attitudeCommand` can still start on the stops: leaving room
+    /// here for its feed-forward would never capture such a drift.
+    func holdCanCapture(_ control: ControlAllocation, alpha: Vec3, kd: Double) -> Bool {
+        let flown = control.gimbalAxes
+        guard flown.roll || flown.pitch || flown.yaw else { return true }
+        var push = Vec3.zero   // torque of the actuators' deflection from their bias, N m
+        for ch in control.channels {
+            let a = ch.thruster.gimbal[ch.index]
+            push += ch.torque * (a.angle - a.bias)
+        }
+        let w = angularVelocity - attitude.inverseRotate(attitudeCommand?.rate ?? .zero)
+        let authority = control.authority
+        /// The damping command on one axis, or nil while the actuators push its turn on.
+        func damping(_ on: Bool, _ wk: Double, _ pk: Double, _ ak: Double, _ alphak: Double) -> Double? {
+            guard on else { return 0 }
+            return pk * wk > 0 && abs(pk) > 1e-3 * ak ? nil : -kd * wk / alphak
+        }
+        guard let roll = damping(flown.roll, w.x, push.x, authority.x, alpha.x),
+              let pitch = damping(flown.pitch, w.y, push.y, authority.y, alpha.y),
+              let yaw = damping(flown.yaw, w.z, push.z, authority.z, alpha.z),
+              max(abs(roll), abs(pitch), abs(yaw)) <= 1 else { return false }
+        return control.deflections(Vec3(roll, pitch, yaw)).scale >= 1 - 1e-9
     }
 
     /// Gimbal actuators and the attitude reference over a step of `dt`, with
