@@ -119,10 +119,10 @@ enum AS506 {
     /// and Table 5-I (chi-dot XL, YL, ZL = 1.0 deg/s). The AS-506 roll, 17.94°
     /// from T1 + 12.6 s to T1 + 30.5 s (FER), is the limit flown.
     static let commandRateLimit = 1.0          // deg/s; GE504 (H for SA-504, M for AS-506)
-    /// In orbit the LVDC limits the command rate to 0.4°/s in pitch and yaw
-    /// and 0.6°/s in roll: IBM's Astrionics System Handbook (MSFC IV-4-401-1,
-    /// changed 15 Nov 1969) §3.1 and Table 3.1-3, "Coast" (generic Saturn V:
-    /// M). AS-506's pitch error grew at 0.33-0.37°/s at the start of the
+    /// From the S-IVB cutoff the LVDC limits the command rate to 0.4°/s in
+    /// pitch and yaw and 0.6°/s in roll: IBM's Astrionics System Handbook
+    /// (MSFC IV-4-401-1, changed 15 Nov 1969) §3.1 and Table 3.1-3, "Coast"
+    /// (generic Saturn V: M). AS-506's pitch error grew at 0.33-0.37°/s at the start of the
     /// manoeuvre to the local horizontal (FER Figure 11-12, digitised), as
     /// this limit gives; SA-504's presettings had 1.0°/s (GE504).
     static let coastRateLimit = (roll: 0.6, pitch: 0.4, yaw: 0.4)   // deg/s; ASH (M)

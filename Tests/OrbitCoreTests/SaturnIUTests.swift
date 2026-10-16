@@ -286,17 +286,17 @@ final class SaturnIUTests: XCTestCase {
     // long after T4 as on the flight (T4 + 151.10 s).
     func testFlightSequenceFollowsTheApollo11Timeline() throws {
         let f = try launch()
-        var ullage = 0.0, lastCommand: Quat?, commandRate = Vec3.zero, pitchError: [Double] = []
+        var ullage = 0.0, lastCommand: (q: Quat, at: Epoch)?, commandRate = Vec3.zero, pitchError: [Double] = []
         f.fly(to: 787) {
             if f.v.thrusters.contains(where: { $0.name.hasSuffix("ullage") && $0.level > 0 }) { ullage += 0.02 }
             guard f.iu.log.contains(where: { $0.event == "orbital guidance: local horizontal" }),
                   let q = f.v.attitudeCommand?.attitude else { return }
             if let last = lastCommand {
-                let d = rotationVector(last.conjugate * q) / 0.02
+                let d = rotationVector(last.q.conjugate * q) / (f.sim.time - last.at)
                 commandRate = Vec3(max(commandRate.x, abs(d.x)), max(commandRate.y, abs(d.y)),
                                    max(commandRate.z, abs(d.z)))
             }
-            lastCommand = q
+            lastCommand = (q, f.sim.time)
             for m in [721.0, 727.0] where abs(f.range() - m) < 0.01 {
                 pitchError.append(rotationVector(f.v.attitude.conjugate * q).y)
             }
@@ -391,13 +391,14 @@ final class SaturnIUTests: XCTestCase {
         f.v.rotationInput = RotationCommand()
         f.sim.tick()
         XCTAssertTrue(f.iu.log.last?.event == "attitude back to the IU")
-        var last = try XCTUnwrap(f.v.attitudeCommand?.attitude), worst = Vec3.zero
+        var last = try XCTUnwrap(f.v.attitudeCommand?.attitude), worst = Vec3.zero, lastTime = f.sim.time
         XCTAssertLessThan(rotationVector(f.v.attitude.conjugate * last).length, 0.7 * deg)
         for _ in 0..<5_000 {
             f.sim.tick()
-            let q = f.v.attitudeCommand!.attitude, d = rotationVector(last.conjugate * q) / 0.02
+            let q = f.v.attitudeCommand!.attitude, d = rotationVector(last.conjugate * q) / (f.sim.time - lastTime)
             worst = Vec3(max(worst.x, abs(d.x)), max(worst.y, abs(d.y)), max(worst.z, abs(d.z)))
             last = q
+            lastTime = f.sim.time
         }
         XCTAssertGreaterThan(off, 5 * deg)
         XCTAssertLessThan(worst.x, 0.6 * deg + 1e-9)
@@ -446,6 +447,37 @@ final class SaturnIUTests: XCTestCase {
                         "S-II/S-IVB separation (nothing to do: gone)", "S-IVB flight control law", "S-IVB ignition"])
         XCTAssertNil(f.v.fccGains)
         XCTAssertEqual(f.v.mainThrottle, 1)
+    }
+
+    // From the S-IVB cutoff (T5) the LVDC limits its commanded angles to its
+    // coast rates (Astrionics System Handbook Table 3.1-3, "Coast": 0.4°/s
+    // in pitch and yaw, 0.6°/s in roll), against 1°/s in powered flight. The
+    // pilot rolls the stack by hand in the coast before the turn to the local
+    // horizontal; released, the command returns at 0.6°/s. (The S-II
+    // dropped at 200 s brings T5 forward, to save flying time.)
+    func testCoastCommandRateFromTheSIVBCutoff() throws {
+        let f = try launch()
+        f.fly(to: 200)
+        for _ in 0..<3 where f.v.parts.contains(where: { $0.name == "S-II" }) { f.sim.stage(f.v) }
+        f.fly(to: 340)
+        while f.iu.timeBases[.t5] == nil && f.range() < 400 { f.sim.tick() }
+        let t5 = f.range(try XCTUnwrap(f.iu.timeBases[.t5]))
+        f.fly(to: t5 + 1)
+        f.v.rotationInput = RotationCommand(roll: 1, pitch: 0, yaw: 0)
+        f.fly(to: t5 + 5)
+        f.v.rotationInput = RotationCommand()
+        let off = abs(try XCTUnwrap(f.iu.eulerAngles(of: f.v.attitude)).x - f.iu.chi.x)
+        f.sim.tick()   // the hand-back: the command restarts from the attitude
+        var last = f.iu.chi, lastTime = f.sim.time, worst = 0.0
+        f.fly(to: t5 + 19) {
+            worst = max(worst, abs(f.iu.chi.x - last.x) / (f.sim.time - lastTime))
+            last = f.iu.chi
+            lastTime = f.sim.time
+        }
+        XCTAssertGreaterThan(off, 2 * deg)
+        XCTAssertTrue(f.iu.log.contains { $0.event == "attitude back to the IU" })
+        XCTAssertEqual(worst, 0.6 * deg, accuracy: 1e-6 * deg)
+        XCTAssertEqual(f.iu.chi.x, 0, accuracy: 1e-12)
     }
 
     // The pilot takes the attitude (kill rotation) at 40 s and hands it back

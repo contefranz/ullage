@@ -122,10 +122,12 @@ public final class SaturnIU: FlightProgram {
         /// at `backup` s from T1.
         public var programStart: (rise: Double, backup: Double)
         public var tilt: TiltProgram
-        /// Limit on the rate of each commanded angle in powered flight, rad/s.
+        /// Limit on the rate of each commanded angle until the S-IVB cutoff
+        /// (T5), rad/s.
         public var commandRateLimit: Double
-        /// Limit on the command's rate about each body axis in orbit (roll,
-        /// pitch, yaw), rad/s.
+        /// The limits from T5 on (roll, pitch, yaw), rad/s: on the commanded
+        /// angles until the turn to the local horizontal, then on the
+        /// command's rate about each of its axes.
         public var coastRateLimit: Vec3
         /// Outboard cant: radial angle (rad, thrust lines inwards) and ramp rate (rad/s).
         public var cant: (angle: Double, rate: Double)
@@ -422,9 +424,13 @@ public final class SaturnIU: FlightProgram {
         let roll = programStarted != nil ? 0 : initialRoll
         // The program holds its value from the arrest on.
         let pitch = programStarted != nil ? plan.tilt.pitch(at: t) : 0
-        let step = plan.commandRateLimit * dt
-        func toward(_ a: Double, _ b: Double) -> Double { a + max(-step, min(step, b - a)) }
-        chi = Vec3(toward(chi.x, roll), toward(chi.y, pitch), toward(chi.z, yaw))
+        // From the S-IVB cutoff the LVDC uses its coast rate limits.
+        let l = plan.commandRateLimit
+        let limit = timeBases[.t5] != nil ? plan.coastRateLimit : Vec3(l, l, l)
+        func toward(_ a: Double, _ b: Double, _ rate: Double) -> Double {
+            a + max(-rate * dt, min(rate * dt, b - a))
+        }
+        chi = Vec3(toward(chi.x, roll, limit.x), toward(chi.y, pitch, limit.y), toward(chi.z, yaw, limit.z))
         command = frame * Quat(axis: .unitY, angle: chi.y) * Quat(axis: .unitZ, angle: chi.z)
             * Quat(axis: .unitX, angle: chi.x)
         var rate = Vec3.zero

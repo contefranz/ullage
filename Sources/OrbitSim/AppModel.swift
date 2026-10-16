@@ -107,11 +107,14 @@ final class AppModel: ObservableObject {
         handleKeys(sim: sim, dt: dt)
 
         let wasLanded = sim.focus?.landed != nil
+        let frameStart = sim.time
         sim.advance(by: dt)
         // The mission clock starts at liftoff, logged at the start of the step
-        // that left the ground: at time warp a frame holds many steps.
-        if wasLanded, let f = sim.focus, f.landed == nil {
-            missionStart = sim.events.last(where: { $0.message == "\(f.name): liftoff" })?.time ?? sim.time
+        // that left the ground: at time warp a frame holds many steps, and the
+        // vehicle may even be down again by its end.
+        if wasLanded, let f = sim.focus,
+           let liftoff = sim.events.last(where: { $0.message == "\(f.name): liftoff" && $0.time >= frameStart }) {
+            missionStart = liftoff.time
         }
 
         let mouse = input.takeMouse()

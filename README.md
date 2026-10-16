@@ -72,8 +72,8 @@ IU row shows its time base and phase. Space does nothing until the S-IC has
 burned out. Flying by hand or selecting another autopilot mode takes the
 attitude away from the IU, which keeps sequencing the flight. Releasing the
 keys (or 8, after another mode) gives it back, and the IU returns to its
-program at its command rate limits: 1°/s during the burns, 0.4°/s (0.6°/s in
-roll) in orbit. Iterative guidance is not modelled
+program at its command rate limits: 1°/s until the S-IVB cutoff, 0.4°/s
+(0.6°/s in roll) after it. Iterative guidance is not modelled
 yet, so after the S-IC the IU holds the attitude it had when the tilt was
 arrested, and the S-IVB, cut off after Apollo 11's burn time, ends suborbital:
 it coasts up to about 760 km and comes down about 42 minutes after liftoff
