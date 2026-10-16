@@ -80,10 +80,11 @@ final class SaturnVControlTests: XCTestCase {
         }
     }
 
-    // S4: attitude hold after a (0.57, 0.57, -0.43)°/s kick: back within
-    // 0.05° in 7 s, no actuator faster than its rate limit. On the S-IVB the
-    // APS holds roll inside the M0 dead band (0.002 rad), and its pitch
-    // engines never fire while the J-2 burns. Self-consistency only.
+    // S4: attitude hold after a (0.57, 0.57, -0.43)°/s kick: never more than
+    // 0.8° off, back within 0.05° in 7 s, no actuator faster than its rate
+    // limit. On the S-IVB the APS holds roll inside its ±1° dead band (EH
+    // 8.30, M) plus one minimum pulse throughout, and its pitch engines never
+    // fire while the J-2 burns. Self-consistency only.
     func testHoldAfterKick() throws {
         for phase in [Phase.liftoff, .sIIIgnition, .sIVBIgnition] {
             let (sim, v) = try freeSpace(phase)
@@ -91,21 +92,26 @@ final class SaturnVControlTests: XCTestCase {
             sim.run(seconds: 1)
             let held = v.heldAttitude!
             v.angularVelocity += Vec3(0.01, 0.01, -0.0075)
-            var last = gimbalAngles(v), worst = 0.0, tooFast = 0, apsPitch = 0
+            var last = gimbalAngles(v), worst = 0.0, worstRoll = 0.0, tooFast = 0, apsPitch = 0
             let rates = v.thrusters.flatMap { $0.gimbal.map(\.rateLimit) }
+            // The APS's roll on the S-IVB is bounded on its own (below).
+            let apsRoll = phase == .sIVBIgnition
             sim.run(seconds: 7) {
                 let now = gimbalAngles(v)
                 for k in now.indices where abs(now[k] - last[k]) > rates[k] * 0.02 + 1e-15 { tooFast += 1 }
                 last = now
-                worst = max(worst, rotationVector(v.attitude.conjugate * held).length)
+                let e = rotationVector(v.attitude.conjugate * held)
+                worst = max(worst, apsRoll ? (e.y * e.y + e.z * e.z).squareRoot() : e.length)
+                worstRoll = max(worstRoll, abs(e.x))
                 if firingAPS(v).contains(where: { $0.hasSuffix("pitch") }) { apsPitch += 1 }
             }
             let e = rotationVector(v.attitude.conjugate * held)
             XCTAssertEqual(tooFast, 0, "\(phase)")
             XCTAssertEqual(apsPitch, 0, "\(phase)")
             XCTAssertLessThan(worst, 0.8 * deg, "\(phase)")
+            if apsRoll { XCTAssertLessThan(worstRoll, 1.1 * deg, "\(phase)") }
             XCTAssertLessThan((e.y * e.y + e.z * e.z).squareRoot(), 0.05 * deg, "\(phase)")
-            XCTAssertLessThan(abs(e.x), phase == .sIVBIgnition ? 0.12 * deg : 0.05 * deg, "\(phase)")
+            XCTAssertLessThan(abs(e.x), apsRoll ? 1.1 * deg : 0.05 * deg, "\(phase)")
         }
     }
 
@@ -201,9 +207,10 @@ final class SaturnVControlTests: XCTestCase {
     }
 
     // S7: the APS roles (APS-TN; EH 8.30): during the S-IVB burn it gives
-    // roll only, so exactly the four roll/yaw engines fire, in roll couples;
-    // in coast all three axes, pitch engines included. It draws only on its
-    // own tanks.
+    // roll only, so only the roll/yaw engines fire, in roll couples; in coast
+    // all three axes, pitch engines included. Its phase-plane logic leaves
+    // each axis inside the ±1° dead band (EH 8.30, M) plus one minimum pulse.
+    // It draws only on its own tanks.
     func testAPSRollDuringBurnThreeAxesInCoast() throws {
         let (sim, v) = try freeSpace(.sIVBIgnition)
         v.autopilot = .attitudeHold
@@ -220,18 +227,23 @@ final class SaturnVControlTests: XCTestCase {
             if !couples.contains(firing) || levels.count > 1 { notCouple += 1 }
         }
         XCTAssertEqual(notCouple, 0)
-        XCTAssertEqual(fired, ["APS I roll/yaw +t", "APS I roll/yaw -t", "APS III roll/yaw +t", "APS III roll/yaw -t"])
+        XCTAssertFalse(fired.isEmpty)
+        XCTAssertTrue(fired.isSubset(of: ["APS I roll/yaw +t", "APS I roll/yaw -t", "APS III roll/yaw +t",
+                                          "APS III roll/yaw -t"]))
+        XCTAssertLessThan(abs(rotationVector(v.attitude.conjugate * v.heldAttitude!).x), 1.1 * deg)
         v.mainThrottle = 0
         v.angularVelocity += Vec3(0.002, 0.001, -0.001)
         let lox = v.tanks[0].mass, lh2 = v.tanks[1].mass, aps = v.tanks.dropFirst(2).map(\.mass)
         fired = []
         sim.run(seconds: 60) { fired.formUnion(firingAPS(v)) }
-        XCTAssertTrue(fired.isSuperset(of: ["APS I pitch", "APS III pitch", "APS I roll/yaw +t", "APS III roll/yaw -t"]))
+        XCTAssertTrue(fired.contains { $0.hasSuffix("pitch") })
+        XCTAssertTrue(fired.contains { $0.contains("roll/yaw") })
         XCTAssertFalse(fired.contains { $0.hasSuffix("ullage") })
         XCTAssertEqual(v.tanks[0].mass, lox)
         XCTAssertEqual(v.tanks[1].mass, lh2)
         XCTAssertTrue(zip(aps, v.tanks.dropFirst(2).map(\.mass)).contains { $0 > $1 })
-        XCTAssertLessThan(rotationVector(v.attitude.conjugate * v.heldAttitude!).length, 0.2 * deg)
+        let e = rotationVector(v.attitude.conjugate * v.heldAttitude!)
+        XCTAssertLessThan(max(abs(e.x), abs(e.y), abs(e.z)), 1.1 * deg)
     }
 
     // S7, geometry (datasheet §7.4 D): about the S-IVB stack's real CoM, at

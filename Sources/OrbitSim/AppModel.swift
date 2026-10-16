@@ -44,6 +44,9 @@ struct HUDState: Equatable {
     var mass = 0.0
     var tanks: [TankInfo] = []
     var autopilot: String? = nil
+    /// The flight program's HUD line (the Saturn's IU); nil when the vessel
+    /// carries no program.
+    var program: String? = nil
     /// Largest deflection of a firing gimballed engine and its range; nil when none fires.
     var gimbal: String? = nil
     var events: [String] = []
@@ -104,8 +107,15 @@ final class AppModel: ObservableObject {
         handleKeys(sim: sim, dt: dt)
 
         let wasLanded = sim.focus?.landed != nil
+        let frameStart = sim.time
         sim.advance(by: dt)
-        if wasLanded, let f = sim.focus, f.landed == nil { missionStart = sim.time }
+        // The mission clock starts at liftoff, logged at the start of the step
+        // that left the ground: at time warp a frame holds many steps, and the
+        // vehicle may even be down again by its end.
+        if wasLanded, let f = sim.focus,
+           let liftoff = sim.events.last(where: { $0.message == "\(f.name): liftoff" && $0.time >= frameStart }) {
+            missionStart = liftoff.time
+        }
 
         let mouse = input.takeMouse()
         if mouse.dx != 0 || mouse.dy != 0 { camera.orbit(dx: mouse.dx, dy: mouse.dy) }
@@ -255,6 +265,7 @@ final class AppModel: ObservableObject {
             TankInfo(id: "\($0.offset)", name: $0.element.name, fraction: $0.element.fraction, mass: $0.element.mass)
         }
         h.autopilot = v.autopilot?.rawValue
+        h.program = v.flightProgram?.status
         h.gimbal = Self.gimbalSummary(v)
         h.events = sim.events.suffix(6).map { "\(Self.formatDuration($0.time - missionStart))  \($0.message)" }
         if h != hud { hud = h }

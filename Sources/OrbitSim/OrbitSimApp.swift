@@ -6,7 +6,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Needed when running the SwiftPM executable directly (no app bundle).
         NSApp.setActivationPolicy(.regular)
         NSApp.activate()
-        DispatchQueue.main.async { NSApp.windows.first?.makeKeyAndOrderFront(nil) }
+        // Activation is cooperative from macOS 14: launched from Xcode or a
+        // terminal, the app may not be allowed to come forward, so bring the
+        // window up regardless.
+        DispatchQueue.main.async {
+            NSApp.windows.first?.makeKeyAndOrderFront(nil)
+            NSApp.windows.first?.orderFrontRegardless()
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }

@@ -61,12 +61,30 @@ public final class Vessel: Identifiable {
     public var attitudeCommand: AttitudeCommand?
     /// Gains of the attitude law on axes the gimbals fly.
     public var tvcGains = TVCGains()
+    /// The Saturn flight control computer's law (see `FCCGains`): when set,
+    /// it flies the gimbal axes in `.attitudeHold` with an `attitudeCommand`,
+    /// in place of the `tvcGains` law. The IU sets it per flight phase.
+    public var fccGains: FCCGains?
+    /// On/off law of the rotation groups (the Saturn's APS): every axis in
+    /// the hold, pitch and yaw in the pointing modes (roll keeps M0's rate
+    /// damping there); nil uses M0's law. Kill rotation always uses M0's.
+    public var phasePlane: PhasePlaneLaw?
+    /// Program aboard (the Saturn's IU), which sequences the flight and
+    /// writes `attitudeCommand`; nil when the vessel carries none.
+    public var flightProgram: FlightProgram?
     /// Attitude `.attitudeHold` captured (body -> ICRF).
     var heldAttitude: Quat?
     /// Rate-limited reference the gimbal law tracks (body -> ICRF), and its
-    /// rate (ICRF, rad/s). Nil while no axis is flown by the gimbals.
+    /// rate (ICRF, rad/s). Nil while no axis is flown by the gimbals, or
+    /// while the FCC law flies them.
     var referenceAttitude: Quat?
     var referenceRate = Vec3.zero
+    /// Phase-plane pulses in progress on the group axes: direction (-1, 0,
+    /// +1 per axis) and the minimum on-time still to run, s.
+    var groupPulse = (direction: Vec3.zero, remaining: Vec3.zero)
+    /// Predicted time until a coasting group axis reaches the phase plane's
+    /// switching line, s (infinity when none is heading there).
+    var groupSwitch = Double.infinity
 
     // MARK: Telemetry (updated every step)
     public internal(set) var altitude = 0.0
@@ -211,7 +229,15 @@ public final class Vessel: Identifiable {
     public func jettisonNextStage() -> Vessel? {
         let pending = parts.compactMap { p -> Int? in if case .event(let n) = p.staging { return n } else { return nil } }
         guard let next = pending.min() else { return jettisonBottomPart() }
-        let group = parts.filter { $0.staging == .event(next) }
+        return jettison(event: next)
+    }
+
+    /// Separate every part of staging event `n` as one new vessel, whatever
+    /// events are still pending below it (a flight program staging by
+    /// identity); nil if no part carries it or nothing would remain.
+    @discardableResult
+    public func jettison(event n: Int) -> Vessel? {
+        let group = parts.filter { $0.staging == .event(n) }
         guard let lowest = group.min(by: { $0.offset.x < $1.offset.x }) else { return nil }
         return separate(parts: group, name: "\(name) – \(lowest.name)", separationSpeed: 1.0)
     }

@@ -176,8 +176,11 @@ extension VesselLibrary {
                       frustum(les, lesBottom + 3.5, lesTop - 1, 0.33, 0.33, white),
                       frustum(les, lesTop - 1, lesTop, 0.33, 0.05, white)]
 
-        return Vessel(name: name, parts: [sIC, interstage, sII, aftInterstage, sIVB, iu, sla, lm, csm, les],
-                      reference: placeholderBody)
+        let stack = Vessel(name: name, parts: [sIC, interstage, sII, aftInterstage, sIVB, iu, sla, lm, csm, les],
+                           reference: placeholderBody)
+        // The IU's APS switching logic flies the APS in every mode but kill rotation.
+        stack.phasePlane = D.apsLaw
+        return stack
     }
 
     /// One S-IVB APS module at `p` (part frame, off the axis): a pitch engine

@@ -79,6 +79,143 @@ enum AS506 {
     static let sIVBIgnition = 552.20           // Mission Report; SP-4029 Propellant Usage (H)
     static let sIVBCutoff = 699.33             // SP-4029 Apollo 11 Summary (H). Guidance cutoff
 
+    // MARK: IU flight program (datasheet §8)
+    //
+    // AS-506's own flight sequence comes from its Flight Evaluation Report,
+    // MPR-SAT-FE-69-9 (FER): Table 2-1 (time bases) and Table 2-2 (event
+    // times, actual and from the time base, H), and from its flight manual,
+    // MSFC-MAN-506 (MAN506): Figure 2-1 (predicted sequence, 16 July 1969
+    // window, 72° azimuth) and Figure 2-2 (commanded pitch). The guidance
+    // presettings neither gives (the pitch polynomial, the program-start
+    // test) are SA-504's, from Boeing D5-15706-4, "Saturn V Launch Vehicle
+    // Guidance Equations, SA-504" (15 July 1967; GE504), standing in for
+    // AS-506's (M as a proxy).
+
+    /// Guidance reference release: the ST-124 platform goes inertial, fixing
+    /// the space-fixed frame (launch vertical, flight azimuth).
+    static let guidanceReferenceRelease = -16.97 // range time; FER Table 2-1 (T1 - 17.6, Table 2-2) (H)
+    /// Umbilical disconnect: the liftoff signal that starts time base 1.
+    static let liftoff = 0.63                  // FER Table 2-1 (H)
+    /// Position I on the pad faces east; the roll program turns it to the
+    /// flight azimuth (datasheet §7.1). GE504: initial roll command A_Z - 90°.
+    static let padAzimuth = 90.0               // deg; Oikofuge; Popular Science (M)
+    static let flightAzimuth = 72.058          // deg; SP-4029 ("rolled from a launch pad azimuth of 90°"), FER (H)
+    /// Tower-clearance yaw, away from the tower: "ramped to 1.25 degrees at
+    /// the rate of 1.0 degrees per second starting at 1.39 seconds from first
+    /// motion and ... ramped back to zero degrees 9 seconds later" (MAN506
+    /// §2, Liftoff Clearance). GE504 Table 4-II commands the same chi_Z =
+    /// 1.25° from T1 + 1.0 s to T1 + 8.75 s, so the manoeuvre ends at T1 +
+    /// 10.0 s, the FER's prediction (actual T1 + 9.0, "accurate to a major
+    /// computation cycle").
+    static let towerYawOn = 1.0                // s from T1; FER Table 2-2; MAN506 (H)
+    static let towerYawOff = 8.75              // s from T1; GE504 Table 4-II; MAN506 (H)
+    static let towerYawAngle = 1.25            // deg; MAN506; GE504 (H)
+    /// The roll and pitch programs start once the vehicle has risen 137 m,
+    /// with a 13.0 s time backup (GE504 §4.1.2, Table 5-I t_1). On AS-506
+    /// they began at T1 + 12.6 s (FER Table 2-2; predicted T1 + 13.1).
+    static let programStartRise = 137.0        // m; GE504 (M as AS-506 proxy)
+    static let programStartBackup = 13.0       // s from T1; GE504 (M as AS-506 proxy)
+    /// Guidance-command rate limit, each of pitch, yaw and roll: GE504 §2.1.2
+    /// and Table 5-I (chi-dot XL, YL, ZL = 1.0 deg/s). The AS-506 roll, 17.94°
+    /// from T1 + 12.6 s to T1 + 30.5 s (FER), is the limit flown.
+    static let commandRateLimit = 1.0          // deg/s; GE504 (H for SA-504, M for AS-506)
+    /// From the S-IVB cutoff the LVDC limits the command rate to 0.4°/s in
+    /// pitch and yaw and 0.6°/s in roll: IBM's Astrionics System Handbook
+    /// (MSFC IV-4-401-1, changed 15 Nov 1969) §3.1 and Table 3.1-3, "Coast"
+    /// (generic Saturn V: M). AS-506's pitch error grew at 0.33-0.37°/s at the start of the
+    /// manoeuvre to the local horizontal (FER Figure 11-12, digitised), as
+    /// this limit gives; SA-504's presettings had 1.0°/s (GE504).
+    static let coastRateLimit = (roll: 0.6, pitch: 0.4, yaw: 0.4)   // deg/s; ASH (M)
+    /// Pre-IGM pitch polynomial chi_Y = sum F_kn t^n, t in s from T1, on
+    /// segments split at t_S1..3: SA-504's presettings (GE504 Table 5-I, read
+    /// from the page images). The segments join to within 0.04°.
+    static let pitchSegmentBoundaries = [35.0, 80.0, 115.0]   // s; GE504 t_S1, t_S2, t_S3
+    static let pitchCoefficients: [[Double]] = [               // deg, deg/s, ..., deg/s^4; GE504 F_kn
+        [3.19840, -0.544236, 0.0351605, -0.00116379, 0.0000113886],
+        [-10.9607, 0.946620, -0.0294206, 0.000207717, -0.000000439036],
+        [78.7826, -2.83749, 0.0289710, -0.000178363, 0.000000463029],
+        [69.9191, -2.007490, 0.0105367, -0.0000233163, 0.0000000136702],
+    ]
+    /// Tilt arrest, s from T1: AS-506's at range 160.0 s (FER Table 2-2, T2 +
+    /// 24.7 s; predicted T2 + 25.5). SA-504's preset was 153.0 s (GE504).
+    static let tiltArrest = 160.0 - liftoff    // FER (H for the time, to a computation cycle)
+    /// AS-506's commanded pitch (MAN506 Figure 2-2) follows SA-504's
+    /// polynomial to within the figure's reading accuracy, about 1°: -20° a
+    /// minute after first motion, -56° at two minutes and -67.5° at the
+    /// arrest, against -20.6, -56.5 and -68.0°. Flown by this model, which
+    /// climbs faster than AS-506 in the first minute (datasheet §8.5), that
+    /// program leaves the S-IC 1.6° steeper and 3.7 km higher at OECO than
+    /// AS-506 flew. The IU here therefore tilts 3 % more: a compensation for
+    /// the model, not AS-506 data, fitted to the nearest 0.01 on AS-506's
+    /// OECO flight-path angle (19.114°, FER Table 4-2). CECO's angle,
+    /// altitude and velocity, OECO's altitude and velocity, and both
+    /// headings, which are not fitted, then fall within the datasheet's
+    /// tolerances. Set it back to 1 once the S-IC propulsion matches the FER.
+    static let pitchScale = 1.03               // fitted model compensation (see above)
+    static var tiltProgram: TiltProgram {
+        TiltProgram(boundaries: pitchSegmentBoundaries,
+                    coefficients: pitchCoefficients.map { $0.map { $0 * pitchScale } }, arrest: tiltArrest)
+    }
+    /// Outboard F-1 cant at T1 + 20.0 s (FER Table 2-2, H), about 2° radially
+    /// (EL, EH 8.13: M); the ramp rate was not found.
+    static let cantOn = 20.0                   // s from T1; FER Table 2-2 (H)
+    static let cantAngle = 2.0                 // deg radial; EL; EH 8.13 (M angle, L axis)
+    static let cantRampRate = 0.2              // deg/s, PLACEHOLDER
+    /// Flight control computer gains (a0 deg/deg, a1 s): TN D-5869 Table 3,
+    /// "typical" Saturn V values, read from the page image (L for AS-506).
+    /// They switch at the IU's switch points: S-IC at T1 + 105.0 and 130.0 s,
+    /// S-II at T3 + 61.4 and 191.4 s (SA-507 flight sequence ICD 40M33627B,
+    /// also the AS-508 timeline; M for AS-506), the S-II's first band from its
+    /// ignition.
+    static let sICGains: [(start: Double, a0: Double, a1: Double)] = [(0, 0.9, 0.69), (105, 0.45, 0.44),
+                                                                       (130, 0.32, 0.30)]   // s from T1
+    static let sIIGains: [(start: Double, a0: Double, a1: Double)] = [(2.4, 1.12, 1.9), (61.4, 0.65, 1.1),
+                                                                       (191.4, 0.44, 0.74)]   // s from T3
+    /// Roll gains (a0, a1), the same in every band of a stage: Boeing
+    /// D5-15481-1 (AS-504 reference trajectory, 1967) Table 3-IV, the only
+    /// roll values found (L for AS-506). The S-IVB's single J-2 cannot roll:
+    /// its APS does.
+    static let sICRollGains = (a0: 0.245, a1: 0.15)    // D5-15481-1 (L)
+    static let sIIRollGains = (a0: 0.25, a1: 0.20)     // D5-15481-1 (L)
+    /// S-IC centre engine cutoff, commanded by the IU at T1 + 134.56 s (range
+    /// 135.20, FER Table 2-2 and §5.1, H); the LVDC senses it and starts T2.
+    static let sICCenterCutoffTime = 134.56    // s from T1; FER (H)
+    /// From T3, S-IC outboard cutoff sensed: separation command, S-II engine
+    /// solenoid activation (where the model lights the J-2s at full thrust;
+    /// range 164.0), aft interstage and LET jettison, and S-II centre engine
+    /// cutoff (FER Table 2-2, time from base, H).
+    static let sICSeparationTime = 0.7         // s from T3; FER (H)
+    static let sIIIgnitionTime = 2.4           // s from T3; FER (H)
+    static let interstageJettisonTime = 30.7   // s from T3; FER (H)
+    static let lesJettisonTime = 36.2          // s from T3; FER (H)
+    /// IGM phase 1 initiated (204.1 s range; FER Table 2-2). Not modelled yet:
+    /// the IU logs it and holds the attitude of the tilt arrest.
+    static let igmStartTime = 42.4             // s from T3; FER (H)
+    static let sIICenterCutoffTime = 299.0     // s from T3; FER (H)
+    /// The S-II mixture-ratio shift. On AS-506 the IU commanded it at ESC +
+    /// 331.8 s (range 494.8) on reaching a preset characteristic velocity, and
+    /// the engines reached the low EMR, 4.34 on average, at 498.0 s (FER §6.5,
+    /// p. 6-8, and Table 2-2). The propulsion model shifts at `sIIMixtureRatioShift`
+    /// to its 4.7 setting, which matches its 548.22 s depletion; the IU uses
+    /// that time until the S-II model is recalibrated to the FER.
+    static let sIIMixtureRatioShiftTime = sIIMixtureRatioShift - sICOutboardCutoff  // s from T3
+    /// From T4, S-II outboard cutoff sensed: separation command and S-IVB
+    /// ignition (STDV open, range 552.2; FER Table 2-2, H). The S-IVB velocity
+    /// cutoff command came at 699.34 s, T4 + 151.10 (T4 at 548.24, FER Table
+    /// 2-1), and the LVDC sensed it and started T5 0.23 s later (FER); until
+    /// IGM is modelled the IU cuts off that long after its own T4 and senses
+    /// it on the next step.
+    static let sIISeparationTime = 0.8         // s from T4; FER (H)
+    static let sIVBIgnitionTime = 4.0          // s from T4; FER (H)
+    static let sIVBCutoffTime = 699.34 - 548.24  // s from T4; FER Tables 2-1 and 2-2 (H)
+    /// From T5, S-IVB cutoff sensed: APS ullage engines on and off (No. 1;
+    /// No. 2 follows 0.1 s later), and the manoeuvre to the local horizontal
+    /// (FER Table 2-2, H). T2, T3 and T4 also start on the LVDC sensing a
+    /// cutoff: T2 at 135.27, 0.07 s after the centre engine's (FER Table 2-1).
+    static let tb5UllageOn = 0.3               // s from T5; FER (H)
+    static let tb5UllageOff = 87.0             // s from T5; FER (H)
+    static let orbitalGuidanceStart = 19.8     // s from T5; FER "begin maneuver to local horizontal" (H)
+
     // MARK: Masses (lb)
     //
     // Tanks hold the main propellant aboard at first motion. Dry masses hold
@@ -334,4 +471,22 @@ enum AS506 {
     /// Feed mixture ratio: the load ratio, 1.607, so both tanks empty together
     /// (the engines' operating ratio was not found).
     static let apsMixtureRatio = apsOxidizerLoad / apsFuelLoad   // derived (M): FER-507 load ratio 405 / 252 lb = 1.607
+
+    /// APS control logic (datasheet §7.2): an attitude dead band on each
+    /// axis, error limits that bound the manoeuvre rate, a rate term and a
+    /// minimum pulse.
+    static let apsDeadband = 1.0                     // deg each axis (2° effective band), EH 8.30; ASTP SA-210 (M)
+    static let apsErrorLimitPitchYaw = 2.5           // deg, EH 8.30 (M)
+    static let apsErrorLimitRoll = 3.5               // deg, EH 8.30 (M)
+    /// Switching line e - K w: PLACEHOLDER (not found). With the limits it
+    /// gives manoeuvre rates of about 0.3°/s in pitch and yaw, 0.5°/s in roll.
+    static let apsRateGain = 5.0                     // s, PLACEHOLDER
+    /// Minimum on-time at full thrust: the 7.5 lbf s minimum impulse bit
+    /// (APS-TN, M-H) is 51 ms at 147 lbf; three 0.02 s steps give 39.2 N s.
+    static let apsMinimumOnTime = 0.06               // s, derived
+    static var apsLaw: PhasePlaneLaw {
+        PhasePlaneLaw(deadband: apsDeadband * degree,
+                      errorLimit: Vec3(apsErrorLimitRoll, apsErrorLimitPitchYaw, apsErrorLimitPitchYaw) * degree,
+                      rateGain: apsRateGain, minimumOnTime: apsMinimumOnTime)
+    }
 }

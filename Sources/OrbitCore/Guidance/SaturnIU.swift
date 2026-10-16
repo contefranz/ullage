@@ -1,0 +1,484 @@
+import Foundation
+
+/// The LVDC's pre-IGM pitch program for the S-IC (Boeing D5-15706-4, Table
+/// 4-II): the commanded pitch attitude chi_Y (rad; negative tilts the nose
+/// downrange) as a quartic in t, the time from liftoff (T1), with a separate
+/// coefficient set on each segment, frozen at the tilt arrest. The IU starts
+/// it, with the roll program, once tower clearance is assured.
+public struct TiltProgram {
+    /// Segment boundaries t_S1, t_S2, ... (s from T1): segment k applies from
+    /// boundary k-1 (inclusive) to boundary k (exclusive).
+    public var boundaries: [Double]
+    /// Coefficients F_k0 ... F_k4 of each segment (deg, deg/s, deg/s^2 ...).
+    public var coefficients: [[Double]]
+    /// Tilt arrest, s from T1: the command holds its value from here.
+    public var arrest: Double
+
+    public init(boundaries: [Double], coefficients: [[Double]], arrest: Double) {
+        precondition(coefficients.count == boundaries.count + 1, "one coefficient set per segment")
+        self.boundaries = boundaries
+        self.coefficients = coefficients
+        self.arrest = arrest
+    }
+
+    /// The pitch command at `t` s from T1, held after the arrest (rad).
+    public func pitch(at t: Double) -> Double {
+        let tc = min(t, arrest)
+        let k = boundaries.firstIndex { tc < $0 } ?? boundaries.count
+        let degrees = coefficients[k].reversed().reduce(0.0) { $0 * tc + $1 }
+        return degrees * .pi / 180
+    }
+}
+
+/// The Saturn V Instrument Unit's flight program (LVDC and flight control
+/// computer) for Apollo 11, open loop. It runs the flight sequence on the
+/// IU's time bases and flies the S-IC's attitude programs:
+///
+/// - T1 starts at liftoff. The tower-clearance yaw, then, once the vehicle
+///   has risen clear of the tower, the roll program from the pad azimuth to
+///   the flight azimuth and the pitch program until the tilt arrest, all
+///   relative to the space-fixed frame fixed at guidance reference release,
+///   with each commanded angle rate-limited. The outboard F-1 cant and the
+///   S-IC flight-control gain switches.
+/// - T2 when the LVDC senses the centre engine's cutoff, which T1 commands.
+/// - T3 when it senses the S-IC outboard cutoff (LOX depletion): separation,
+///   S-II ignition, S-II gains, aft interstage and LET jettison, S-II centre
+///   cutoff and the mixture-ratio shift.
+/// - T4 when it senses the S-II cutoff (LOX depletion): separation and S-IVB
+///   ignition, whose J-2 flies the vehicle's own `tvcGains` law.
+/// - T5 when it senses the S-IVB cutoff: APS ullage burn, then the local
+///   horizontal in orbit, the command moving there within the orbital rate
+///   limits.
+///
+/// Iterative guidance (IGM) is not modelled yet: the attitude stays where the
+/// tilt was arrested through the S-II and S-IVB burns, and the S-IVB cuts off
+/// at the flight's time rather than on reaching orbit, which leaves the stack
+/// suborbital.
+///
+/// Each time base runs its own switch-selector events; when the next one
+/// starts, the earlier ones' pending events are dropped, as the LVDC moved to
+/// the new base's table. The IU stages by part and skips a part already
+/// gone, so a pilot's Space press from T3 on does the sequence no harm; the
+/// S-II dropped by hand starts T4 early, which leaves the S-II's remaining
+/// events behind. Before T3 it refuses manual staging. It sets
+/// `.attitudeHold` at T1 and writes `attitudeCommand` every step. A pilot who
+/// gives manual input, or selects another mode, flies the attitude while the
+/// IU keeps the sequence. When the hold flies again (input released, or key
+/// 8), the IU restarts its command from the attitude then and returns to its
+/// program within its command rate limits.
+public final class SaturnIU: FlightProgram {
+    public enum TimeBase: Int, CaseIterable, Comparable, CustomStringConvertible {
+        case t1 = 1, t2, t3, t4, t5
+        public var description: String { "T\(rawValue)" }
+        public static func < (a: TimeBase, b: TimeBase) -> Bool { a.rawValue < b.rawValue }
+    }
+
+    /// What a timed event does.
+    public enum Action: Equatable {
+        /// Shut down the named engine.
+        case engineCutoff(String)
+        case mainThrottle(Double)
+        /// Separate the staging event of the named part, if still attached.
+        case separate(String)
+        /// New operating setting for the main engines of the named part.
+        case rating(part: String, EngineRating)
+        /// Start ramping the outboard cant of the named part's engines.
+        case startCant(String)
+        case gains(FCCGains?)
+        case ullage(Bool)
+        case localHorizontal
+        /// Nothing but the log entry.
+        case note
+    }
+
+    public struct Event: Equatable {
+        public var base: TimeBase
+        /// Seconds after the time base starts.
+        public var offset: Double
+        public var name: String
+        public var action: Action
+        public init(_ base: TimeBase, _ offset: Double, _ name: String, _ action: Action) {
+            self.base = base
+            self.offset = offset
+            self.name = name
+            self.action = action
+        }
+    }
+
+    /// The flight program's data.
+    public struct Plan {
+        /// Seconds from first motion (hold-down release) to T1.
+        public var liftoffDelay: Double
+        /// Seconds from guidance reference release to T1: the space-fixed
+        /// frame is the launch vertical and flight azimuth at that instant.
+        public var referenceToLiftoff: Double
+        /// Flight azimuth, rad from north.
+        public var flightAzimuth: Double
+        /// Tower-clearance yaw: angle (rad, nose towards +Y of the space-fixed
+        /// frame), and when the command steps to it and back to 0 (s from T1).
+        public var towerYaw: (angle: Double, start: Double, end: Double)
+        /// The roll program (to zero roll in the space-fixed frame) and the
+        /// pitch program start once the vehicle has risen `rise` metres, or
+        /// at `backup` s from T1.
+        public var programStart: (rise: Double, backup: Double)
+        public var tilt: TiltProgram
+        /// Limit on the rate of each commanded angle until the S-IVB cutoff
+        /// (T5), rad/s.
+        public var commandRateLimit: Double
+        /// The limits from T5 on (roll, pitch, yaw), rad/s: on the commanded
+        /// angles until the turn to the local horizontal, then on the
+        /// command's rate about each of its axes.
+        public var coastRateLimit: Vec3
+        /// Outboard cant: radial angle (rad, thrust lines inwards) and ramp rate (rad/s).
+        public var cant: (angle: Double, rate: Double)
+        public var sequence: [Event]
+        /// The parts whose cutoffs the LVDC senses to start T3, T4 and T5,
+        /// and the centre engine whose cutoff starts T2.
+        public var stages: (first: String, second: String, third: String)
+        public var centreEngine: String
+    }
+
+    public let plan: Plan
+
+    // MARK: State
+
+    /// When each time base started.
+    public private(set) var timeBases: [TimeBase: Epoch] = [:]
+    /// Commanded attitude angles relative to the space-fixed frame, rad:
+    /// roll, pitch, yaw (x, y, z), applied pitch, then yaw, then roll. The
+    /// tilt downrange is a negative pitch.
+    public private(set) var chi = Vec3.zero
+    /// Attitude (body -> ICRF) of a body aligned with the space-fixed frame:
+    /// +x the launch vertical, +z the flight azimuth, +y to its right.
+    public private(set) var spaceFixed: Quat?
+    public private(set) var status = "on the pad"
+    /// What the IU did and when (the scheduled time of a timed event; a
+    /// detected one at the step that saw it), in order.
+    public private(set) var log: [(time: Epoch, event: String)] = []
+
+    private var done = Set<Int>()
+    private var lastLanded: Epoch?
+    private var firstMotion: Epoch?
+    private var lastUpdate: Epoch?
+    private var initialRoll = 0.0
+    private var startRadius = 0.0
+    /// When the roll and pitch programs started, s from T1.
+    public private(set) var programStarted: Double?
+    private var tiltArrested = false
+    private var cantStart: (part: String, at: Epoch)?
+    private var ullageOn = false
+    private var secondStageLit = false
+    private var thirdStageLit = false
+    private var pilotHasAttitude = false
+    private var localHorizontal = false
+    private var lastCommand: Quat?
+
+    public init(plan: Plan) {
+        self.plan = plan
+    }
+
+    /// Euler angles of `attitude` (body -> ICRF) in the space-fixed frame, in
+    /// the IU's convention: (roll, pitch, yaw) = (x, y, z), rad, for the
+    /// rotations pitch, then yaw, then roll. Nil before T1.
+    public func eulerAngles(of attitude: Quat) -> Vec3? {
+        guard let frame = spaceFixed else { return nil }
+        let q = frame.conjugate * attitude
+        let x = q.rotate(.unitX), y = q.rotate(.unitY), z = q.rotate(.unitZ)
+        return Vec3(atan2(-z.y, y.y), atan2(-x.z, x.x), asin(max(-1, min(1, x.y))))
+    }
+
+    // MARK: FlightProgram
+
+    public func update(_ v: Vessel, in sim: Simulation) {
+        let now = sim.time
+        defer { lastUpdate = now }
+        if v.landed != nil {
+            lastLanded = now
+            startRadius = v.position.length
+            return
+        }
+        if firstMotion == nil {
+            firstMotion = lastLanded ?? now
+            // Never seen on the ground: rise from here.
+            if lastLanded == nil { startRadius = v.position.length }
+        }
+        if timeBases[.t1] == nil {
+            let t1 = firstMotion! + plan.liftoffDelay
+            guard now - t1 >= -1e-9 else {
+                status = "first motion"
+                return
+            }
+            startT1(at: t1, v, sim)
+        }
+        detectTimeBases(v, now: now)
+        runDueEvents(v, sim, now: now)
+        if let cant = cantStart { applyCant(v, part: cant.part, since: now - cant.at) }
+        if ullageOn { v.translationInput.x = 1 }
+        // Back from the pilot: restart the command from the attitude now.
+        let pilot = v.autopilot != .attitudeHold || !v.rotationInput.isZero
+        if pilotHasAttitude && !pilot, let angles = eulerAngles(of: v.attitude) {
+            chi = angles
+            lastCommand = v.attitude
+            log.append((now, "attitude back to the IU"))
+        }
+        pilotHasAttitude = pilot
+        commandAttitude(v, sim, now: now)
+        status = statusLine(v, now: now)
+    }
+
+    /// The pilot may stage from T3 on: before it, Space would drop the S-IC
+    /// on the pad, or full and burning in flight.
+    public func allowsManualStaging(of vessel: Vessel) -> Bool { timeBases[.t3] != nil }
+
+    public func timeToNextEvent(at now: Epoch) -> Double? {
+        var next: Double?
+        if timeBases[.t1] == nil, let m = firstMotion { next = m + plan.liftoffDelay - now }
+        for (i, e) in plan.sequence.enumerated() where !done.contains(i) {
+            guard let base = timeBases[e.base] else { continue }
+            let dt = base + e.offset - now
+            if dt > 0 { next = min(next ?? dt, dt) }
+        }
+        return next
+    }
+
+    // MARK: Sequencing
+
+    private func startT1(at t1: Epoch, _ v: Vessel, _ sim: Simulation) {
+        timeBases[.t1] = t1
+        log.append((t1, "T1: liftoff"))
+        sim.log("\(v.name): IU T1, liftoff")
+        // The space-fixed frame: launch vertical and flight azimuth at
+        // guidance reference release, before the Earth turned the pad on.
+        let o = sim.snapshot.orientation(v.reference)
+        let back = Quat(axis: o.angularVelocity, angle: -o.angularVelocity.length * plan.referenceToLiftoff)
+        let up = v.position.normalized
+        let east = o.pole.cross(up).normalized, north = up.cross(east)
+        let downrange = north * cos(plan.flightAzimuth) + east * sin(plan.flightAzimuth)
+        let x = back.rotate(up), z = back.rotate(downrange)
+        let frame = Quat(matrix: Mat3(columns: x, z.cross(x), z))
+        spaceFixed = frame
+        // The vehicle's roll in that frame (Position I's azimuth against the
+        // flight azimuth); it starts the roll program from there.
+        let zS = (frame.conjugate * v.attitude).rotate(.unitZ)
+        initialRoll = atan2(-zS.y, zS.z)
+        chi = Vec3(initialRoll, 0, 0)
+        v.autopilot = .attitudeHold
+    }
+
+    /// The time bases the LVDC starts on sensing a cutoff, at the first step
+    /// that sees it: T2 the centre engine's, T3 and T4 the S-IC's and S-II's
+    /// burnout (or the stage gone), T5 the S-IVB's cutoff once it has fired.
+    private func detectTimeBases(_ v: Vessel, now: Epoch) {
+        func part(_ name: String) -> VesselPart? { v.parts.first { $0.name == name } }
+        func burnedOut(_ name: String) -> Bool {
+            guard let p = part(name) else { return true }
+            return !p.thrusters.contains { $0.groups.contains(.main) && $0.isEnabled && $0.hasPropellant }
+        }
+        func firing(_ name: String) -> Bool { stageFiring(v, name) }
+        func start(_ b: TimeBase, _ what: String) {
+            timeBases[b] = now
+            log.append((now, "\(b): \(what) sensed"))
+            // The LVDC leaves the earlier time bases' tables.
+            for (i, e) in plan.sequence.enumerated() where e.base < b { done.insert(i) }
+        }
+        if timeBases[.t2] == nil
+            && v.thrusters.first(where: { $0.name == plan.centreEngine }).map({ !$0.isEnabled }) ?? true {
+            start(.t2, "centre engine cutoff")
+        }
+        if timeBases[.t3] == nil && burnedOut(plan.stages.first) {
+            if timeBases[.t2] == nil { start(.t2, "centre engine cutoff") }
+            start(.t3, "S-IC outboard engine cutoff")
+        }
+        if timeBases[.t3] != nil && timeBases[.t4] == nil {
+            if burnedOut(plan.stages.second) {
+                start(.t4, "S-II outboard engine cutoff")
+            } else if firing(plan.stages.second) {
+                secondStageLit = true
+            }
+        }
+        if timeBases[.t4] != nil && timeBases[.t5] == nil && part(plan.stages.third) != nil {
+            if firing(plan.stages.third) { thirdStageLit = true } else if thirdStageLit { start(.t5, "S-IVB cutoff") }
+        }
+    }
+
+    private func runDueEvents(_ v: Vessel, _ sim: Simulation, now: Epoch) {
+        while true {
+            let due = plan.sequence.enumerated().compactMap { (i, e) -> (Int, Epoch)? in
+                guard !done.contains(i), let base = timeBases[e.base], base + e.offset <= now + 1e-9 else { return nil }
+                return (i, base + e.offset)
+            }
+            guard let (i, at) = due.min(by: { $0.1 < $1.1 }) else { return }
+            done.insert(i)
+            let e = plan.sequence[i]
+            let name = perform(e.action, at: at, v, sim) ? e.name : "\(e.name) (nothing to do: gone)"
+            log.append((at, name))
+            sim.log("\(v.name): \(name)")
+        }
+    }
+
+    /// Carry out `action`; false when its part or engine is gone.
+    private func perform(_ action: Action, at: Epoch, _ v: Vessel, _ sim: Simulation) -> Bool {
+        switch action {
+        case .engineCutoff(let name):
+            guard let engine = v.thrusters.first(where: { $0.name == name }) else { return false }
+            engine.isEnabled = false
+        case .mainThrottle(let level):
+            v.mainThrottle = level
+        case .separate(let name):
+            guard let part = v.parts.first(where: { $0.name == name }), case .event(let n) = part.staging else {
+                return false
+            }
+            sim.stage(v, event: n)
+        case let .rating(name, rating):
+            guard let part = v.parts.first(where: { $0.name == name }) else { return false }
+            for t in part.thrusters where t.groups.contains(.main) { t.rating = rating }
+        case .startCant(let name):
+            guard v.parts.contains(where: { $0.name == name }) else { return false }
+            cantStart = (name, at)
+        case .gains(let g):
+            v.fccGains = g
+        case .ullage(let on):
+            ullageOn = on
+            if !on { v.translationInput.x = 0 }
+        case .localHorizontal:
+            localHorizontal = true
+        case .note:
+            break
+        }
+        return true
+    }
+
+    /// Whether a main engine of the named part delivers thrust.
+    private func stageFiring(_ v: Vessel, _ name: String) -> Bool {
+        v.parts.first { $0.name == name }?.thrusters.contains {
+            $0.groups.contains(.main) && $0.level > 0 && $0.isEnabled && $0.hasPropellant
+        } ?? false
+    }
+
+    /// Bias the gimballed engines of `part` so each thrust line leans inwards
+    /// by the cant angle reached `elapsed` s into the ramp (radial on each
+    /// engine: both actuators share it by the engine's position).
+    private func applyCant(_ v: Vessel, part name: String, since elapsed: Double) {
+        guard let part = v.parts.first(where: { $0.name == name }) else {
+            cantStart = nil
+            return
+        }
+        let cant = min(plan.cant.angle, max(0, elapsed) * plan.cant.rate)
+        for e in part.thrusters where e.gimbal.count == 2 {
+            let r = (e.position.y * e.position.y + e.position.z * e.position.z).squareRoot()
+            guard r > 0 else { continue }
+            for i in e.gimbal.indices {
+                // Outwards component of each actuator's tilt: the bias leans the
+                // thrust the other way.
+                let out = e.gimbal[i].tilt.dot(Vec3(0, e.position.y, e.position.z)) / r
+                e.gimbal[i].bias = atan(-out * tan(cant))
+            }
+        }
+    }
+
+    // MARK: Attitude
+
+    private func commandAttitude(_ v: Vessel, _ sim: Simulation, now: Epoch) {
+        guard let frame = spaceFixed, let t1 = timeBases[.t1] else { return }
+        let dt = lastUpdate.map { max(0, now - $0) } ?? 0
+        let command: Quat
+        if localHorizontal {
+            // Orbital attitude: +x along the horizontal velocity, +z (Position
+            // I) towards the Earth, turning at the orbital rate. The command
+            // moves there within the orbital rate limits about each axis.
+            let r = v.position, vel = v.velocity
+            let down = -r.normalized, x = (vel - r.normalized * vel.dot(r.normalized)).normalized
+            let target = Quat(matrix: Mat3(columns: x, down.cross(x), down))
+            var rate = r.cross(vel) / r.lengthSquared
+            if let last = lastCommand {
+                let turn = rotationVector(last.conjugate * target)   // the command's body axes
+                let limit = plan.coastRateLimit * dt
+                let step = Vec3(max(-limit.x, min(limit.x, turn.x)), max(-limit.y, min(limit.y, turn.y)),
+                                max(-limit.z, min(limit.z, turn.z)))
+                if (step - turn).length > 1e-12 {
+                    command = step.length > 0 ? last * Quat(axis: step, angle: step.length) : last
+                    rate = dt > 0 ? last.rotate(step) / dt : .zero
+                } else {
+                    command = target
+                }
+            } else {
+                command = target
+            }
+            v.attitudeCommand = AttitudeCommand(attitude: command, rate: rate)
+            lastCommand = command
+            return
+        }
+        let t = now - t1
+        if programStarted == nil && (v.position.length - startRadius >= plan.programStart.rise
+                                     || t >= plan.programStart.backup) {
+            programStarted = t
+            log.append((now, "roll and pitch program"))
+            sim.log("\(v.name): roll and pitch program")
+        }
+        if !tiltArrested && t >= plan.tilt.arrest {
+            tiltArrested = true
+            log.append((t1 + plan.tilt.arrest, "tilt arrest"))
+            sim.log("\(v.name): tilt arrest")
+        }
+        let yaw = t >= plan.towerYaw.start && t < plan.towerYaw.end ? plan.towerYaw.angle : 0
+        let roll = programStarted != nil ? 0 : initialRoll
+        // The program holds its value from the arrest on.
+        let pitch = programStarted != nil ? plan.tilt.pitch(at: t) : 0
+        // From the S-IVB cutoff the LVDC uses its coast rate limits.
+        let l = plan.commandRateLimit
+        let limit = timeBases[.t5] != nil ? plan.coastRateLimit : Vec3(l, l, l)
+        func toward(_ a: Double, _ b: Double, _ rate: Double) -> Double {
+            a + max(-rate * dt, min(rate * dt, b - a))
+        }
+        chi = Vec3(toward(chi.x, roll, limit.x), toward(chi.y, pitch, limit.y), toward(chi.z, yaw, limit.z))
+        command = frame * Quat(axis: .unitY, angle: chi.y) * Quat(axis: .unitZ, angle: chi.z)
+            * Quat(axis: .unitX, angle: chi.x)
+        var rate = Vec3.zero
+        if let last = lastCommand, dt > 0 { rate = rotationVector(command * last.conjugate) / dt }
+        v.attitudeCommand = AttitudeCommand(attitude: command, rate: rate)
+        lastCommand = command
+    }
+
+    // MARK: HUD
+
+    private func statusLine(_ v: Vessel, now: Epoch) -> String {
+        guard let (base, start) = timeBases.max(by: { $0.key < $1.key }) else { return "on the pad" }
+        let t1 = timeBases[.t1].map { now - $0 } ?? 0
+        let pilot = v.autopilot != .attitudeHold || !v.rotationInput.isZero
+        let held = pilot ? "" : ", attitude held (no IGM)"
+        let phase: String
+        switch base {
+        case .t1, .t2:
+            if t1 < plan.towerYaw.end && t1 >= plan.towerYaw.start { phase = "tower-clearance yaw" }
+            else if tiltArrested { phase = "tilt arrested" }
+            else if programStarted != nil && abs(chi.x) > 1e-6 { phase = "roll and pitch program" }
+            else if programStarted != nil { phase = "pitch program" }
+            else { phase = "vertical rise" }
+        case .t3:
+            phase = stageFiring(v, plan.stages.second) ? "S-II burn" + held
+                : secondStageLit ? "S-II engines off" : "S-IC/S-II staging"
+        case .t4:
+            phase = stageFiring(v, plan.stages.third) ? "S-IVB burn" + held
+                : thirdStageLit ? "S-IVB engine off" : "S-II/S-IVB staging"
+        case .t5:
+            if localHorizontal {
+                phase = "local horizontal, " + (Self.periapsisRadius(v) > v.reference.radius + 100_000
+                                                 ? "parking orbit" : "suborbital (no IGM)")
+            } else {
+                phase = ullageOn ? "APS ullage" : "S-IVB cutoff"
+            }
+        }
+        return String(format: "%@+%.0f %@%@", base.description, now - start, phase, pilot ? "  (attitude: pilot)" : "")
+    }
+
+    /// Two-body periapsis radius about the vessel's reference body, m (0 for
+    /// an orbit that does not close).
+    static func periapsisRadius(_ v: Vessel) -> Double {
+        let r = v.position, w = v.velocity, mu = v.reference.gm
+        let energy = w.lengthSquared / 2 - mu / r.length
+        guard energy < 0 else { return 0 }
+        let a = -mu / (2 * energy)
+        let e = (w.cross(r.cross(w)) / mu - r.normalized).length
+        return a * (1 - e)
+    }
+}

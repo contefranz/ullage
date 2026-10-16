@@ -73,6 +73,7 @@ struct HUDView: View {
                     row("Thrust acc", String(format: "%.2f g", hud.thrustAcceleration / 9.80665))
                     row("Stage Δv", String(format: "%.0f m/s", hud.deltaV))
                     row("Mass", String(format: "%.1f t", hud.mass / 1000))
+                    if let p = hud.program { row("IU", p) }
                     row("Autopilot", hud.autopilot ?? "off")
                     if let g = hud.gimbal { row("Gimbal", g) }
                     ForEach(hud.tanks) { tank in
@@ -144,8 +145,9 @@ struct HelpView: View {
         ("= / -", "throttle up / down (hold)"),
         ("W S A D Q E", "pitch down/up, yaw left/right, roll left/right"),
         ("I K J L U O", "translate up/down/left/right/fwd/back"),
-        ("Space", "next staging event"),
-        ("T", "kill rotation   1-7 prograde, retro, normal, anti-normal, radial±, level   8 hold   0 off"),
+        ("Space", "next staging event (Saturn V: after the S-IC cutoff)"),
+        ("T", "kill rotation   1-7 prograde, retro, normal, anti-normal, radial±, level   0 off"),
+        ("8", "hold attitude (Saturn V: hands the attitude back to the IU)"),
         (". , /", "time warp up / down / reset     P pause"),
         ("Mouse drag / scroll", "orbit / zoom camera"),
         ("C / V", "camera target / camera frame"),
