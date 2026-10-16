@@ -44,6 +44,8 @@ struct HUDState: Equatable {
     var mass = 0.0
     var tanks: [TankInfo] = []
     var autopilot: String? = nil
+    /// The flight program's state (the Saturn's IU); nil when hand-flown.
+    var program: String? = nil
     /// Largest deflection of a firing gimballed engine and its range; nil when none fires.
     var gimbal: String? = nil
     var events: [String] = []
@@ -255,6 +257,7 @@ final class AppModel: ObservableObject {
             TankInfo(id: "\($0.offset)", name: $0.element.name, fraction: $0.element.fraction, mass: $0.element.mass)
         }
         h.autopilot = v.autopilot?.rawValue
+        h.program = v.flightProgram?.status
         h.gimbal = Self.gimbalSummary(v)
         h.events = sim.events.suffix(6).map { "\(Self.formatDuration($0.time - missionStart))  \($0.message)" }
         if h != hud { hud = h }

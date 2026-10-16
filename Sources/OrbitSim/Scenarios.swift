@@ -26,21 +26,18 @@ struct Scenario: Identifiable {
             return sim
         })
 
-    /// Apollo 11's Saturn V at first motion (range time 0.30 s). The pad
-    /// azimuth is 72° until the IU roll program exists. TODO (IU item): move
-    /// the pad to the geocentric latitude in `AS506.padLatitude`, which the
-    /// datasheet's orbit targets assume; on the map it sits 18 km south.
+    /// Apollo 11's Saturn V at first motion (range time 0.30 s), standing as
+    /// it did: Position I east (the 90° pad azimuth), at LC-39A's geocentric
+    /// latitude, which the datasheet's orbit targets assume (on the map it
+    /// sits 18 km south of the pad), with the IU's flight program aboard.
     static let saturnVPad = Scenario(
         id: "as506-pad",
         name: "Saturn V (AS-506) on LC-39A",
-        summary: "Apollo 11 launch vehicle at first motion, 16 July 1969, 13:32:00.3 UTC. Z ignites (F-1 and J-2 do not throttle); space for the next staging event.",
+        summary: "Apollo 11 at first motion, 16 July 1969, 13:32:00.3 UTC. Z ignites; the IU then flies the ascent: tower-clearance yaw, roll and pitch programs, staging. Guidance after the S-IC (IGM) is not modelled yet.",
         build: { system in
             let sim = Simulation(system: system, time: Epoch(utcYear: 1969, month: 7, day: 16, hour: 13, minute: 32,
                                                              second: 0.3))
-            let stack = VesselLibrary.saturnV()
-            sim.add(stack)
-            sim.placeLanded(stack, on: system.earth, latitude: lc39A.latitude, longitude: lc39A.longitude,
-                            azimuth: 72)
+            VesselLibrary.apollo11OnPad(in: sim)
             return sim
         })
 

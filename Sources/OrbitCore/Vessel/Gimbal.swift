@@ -102,6 +102,21 @@ struct ControlAllocation {
              max(gimbalAuthority.z, groupAuthority.z))
     }
 
+    /// Largest deflection of one engine's thrust vector per unit command on
+    /// each axis (roll, pitch, yaw), rad: in pitch and yaw an actuator's
+    /// deflection, in roll an engine's tangential deflection (both of its
+    /// actuators). Converts the FCC law's deflections into commands.
+    var deflectionPerCommand: Vec3 {
+        var squares: [ObjectIdentifier: Vec3] = [:]
+        for ch in channels {
+            let p = ch.perCommand
+            squares[ObjectIdentifier(ch.thruster), default: .zero] += Vec3(p.x * p.x, p.y * p.y, p.z * p.z)
+        }
+        return squares.values.reduce(Vec3.zero) {
+            Vec3(max($0.x, $1.x.squareRoot()), max($0.y, $1.y.squareRoot()), max($0.z, $1.z.squareRoot()))
+        }
+    }
+
     /// Actuator commands (rad, one per channel) for the normalised command
     /// `c` (roll, pitch, yaw): pitch and yaw are scaled together to fit the
     /// travel, keeping their direction, and roll gets what is left. `scale`

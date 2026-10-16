@@ -4,9 +4,12 @@ A native Apple Silicon space flight simulator in Swift and Metal, aimed at
 procedurally realistic Apollo and Space Shuttle missions.
 
 This is **milestone M0** (the physics core and a Metal viewer, flown with a
-generic two-stage test rocket and capsule) plus the first two M1 items: Apollo
-11's Saturn V stack, and its engine gimballing and thrust vector control. See
-[docs/ROADMAP.md](docs/ROADMAP.md) for the path to Apollo and the Shuttle.
+generic two-stage test rocket and capsule) plus the first M1 items: Apollo 11's
+Saturn V stack, its engine gimballing and thrust vector control, and the first
+half of its Instrument Unit flight program, which flies the S-IC's attitude
+programs and the whole staging sequence (guidance for the upper stages comes
+next). See [docs/ROADMAP.md](docs/ROADMAP.md) for the path to Apollo and the
+Shuttle.
 
 ## Build and run
 
@@ -60,6 +63,15 @@ Scenarios are in the **Scenario** menu: the test rocket on LC-39A on
 16 July 1969, Apollo 11's Saturn V (AS-506) on the same pad at first motion, a
 capsule in low Earth orbit, and a capsule in lunar orbit.
 
+On the Saturn V, Z lights the F-1s and the Instrument Unit takes over at
+liftoff: the tower-clearance yaw, the roll to the 72.058° flight azimuth, the
+pitch program, the engine cutoffs, every separation and ignition on Apollo 11's
+times, and the local-horizontal attitude in orbit; the HUD's IU row shows its
+time base and phase. Selecting another autopilot mode takes the attitude away
+from the IU, which keeps sequencing the flight. Iterative guidance is not
+modelled yet, so after the S-IC the IU holds the attitude it had when the tilt
+was arrested.
+
 ## How it works
 
 ```
@@ -70,6 +82,7 @@ Sources/OrbitCore      Pure Swift + Foundation (builds on Linux too)
   Bodies/              Bodies, Earth/Moon orientation, J2 gravity, US Std Atmosphere 1976
   Orbit/               Osculating elements
   Vessel/              Parts, tanks, thrusters, staging, gimballed engines, TVC and RCS/APS autopilots
+  Guidance/            Flight programs: the Saturn V Instrument Unit (time bases, programs, sequence)
   Simulation/          RK4 rigid-body integration, time warp, landing, SOI switching
 Sources/OrbitSim       macOS app: SwiftUI shell, Metal renderer, input, HUD
 Tests/OrbitCoreTests   Validation against JPL/SPICE reference values and physics checks

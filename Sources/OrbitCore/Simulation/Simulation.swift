@@ -97,17 +97,19 @@ public final class Simulation {
         let r = v.position.length
         let orbital = (r * r * r / v.reference.gm).squareRoot()   // = period / 2π for a circle
         h = min(h, 2 * Double.pi / 1000 * orbital)
+        if let next = v.flightProgram?.timeToNextEvent(at: time), next > 0 { h = min(h, next) }
         return max(h, 1e-3)
     }
 
-    /// This step's levels and gimbal commands. The allocation needs the
-    /// engine levels, so the throttles go first; it is skipped when nothing
-    /// commands a rotation.
+    /// This step's levels and gimbal commands. A flight program sets the
+    /// controls first; the allocation needs the engine levels, so the
+    /// throttles go next; it is skipped when nothing commands a rotation.
     func prepareControls(_ v: Vessel) {
         guard v.status != .crashed else {
             for t in v.thrusters { t.level = 0 }
             return
         }
+        v.flightProgram?.update(v, in: self)
         v.applyThrottles()
         var cmd = v.rotationInput
         let control = cmd.isZero && v.autopilot == nil ? ControlAllocation() : v.controlAllocation()
@@ -276,11 +278,14 @@ public final class Simulation {
 
     // MARK: Staging
 
-    /// Separate the next staging event of `v` (`Vessel.jettisonNextStage`);
-    /// the spent parts become their own vessel.
+    /// Separate the next staging event of `v` (`Vessel.jettisonNextStage`),
+    /// or staging event `event` if given (`Vessel.jettison(event:)`); the
+    /// spent parts become their own vessel.
     @discardableResult
-    public func stage(_ v: Vessel) -> Vessel? {
-        guard let spent = v.jettisonNextStage() else { return nil }
+    public func stage(_ v: Vessel, event: Int? = nil) -> Vessel? {
+        let separated: Vessel?
+        if let event { separated = v.jettison(event: event) } else { separated = v.jettisonNextStage() }
+        guard let spent = separated else { return nil }
         add(spent)
         updateTelemetry(spent, snapshot: snapshot)
         updateTelemetry(v, snapshot: snapshot)

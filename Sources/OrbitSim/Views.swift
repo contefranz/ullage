@@ -73,6 +73,7 @@ struct HUDView: View {
                     row("Thrust acc", String(format: "%.2f g", hud.thrustAcceleration / 9.80665))
                     row("Stage Δv", String(format: "%.0f m/s", hud.deltaV))
                     row("Mass", String(format: "%.1f t", hud.mass / 1000))
+                    if let p = hud.program { row("IU", p) }
                     row("Autopilot", hud.autopilot ?? "off")
                     if let g = hud.gimbal { row("Gimbal", g) }
                     ForEach(hud.tanks) { tank in
