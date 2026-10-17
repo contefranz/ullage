@@ -3,10 +3,13 @@ import XCTest
 
 /// Closed-loop attitude control of `VesselLibrary.saturnV()` by its gimbals
 /// and the S-IVB APS (design tests S3-S8, and S9-S13; TVC datasheet §7.4).
-/// There are no aerodynamic moments or IU yet, so no published control
-/// performance (FER deflections, attitude errors) can be a target: the
-/// external references are the SP-4029 roll program, the APS roles and the
-/// APS thrust. Checks that only guard the law's own behaviour say so.
+/// The pad tests fly the stack's aerodynamics (datasheet §11) through
+/// US-1976 with no wind and without the IU; they stay checks of the law's own
+/// behaviour, and `testEngineOutTrim` turns the aerodynamic model off for its
+/// thrust-only moment balance. Published control performance (FER
+/// deflections, attitude errors) is checked with the IU in SaturnIUTests; the
+/// external references here are the SP-4029 roll program, the APS roles and
+/// the APS thrust. Checks that only guard the law's own behaviour say so.
 final class SaturnVControlTests: XCTestCase {
     let deg = Double.pi / 180, lbf = 4.4482216152605
 
@@ -130,10 +133,13 @@ final class SaturnVControlTests: XCTestCase {
     // integral term). Kill-rotation, which only damps rates, drifts at about
     // 1.6°/s here; selected again, the hold captures the drifting attitude at
     // once (a steady drift is within the law's linear range) and stops it.
-    // Self-consistency, apart from the moment balance.
+    // Self-consistency, apart from the moment balance. The aerodynamic model
+    // is off, so the balance is the thrust's alone (from 30 s the air would
+    // add its own moment as the engine-out stack drifts across the flow).
     func testEngineOutTrim() throws {
         let sim = try Simulation.forTests(perturbations: true)
         let v = onPad(sim)
+        v.aerodynamics = []
         v.autopilot = .attitudeHold
         v.mainThrottle = 1
         sim.run(seconds: 30)

@@ -16,6 +16,84 @@ public protocol Atmosphere: AnyObject {
     var ceiling: Double { get }
     /// Sea-level pressure (Pa), used to interpolate engine performance.
     var seaLevelPressure: Double { get }
+    /// Wind at altitude `h` (m/s, towards local east and north).
+    func wind(altitude h: Double) -> (east: Double, north: Double)
+}
+
+extension Atmosphere {
+    public func wind(altitude h: Double) -> (east: Double, north: Double) { (0, 0) }
+}
+
+/// A measured atmosphere: one sounding of temperature, pressure, density,
+/// speed of sound and wind against geometric altitude (a launch day's air),
+/// horizontally uniform, over a standard model. Above the sounding's top the
+/// ratios of each quantity to the standard model, and the wind, fade out
+/// linearly over `blend` metres. Pressure and density interpolate
+/// log-linearly between levels, the rest linearly.
+public final class SoundingAtmosphere: Atmosphere {
+    public struct Level {
+        public var altitude: Double
+        public var state: AtmosphereState
+        public init(altitude: Double, state: AtmosphereState) {
+            self.altitude = altitude
+            self.state = state
+        }
+    }
+
+    public let levels: [Level]
+    public let winds: [(altitude: Double, east: Double, north: Double)]
+    public let standard: Atmosphere
+    public let blend: Double
+    public var ceiling: Double { standard.ceiling }
+    public var seaLevelPressure: Double { standard.seaLevelPressure }
+
+    public init(levels: [Level], winds: [(altitude: Double, east: Double, north: Double)],
+                standard: Atmosphere = USStandardAtmosphere1976(), blend: Double = 10_000) {
+        self.levels = levels.sorted { $0.altitude < $1.altitude }
+        self.winds = winds.sorted { $0.altitude < $1.altitude }
+        self.standard = standard
+        self.blend = blend
+    }
+
+    public func state(altitude h: Double) -> AtmosphereState {
+        guard let first = levels.first, let top = levels.last else { return standard.state(altitude: h) }
+        if h <= first.altitude { return first.state }
+        if h >= top.altitude {
+            let f = min(1, (h - top.altitude) / blend)
+            if f >= 1 { return standard.state(altitude: h) }
+            // The sounding's ratios to the standard model at its top, fading to 1.
+            let s = standard.state(altitude: h), ref = standard.state(altitude: top.altitude)
+            func r(_ day: Double, _ std: Double) -> Double { std > 0 ? 1 + (day / std - 1) * (1 - f) : 1 }
+            return AtmosphereState(temperature: s.temperature * r(top.state.temperature, ref.temperature),
+                                   pressure: s.pressure * r(top.state.pressure, ref.pressure),
+                                   density: s.density * r(top.state.density, ref.density),
+                                   speedOfSound: s.speedOfSound * r(top.state.speedOfSound, ref.speedOfSound))
+        }
+        var i = 0
+        while levels[i + 1].altitude < h { i += 1 }
+        let a = levels[i], b = levels[i + 1]
+        let t = (h - a.altitude) / (b.altitude - a.altitude)
+        func lin(_ x: Double, _ y: Double) -> Double { x + (y - x) * t }
+        func geo(_ x: Double, _ y: Double) -> Double { x > 0 && y > 0 ? x * pow(y / x, t) : lin(x, y) }
+        return AtmosphereState(temperature: lin(a.state.temperature, b.state.temperature),
+                               pressure: geo(a.state.pressure, b.state.pressure),
+                               density: geo(a.state.density, b.state.density),
+                               speedOfSound: lin(a.state.speedOfSound, b.state.speedOfSound))
+    }
+
+    public func wind(altitude h: Double) -> (east: Double, north: Double) {
+        guard let first = winds.first, let top = winds.last else { return (0, 0) }
+        if h <= first.altitude { return (first.east, first.north) }
+        if h >= top.altitude {
+            let f = max(0, 1 - (h - top.altitude) / blend)
+            return (top.east * f, top.north * f)
+        }
+        var i = 0
+        while winds[i + 1].altitude < h { i += 1 }
+        let a = winds[i], b = winds[i + 1]
+        let t = (h - a.altitude) / (b.altitude - a.altitude)
+        return (a.east + (b.east - a.east) * t, a.north + (b.north - a.north) * t)
+    }
 }
 
 /// U.S. Standard Atmosphere 1976 up to 86 km geometric, then an exponential

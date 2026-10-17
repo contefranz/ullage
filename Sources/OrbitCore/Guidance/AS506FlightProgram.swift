@@ -64,12 +64,15 @@ extension SaturnIU {
 extension VesselLibrary {
     /// Apollo 11 as it stood on LC-39A at first motion: `saturnV()` at the
     /// pad's geocentric latitude, with Position I (+z) east (the 90° pad
-    /// azimuth) and the IU's flight program aboard, engines off. Full
-    /// throttle lights the F-1s; the IU takes over at liftoff.
+    /// azimuth) and the IU's flight program aboard, engines off, under the
+    /// launch day's measured air and winds. Full throttle lights the F-1s;
+    /// the IU takes over at liftoff.
     @discardableResult
     public static func apollo11OnPad(in sim: Simulation, program: SaturnIU = .as506()) -> Vessel {
         let v = saturnV()
         sim.add(v)
+        // The day's air and winds (datasheet §11).
+        sim.atmospheres[sim.system.earth.id] = AS506.launchDayAtmosphere()
         // `placeLanded` points -z at the azimuth it is given.
         sim.placeLanded(v, on: sim.system.earth, latitude: AS506.padLatitude, longitude: AS506.padLongitude,
                         azimuth: AS506.padAzimuth + 180)

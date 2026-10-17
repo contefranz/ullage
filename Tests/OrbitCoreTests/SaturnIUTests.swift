@@ -172,36 +172,73 @@ final class SaturnIUTests: XCTestCase {
         XCTAssertEqual(rollLag.reduce(0, +) / Double(rollLag.count), 0.15 / 0.245, accuracy: 0.03)
         for lag in rollLag { XCTAssertEqual(lag, 0.15 / 0.245, accuracy: 0.08) }
         for rate in rollRate { XCTAssertEqual(rate, 1, accuracy: 0.07) }
+        // (The yaw holds 0.06° off: the FCC law, without an integral term,
+        // holds the launch-day wind's moment with a steady error.)
         let angles = try XCTUnwrap(f.iu.eulerAngles(of: f.v.attitude))
         XCTAssertEqual(angles.x / deg, 0, accuracy: 0.05)
         XCTAssertEqual(f.iu.chi.x, 0, accuracy: 1e-12)
-        XCTAssertEqual(angles.z / deg, 0, accuracy: 0.05)
+        XCTAssertEqual(angles.z / deg, 0, accuracy: 0.1)
     }
 
-    // The S-IC ascent against Apollo 11's (FER Tables 4-1 and 4-2; datasheet
-    // §5 C tolerances). At CECO (135.2 s) and OECO (161.63 s): altitude above
-    // the pad (the model's pad sits 4.78 km further from the Earth's centre
-    // than the real one, so radius would carry that offset), space-fixed
-    // velocity, flight-path angle and heading. Only the OECO flight-path angle
-    // was fitted (`pitchScale`); the rest are checks, the headings of the
-    // space-fixed frame, flight azimuth and roll program in particular.
-    // Mach 1 within 3 s of 66.3 s and a max Q of 28-36 kPa (US-1976 has no
-    // July density excess). Max Q comes at about 76 s rather than 83 s and
-    // the pitch program starts at T1 + 10.7 s rather than 12.6 s: the model
-    // climbs faster than the real stack in the first minute (datasheet §8.5).
-    // The thrust acceleration (ambient pressure included) against AS-506's
-    // total inertial acceleration (FER Figure 4-3, M) where drag is under
-    // 0.3 % of thrust, so the placeholder drag coefficient does not matter.
+    // The S-IC ascent against Apollo 11's, flown through the launch day's air
+    // and winds with the flight-evaluated aerodynamics (datasheet §11).
+    // - At CECO (135.2 s) and OECO (161.63 s), FER Tables 4-1 and 4-2 with
+    //   §5 C's tolerances: altitude above the pad (the model's pad sits 4.78
+    //   km further from the Earth's centre than the real one, so radius would
+    //   carry that offset), space-fixed velocity, flight-path angle and
+    //   heading. Only the OECO flight-path angle was fitted (`pitchScale`);
+    //   the rest are checks, the headings of the space-fixed frame, flight
+    //   azimuth and roll program in particular.
+    // - Mach 1 at 66.3 s and max Q of 35.2 kPa at 83.0 s (FER Table 4-1; the
+    //   model: 66.7 s, 34.9 kPa at 83.3 s), within 1 s and 2 %; the dynamic
+    //   pressure every 10 s from 40 to 120 s within 5 % of FER Figure 4-4
+    //   (digitised, M; the model is within 3 %).
+    // - The climb above the pad and the Earth-fixed speed every 20 s against
+    //   the postflight trajectory (PFT Table B-III, H; 59 m on the pad, the
+    //   model's centre of mass 33 m): within 100 m and 2 %. The model runs
+    //   about 1 % slow in speed, the S-IC's deficit (datasheet §9.5).
+    // - The aerodynamic axial force peaks at 1.36-1.38 MN near 72-75 s, as
+    //   D5-15796-1's method gives along AS-506's trajectory (inferred, M).
+    // - The thrust acceleration (ambient pressure included) against AS-506's
+    //   total inertial acceleration (FER Figure 4-3, M) where drag is under
+    //   0.3 % of thrust: 10.3, 147.4, 152.3 and 158.8 s, within 1 %.
+    // The pitch program starts at T1 + 10.7 s rather than 12.6 s (datasheet
+    // §8.5), so that time is not a target.
     func testSICAscentMatchesApollo11() throws {
         let f = try launch()
-        var mach1: Double?, maxQ = 0.0
+        let pad = f.v.position.length - f.v.reference.radius   // the centre of mass on the pad
+        var mach1: Double?, maxQ = (q: 0.0, t: 0.0), peakAxial = (f: 0.0, t: 0.0)
         var states: [(alt: Double, v: Double, gamma: Double, heading: Double)] = []
         var marks = [135.2, 161.63]
         var figure = [(10.3, 12.41), (147.4, 32.23), (152.3, 34.31), (158.8, 37.23)]
         var accelerations: [(model: Double, fer: Double)] = []
+        // FER Fig 4-4 q (kPa) and PFT Table B-III climb (m above the pad) and
+        // Earth-fixed speed (m/s).
+        var qFigure = [(40.0, 8.71), (50, 14.90), (60, 22.9), (70, 30.0), (80, 34.3), (90, 32.4), (100, 23.6),
+                       (110, 14.7), (120, 8.7)]
+        var pft: [Double] = [20, 40, 60, 80, 100, 120]
+        var qModel: [(Double, Double)] = [], pftModel: [(climb: Double, v: Double)] = []
         f.fly(to: 161.7) {
             if mach1 == nil && f.v.mach >= 1 { mach1 = f.range() }
-            maxQ = max(maxQ, f.v.dynamicPressure)
+            if f.v.dynamicPressure > maxQ.q { maxQ = (f.v.dynamicPressure, f.range()) }
+            if let model = f.v.activeAerodynamics, let atm = f.sim.atmosphere(of: f.v.reference),
+               f.v.altitude < 100_000 {
+                let snap = f.sim.snapshot
+                let air = f.sim.airVelocity(r: f.v.position, v: f.v.velocity, body: f.v.reference, atmosphere: atm,
+                                            altitude: f.v.altitude, snapshot: snap)
+                let l = model.loads(air: f.v.attitude.inverseRotate(air), atmosphere: f.v.atmosphere,
+                                    altitude: f.v.altitude, powered: f.v.basePowered(model),
+                                    centerOfPressureX: f.v.centerOfPressureX(model), planform: f.v.planform)
+                if -l.force.x > peakAxial.f { peakAxial = (-l.force.x, f.range()) }
+            }
+            if let (t, q) = qFigure.first, f.range() >= t - 1e-9 {
+                qFigure.removeFirst()
+                qModel.append((f.v.dynamicPressure / 1000, q))
+            }
+            if let t = pft.first, f.range() >= t - 1e-9 {
+                pft.removeFirst()
+                pftModel.append((f.v.altitude - pad, f.v.surfaceVelocity(snapshot: f.sim.snapshot).length))
+            }
             if let (t, a) = figure.first, f.range() >= t - 1e-9 {
                 figure.removeFirst()
                 accelerations.append((f.v.thrustAcceleration, a))
@@ -213,9 +250,21 @@ final class SaturnIUTests: XCTestCase {
             states.append((f.v.altitude, f.v.velocity.length, asin(up.dot(f.v.velocity.normalized)) / deg,
                            atan2(f.v.velocity.dot(east), f.v.velocity.dot(north)) / deg))
         }
-        XCTAssertEqual(try XCTUnwrap(mach1), 66.3, accuracy: 3)
-        XCTAssertGreaterThan(maxQ, 28_000)
-        XCTAssertLessThan(maxQ, 36_000)
+        XCTAssertEqual(try XCTUnwrap(mach1), 66.3, accuracy: 1)
+        XCTAssertEqual(maxQ.q, 35_200, accuracy: 35_200 * 0.02)
+        XCTAssertEqual(maxQ.t, 83.0, accuracy: 1)
+        XCTAssertEqual(qModel.count, 9)
+        for (model, fer) in qModel { XCTAssertEqual(model, fer, accuracy: fer * 0.05) }
+        XCTAssertEqual(pftModel.count, 6)
+        let pftRows: [(climb: Double, v: Double)] = [(537 - 59, 53.0), (2_364 - 59, 136.5), (6_153 - 59, 267.0),
+                                                     (12_404 - 59, 466.0), (21_341 - 59, 768.0),
+                                                     (33_115 - 59, 1_195.9)]
+        for (model, ref) in zip(pftModel, pftRows) {
+            XCTAssertEqual(model.climb, ref.climb, accuracy: 100)
+            XCTAssertEqual(model.v, ref.v, accuracy: ref.v * 0.02)
+        }
+        XCTAssertEqual(peakAxial.f, 1.37e6, accuracy: 0.08e6)
+        XCTAssertEqual(peakAxial.t, 73.5, accuracy: 3)
         guard states.count == 2 else { return XCTFail("missing cutoff states") }
         let (ceco, oeco) = (states[0], states[1])
         XCTAssertEqual(ceco.alt, 44_000, accuracy: 2_500)
@@ -296,7 +345,7 @@ final class SaturnIUTests: XCTestCase {
     // would run dry at 548.16 s), so the S-IVB lights at about 552.24 s. The
     // IGM commands the EMR shift on its cycle that holds AS-506's 494.83 s
     // (its preset was fitted to that), the PU valve step following 2.8 s
-    // later, and cuts the S-IVB off on velocity about 5 s after AS-506 did,
+    // later, and cuts the S-IVB off on velocity about 3.5 s after AS-506 did,
     // the model reaching the S-IVB slower (datasheet §10): the IGM's phase 3
     // is timed from the model's own T4, and its terminal events and those
     // after the cutoff from the model's own cutoff and T5, as the FER's are
@@ -492,7 +541,7 @@ final class SaturnIUTests: XCTestCase {
     // AS-506's own (FER §10). Its commanded pitch follows AS-506's
     // operational trajectory (FER Figure 10-4, OT, digitised: M) within 2°
     // from IGM start to cutoff, and its yaw within 0.8° (the LVDC's own ran
-    // up to 0.5° off the OT; the model's runs 0.15-0.65° below it, datasheet
+    // up to 0.5° off the OT; the model's runs 0.2-0.6° below it, datasheet
     // §10.4). Its space-fixed X_S is the plumb line at the pad, as AS-506's
     // (PACSS 13) was the geodetic vertical at 28.6084° (FER; GE504's sin φ_L
     // 0.478814 gives 28.608°). At S-II OECO its state is AS-506's (FER Table
@@ -545,7 +594,7 @@ final class SaturnIUTests: XCTestCase {
         XCTAssertEqual(c.pitch / deg, -112.4, accuracy: 2)   // OT at cutoff (LVDC -113.6)
         func gamma(_ r: Vec3, _ v: Vec3) -> Double { asin(r.normalized.dot(v.normalized)) / deg }
         // S-II OECO: AS-506's 6,559,961 m, 6,915.96 m/s, 0.614°. The model is
-        // about 23 m/s slower, the S-IC's deficit (datasheet §9.5) and more.
+        // about 15 m/s slower, the S-IC's deficit (datasheet §9.5) and more.
         XCTAssertEqual(s2.r.length, 6_559_961, accuracy: 1_000)
         XCTAssertEqual(s2.v.length, 6_915.96, accuracy: 30)
         XCTAssertEqual(gamma(s2.r, s2.v), 0.614, accuracy: 0.15)

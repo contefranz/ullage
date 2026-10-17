@@ -145,9 +145,10 @@ enum AS506 {
     /// polynomial to within the figure's reading accuracy, about 1°: -20° a
     /// minute after first motion, -56° at two minutes and -67.5° at the
     /// arrest, against -20.6, -56.5 and -68.0°. Flown by this model, that
-    /// program leaves the S-IC 1.2° steeper and 1.7 km higher at OECO than
+    /// program leaves the S-IC 1.3° steeper and 1.8 km higher at OECO than
     /// AS-506 flew, even with the S-IC's thrust, flow and masses matching the
-    /// FER (datasheet §8.5). The IU here therefore tilts 2.5 % more: a
+    /// FER and with its sourced aerodynamics (datasheet §8.5, §11.5). The IU
+    /// here therefore tilts 2.5 % more: a
     /// compensation for the model, not AS-506 data, fitted to the nearest
     /// 0.005 on AS-506's OECO flight-path angle (19.114°, FER Table 4-2).
     /// CECO's angle, altitude and velocity, OECO's altitude and velocity, and
@@ -619,11 +620,237 @@ enum AS506 {
     static let rp1Density = 820.0
     static let lh2Density = 70.8
 
-    // MARK: Aerodynamics
+    // MARK: Aerodynamics (datasheet §11)
+    //
+    // The launch stack's static aerodynamics by configuration. Axial force in
+    // the form the Saturn V flight evaluation used (Boeing D5-15796-1, June
+    // 1969, for AS-502 and later, without base flow deflectors, as AS-506):
+    // a forebody coefficient on q S plus a base force from the measured base
+    // pressure differential, which follows altitude rather than Mach. Normal
+    // force and centre of pressure: the TM X-53517 design curves (1966) as
+    // REF504 Figs 3-3 and 3-4 print them, which the 1968 wind-tunnel summary
+    // TM X-53770 (Fig 22(a)) matches within its ±6 % and ±0.2 caliber design
+    // bands up to about M 5.5; at M 6-7.8 its fairing puts the centre of
+    // pressure 0.23-0.33 caliber further forward and C_Nα up to 6.6 % lower
+    // (q under about 2 kPa there). Figures were digitised from page images (M).
 
-    /// Constant drag coefficient on the 33 ft parts, a placeholder: no Saturn V
-    /// drag data was sourced. Tests must not depend on it.
+    /// Constant drag coefficient on the 33 ft parts, for a separated stage
+    /// flying on its own (no data was sourced for those). Tests must not
+    /// depend on it.
     static let bodyDragCoefficient = 0.45
+
+    /// Reference diameter and area (396 in; π D²/4 = 855.3 ft²).
+    static let aeroReferenceDiameter = 396.0 * inch     // m; TM X-53770, REF504 Figs 3-2 to 3-4 (H)
+    static let aeroReferenceArea = Double.pi * aeroReferenceDiameter * aeroReferenceDiameter / 4
+    /// Forebody axial-force coefficient against Mach: D5-15796-1 Fig 2-8, the
+    /// AS-502/503 curve (no base flow deflectors).
+    static let forebodyAxialCoefficient = LinearTable([
+        (0, 0.141), (0.3, 0.141), (0.4, 0.142), (0.5, 0.142), (0.55, 0.150), (0.6, 0.153), (0.65, 0.159),
+        (0.7, 0.166), (0.75, 0.179), (0.8, 0.203), (0.85, 0.243), (0.9, 0.285), (0.95, 0.343), (1.0, 0.397),
+        (1.05, 0.436), (1.1, 0.477), (1.15, 0.537), (1.2, 0.559), (1.25, 0.562), (1.3, 0.558), (1.4, 0.534),
+        (1.5, 0.505), (1.6, 0.490), (1.75, 0.465), (2.0, 0.430), (2.25, 0.407), (2.5, 0.388), (2.75, 0.373),
+        (3.0, 0.361), (3.25, 0.352), (3.5, 0.341), (3.75, 0.325), (4.0, 0.302), (4.25, 0.277), (4.5, 0.257),
+        (4.75, 0.242), (5.0, 0.229), (5.5, 0.207), (6.0, 0.189), (6.5, 0.175), (7.0, 0.163), (7.5, 0.154),
+        (8.0, 0.147),
+    ])   // D5-15796-1 Fig 2-8 (M)
+    /// Base force F_Ab = -0.798 (P_b - P∞) S with the F-1s running.
+    static let baseAreaFactor = 0.798                    // D5-15796-1 §2.3 (H)
+    /// S-IC base pressure differential P_b - P∞ (Pa) against altitude (m),
+    /// flown on AS-503, the first flight with the outboard cant: D5-15796-1
+    /// Fig 2-7, altitude panel from 1 km (M; L at 6.5-10 km). Below 1 km the
+    /// base pressure follows range time (§2.3): about -260 Pa at liftoff and
+    /// -236 Pa by 10 s (time panel, M), placed at the model's altitudes of
+    /// the centre of mass then (33 m on the pad; 138 m after the 105 m
+    /// climb to 10 s, PFT); from there to 1 km the table interpolates (L).
+    static let baseDifferential = LinearTable([
+        (33, -260), (138, -236), (1_000, -1_030), (1_500, -1_190), (2_000, -1_430), (3_000, -2_140),
+        (4_000, -2_910), (4_500, -3_190), (5_000, -3_470), (5_900, -3_600), (6_500, -3_510), (7_000, -3_350),
+        (7_500, -3_100), (8_000, -2_400), (8_500, -1_800), (9_000, -1_100), (9_600, 0), (10_000, 600),
+        (11_000, 1_780), (12_000, 2_490), (13_000, 3_180), (14_000, 3_620), (15_000, 3_920), (16_000, 4_080),
+        (17_000, 4_150), (18_000, 4_080), (20_000, 3_790), (22_000, 3_370), (25_000, 2_870), (28_000, 2_000),
+        (30_000, 1_550), (32_000, 1_140), (35_000, 730), (40_000, 330), (45_000, 180), (50_000, 0),
+        (55_000, -40), (60_000, 0),
+    ])
+    /// Base axial-force coefficient with the F-1s off: TM X-53770 Fig 28,
+    /// power-off (sting) wind-tunnel C_Ab, configuration 1 (M; L for flight:
+    /// a model with base flow deflectors at a twentieth of flight Reynolds
+    /// number). It flies only when the S-IC is aboard and not burning.
+    static let unpoweredBaseCoefficient = LinearTable([
+        (0.5, 0.47), (0.7, 0.45), (0.8, 0.43), (0.9, 0.47), (1.0, 0.65), (1.1, 0.64), (1.2, 0.58), (1.3, 0.53),
+        (1.5, 0.42), (2.0, 0.28), (2.5, 0.18), (3.0, 0.125), (3.5, 0.09), (4.0, 0.075), (5.0, 0.045),
+        (6.0, 0.03), (7.0, 0.02), (7.8, 0.015),
+    ])
+    /// Normal-force-coefficient slope (per degree) against Mach, S-IC flight
+    /// configuration (the full stack with LES): REF504 Fig 3-3 (M).
+    static let normalForceSlopePerDegree = LinearTable([
+        (0, 0.0773), (0.1, 0.0774), (0.2, 0.0777), (0.3, 0.0785), (0.4, 0.0798), (0.5, 0.0818), (0.6, 0.0847),
+        (0.7, 0.0886), (0.8, 0.0934), (0.9, 0.0987), (0.95, 0.0998), (0.98, 0.1000), (1.0, 0.0999),
+        (1.05, 0.0994), (1.1, 0.0981), (1.2, 0.0939), (1.3, 0.0894), (1.4, 0.0855), (1.5, 0.0822),
+        (1.75, 0.0774), (2.0, 0.0744), (2.25, 0.0727), (2.5, 0.0717), (2.75, 0.0713), (3.0, 0.0712),
+        (3.5, 0.0711), (4.0, 0.0712), (4.5, 0.0710), (4.75, 0.0703), (5.0, 0.0699), (5.25, 0.0698),
+        (5.5, 0.0701), (5.75, 0.0712), (6.0, 0.0731), (6.25, 0.0754), (6.5, 0.0780), (6.75, 0.0797),
+        (7.0, 0.0802), (8.0, 0.0802),
+    ])
+    /// Centre of pressure, calibers forward of the S-IC gimbal station (STA
+    /// 100), S-IC flight configuration: REF504 Fig 3-4 (M).
+    static let centerOfPressureCalibers = LinearTable([
+        (0, 3.50), (0.1, 3.494), (0.2, 3.481), (0.3, 3.442), (0.4, 3.396), (0.5, 3.334), (0.6, 3.250),
+        (0.7, 3.140), (0.8, 3.002), (0.9, 2.838), (0.95, 2.795), (1.0, 2.842), (1.1, 3.052), (1.2, 3.284),
+        (1.3, 3.503), (1.4, 3.702), (1.5, 3.88), (1.6, 4.020), (1.75, 4.197), (2.0, 4.352), (2.25, 4.414),
+        (2.5, 4.432), (2.75, 4.447), (3.0, 4.453), (3.5, 4.46), (4.0, 4.449), (4.5, 4.445), (5.0, 4.441),
+        (5.25, 4.451), (5.5, 4.486), (5.75, 4.545), (6.0, 4.673), (6.25, 4.844), (6.5, 4.980), (6.75, 5.066),
+        (7.0, 5.088), (7.5, 5.092), (7.9, 5.101),
+    ])
+    static let sICGimbalStation = 100.0                  // in; TM X-53770, REF504 Fig 3-1 (H)
+    /// S-II flight configuration (with LES; REF504 has nothing after the LET
+    /// jettison, where q is under 0.1 kPa): REF504 Figs 3-2 to 3-4 (M), from
+    /// M 5 (C_A) and M 4 (C_Nα, X_cp); held below. C_Nα is 0.0500 per degree
+    /// throughout. No base term: the S-II flies above 60 km.
+    static let sIIAxialCoefficient = LinearTable([
+        (5.0, 0.283), (5.25, 0.279), (5.5, 0.277), (5.75, 0.274), (6.0, 0.270), (6.25, 0.265), (6.5, 0.260),
+        (6.75, 0.255), (7.0, 0.251), (7.25, 0.245), (7.5, 0.240), (7.75, 0.234), (8.0, 0.227),
+    ])
+    static let sIINormalForceSlopePerDegree = 0.0500
+    static let sIICenterOfPressureCalibers = LinearTable([
+        (4.0, 2.858), (4.5, 2.858), (5.0, 2.864), (5.25, 2.917), (5.5, 3.025), (5.75, 3.175), (6.0, 3.299),
+        (6.25, 3.364), (6.5, 3.385), (6.75, 3.396), (7.0, 3.401), (7.5, 3.402), (8.0, 3.397),
+    ])
+    static let sIIGimbalStation = 1_664.0                // in; REF504 Fig 3-1 (H; as the S-II CP origin, inferred)
+    /// S-IVB stage flight: a constant free-molecular-flow drag coefficient on
+    /// 33.47 m², along the relative wind, no lift (REF504 §3.1, from
+    /// R-AERO-AD-66-54).
+    static let sIVBDragCoefficient = 2.8024              // REF504 §3.1 (H)
+    static let sIVBDragArea = 33.47                      // m², REF504 §3.1 (H)
+    /// Viscous crossflow beyond the linear range, for large angles of attack
+    /// only: η C_dc of a slender body (η about 0.65, C_dc 1.2; Jorgensen, NASA
+    /// TR R-474, 1977; L, generic), from 4°, where TM X-53770 finds C_N
+    /// linear to about ±2-4°.
+    static let crossflow = (coefficient: 0.8, linearAngle: 4.0 * degree)
+
+    /// The Saturn V's aerodynamic models, full stack first.
+    static var aerodynamics: [AerodynamicModel] {
+        let perDegree = 1 / degree
+        return [
+            AerodynamicModel(
+                name: "Apollo/Saturn V, S-IC flight configuration",
+                requiredParts: ["S-IC", "S-II", "S-IVB"], referenceArea: aeroReferenceArea,
+                referenceDiameter: aeroReferenceDiameter, referenceStation: station(sICGimbalStation),
+                forebodyAxial: forebodyAxialCoefficient,
+                base: .init(areaFactor: baseAreaFactor, poweredDifferential: baseDifferential, enginesPart: "S-IC",
+                            unpoweredCoefficient: unpoweredBaseCoefficient),
+                normalForceSlope: LinearTable(normalForceSlopePerDegree.points.map { ($0.x, $0.y * perDegree) }),
+                centerOfPressure: centerOfPressureCalibers, crossflow: crossflow),
+            AerodynamicModel(
+                name: "Apollo/Saturn V, S-II flight configuration",
+                requiredParts: ["S-II", "S-IVB"], referenceArea: aeroReferenceArea,
+                referenceDiameter: aeroReferenceDiameter, referenceStation: station(sIIGimbalStation),
+                forebodyAxial: sIIAxialCoefficient,
+                normalForceSlope: LinearTable([(0, sIINormalForceSlopePerDegree * perDegree)]),
+                centerOfPressure: sIICenterOfPressureCalibers, crossflow: crossflow),
+            AerodynamicModel(
+                name: "S-IVB stage, free-molecular flow",
+                requiredParts: ["S-IVB"], referenceArea: sIVBDragArea, referenceDiameter: aeroReferenceDiameter,
+                referenceStation: 0, forebodyAxial: LinearTable([(0, sIVBDragCoefficient)]), dragAlongWind: true),
+        ]
+    }
+
+    // MARK: Launch-day atmosphere (datasheet §11)
+    //
+    // 16 July 1969 at Cape Kennedy, from the FER's Appendix A: temperature,
+    // pressure and density as deviations from the Patrick AFB 1963 Reference
+    // Atmosphere (PRA-63, NASA TM X-53139, Table III, read from the page
+    // images: H), digitised from FER Figs A-6 and A-7 (M), and the
+    // Jimsphere/rawinsonde winds of Figs A-3 and A-4 (M), to 56 km; above it
+    // the FER merged the measured data into the U.S. Standard Atmosphere, and
+    // the model fades the day's ratios and winds out over 10 km into US-1976.
+
+    /// PRA-63 kinetic temperature (K), pressure (Pa), density (kg/m³) and
+    /// speed of sound (m/s) by geometric altitude (km), and the FER's
+    /// deviations (%) of temperature, pressure and density. The 7.8 and
+    /// 13.6 km rows (Mach 1 and max Q) interpolate PRA-63's 250 m rows.
+    static let launchDaySounding: [(km: Double, t: Double, p: Double, rho: Double, a: Double,
+                                    dT: Double, dP: Double, dRho: Double)] = [
+        (0, 296.68, 101_701.5, 1.1835, 346.9, 1.80, 0.20, -2.10),
+        (1, 290.59, 90_603.4, 1.0793, 342.8, 1.86, 0.57, -1.49),
+        (2, 285.33, 80_521.2, 0.97903, 339.3, 1.23, 0.84, -0.59),
+        (3, 280.25, 71_395.1, 0.88526, 336.0, 0.79, 0.95, 0.22),
+        (4, 274.92, 63_151.7, 0.79916, 332.6, 0.54, 1.04, 0.64),
+        (5, 269.09, 55_714.3, 0.72084, 329.0, 0.36, 1.19, 0.90),
+        (6, 262.68, 49_008.9, 0.64983, 324.9, 0.65, 1.33, 0.62),
+        (7, 255.72, 42_968.0, 0.58535, 320.6, 1.16, 1.53, 0.33),
+        (7.8, 249.84, 38_572.6, 0.53787, 316.9, 1.80, 1.73, -0.12),
+        (8, 248.34, 37_532.0, 0.52652, 315.9, 1.85, 1.76, -0.17),
+        (9, 240.73, 32_649.9, 0.47249, 311.0, 1.95, 2.15, -0.14),
+        (10, 233.14, 28_277.6, 0.42255, 306.1, 2.29, 2.40, 0.05),
+        (11, 225.68, 24_373.1, 0.37638, 301.2, 2.12, 2.76, 0.65),
+        (12, 218.82, 20_909.3, 0.33302, 296.5, 1.81, 3.16, 1.31),
+        (13, 212.89, 17_861.1, 0.29232, 292.5, 0.60, 3.35, 2.65),
+        (13.6, 209.90, 16_219.0, 0.26917, 290.4, -0.56, 3.33, 3.79),
+        (14, 208.16, 15_199.0, 0.25433, 289.2, -0.69, 3.30, 4.10),
+        (15, 204.83, 12_892.9, 0.2192, 286.9, -0.33, 3.20, 3.62),
+        (16, 203.04, 10_911.8, 0.18718, 285.7, -0.03, 3.25, 3.21),
+        (17, 202.86, 9_225.3, 0.15846, 285.5, 1.23, 3.45, 2.19),
+        (18, 205.30, 7_809.7, 0.13239, 287.2, 0.98, 3.70, 2.81),
+        (19, 207.79, 6_626.0, 0.11096, 289.0, 0.87, 3.78, 3.13),
+        (20, 210.35, 5_631.6, 0.093194, 290.8, 0.39, 3.85, 3.65),
+        (21, 212.91, 4_794.9, 0.078448, 292.5, -0.17, 4.18, 4.28),
+        (22, 215.37, 4_089.9, 0.066193, 294.2, 0.01, 4.22, 4.30),
+        (24, 219.81, 2_991.9, 0.047479, 297.2, 0.83, 4.35, 3.37),
+        (26, 223.45, 2_203.8, 0.034382, 299.7, 2.10, 4.76, 2.50),
+        (28, 226.44, 1_632.7, 0.025119, 301.7, 2.21, 5.41, 3.22),
+        (30, 230.79, 1_214.6, 0.018334, 304.5, 0.55, 5.80, 5.31),
+        (32, 235.32, 909.1, 0.013458, 307.5, 0.44, 5.85, 5.34),
+        (34, 240.07, 684.3, 0.0099301, 310.6, 1.19, 6.20, 4.81),
+        (36, 245.04, 518.1, 0.0073654, 313.8, 2.00, 6.71, 4.49),
+        (38, 250.16, 394.5, 0.0054934, 317.1, 2.10, 7.30, 5.00),
+        (40, 255.31, 302.1, 0.004122, 320.3, 2.50, 7.81, 5.15),
+        (42, 260.28, 232.6, 0.0031135, 323.4, 2.13, 8.49, 6.25),
+        (44, 264.82, 180.0, 0.0023685, 326.2, 0.63, 8.96, 8.38),
+        (46, 268.59, 139.9, 0.0018152, 328.5, -1.32, 8.74, 10.20),
+        (48, 271.19, 109.1, 0.0014016, 330.1, -1.21, 8.39, 9.48),
+        (50, 270.61, 85.2, 0.0010966, 329.8, -0.67, 8.20, 8.75),
+        (52, 267.31, 66.4, 0.00086527, 327.8, -0.53, 7.82, 8.33),
+        (54, 263.13, 51.6, 0.00068253, 325.2, 0.59, 7.83, 7.17),
+        (56, 258.26, 39.9, 0.00053757, 322.2, 0.41, 8.20, 7.60),
+    ]
+    /// Winds aloft by geometric altitude (km): W_x, the tail wind along the
+    /// 72.058° flight azimuth, and W_z, positive towards the right of it
+    /// (m/s): FER Figs A-3 and A-4 (M), and at the surface Table A-1's
+    /// 3.3 m/s from 175° on the pad's 18.3 m pole (H). Where the curve lay on
+    /// a gridline (41-43, 47, 56 km), W_x is recomputed from Figs A-1/A-2.
+    static let launchDayWinds: [(km: Double, wx: Double, wz: Double)] = [
+        (0, 0.7, -3.2), (0.1, -0.4, -2.5), (0.5, 0.7, -3.8), (1, 1.3, -4.0), (1.5, 2.2, -4.9), (2, 2.5, -3.0),
+        (2.5, 2.7, -4.0), (3, 2.9, -5.0), (3.5, 3.7, -4.6), (4, 3.8, -4.5), (4.5, 5.0, -5.8), (5, 6.2, -4.8),
+        (5.5, 7.1, -5.2), (6, 6.9, -4.6), (6.5, 5.4, -3.2), (7, 3.3, 0.1), (7.5, 2.4, 0.0), (8, 5.6, 0.1),
+        (8.5, 6.1, -0.8), (9, 4.1, 1.6), (9.5, 2.1, 2.0), (10, 2.0, 5.8), (10.5, 3.0, 4.7), (11, 6.4, 4.7),
+        (11.3, 6.6, 6.7), (11.5, 5.7, 5.8), (12, 5.6, 6.1), (12.5, 5.5, 3.7), (13, 5.1, 3.6), (13.5, 5.4, 1.7),
+        (14, 5.7, 1.5), (14.5, 1.6, 5.2), (15, 0.0, 3.1), (15.5, -2.0, 5.9), (16, -7.1, 0.9), (16.5, -6.3, -3.4),
+        (17, -7.0, -5.4), (17.5, -8.3, -4.0), (18, -10.8, -1.9), (18.5, -13.2, -3.1), (19, -11.1, -4.0),
+        (19.5, -12.8, -3.9), (20, -13.9, -3.3), (21, -16.8, -6.5), (22, -19.9, -6.5), (23, -19.4, -8.4),
+        (24, -18.5, -8.7), (25, -16.6, -7.0), (26, -16.1, -5.0), (27, -18.9, -3.5), (28, -22.7, -4.4),
+        (29, -25.6, -6.0), (30, -26.2, -9.9), (31, -24.8, -12.9), (32, -23.6, -16.5), (33, -22.5, -16.3),
+        (34, -23.7, -14.0), (35, -27.7, -10.6), (36, -29.6, -8.5), (37, -33.1, -6.0), (38, -36.5, -3.8),
+        (39, -39.2, -5.5), (40, -40.7, -8.2), (41, -40.4, -11.2), (42, -40.1, -12.6), (43, -39.9, -15.4),
+        (44, -39.8, -18.0), (45, -42.8, -20.2), (46, -46.1, -18.8), (47, -49.9, -20.1), (48, -52.7, -20.8),
+        (49, -54.4, -23.0), (50, -53.9, -25.1), (51, -55.0, -23.7), (52, -56.9, -21.5), (53, -57.9, -18.8),
+        (54, -56.5, -19.8), (55, -55.5, -21.1), (56, -56.5, -23.9),
+    ]
+
+    /// The launch-day atmosphere: PRA-63 times the FER's deviations (the
+    /// speed of sound with the root of the temperature's), and the winds
+    /// turned from the flight azimuth's axes to east and north.
+    static func launchDayAtmosphere() -> SoundingAtmosphere {
+        let levels = launchDaySounding.map { r in
+            SoundingAtmosphere.Level(altitude: r.km * 1_000, state: AtmosphereState(
+                temperature: r.t * (1 + r.dT / 100), pressure: r.p * (1 + r.dP / 100),
+                density: r.rho * (1 + r.dRho / 100), speedOfSound: r.a * (1 + r.dT / 100).squareRoot()))
+        }
+        let az = flightAzimuth * degree
+        let winds = launchDayWinds.map { w in
+            (altitude: w.km * 1_000, east: w.wx * sin(az) + w.wz * cos(az), north: w.wx * cos(az) - w.wz * sin(az))
+        }
+        return SoundingAtmosphere(levels: levels, winds: winds)
+    }
 
     // MARK: S-IVB Auxiliary Propulsion System (datasheet §7.3)
 

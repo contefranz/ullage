@@ -266,7 +266,7 @@ final class AppModel: ObservableObject {
 
         h.altitude = v.altitude
         h.orbitalSpeed = v.velocity.length
-        h.surfaceSpeed = v.airspeed
+        h.surfaceSpeed = v.surfaceVelocity(snapshot: snap).length   // over the ground; airspeed has the wind
         h.verticalSpeed = v.velocity.dot(v.position.normalized)
         h.mach = v.mach
         h.dynamicPressure = v.dynamicPressure
