@@ -135,7 +135,7 @@ extension VesselLibrary {
         sII.shapes = [frustum(sII, D.station(D.sIIAftSkirt), D.station(D.sIITop), body, body, white)]
         // The J-2s start at PU null; the IU steps them to high and low EMR.
         cluster(sII, rating: D.sIIJ2Start, transients: D.sIIJ2Transients,
-                gimbal: D.height(D.sIIJ2GimbalHeight), exit: D.height(D.sIIJ2ExitHeight),
+                gimbal: D.station(D.sIIJ2GimbalStation), exit: D.station(D.sIIJ2ExitStation),
                 radius: D.sIIOutboardCircle / 2 * D.foot, exitArea: D.j2ExitArea, oxidizer: sIILOX, fuel: sIILH2,
                 actuators: actuators(range: D.sIIJ2GimbalRange, rate: D.sIIJ2GimbalRate))
 
@@ -156,7 +156,7 @@ extension VesselLibrary {
                            extent: D.sIVBLH2Extent, density: D.lh2Density)
         sIVB.tanks = [sIVBLOX, sIVBLH2]
         let j2ExitRadius = (D.j2ExitArea / Double.pi).squareRoot()
-        let j2 = Thruster(name: "S-IVB engine", position: local(sIVB, D.height(D.sIVBJ2GimbalHeight)),
+        let j2 = Thruster(name: "S-IVB engine", position: local(sIVB, D.station(D.sIVBJ2GimbalStation)),
                           direction: .unitX, rating: D.sIVBJ2Burn1,
                           feed: .bipropellant(oxidizer: sIVBLOX, fuel: sIVBLH2), groups: [.main],
                           throttleRange: 1...1,
@@ -164,7 +164,7 @@ extension VesselLibrary {
         j2.transients = D.sIVBJ2Transients
         sIVB.thrusters.append(j2)
         sIVB.shapes = [frustum(sIVB, D.station(D.sIVBAftSkirt), D.station(D.sIVBTop), upper, upper, white),
-                       frustum(sIVB, D.height(D.sIVBJ2ExitHeight), D.height(D.sIVBJ2GimbalHeight), j2ExitRadius,
+                       frustum(sIVB, D.station(D.sIVBJ2ExitStation), D.station(D.sIVBJ2GimbalStation), j2ExitRadius,
                                0.3 * j2ExitRadius, dark)]
         // APS groups follow the sign of each engine's torque about a point on
         // the axis 8 m ahead of the modules, near the CoM of the S-IVB stack

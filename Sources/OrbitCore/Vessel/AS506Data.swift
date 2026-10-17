@@ -19,6 +19,9 @@ import Foundation
 ///   Coordinate System Standards (CSS); Coates and Donald, SA-501 S-IVB APS
 ///   flight anomalies, NTRS 19690016846 (APS-TN); AS-507 Flight Evaluation
 ///   Report (FER-507); AS-201 flight results; National Air and Space Museum.
+/// - Stations (datasheet §4, 2026-10-17): Boeing's Saturn V/Apollo flight
+///   configuration diagram (MSFC, 1 March 1967, NASA image 9253429); Saturn V
+///   Flight Manuals MSFC-MAN-504 and MSFC-MAN-506.
 ///
 /// Confidence as graded by the datasheet: (H) high, (M) medium, (L) low.
 /// "Derived" is arithmetic on published values, "estimate" is the datasheet's
@@ -559,17 +562,26 @@ enum AS506 {
 
     // MARK: Geometry
     //
-    // Stations (in) and heights (m above the base) from the M1 datasheet's §4,
-    // mostly recalled from the Saturn V Flight Manual MSFC-MAN-503 and the
-    // Saturn V News Reference: low confidence unless marked.
+    // Stations (in) and heights (m above the base) from the M1 datasheet's §4.
+    // The interfaces from the S-IC top to the S-IVB aft skirt and the J-2
+    // gimbals are read from Boeing's configuration diagram (NASA image
+    // 9253429) and the flight manuals; the rest was recalled from the Saturn
+    // V Flight Manual MSFC-MAN-503 and the Saturn V News Reference: low
+    // confidence unless marked.
 
-    static let sICTop = 1_541.0                      // STA, S-IC/S-II separation plane (M-L)
-    static let sIIAftSkirt = 1_760.0                 // STA, second plane: interstage top (L)
-    static let sIITop = 2_519.0                      // STA, S-II forward skirt top (L-M)
-    /// S-II/S-IVB separation plane, recalled (L); an alternative reading puts it near STA 2646.
-    static let sIVBAftSkirt = 2_746.5                // STA (L)
-    static let sIVBTop = 3_222.0                     // STA, S-IVB/IU (L-M)
-    static let iuTop = 3_258.0                       // STA, IU/SLA = Xa 502 (M-L)
+    /// S-IC forward skirt top, the S-IC/S-II interstage's bottom. The first
+    /// separation plane is 23 in higher, at STA 1564 (MSFC-MAN-506 Fig
+    /// 5-19): the ring between leaves with the S-IC (`sICSIIInterstageSmall`),
+    /// and the model books its mass there but not its length.
+    static let sICTop = 1_541.0                      // STA, Boeing 9253429; MSFC-MAN-504 Fig 5-1 (H)
+    static let sIIAftSkirt = 1_760.0                 // STA, second plane: interstage top; MSFC-MAN-506 Fig 5-19 (H)
+    static let sIITop = 2_519.0                      // STA, S-II forward skirt top; Boeing 9253429; MAN-504 Fig 5-1 (H)
+    /// S-II/S-IVB separation plane: the aft interstage top, the S-IVB aft
+    /// skirt's bottom. STA ≈ 2646, once read as an alternative plane, is the
+    /// S-IVB J-2's gimbal (`sIVBJ2GimbalStation`).
+    static let sIVBAftSkirt = 2_746.5                // STA, MSFC-MAN-506 Fig 5-19; Boeing 9253429 (H)
+    static let sIVBTop = 3_222.0                     // STA, S-IVB/IU (L-M); Boeing 9253429 has 3222.56
+    static let iuTop = 3_258.0                       // STA, IU/SLA = Xa 502 (M-L); Boeing 9253429 has 3258.56
     static let slaTop = 838.0                        // Xa, SLA top = SM aft bulkhead (L)
     static let smTop = 1_010.0                       // Xa, SM/CM (L)
     static let cmApex = 1_137.0                      // Xa (L)
@@ -585,16 +597,26 @@ enum AS506 {
     /// F-1 gimbal plane, the aft end of the S-IC thrust structure.
     static let f1GimbalStation = 100.0               // STA, Project Apollo Coordinate System Standards (M)
     static let f1OutboardRadius = 182.0              // in, fan wiki only (L); the bells sit under the fairings
-    static let sIIJ2GimbalHeight = 48.4              // m, estimate ±1 m (L)
-    static let sIIJ2ExitHeight = 45.0                // m, estimate ±1 m (L)
+    /// J-2 gimbal planes, at station 100 of each stage: the S-II's "gimbal
+    /// plane" (S-II station = STA - 1564) and the S-IVB's "top J-2 engine"
+    /// (S-IVB station = STA - 2545.85) in Boeing's diagram. REF504 Fig 3-1
+    /// also takes STA 1664 as the S-II gimbal (`sIIGimbalStation`). Both hang
+    /// below their stage's part: the S-II's 96 in below its aft skirt, inside
+    /// the interstage; the S-IVB's 100.65 in below its aft skirt, on the
+    /// thrust structure under the LOX tank's aft dome, inside the aft
+    /// interstage.
+    static let sIIJ2GimbalStation = 1_664.0          // STA, Boeing 9253429; REF504 Fig 3-1 (H)
+    static let sIVBJ2GimbalStation = 2_645.85        // STA, Boeing 9253429 (H)
+    /// The J-2's length, 11 ft 1 in, taken from the gimbal mount on top of the
+    /// engine to the nozzle exit. It puts the exits 10 in below the S-IC/S-II
+    /// interstage's bottom (STA 1541) and 6 in below the aft interstage's
+    /// (STA 2519), where MSFC-MAN-504 Figs 5-1 and 6-1 (not to scale) draw
+    /// them inside: the exits may be up to that much higher. Only the nozzle
+    /// shapes use them.
+    static let j2Length = 133.0                      // in, Saturn V News Reference, J-2 fact sheet (H; as gimbal to exit, M)
+    static let sIIJ2ExitStation = sIIJ2GimbalStation - j2Length     // STA 1531, derived (M)
+    static let sIVBJ2ExitStation = sIVBJ2GimbalStation - j2Length   // STA 2512.85, derived (M)
     static let sIIOutboardCircle = 17.5              // ft, diameter of the outboard J-2 circle, enginehistory.org (M)
-    /// About 1 m below the S-IVB part's own aft end (`sIVBAftSkirt`, h 72.68),
-    /// as is the LOX extent's aft apex (72.5): the estimates disagree within
-    /// their ±1 m, and the alternative separation plane (STA ≈ 2646, h 70.15)
-    /// would resolve it. Still unresolved: the J-2's lever arm runs from this
-    /// point, and ±1 m changes its pitch and yaw authority by about ±11 %.
-    static let sIVBJ2GimbalHeight = 71.7             // m, estimate ±1 m (L)
-    static let sIVBJ2ExitHeight = 68.3               // m, estimate ±1 m (L)
 
     /// LM stowed in the SLA: stowed geometry was not found.
     static let lmBottomHeight = 85.9                 // m, estimate (L)
@@ -715,7 +737,7 @@ enum AS506 {
         (4.0, 2.858), (4.5, 2.858), (5.0, 2.864), (5.25, 2.917), (5.5, 3.025), (5.75, 3.175), (6.0, 3.299),
         (6.25, 3.364), (6.5, 3.385), (6.75, 3.396), (7.0, 3.401), (7.5, 3.402), (8.0, 3.397),
     ])
-    static let sIIGimbalStation = 1_664.0                // in; REF504 Fig 3-1 (H; as the S-II CP origin, inferred)
+    static let sIIGimbalStation = 1_664.0                // in; REF504 Fig 3-1 (H): the S-II gimbal plane, Boeing 9253429 (H)
     /// S-IVB stage flight: a constant free-molecular-flow drag coefficient on
     /// 33.47 m², along the relative wind, no lift (REF504 §3.1, from
     /// R-AERO-AD-66-54).
