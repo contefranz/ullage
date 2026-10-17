@@ -30,7 +30,18 @@ public final class Simulation {
     /// Upper bound on integration steps per `advance` call; time warp is
     /// effectively reduced when the bound is hit.
     public var maxSubsteps = 20_000
-    /// Set when the last `advance` hit `maxSubsteps`.
+    /// Wall-clock seconds one `advance` may spend stepping, timed on `clock`;
+    /// nil for no bound. Powered flight takes 0.02 s steps, so at high warp
+    /// a frame would otherwise run for seconds.
+    public var stepBudget: Double?
+    /// Monotonic wall clock in seconds, for `stepBudget`.
+    public var clock: () -> Double = { ProcessInfo.processInfo.systemUptime }
+    /// Longest real interval one `advance` makes up for; the rest of a
+    /// longer one (a hitch) is dropped.
+    public var maxRealInterval = Double.infinity
+    /// Set when the last `advance` covered less than `warp` times its real
+    /// interval: `maxRealInterval`, `maxSubsteps` or `stepBudget` cut it
+    /// short, and the rest is dropped, not carried over.
     public private(set) var warpLimited = false
 
     public init(system: SolarSystem, time: Epoch) {
@@ -60,20 +71,26 @@ public final class Simulation {
 
     // MARK: Time stepping
 
-    /// Advance by `realSeconds` of wall-clock time multiplied by `warp`.
+    /// Advance by `realSeconds` of wall-clock time multiplied by `warp`, or
+    /// less when a bound stops it (`warpLimited`). The step that crosses the
+    /// budget finishes, so a frame always makes progress.
     public func advance(by realSeconds: Double) {
-        guard !paused else { return }
-        var remaining = realSeconds * warp
-        var count = 0
         warpLimited = false
+        guard !paused else { return }
+        let real = min(realSeconds, maxRealInterval)
+        var remaining = real * warp
+        let deadline = stepBudget.map { clock() + $0 }
+        var count = 0
         while remaining > 1e-9 {
             for v in vessels { prepareControls(v) }
             let h = min(remaining, maxStep())
             step(h)
             remaining -= h
             count += 1
-            if count >= maxSubsteps { warpLimited = true; break }
+            if count >= maxSubsteps { break }
+            if let deadline, clock() >= deadline { break }
         }
+        warpLimited = real < realSeconds || remaining > 1e-9
     }
 
     /// Largest stable step for the current situation.

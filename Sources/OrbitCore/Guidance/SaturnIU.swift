@@ -197,6 +197,8 @@ public final class SaturnIU: FlightProgram {
     public private(set) var guidance: IterativeGuidance?
     public private(set) var guidanceCommand: (pitch: Double, yaw: Double)?
     private var guidanceDone = false
+    /// The IGM cut the S-IVB off on velocity (not the pilot or depletion).
+    private var guidanceCutoff = false
     private var lastCycle: Epoch?
     /// ∫F/m dt since the last guidance cycle, and the S-II's characteristic
     /// velocity (∫F/m dt from its ignition to its cutoff), m/s.
@@ -480,6 +482,7 @@ public final class SaturnIU: FlightProgram {
                 cutoffAt = nil
                 guidance = nil
                 guidanceDone = true
+                guidanceCutoff = true
             } else {
                 cutoffAt = now + tgo
             }
@@ -605,12 +608,11 @@ public final class SaturnIU: FlightProgram {
             phase = stageFiring(v, plan.stages.third) ? "S-IVB burn" + held
                 : thirdStageLit ? "S-IVB engine off" : "S-II/S-IVB staging"
         case .t5:
-            if localHorizontal {
-                phase = "local horizontal, " + (Self.periapsisRadius(v) > v.reference.radius + 100_000
-                                                 ? "parking orbit" : "suborbital")
-            } else {
-                phase = ullageOn ? "APS ullage" : "S-IVB cutoff"
-            }
+            let coast = localHorizontal
+                ? "local horizontal, " + (Self.periapsisRadius(v) > v.reference.radius + 100_000
+                                          ? "parking orbit" : "suborbital")
+                : ullageOn ? "APS ullage" : "S-IVB cutoff"
+            phase = guidanceCutoff ? coast + ", IGM done" : coast
         }
         return String(format: "%@+%.0f %@%@", base.description, now - start, phase, pilot ? "  (attitude: pilot)" : "")
     }
