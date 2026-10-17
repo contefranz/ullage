@@ -172,7 +172,8 @@ public struct PerformanceSchedule: Equatable {
 /// thrust. Once it stops (cut off, throttled to zero, or out of propellant)
 /// it falls from where it was to zero over `shutdown` s, half that time of
 /// full thrust, drawing the tail-off propellant from below its tanks'
-/// unusable mass.
+/// unusable mass. A cut engine runs that decay to its end before it can
+/// start again.
 public struct EngineTransients: Equatable {
     public var startDelay: Double
     public var startRise: Double
@@ -312,9 +313,11 @@ public final class Thruster {
     /// True while every tank of the feed holds usable propellant.
     public var hasPropellant: Bool { feed.map { $0.tanks.allSatisfy { $0.usableMass > 0 } } ?? false }
 
-    /// True while the controls command thrust: enabled, lit and fed. Start
-    /// and shutdown ramps aside, this is when the engine delivers thrust.
-    public var isCommanded: Bool { isEnabled && level > 0 && hasPropellant }
+    /// True while the controls command thrust: enabled, lit and fed, and not
+    /// still decaying from a cutoff (a new command waits for the decay to
+    /// end). Start and shutdown ramps aside, this is when the engine
+    /// delivers thrust.
+    public var isCommanded: Bool { isEnabled && level > 0 && hasPropellant && shutdownElapsed == nil }
 
     /// Fraction of full output (level and transients) and the rating it
     /// applies to, this step; nil when the engine delivers nothing.

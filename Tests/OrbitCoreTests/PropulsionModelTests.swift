@@ -309,6 +309,29 @@ final class PropulsionModelTests: XCTestCase {
         XCTAssertEqual(e.thrust(ambientPressure: 0, seaLevelPressure: 0), 1e6)
     }
 
+    // A8, a relight during the decay: a cut engine runs its shutdown ramp to
+    // the end before it can start again (0.3 s of full thrust here, however
+    // soon it is commanded), then starts with its full start ramp.
+    func testRelightWaitsForTheShutdownRamp() {
+        let (e, _, _) = engine(EngineTransients(startDelay: 0.2, startRise: 0.4, shutdown: 0.6))
+        var impulse = 0.0
+        step(e, 50, impulse: &impulse)
+        e.level = 0
+        impulse = 0
+        step(e, 5, impulse: &impulse)
+        e.level = 1
+        XCTAssertFalse(e.isCommanded)
+        XCTAssertTrue(e.isDelivering)
+        step(e, 25, impulse: &impulse)
+        XCTAssertEqual(impulse, 1e6 * 0.3, accuracy: 1e-3)
+        XCTAssertFalse(e.isDelivering)
+        XCTAssertTrue(e.isCommanded)
+        impulse = 0
+        step(e, 30, impulse: &impulse)
+        XCTAssertEqual(impulse, 1e6 * 0.2, accuracy: 1e-3)
+        XCTAssertEqual(e.burnTime, 0.6, accuracy: 1e-9)
+    }
+
     // A8: a shutdown ramp. Cut off (here disabled, as the IU cuts an engine)
     // or run dry, the engine falls linearly from full to zero over the ramp:
     // half the ramp of full-thrust impulse, drawing the tail-off propellant
