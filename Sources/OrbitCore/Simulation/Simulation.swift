@@ -90,7 +90,7 @@ public final class Simulation {
         if v.landed != nil {
             h = v.thrusters.contains(where: { $0.isEnabled && $0.level > 0 }) ? 0.02 : 10
         } else {
-            let thrusting = v.thrusters.contains { $0.isEnabled && $0.level > 0 && $0.hasPropellant }
+            let thrusting = v.thrusters.contains { $0.isDelivering }
             if thrusting || v.dynamicPressure > 1 { h = min(h, 0.02) }
             let w = v.angularVelocity.length
             if w > 1e-6 { h = min(h, 0.05 / w) }

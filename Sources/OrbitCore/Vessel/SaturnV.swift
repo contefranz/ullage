@@ -42,13 +42,12 @@ extension VesselLibrary {
                      _ color: (Double, Double, Double), y: Double = 0, z: Double = 0) -> VisualShape {
             .frustum(from: local(p, bottom, y, z), length: top - bottom, baseRadius: r0, topRadius: r1, color: color)
         }
-        /// A settled column holding `load` lb, whose full-load centroid is the
+        /// A settled column holding `load` kg, whose full-load centroid is the
         /// middle of `extent` (m above the base).
-        func tank(_ name: String, in p: VesselPart, load: Double, unusable: Double = 0,
+        func tank(_ name: String, in p: VesselPart, load m: Double, unusable: Double = 0,
                   extent: (aft: Double, forward: Double), density: Double) -> PropellantTank {
-            let m = load * lb
             let centroid = local(p, D.height((extent.aft + extent.forward) / 2))
-            return PropellantTank(name: name, capacity: m, unusableMass: unusable * lb,
+            return PropellantTank(name: name, capacity: m, unusableMass: unusable,
                                   geometry: .column(fullLoadCentroid: centroid, radius: p.radius, capacity: m,
                                                     density: density))
         }
@@ -56,14 +55,18 @@ extension VesselLibrary {
         /// 1-4 at `radius` on the diagonals under fins A-D, with `actuators`;
         /// engine 5 fixed on the axis. Nozzle shapes run from the exit plane
         /// `exit` to the gimbal.
-        func cluster(_ p: VesselPart, rating: EngineRating, gimbal: Double, exit: Double, radius: Double,
+        func cluster(_ p: VesselPart, rating: EngineRating, schedule: PerformanceSchedule? = nil,
+                     transients: EngineTransients, gimbal: Double, exit: Double, radius: Double,
                      exitArea: Double, oxidizer: PropellantTank, fuel: PropellantTank, actuators: [GimbalActuator]) {
             let d = radius / 2.squareRoot(), exitRadius = (exitArea / Double.pi).squareRoot()
             for (i, (y, z)) in [(-d, d), (-d, -d), (d, -d), (d, d), (0, 0)].enumerated() {
-                p.thrusters.append(Thruster(name: "\(p.name) engine \(i + 1)", position: local(p, gimbal, y, z),
-                                            direction: .unitX, rating: rating,
-                                            feed: .bipropellant(oxidizer: oxidizer, fuel: fuel), groups: [.main],
-                                            throttleRange: 1...1, gimbal: i < 4 ? actuators : []))
+                let e = Thruster(name: "\(p.name) engine \(i + 1)", position: local(p, gimbal, y, z),
+                                 direction: .unitX, rating: rating,
+                                 feed: .bipropellant(oxidizer: oxidizer, fuel: fuel), groups: [.main],
+                                 throttleRange: 1...1, gimbal: i < 4 ? actuators : [])
+                e.schedule = schedule
+                e.transients = transients
+                p.thrusters.append(e)
                 p.shapes.append(frustum(p, exit, gimbal, exitRadius, 0.3 * exitRadius, dark, y: y, z: z))
             }
         }
@@ -78,9 +81,13 @@ extension VesselLibrary {
         let body = D.bodyDiameter / 2 * D.inch, upper = D.sIVBDiameter / 2 * D.inch
         let csmRadius = D.csmDiameter / 2 * D.inch
 
-        // S-IC: engines below the thrust structure, RP-1 below LOX.
+        // S-IC at first motion: engines below the thrust structure, RP-1
+        // below LOX. Its dry mass is the FER stage less its tanks, with the
+        // small interstage ring that leaves with it.
         let sIC = part("S-IC", D.station(D.baseStation), D.station(D.sICTop), radius: body,
-                       dryMass: (D.sICDry + D.sICOther) * lb, dryCenterOfMass: D.height(D.sICDryCoMHeight),
+                       dryMass: D.sICAtFirstMotion - D.sICLOXAtFirstMotion - D.sICRP1AtFirstMotion
+                           + D.sICSIIInterstageSmall,
+                       dryCenterOfMass: D.height(D.sICDryCoMHeight),
                        dragCoefficient: D.bodyDragCoefficient, staging: .event(1))
         let sICLOX = tank("S-IC LOX", in: sIC, load: D.sICLOXAtFirstMotion, unusable: D.sICLOXAtCutoff,
                           extent: D.sICLOXExtent, density: D.loxDensity)
@@ -88,26 +95,47 @@ extension VesselLibrary {
                           density: D.rp1Density)
         sIC.tanks = [sICLOX, sICRP1]
         sIC.shapes = [frustum(sIC, D.station(D.f1GimbalStation), D.station(D.sICTop), body, body, white)]
-        cluster(sIC, rating: D.f1, gimbal: D.station(D.f1GimbalStation), exit: D.station(D.baseStation),
+        cluster(sIC, rating: D.f1, schedule: D.f1Schedule, transients: D.f1Transients,
+                gimbal: D.station(D.f1GimbalStation), exit: D.station(D.baseStation),
                 radius: D.f1OutboardRadius * D.inch, exitArea: D.f1ExitArea, oxidizer: sICLOX, fuel: sICRP1,
                 actuators: actuators(range: D.f1GimbalRange, rate: D.f1GimbalRate))
 
+        // The large interstage, with the four S-II ullage motors: solids that
+        // fire forward on the ullage command (the IU's) until they burn out.
+        // One tank holds the four grains, which burn together (one HUD row).
         let interstage = part("S-IC/S-II interstage", D.station(D.sICTop), D.station(D.sIIAftSkirt), radius: body,
-                              dryMass: D.sICSIIInterstage * lb, dragCoefficient: D.bodyDragCoefficient,
+                              dryMass: D.sICSIIInterstageLarge, dragCoefficient: D.bodyDragCoefficient,
                               staging: .event(2))
         interstage.shapes = [frustum(interstage, D.station(D.sICTop), D.station(D.sIIAftSkirt), body, body, white)]
+        let ullageThrust = D.sIIUllageMotorThrust * D.poundForce
+        let ullageMotor = EngineRating(name: "S-II ullage motor", thrustVacuum: ullageThrust,
+                                       ispVacuum: ullageThrust * D.sIIUllageMotorBurnTime
+                                           / (D.sIIUllageMotorPropellant / 4 * standardGravity))
+        let ullageX = D.station((D.sICTop + D.sIIAftSkirt) / 2)
+        let grains = PropellantTank(name: "S-II ullage", capacity: D.sIIUllageMotorPropellant,
+                                    geometry: .point(local(interstage, ullageX)))
+        interstage.tanks = [grains]
+        for (i, (y, z)) in [(0.0, body), (-body, 0.0), (0.0, -body), (body, 0.0)].enumerated() {
+            interstage.thrusters.append(Thruster(name: "S-II ullage motor \(i + 1)",
+                                                 position: local(interstage, ullageX, y, z), direction: .unitX,
+                                                 rating: ullageMotor, feed: .single(grains),
+                                                 groups: [.translateForward], throttleRange: 1...1))
+        }
 
         // S-II: LOX aft, LH2 forward over a common bulkhead. Its J-2s hang
         // into the interstage below.
         let sII = part("S-II", D.station(D.sIIAftSkirt), D.station(D.sIITop), radius: body,
                        dryMass: (D.sIIDry + D.sIIOther) * lb, dragCoefficient: D.bodyDragCoefficient,
                        staging: .event(4))
-        let sIILOX = tank("S-II LOX", in: sII, load: D.sIILOXLoad, unusable: D.sIILOXUnusable,
+        let sIILOX = tank("S-II LOX", in: sII, load: D.sIILOXLoad * lb, unusable: D.sIILOXAtCutoff,
                           extent: D.sIILOXExtent, density: D.loxDensity)
-        let sIILH2 = tank("S-II LH2", in: sII, load: D.sIILH2Load, extent: D.sIILH2Extent, density: D.lh2Density)
+        let sIILH2 = tank("S-II LH2", in: sII, load: D.sIILH2Load * lb, extent: D.sIILH2Extent,
+                          density: D.lh2Density)
         sII.tanks = [sIILOX, sIILH2]
         sII.shapes = [frustum(sII, D.station(D.sIIAftSkirt), D.station(D.sIITop), body, body, white)]
-        cluster(sII, rating: D.sIIJ2, gimbal: D.height(D.sIIJ2GimbalHeight), exit: D.height(D.sIIJ2ExitHeight),
+        // The J-2s start at PU null; the IU steps them to high and low EMR.
+        cluster(sII, rating: D.sIIJ2Start, transients: D.sIIJ2Transients,
+                gimbal: D.height(D.sIIJ2GimbalHeight), exit: D.height(D.sIIJ2ExitHeight),
                 radius: D.sIIOutboardCircle / 2 * D.foot, exitArea: D.j2ExitArea, oxidizer: sIILOX, fuel: sIILH2,
                 actuators: actuators(range: D.sIIJ2GimbalRange, rate: D.sIIJ2GimbalRate))
 
@@ -122,17 +150,19 @@ extension VesselLibrary {
         let sIVB = part("S-IVB", D.station(D.sIVBAftSkirt), D.station(D.sIVBTop), radius: upper,
                         dryMass: (D.sIVBDry + D.sIVBOther - 2 * (D.apsOxidizerLoad + D.apsFuelLoad)) * lb,
                         staging: .fixed)
-        let sIVBLOX = tank("S-IVB LOX", in: sIVB, load: D.sIVBLOXLoad, unusable: D.sIVBLOXUnusable,
+        let sIVBLOX = tank("S-IVB LOX", in: sIVB, load: D.sIVBLOXLoad * lb, unusable: D.sIVBLOXUnusable * lb,
                            extent: D.sIVBLOXExtent, density: D.loxDensity)
-        let sIVBLH2 = tank("S-IVB LH2", in: sIVB, load: D.sIVBLH2Load, unusable: D.sIVBLH2Unusable,
+        let sIVBLH2 = tank("S-IVB LH2", in: sIVB, load: D.sIVBLH2Load * lb, unusable: D.sIVBLH2Unusable * lb,
                            extent: D.sIVBLH2Extent, density: D.lh2Density)
         sIVB.tanks = [sIVBLOX, sIVBLH2]
         let j2ExitRadius = (D.j2ExitArea / Double.pi).squareRoot()
-        sIVB.thrusters.append(Thruster(name: "S-IVB engine", position: local(sIVB, D.height(D.sIVBJ2GimbalHeight)),
-                                       direction: .unitX, rating: D.sIVBJ2Burn1,
-                                       feed: .bipropellant(oxidizer: sIVBLOX, fuel: sIVBLH2), groups: [.main],
-                                       throttleRange: 1...1,
-                                       gimbal: actuators(range: D.sIVBJ2GimbalRange, rate: D.sIVBJ2GimbalRate)))
+        let j2 = Thruster(name: "S-IVB engine", position: local(sIVB, D.height(D.sIVBJ2GimbalHeight)),
+                          direction: .unitX, rating: D.sIVBJ2Burn1,
+                          feed: .bipropellant(oxidizer: sIVBLOX, fuel: sIVBLH2), groups: [.main],
+                          throttleRange: 1...1,
+                          gimbal: actuators(range: D.sIVBJ2GimbalRange, rate: D.sIVBJ2GimbalRate))
+        j2.transients = D.sIVBJ2Transients
+        sIVB.thrusters.append(j2)
         sIVB.shapes = [frustum(sIVB, D.station(D.sIVBAftSkirt), D.station(D.sIVBTop), upper, upper, white),
                        frustum(sIVB, D.height(D.sIVBJ2ExitHeight), D.height(D.sIVBJ2GimbalHeight), j2ExitRadius,
                                0.3 * j2ExitRadius, dark)]
@@ -149,20 +179,21 @@ extension VesselLibrary {
                       staging: .fixed)
         iu.shapes = [frustum(iu, D.station(D.sIVBTop), D.station(D.iuTop), upper, upper, grey)]
 
-        let sla = part("SLA", D.station(D.iuTop), D.apolloStation(D.slaTop), radius: upper, dryMass: D.sla * lb,
+        let sla = part("SLA", D.station(D.iuTop), D.apolloStation(D.slaTop), radius: upper, dryMass: D.sla,
                        staging: .fixed)
         sla.shapes = [frustum(sla, D.station(D.iuTop), D.apolloStation(D.slaTop), upper, csmRadius, white)]
 
         // Inside the SLA, so it has no shapes.
         let lm = part("LM", D.height(D.lmBottomHeight), D.height(D.lmTopHeight), radius: D.lmRadius,
-                      dryMass: D.lm * lb, staging: .fixed)
+                      dryMass: D.lm, staging: .fixed)
 
         // CSM as one part (M2 splits it). No CSM CG was found: the SM and CM
         // each sit at their own mid-station.
         let smMid = D.apolloStation((D.slaTop + D.smTop) / 2), cmMid = D.apolloStation((D.smTop + D.cmApex) / 2)
+        let cm = D.cm * lb
         let csm = part("CSM", D.apolloStation(D.slaTop), D.apolloStation(D.cmApex), radius: csmRadius,
-                       dryMass: (D.sm + D.cm) * lb,
-                       dryCenterOfMass: (D.sm * smMid + D.cm * cmMid) / (D.sm + D.cm), staging: .fixed)
+                       dryMass: D.csm,
+                       dryCenterOfMass: ((D.csm - cm) * smMid + cm * cmMid) / D.csm, staging: .fixed)
         csm.shapes = [frustum(csm, D.apolloStation(D.slaTop), D.apolloStation(D.smTop), csmRadius, csmRadius,
                               (0.7, 0.72, 0.75)),
                       frustum(csm, D.apolloStation(D.smTop), D.apolloStation(D.cmApex), csmRadius,
@@ -171,7 +202,7 @@ extension VesselLibrary {
         // LES with the boost protective cover; tower, motor and nose are crude.
         let lesTop = D.station(D.baseStation) + D.overallHeight * D.foot
         let lesBottom = lesTop - D.lesLength * D.foot
-        let les = part("LES", lesBottom, lesTop, radius: D.lesRadius, dryMass: D.les * lb, staging: .event(3))
+        let les = part("LES", lesBottom, lesTop, radius: D.lesRadius, dryMass: D.les, staging: .event(3))
         les.shapes = [frustum(les, lesBottom, lesBottom + 3.5, 0.66, 0.33, grey),
                       frustum(les, lesBottom + 3.5, lesTop - 1, 0.33, 0.33, white),
                       frustum(les, lesTop - 1, lesTop, 0.33, 0.05, white)]

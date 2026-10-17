@@ -12,7 +12,9 @@ final class SaturnVControlTests: XCTestCase {
 
     enum Phase { case liftoff, sIIIgnition, sIVBIgnition }
 
-    /// The stack at a stage's ignition, in free space with its engines lit.
+    /// The stack at a stage's ignition, in free space with its engines lit
+    /// and past their start ramp (2.2 s on the S-II, 2.5 s on the S-IVB), so
+    /// the tests begin at full thrust.
     func freeSpace(_ phase: Phase) throws -> (Simulation, Vessel) {
         let sim = try Simulation.forTests(perturbations: false)
         let v = VesselLibrary.saturnV()
@@ -24,6 +26,8 @@ final class SaturnVControlTests: XCTestCase {
         sim.add(v)
         sim.placeInFreeSpace(v)
         v.mainThrottle = 1
+        let ramp = v.activeStage?.thrusters.compactMap { $0.transients.map { $0.startDelay + $0.startRise } }.max() ?? 0
+        if ramp > 0 { sim.run(seconds: ramp + 0.02) }
         return (sim, v)
     }
 
@@ -232,6 +236,7 @@ final class SaturnVControlTests: XCTestCase {
                                           "APS III roll/yaw -t"]))
         XCTAssertLessThan(abs(rotationVector(v.attitude.conjugate * v.heldAttitude!).x), 1.1 * deg)
         v.mainThrottle = 0
+        sim.run(seconds: 0.5)   // the J-2's 0.42 s tail-off draws its last propellant
         v.angularVelocity += Vec3(0.002, 0.001, -0.001)
         let lox = v.tanks[0].mass, lh2 = v.tanks[1].mass, aps = v.tanks.dropFirst(2).map(\.mass)
         fired = []
@@ -288,8 +293,10 @@ final class SaturnVControlTests: XCTestCase {
 
     // S7, ullage (datasheet §7.4 D): the TB5 ullage burn after S-IVB cutoff,
     // both 72 lbf engines (APS-TN; NASM, H) for 88 s (MAN503 and EH, L-M),
-    // gives 0.4173 m/s at the model's insertion mass of about 135,095 kg (the
-    // datasheet's own figure, so it guards the thrust and the wiring, ±0.5 %).
+    // gives 0.4173 m/s at the mass after the S-IVB's first thrust decay,
+    // 135,102 kg (FER Table 20-5); the model's, after burn 1's 147.13 s and
+    // its decay, is within 0.3 % of it (it guards the thrust and the
+    // wiring, ±0.5 %).
     // The propellant follows F t / (Isp g0) with the model's Isp (a
     // placeholder: never tested against a value).
     func testTB5UllageBurn() throws {
@@ -300,8 +307,9 @@ final class SaturnVControlTests: XCTestCase {
         j2.level = 1
         for _ in 0..<Int((147.13 / 0.02).rounded()) { v.consumePropellant(dt: 0.02) }
         j2.level = 0
+        for _ in 0..<25 { v.consumePropellant(dt: 0.02) }   // the tail-off
         v.recenter()
-        XCTAssertEqual(v.mass, 135_095, accuracy: 135_095 * 1e-4)
+        XCTAssertEqual(v.mass, 135_102, accuracy: 135_102 * 3e-3)
         sim.add(v)
         let x = sim.placeInFreeSpace(v)
         let apsTanks = v.tanks.dropFirst(2), before = apsTanks.reduce(0) { $0 + $1.mass }

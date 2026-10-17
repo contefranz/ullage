@@ -188,14 +188,23 @@ final class SaturnIUTests: XCTestCase {
     // July density excess). Max Q comes at 75 s rather than 83 s and the
     // pitch program starts at T1 + 10.4 s rather than 12.6 s: the model
     // climbs faster than the real stack in the first minute (datasheet §8).
+    // The thrust acceleration (ambient pressure included) against AS-506's
+    // total inertial acceleration (FER Figure 4-3, M) where drag is under
+    // 0.3 % of thrust, so the placeholder drag coefficient does not matter.
     func testSICAscentMatchesApollo11() throws {
         let f = try launch()
         var mach1: Double?, maxQ = 0.0
         var states: [(alt: Double, v: Double, gamma: Double, heading: Double)] = []
         var marks = [135.2, 161.63]
+        var figure = [(10.3, 12.41), (147.4, 32.23), (152.3, 34.31), (158.8, 37.23)]
+        var accelerations: [(model: Double, fer: Double)] = []
         f.fly(to: 161.7) {
             if mach1 == nil && f.v.mach >= 1 { mach1 = f.range() }
             maxQ = max(maxQ, f.v.dynamicPressure)
+            if let (t, a) = figure.first, f.range() >= t - 1e-9 {
+                figure.removeFirst()
+                accelerations.append((f.v.thrustAcceleration, a))
+            }
             guard let m = marks.first, f.range() >= m - 1e-9 else { return }
             marks.removeFirst()
             let up = f.v.position.normalized, pole = f.sim.snapshot.orientation(f.sim.system.earth).pole
@@ -216,6 +225,8 @@ final class SaturnIUTests: XCTestCase {
         XCTAssertEqual(oeco.v, 2_764.1, accuracy: 40)
         XCTAssertEqual(oeco.gamma, 19.114, accuracy: 0.2)
         XCTAssertEqual(oeco.heading, 75.439, accuracy: 0.5)
+        XCTAssertEqual(accelerations.count, 4)
+        for (model, fer) in accelerations { XCTAssertEqual(model, fer, accuracy: fer * 0.01) }
     }
 
     // The outboard F-1 cant starts at T1 + 20.0 s (range 20.63 s; FER
@@ -242,7 +253,7 @@ final class SaturnIUTests: XCTestCase {
     // (a0 0.9, a1 0.69 s; TN D-5869 Table 3): a 0.5° pitch command step is a
     // second-order response with wn = sqrt(a0 c) and zeta = a1 c / (2 wn),
     // c = 4 F L / Iyy from the model's own geometry, in vacuum (datasheet
-    // §8.6: c 0.898 s^-2, wn 0.90 rad/s, zeta 0.345, a 32 % overshoot at
+    // §8.6: c 0.887 s^-2, wn 0.893 rad/s, zeta 0.343, a 32 % overshoot at
     // 3.7 s). Mass properties frozen; self-consistency of law, gains and model.
     func testFlightControlStepResponse() throws {
         let sim = try Simulation.forTests(perturbations: false)
@@ -270,8 +281,8 @@ final class SaturnIUTests: XCTestCase {
         let peak = pitch.max { $0.1 < $1.1 }!
         XCTAssertEqual(peak.0, Double.pi / wd, accuracy: 0.1 * Double.pi / wd)
         XCTAssertEqual(peak.1 / step - 1, exp(-zeta * Double.pi / (1 - zeta * zeta).squareRoot()), accuracy: 0.05)
-        XCTAssertEqual(c, 0.898, accuracy: 0.005)
-        XCTAssertEqual(wn, 0.90, accuracy: 0.005)
+        XCTAssertEqual(c, 0.887, accuracy: 0.005)
+        XCTAssertEqual(wn, 0.893, accuracy: 0.005)
     }
 
     // One flight, first motion to T5 + 87 s, against AS-506's sequence of
@@ -313,28 +324,32 @@ final class SaturnIUTests: XCTestCase {
             ("S-IC centre engine cutoff", 135.20, 0.02),           // FER 135.20
             ("T2: centre engine cutoff sensed", 135.27, 0.06),     // FER Table 2-1, sensed 0.07 s later
             ("tilt arrest", 160.0, 1e-6),                          // FER 160.0
-            ("T3: S-IC outboard engine cutoff sensed", 161.66, 0.2),  // FER Table 2-1
-            ("S-IC outboard engine cutoff", t3, 0.2),
-            ("S-IC/S-II separation", t3 + 0.7, 0.2),
-            ("S-II flight control gains", t3 + 2.4, 0.2),
-            ("S-II ignition", 164.0, 0.2),                         // FER 164.0, T3 + 2.4
-            ("S-II aft interstage jettison", 192.3, 0.2),          // FER 192.3
-            ("launch escape tower jettison", 197.9, 0.2),          // FER 197.9
-            ("IGM phase 1 (not modelled: attitude held)", 204.1, 0.2),  // FER 204.1, T3 + 42.4
-            ("S-II flight control gains", t3 + 61.4, 0.2),         // SA-507 ICD switch point 3
-            ("S-II flight control gains", t3 + 191.4, 0.2),        // switch point 4
-            ("S-II centre engine cutoff", 460.6, 0.2),             // FER 460.6
-            ("S-II mixture ratio shift", 491.0, 0.2),              // the model's (FER 494.8, §8)
-            ("T4: S-II outboard engine cutoff sensed", 548.24, 0.3),  // FER Table 2-1
-            ("S-II outboard engine cutoff", t4, 0.3),
-            ("S-II/S-IVB separation", t4 + 0.8, 0.3),
-            ("S-IVB flight control law", 552.2, 0.3),
-            ("S-IVB ignition", 552.2, 0.3),                        // FER 552.2
-            ("S-IVB cutoff (Apollo 11's burn time: IGM not modelled)", 699.34, 0.3),  // FER 699.34
-            ("T5: S-IVB cutoff sensed", t5, 0.3),                  // FER 699.57: 0.23 s sensing
-            ("APS ullage on", t5 + 0.3, 0.3),                      // FER 699.8
-            ("orbital guidance: local horizontal", t5 + 19.8, 0.3),  // FER 719.3
-            ("APS ullage off", t5 + 87.0, 0.3),                    // FER 786.5
+            ("T3: S-IC outboard engine cutoff sensed", 161.66, 0.05),  // FER Table 2-1
+            ("S-IC outboard engine cutoff", t3, 0.05),
+            ("S-II ullage motor ignition", 162.1, 0.1),            // FER 162.1
+            ("S-IC/S-II separation", t3 + 0.7, 0.1),               // FER 162.3
+            ("S-II flight control gains", t3 + 2.4, 0.1),
+            ("S-II ignition", 164.0, 0.1),                         // FER 164.0, T3 + 2.4
+            ("S-II ullage motor burn end", 166.1, 0.1),            // FER 166.1 (thrust decay)
+            ("S-II high EMR select", 168.5, 0.1),                  // FER 168.5, T3 + 6.9
+            ("S-II aft interstage jettison", 192.3, 0.1),          // FER 192.3
+            ("launch escape tower jettison", 197.9, 0.1),          // FER 197.9
+            ("IGM phase 1 (not modelled: attitude held)", 204.1, 0.1),  // FER 204.1, T3 + 42.4
+            ("S-II flight control gains", t3 + 61.4, 0.1),         // SA-507 ICD switch point 3
+            ("S-II flight control gains", t3 + 191.4, 0.1),        // switch point 4
+            ("S-II centre engine cutoff", 460.6, 0.1),             // FER 460.6
+            ("EMR shift command (IGM phase 2 not modelled)", 494.8, 0.1),  // FER 494.8
+            ("S-II low EMR (PU valve step)", 497.6, 0.1),          // FER Table 6-2, 497.60
+            ("T4: S-II outboard engine cutoff sensed", 548.24, 0.1),  // FER Table 2-1
+            ("S-II outboard engine cutoff", t4, 0.1),
+            ("S-II/S-IVB separation", t4 + 0.8, 0.1),
+            ("S-IVB flight control law", 552.2, 0.1),
+            ("S-IVB ignition", 552.2, 0.1),                        // FER 552.2
+            ("S-IVB cutoff (Apollo 11's burn time: IGM not modelled)", 699.34, 0.1),  // FER 699.34
+            ("T5: S-IVB cutoff sensed", t5, 0.1),                  // FER 699.57: 0.23 s sensing
+            ("APS ullage on", t5 + 0.3, 0.1),                      // FER 699.8
+            ("orbital guidance: local horizontal", t5 + 19.8, 0.1),  // FER 719.3
+            ("APS ullage off", t5 + 87.0, 0.1),                    // FER 786.5
         ]
         let log = f.iu.log.filter { $0.event != "roll and pitch program" }
         XCTAssertEqual(log.map(\.event), expected.map(\.0))
@@ -346,7 +361,7 @@ final class SaturnIUTests: XCTestCase {
                                                   "Apollo 11 – LES", "Apollo 11 – S-II"])
         let sII = f.sim.vessels[4].parts[0]
         XCTAssertEqual(sII.thrusters.filter { $0.groups.contains(.main) }.map(\.rating.name),
-                       Array(repeating: "J-2 EMR 4.7", count: 5))
+                       Array(repeating: "J-2 S-II low EMR", count: 5))
         XCTAssertFalse(f.sim.vessels[1].thrusters.first { $0.name == "S-IC engine 5" }!.isEnabled)
         XCTAssertFalse(sII.thrusters.first { $0.name == "S-II engine 5" }!.isEnabled)
         XCTAssertNil(f.v.fccGains)
@@ -534,6 +549,7 @@ final class SaturnIUTests: XCTestCase {
         j2.level = 1
         for _ in 0..<Int((147.13 / 0.02).rounded()) { v.consumePropellant(dt: 0.02) }
         j2.level = 0
+        for _ in 0..<25 { v.consumePropellant(dt: 0.02) }   // the tail-off
         if light {
             for t in v.tanks.prefix(2) { t.mass = t.unusableMass }
             v.recenter()
@@ -631,7 +647,9 @@ final class SaturnIUTests: XCTestCase {
             worst.append(error)
         }
         XCTAssertLessThan(perHour[0], 1.5)
-        XCTAssertEqual(perHour[1], perHour[0], accuracy: 0.25 * perHour[0])
+        // At 1x the 900 s hold fires only two or three pulses (16 g each at
+        // the minimum on-time), so the rates can agree only to about a pulse.
+        XCTAssertEqual(perHour[1], perHour[0], accuracy: 0.5 * perHour[0])
         for e in worst { XCTAssertLessThan(e, 1.1 * deg) }
     }
 

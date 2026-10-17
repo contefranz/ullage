@@ -2,8 +2,9 @@ import XCTest
 @testable import OrbitCore
 
 /// `VesselLibrary.saturnV()` against published AS-506 references (design tests
-/// B1-B4, B7, A13, and A1/A2 on the real stack). Expected values are literals
-/// in the published unit with their source; `AS506` only sets up. Checks that
+/// B1-B4, B7, A13, and A1/A2 on the real stack), mostly AS-506's Flight
+/// Evaluation Report, MPR-SAT-FE-69-9 (FER). Expected values are literals in
+/// the published unit with their source; `AS506` only sets up. Checks that
 /// are bookkeeping identities, or compare the model with the data it was
 /// derived from, say so: they guard the data entry, not the physics.
 final class SaturnVDataTests: XCTestCase {
@@ -22,7 +23,8 @@ final class SaturnVDataTests: XCTestCase {
                                              "S-IVB", "IU", "SLA", "LM", "CSM", "LES"])
         XCTAssertEqual(v.parts.map(\.staging), [.event(1), .event(2), .event(4), .event(4),
                                                 .fixed, .fixed, .fixed, .fixed, .fixed, .event(3)])
-        XCTAssertEqual(v.tanks.map(\.name), ["S-IC LOX", "S-IC RP-1", "S-II LOX", "S-II LH2", "S-IVB LOX", "S-IVB LH2",
+        XCTAssertEqual(v.tanks.map(\.name), ["S-IC LOX", "S-IC RP-1", "S-II ullage", "S-II LOX", "S-II LH2",
+                                             "S-IVB LOX", "S-IVB LH2",
                                              "APS I N2O4", "APS I MMH", "APS III N2O4", "APS III MMH"])
         for t in v.tanks { XCTAssertLessThanOrEqual(t.name.count, 14, t.name) }
         let names = v.thrusters.map(\.name)
@@ -112,34 +114,34 @@ final class SaturnVDataTests: XCTestCase {
         XCTAssertFalse(v.thrusters.contains { $0.name.contains("stand-in") })
     }
 
-    // B3: the vehicle at first motion is the ground-ignition stack less the
-    // propellant used before release, row by row.
-    func testFirstMotionMassesMatchGroundIgnitionWeights() {
+    // B3: the vehicle at first motion (holddown release, 0.30 s).
+    func testFirstMotionMassesMatchTheFER() {
         let v = VesselLibrary.saturnV()
-        // Bookkeeping identities: SP-4029 Ground Ignition Weights rows, plus the
-        // 85,745 lb ignition-to-release consumption (Mission Operations Report
-        // M-932-69-11, Table 3, predicted) taken from the S-IC tanks.
-        XCTAssertEqual(v.mass / lb + 85_745, 6_477_875, accuracy: 1e-6)
-        XCTAssertEqual(pounds([part(v, "S-IC")]) + 85_745, 5_023_648, accuracy: 1e-6)
-        XCTAssertEqual(pounds([part(v, "S-IC/S-II interstage")]), 11_477, accuracy: 1e-6)
+        // Independent: the model's S-IC is the FER's but its upper stages are
+        // SP-4029's ground ignition weights; together they make the FER's
+        // vehicle at first motion, 2,899,008 kg (Table 20-1), to the
+        // kilogram, and with the 39,307 kg burned in thrust buildup (Table
+        // 20-9) the ground ignition mass, 6,477,875 lb (SP-4029).
+        XCTAssertEqual(v.mass, 2_899_008, accuracy: 1)
+        XCTAssertEqual((v.mass + 39_307) / lb, 6_477_875, accuracy: 3)
+        // Bookkeeping identities: the S-IC at holddown release (FER Table
+        // 20-1) with the small interstage ring that leaves with it (Table
+        // 20-9), its LOX (liquid, Table 5-2, and the GOX already in its
+        // ullage, Table 20-1) and RP-1 (Table 5-2).
+        XCTAssertEqual(part(v, "S-IC").mass, 2_239_381 + 614, accuracy: 1e-6)
+        XCTAssertEqual(v.tanks[0].mass, 1_468_594 + 235, accuracy: 1e-6)
+        XCTAssertEqual(v.tanks[1].mass, 637_830, accuracy: 1e-6)
         XCTAssertEqual(pounds([part(v, "S-II")]), 1_058_140, accuracy: 1e-6)
         XCTAssertEqual(pounds([part(v, "S-II/S-IVB interstage")]), 8_076, accuracy: 1e-6)
         XCTAssertEqual(pounds([part(v, "S-IVB")]), 262_613, accuracy: 1e-6)
         XCTAssertEqual(pounds([part(v, "IU")]), 4_275, accuracy: 1e-6)
-        XCTAssertEqual(pounds(["SLA", "LM", "CSM", "LES"].map { part(v, $0) }), 109_646, accuracy: 1e-6)
-        // The pre-release consumption leaves the S-IC tanks in the stage's
-        // consumption ratio (SP-4029 Propellant Usage: 3,266,014 / 1,394,126 lb).
-        let lox = v.tanks[0].mass / lb, rp1 = v.tanks[1].mass / lb
-        XCTAssertEqual((3_305_786 - lox) / (1_424_889 - rp1), 3_266_014 / 1_394_126.0, accuracy: 1e-4)
-
-        // Independent: everything above the S-IC against the pre-flight S-II
-        // ignition mass, 659,432.6 kg (AS-506 Technical Information Summary, as
-        // converted by the M1 datasheet). The model does not vent the S-II and
-        // S-IVB before S-II ignition (est. 0.5-1.5 t), but a prediction's loads
-        // can differ from the ground ignition loads either way, so the sign of
-        // the difference is not checked.
-        let above = v.parts.dropFirst().reduce(0) { $0 + $1.mass }
-        XCTAssertEqual(above, 659_432.6, accuracy: 659_432.6 * 1e-3)
+        // Independent, FER items against SP-4029 rows: the S-IC/S-II
+        // interstage, 11,477 lb, is the ring, the large interstage and its
+        // ullage motors' propellant (614 + 3,982 + 610 kg, Table 20-9); the
+        // spacecraft, 109,646 lb, is the LES, CSM, LM and SLA (4,042 + 28,806
+        // + 15,095 + 1,166 + 626 kg, Tables 20-7 and 20-9).
+        XCTAssertEqual(pounds([part(v, "S-IC/S-II interstage")]) + 614 / lb, 11_477, accuracy: 1)
+        XCTAssertEqual(pounds(["SLA", "LM", "CSM", "LES"].map { part(v, $0) }), 109_646, accuracy: 1)
     }
 
     // B7: stack geometry. None of it is independent: the stations were derived
@@ -193,153 +195,231 @@ final class SaturnVDataTests: XCTestCase {
         XCTAssertEqual(rated.ox + rated.fuel, 5_737 * lb, accuracy: 5_737 * lb * 1e-2)
         XCTAssertEqual(rated.ox / rated.fuel, 2.27, accuracy: 1e-9)
 
-        // F-1 flight-matched: its 9.96 m^2 effective exit keeps the rated
-        // sea-level Isp, and matches the rated nozzle, (F_vac - F_sl) / p0 from
-        // Betts' pair, to 1 %. Five of them against the published liftoff
-        // thrust, 7,648,000 lbf (This Day in Aviation, Braeunig; basis unknown):
-        // a constant flow fitted to the whole burn is about 1.7 % high at
-        // liftoff, so allow 2.5 %.
-        XCTAssertEqual(AS506.f1.ispSeaLevel, 265.4, accuracy: 0.1)
-        XCTAssertEqual(AS506.f1.ispVacuum, 304.1, accuracy: 0.1)
-        XCTAssertEqual(AS506.f1.impliedExitArea, (1_748_200 - 1_522_000) * lbf / p0, accuracy: 9.93 * 1e-2)
-        let flight = run(AS506.f1, at: p0)
-        XCTAssertEqual(5 * flight.thrust, 7_648_000 * lbf, accuracy: 7_648_000 * lbf * 0.025)
-        XCTAssertEqual(flight.ox / flight.fuel, 2.3427, accuracy: 1e-9)
+        // F-1 as flown (FER §5), per engine at first motion: a fifth of the
+        // stage's site flow, 13,165 kg/s (FER Figure 5-3, M), at its site
+        // Isp at 140-160 s, 2,980.5 N s/kg, gives the vacuum thrust; the
+        // flow carries the fitted 0.104 % cut, and the mixture ratio, 2.2835,
+        // the fitted 0.035 % one; a 10.10 m^2 exit (derived from the figure).
+        let f1 = AS506.f1
+        XCTAssertEqual(f1.thrustVacuum, 13_165.0 / 5 * 2_980.5, accuracy: 1e-6)
+        XCTAssertEqual(f1.massFlow, 13_165.0 / 5 * 0.99896, accuracy: 1e-9)
+        XCTAssertEqual(f1.impliedExitArea, 10.10, accuracy: 1e-9)
+        let flight = run(f1, at: p0)
+        XCTAssertEqual(flight.ox / flight.fuel, 2.2835 * 0.99965, accuracy: 1e-9)
+        // Independent: Betts' rated vacuum Isp within 0.2 s, sea-level Isp
+        // within 1 s, and nozzle, (F_vac - F_sl) / p0 = 9.93 m^2, within 2 %.
+        XCTAssertEqual(f1.ispVacuum, 304.1, accuracy: 0.2)
+        XCTAssertEqual(f1.ispSeaLevel, 265.4, accuracy: 1)
+        XCTAssertEqual(f1.impliedExitArea, (1_748_200 - 1_522_000) * lbf / p0, accuracy: 9.93 * 0.02)
+        // The schedule against the stage's site thrust in Figure 5-3 (M): about
+        // 34.35 MN at liftoff (100.6 kPa ambient), 40.05 MN just before CECO
+        // and 32.07 MN at 160 s (a few hundred Pa or less: vacuum thrust).
+        func stage(_ engines: Double, at range: Double, pressure p: Double) -> Double {
+            let factor = AS506.f1Schedule.values(at: range - AS506.firstMotion).thrust
+            return engines * (f1.thrustVacuum * factor - p * f1.impliedExitArea)
+        }
+        XCTAssertEqual(stage(5, at: 0.30, pressure: 100_600), 34.35e6, accuracy: 34.35e6 * 0.01)
+        XCTAssertEqual(stage(5, at: 135.20, pressure: 0), 40.05e6, accuracy: 40.05e6 * 3e-3)
+        XCTAssertEqual(stage(4, at: 160, pressure: 0), 32.07e6, accuracy: 32.07e6 * 5e-3)
 
-        // J-2 settings: transcription checks of the published values, and the
-        // derived low-EMR setting (thrust linear in EMR between the other two,
-        // Isp +4 s per unit of EMR decrease). Every setting shares the geometric
-        // exit, pi/4 (14.7 in throat, NASA SP-8120)^2 x area ratio 27.5.
+        // J-2 settings as flown, per engine: transcription checks. Every
+        // setting shares the geometric exit, pi/4 (14.7 in throat, NASA
+        // SP-8120)^2 x area ratio 27.5. The S-II's flows carry the fitted
+        // 0.251 % cut that closes its budget.
         let j2Exit = Double.pi / 4 * (14.7 * inch) * (14.7 * inch) * 27.5
-        let settings: [(EngineRating, thrust: Double, isp: Double, ratio: Double)] = [
-            (AS506.sIIJ2, 230_000, 425, 5.5),          // NTRS 20100032986; enginehistory.org
-            (AS506.sIVBJ2Burn1, 202_603, 427, 5.0),    // This Day in Aviation; Braeunig
-            (AS506.sIIJ2LowEMR, 186_164.8, 428.2, 4.7), // derived; EMR from the AS-501 summary
+        let settings: [(EngineRating, thrust: Double, flow: Double, ratio: Double)] = [
+            (AS506.sIIJ2Start, 878_288, 878_288 / 4_195 * 0.99749, 5.0),          // FER §6.2; MSFC-MAN-506 EMR
+            (AS506.sIIJ2, 1_028_303, 1_028_303 / 4_164.9 * 0.99749, 5.5006),      // FER Table 6-1; EMR fitted
+            (AS506.sIIJ2LowEMR, 768_000, 768_000 / 4_190 * 0.99749, 4.34),         // FER §6.3, §6.5, Figure 6-3
+            (AS506.sIVBJ2Burn1, 903_000, 215.37, 4.85),                            // FER Figure 7-2, Tables 20-9, 20-5
         ]
-        for (rating, thrust, isp, ratio) in settings {
+        for (rating, thrust, flow, ratio) in settings {
             let vacuum = run(rating, at: 0)
-            XCTAssertEqual(vacuum.thrust, thrust * lbf, accuracy: thrust * lbf * 1e-6, rating.name)
-            XCTAssertEqual(rating.ispVacuum, isp, accuracy: 1e-9, rating.name)
-            XCTAssertEqual(vacuum.ox + vacuum.fuel, thrust * lbf / (isp * g0), accuracy: 1e-9, rating.name)
+            XCTAssertEqual(vacuum.thrust, thrust, accuracy: thrust * 1e-12, rating.name)
+            XCTAssertEqual(vacuum.ox + vacuum.fuel, flow, accuracy: 1e-9, rating.name)
             XCTAssertEqual(vacuum.ox / vacuum.fuel, ratio, accuracy: 1e-9, rating.name)
             XCTAssertEqual(rating.impliedExitArea, j2Exit, accuracy: j2Exit * 1e-9, rating.name)
-            XCTAssertEqual(run(rating, at: p0).thrust, thrust * lbf - p0 * j2Exit, accuracy: 1e-6, rating.name)
+            XCTAssertEqual(run(rating, at: p0).thrust, thrust - p0 * j2Exit, accuracy: 1e-6, rating.name)
         }
+        // Independent: the S-II's high-EMR setting against the J-2's rating,
+        // 230,000 lbf and 425 s at EMR 5.5 (NTRS 20100032986;
+        // enginehistory.org), and against the FER's own flow at ESC + 61 s,
+        // 246.9 kg/s (Table 6-1); the S-IVB's against 202,603 lbf, FER Table
+        // 7-1's standardised value (also This Day in Aviation; Braeunig), and
+        // the published 427 s.
+        XCTAssertEqual(AS506.sIIJ2.thrustVacuum, 230_000 * lbf, accuracy: 230_000 * lbf * 0.01)
+        XCTAssertEqual(AS506.sIIJ2.ispVacuum, 425, accuracy: 1)
+        XCTAssertEqual(AS506.sIIJ2.massFlow, 246.9, accuracy: 246.9 * 3e-3)
+        XCTAssertEqual(AS506.sIVBJ2Burn1.thrustVacuum, 202_603 * lbf, accuracy: 202_603 * lbf * 3e-3)
+        XCTAssertEqual(AS506.sIVBJ2Burn1.ispVacuum, 427, accuracy: 1)
     }
 
-    // A1 on the S-IC: the shared feed runs out of LOX first, at exactly its
-    // unusable mass, after usable LOX / LOX flow.
+    // A1 on the S-IC: with the centre engine cut at 135.20 s, the shared feed
+    // runs out of LOX first, at exactly its unusable mass; then the outboard
+    // engines' thrust decay burns below it, and they stop delivering.
     func testSICDrawStopsOnLOXDepletion() {
         let v = VesselLibrary.saturnV()
         let lox = v.tanks[0], rp1 = v.tanks[1]
-        let lox0 = lox.mass, rp10 = rp1.mass
         let mains = v.parts[0].thrusters.filter { $0.groups.contains(.main) }
         for e in mains { e.level = 1 }
-        let oxFlow = mains.reduce(0) { $0 + $1.massFlow } * 2.3427 / 3.3427
-        var t = 0.0
-        while t < 400 && v.consumePropellant(dt: 0.02) { t += 0.02 }   // about 156 s
+        var t = AS506.firstMotion
+        while t < AS506.sICCenterCutoff - 1e-9 { v.consumePropellant(dt: 0.02); t += 0.02 }
+        mains[4].isEnabled = false
+        while mains[0].hasPropellant && t < 200 { v.consumePropellant(dt: 0.02); t += 0.02 }
         XCTAssertEqual(lox.mass, lox.unusableMass)
-        XCTAssertEqual(rp1.mass, rp10 - (lox0 - lox.unusableMass) / 2.3427, accuracy: 1)
-        XCTAssertEqual(t, (lox0 - lox.unusableMass) / oxFlow, accuracy: 0.02)
+        XCTAssertGreaterThan(rp1.usableMass, 0)
         XCTAssertEqual(v.mainDeltaV, 0)
-        // Consistency (the mixture ratio is the published consumption ratio):
-        // LOX at OECO 39,772 lb and RP-1 30,763 lb (SP-4029 Propellant Usage).
-        XCTAssertEqual(lox.mass / lb, 39_772, accuracy: 1e-6)
-        XCTAssertEqual(rp1.mass / lb, 30_763, accuracy: 30_763 * 1e-3)
+        // Consistency (the flow and mixture-ratio scales were fitted to
+        // them): LOX depletion at 161.63 s (FER Table 2-2), when the LOX tank
+        // held 18,041 kg of liquid (Table 5-2) and 3,611 kg of GOX (Table
+        // 20-1), and the RP-1 tank 13,954 kg (Table 5-2).
+        XCTAssertEqual(t, 161.63, accuracy: 0.03)
+        XCTAssertEqual(lox.mass, 18_041 + 3_611, accuracy: 1e-6)
+        XCTAssertEqual(rp1.mass, 13_954, accuracy: 13_954 * 1e-3)
+        // Independent: the outboard engines' thrust decay to separation
+        // burned 3,634 kg (FER Table 20-9); the model's comes from their
+        // cutoff impulse (FER §5.4).
+        let left = lox.mass + rp1.mass
+        for _ in 0..<34 { v.consumePropellant(dt: 0.02) }   // to 162.31 s
+        XCTAssertFalse(mains.contains { $0.isDelivering })
+        XCTAssertEqual(left - lox.mass - rp1.mass, 3_634, accuracy: 3_634 * 0.05)
     }
 
-    // A2 on the S-II: assigning the low-EMR rating changes thrust, flow and the
-    // drawn split together.
+    // A2 on the S-II: a J-2 starts on its start setting, delivering nothing
+    // for 1.09 s and full thrust from 2.2 s; assigning a rating mid-burn
+    // changes thrust, flow and the drawn split together, and does not
+    // restart it.
     func testSIIMixtureRatioShift() {
         let v = VesselLibrary.saturnV()
         let e = v.thrusters.first { $0.name == "S-II engine 1" }!
-        let lox = v.tanks[2], lh2 = v.tanks[3]
+        let lox = v.tanks.first { $0.name == "S-II LOX" }!, lh2 = v.tanks.first { $0.name == "S-II LH2" }!
+        func vacuumThrust() -> Double { e.thrust(ambientPressure: 0, seaLevelPressure: 101_325) }
         e.level = 1
-        XCTAssertEqual(e.thrust(ambientPressure: 0, seaLevelPressure: 101_325), 230_000 * lbf, accuracy: 1e-6)
+        for _ in 0..<53 { v.consumePropellant(dt: 0.02) }   // the step from 1.06 s
+        XCTAssertEqual(vacuumThrust(), 0)
+        for _ in 0..<2 { v.consumePropellant(dt: 0.02) }    // from 1.10 s
+        XCTAssertGreaterThan(vacuumThrust(), 0)
+        for _ in 0..<55 { v.consumePropellant(dt: 0.02) }   // from 2.20 s
+        XCTAssertEqual(vacuumThrust(), 878_288, accuracy: 1e-6)
+        e.rating = AS506.sIIJ2
+        XCTAssertEqual(vacuumThrust(), 1_028_303, accuracy: 1e-6)
         e.rating = AS506.sIIJ2LowEMR
-        XCTAssertEqual(e.thrust(ambientPressure: 0, seaLevelPressure: 101_325), AS506.sIIJ2LowEMR.thrustVacuum)
+        XCTAssertEqual(vacuumThrust(), 768_000, accuracy: 1e-6)
         XCTAssertEqual(e.massFlow, AS506.sIIJ2LowEMR.massFlow)
         let lox0 = lox.mass, lh20 = lh2.mass
-        e.draw(dt: 1)
-        XCTAssertEqual((lox0 - lox.mass) / (lh20 - lh2.mass), 4.7, accuracy: 1e-9)
+        v.consumePropellant(dt: 1)
+        XCTAssertEqual((lox0 - lox.mass) / (lh20 - lh2.mass), 4.34, accuracy: 1e-9)
         XCTAssertEqual(lox0 - lox.mass + lh20 - lh2.mass, e.massFlow, accuracy: 1e-9)
+        XCTAssertEqual(e.burnTime, 3.2, accuracy: 1e-9)
     }
 
-    // B4: the published event timeline driven through the propellant model
-    // alone (no trajectory), from first motion to S-IVB cutoff. Mass at each
-    // event and the sensed (thrust) accelerations against SP-4029.
+    // B4: AS-506's sequence driven through the propellant model alone (no
+    // trajectory), first motion to the end of the S-IVB's first thrust
+    // decay, at the FER's event times (Table 2-2; the S-II ullage and EMR
+    // events from T3, 161.66 s, Table 2-1): the vehicle against the FER's
+    // event masses (Tables 20-1, 20-3, 20-5, 20-9), and its thrust
+    // acceleration against the stage maxima of Table 4-1 (total inertial
+    // acceleration; drag is negligible there) or Figure 4-3 (M).
     func testEventTimelineThroughThePropellantModel() {
         let v = VesselLibrary.saturnV()
-        var t = AS506.firstMotion, deltaV = 0.0, acceleration = 0.0
-        func mains() -> [Thruster] { v.activeStage!.thrusters.filter { $0.groups.contains(.main) && $0.isEnabled } }
+        var t = AS506.firstMotion, acceleration = 0.0
+        let t3 = AS506.timeBase3
         func engine(_ name: String) -> Thruster { v.thrusters.first { $0.name == name }! }
         func tank(_ name: String) -> PropellantTank { v.tanks.first { $0.name == name }! }
-        /// Range time `end`, or until the active stage's engines run dry (returns true).
+        func mains() -> [Thruster] { v.activeStage!.thrusters.filter { $0.groups.contains(.main) } }
+        func set(_ engines: [Thruster], _ level: Double) { for e in engines { e.level = level } }
+        /// Range time `end`, or until a lit main engine runs dry (returns true).
         func burn(to end: Double) -> Bool {
             while t < end - 1e-9 {
                 let h = min(0.02, end - t)
-                acceleration = mains().reduce(0) { $0 + $1.thrust(ambientPressure: 0, seaLevelPressure: 101_325) }
+                acceleration = v.thrusters.reduce(0) { $0 + $1.thrust(ambientPressure: 0, seaLevelPressure: 101_325) }
                     / v.mass
-                deltaV += acceleration * h
                 v.consumePropellant(dt: h)
                 t += h
-                if mains().contains(where: { !$0.hasPropellant }) { return true }
+                if mains().contains(where: { $0.isEnabled && $0.level > 0 && !$0.hasPropellant }) { return true }
             }
             return false
         }
-        func ignite() { for e in mains() { e.level = 1 } }
+        // The S-IC's propellant is the FER's, but the model's upper stages
+        // carry 120-360 kg that AS-506 had lost by these events (frost,
+        // venting before ignition, the S-IVB's ullage motors), so 0.2 %.
+        func mass(_ kg: Double, _ label: String, within tolerance: Double = 2e-3) {
+            XCTAssertEqual(v.mass, kg, accuracy: kg * tolerance, label)
+        }
 
-        // S-IC: centre engine cut at 135.20 s, outboard engines run to LOX depletion.
-        ignite()
+        // S-IC: centre engine cut at 135.20 s, outboard engines to LOX depletion.
+        set(mains(), 1)
         XCTAssertFalse(burn(to: AS506.sICCenterCutoff))
+        mass(1_110_189, "S-IC CECO")
         engine("S-IC engine 5").isEnabled = false
         XCTAssertTrue(burn(to: 170))
-        // Consistency: the F-1 flow was derived from this cutoff time and the
-        // published consumption (SP-4029 Apollo 11 Summary 161.63 s; mass at
-        // OECO 1,817,735 lb = ground ignition less consumed, SP-4029).
-        XCTAssertEqual(t, 161.63, accuracy: 0.05)
-        XCTAssertEqual(v.mass / lb, 1_817_735, accuracy: 1_817_735 * 5e-3)
-        // Independent: 3.94 g at OECO (SP-4029 Ascent Phase, total inertial acceleration).
-        XCTAssertEqual(acceleration / g0, 3.94, accuracy: 0.05)
+        // Consistency (the F-1's flow scales were fitted to it): 161.63 s.
+        XCTAssertEqual(t, 161.63, accuracy: 0.03)
+        mass(827_292, "S-IC OECO", within: 1e-3)
+        XCTAssertEqual(acceleration, 38.61, accuracy: 38.61 * 3e-3)   // 3.94 g
 
-        // S-II: ignition at 164.00 s, interstage at 192.3 s, LES at 197.9 s.
+        // Thrust decay; the S-II ullage motors from T3 + 0.5 s; separation.
+        set(mains(), 0)
+        XCTAssertFalse(burn(to: t3 + AS506.sIIUllageIgnitionTime))
+        let ullage = v.thrusters.filter { $0.name.hasPrefix("S-II ullage") }
+        set(ullage, 1)
+        XCTAssertFalse(burn(to: AS506.sICSeparation))
+        mass(823_625, "S-IC/S-II separation", within: 1e-3)
         XCTAssertEqual(v.jettisonNextStage()?.parts.map(\.name), ["S-IC"])
-        t = AS506.sIIIgnition
-        ignite()
+
+        // S-II: engine start (solenoids) at 164.0 s, mainstage at 166.2 s,
+        // the ullage motors out (309 kg left at engine start, Table 20-9);
+        // high EMR at T3 + 6.9 s, interstage and LES jettison, CECO, low EMR
+        // at the PU valve step, and LOX depletion.
+        XCTAssertFalse(burn(to: AS506.sIIIgnition))
+        mass(658_363, "S-II engine start")
+        XCTAssertEqual(tank("S-II ullage").mass, 309, accuracy: 5)
+        set(mains(), 1)
+        XCTAssertFalse(burn(to: t3 + AS506.sIIUllageEndTime))
+        XCTAssertEqual(tank("S-II ullage").mass, 0, accuracy: 1e-9)
+        set(ullage, 0)
+        XCTAssertFalse(burn(to: 166.2))
+        mass(657_459, "S-II mainstage")
+        XCTAssertFalse(burn(to: t3 + AS506.sIIHighMixtureRatioTime))
+        for e in mains() { e.rating = AS506.sIIJ2 }
         XCTAssertFalse(burn(to: AS506.interstageJettison))
         XCTAssertEqual(v.jettisonNextStage()?.parts.map(\.name), ["S-IC/S-II interstage"])
         XCTAssertFalse(burn(to: AS506.lesJettison))
         XCTAssertEqual(v.jettisonNextStage()?.parts.map(\.name), ["LES"])
         XCTAssertFalse(burn(to: AS506.sIICenterCutoff))
-        // Consistency (the J-2's 230,000 lbf was selected among published
-        // ratings to reproduce it): 1.82 g just before S-II CECO (SP-4029 Ascent Phase).
-        XCTAssertEqual(acceleration / g0, 1.82, accuracy: 0.03)
+        XCTAssertEqual(acceleration, 17.84, accuracy: 17.84 * 3e-3)   // 1.82 g
         engine("S-II engine 5").isEnabled = false
-        deltaV = 0
         XCTAssertFalse(burn(to: AS506.sIIMixtureRatioShift))
         for e in mains() { e.rating = AS506.sIIJ2LowEMR }
         XCTAssertTrue(burn(to: 560))
-        // Consistency: the EMR shift time and low EMR were chosen so that LOX
-        // depletes at the published S-II OECO, 548.22 s (SP-4029 Apollo 11 Summary).
-        XCTAssertEqual(t, 548.22, accuracy: 0.3)
+        // Consistency (the S-II's flow scale and high EMR were fitted to
+        // them): LOX depletion at 548.22 s (Table 2-2) with 3,353 kg of LH2
+        // aboard, liquid and the GH2 made in flight (Table 20-3).
+        XCTAssertEqual(t, 548.22, accuracy: 0.1)
         XCTAssertEqual(tank("S-II LOX").mass, tank("S-II LOX").unusableMass)
-        XCTAssertGreaterThan(tank("S-II LH2").usableMass, 0)
-        // Independent but loose: CECO to OECO thrust Δv against the observed
-        // 1,208.6 m/s plus gravity (10.7) and estimated steering (≈ 30) losses
-        // (SP-4029 Ascent Phase; the M1 datasheet's budget).
-        XCTAssertEqual(deltaV, 1_250, accuracy: 40)
+        XCTAssertEqual(tank("S-II LH2").mass, 3_353, accuracy: 3_353 * 1e-3)
+        mass(213_888, "S-II OECO")
+        XCTAssertEqual(acceleration, 14.3, accuracy: 14.3 * 0.01)   // Figure 4-3
 
-        // S-IVB burn 1: separation at 549.0 s, ignition at 552.20 s, guidance
-        // cutoff at 699.33 s.
+        // Thrust decay to separation at 549.0 s; S-IVB burn 1 from 552.20 s
+        // (STDV open) to the guidance cutoff at 699.34 s, and its decay.
+        set(mains(), 0)
+        XCTAssertFalse(burn(to: AS506.sIISeparation))
+        mass(213_757, "S-II/S-IVB separation")
         XCTAssertEqual(v.jettisonNextStage()?.parts.map(\.name), ["S-II", "S-II/S-IVB interstage"])
-        t = AS506.sIVBIgnition
-        ignite()
-        XCTAssertFalse(burn(to: AS506.sIVBCutoff))
-        // Independent: 0.69 g at cutoff (SP-4029 Ascent Phase, a single read),
-        // and the insertion mass, 299,099 lb (Flight Evaluation Report
-        // MPR-SAT-FE-69-9, read by OCR; low confidence, so 1 %).
-        XCTAssertEqual(acceleration / g0, 0.69, accuracy: 0.02)
-        XCTAssertEqual(v.mass / lb, 299_099, accuracy: 299_099 * 1e-2)
+        XCTAssertFalse(burn(to: AS506.sIVBIgnition))
+        mass(166_571, "S-IVB ignition")
+        set(mains(), 1)
+        XCTAssertFalse(burn(to: 554.70))
+        mass(166_396, "S-IVB mainstage")
+        XCTAssertFalse(burn(to: 699.34))
+        mass(135_182, "S-IVB cutoff")
+        // Figure 4-3 (M) rather than Table 4-1's 6.73 m/s^2, which is more
+        // than the S-IVB's thrust (FER Figure 7-2) over the tabulated mass.
+        XCTAssertEqual(acceleration, 6.69, accuracy: 6.69 * 5e-3)
+        set(mains(), 0)
+        XCTAssertFalse(burn(to: 699.54))
+        mass(135_102, "S-IVB end of thrust decay", within: 2.5e-3)
         XCTAssertEqual(v.parts.map(\.name), ["S-IVB", "IU", "SLA", "LM", "CSM"])
     }
 }

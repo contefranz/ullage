@@ -69,11 +69,12 @@ enum AS506 {
     static let interstageJettison = 192.3      // SP-4029 Apollo 11 Timeline (H)
     static let lesJettison = 197.9             // SP-4029 Apollo 11 Timeline; Apollo Flight Journal (M-H)
     static let sIICenterCutoff = 460.62        // SP-4029 Apollo 11 Ascent Phase and Timeline (H)
-    /// High to low EMR. With `sIILowMixtureRatio` it is one tuning knob that
-    /// puts the S-II LOX depletion at 548.22 s (502 s with EMR ≈ 4.55 also
-    /// fits). Source: DLR "Apollo 11 Reloaded", citing the Flight Evaluation
-    /// Report Fig. 6-3 (L-M).
-    static let sIIMixtureRatioShift = 491.0
+    /// High to low EMR: the IU's command on a characteristic-velocity
+    /// criterion (IGM phase 2) at 494.8 s, the switch selector at 496.0 s,
+    /// the PU valve step at 497.60 s and the low EMR reached by 498.0 s (FER
+    /// Tables 2-2, 2-3, 6-2). 9.5 s later than the final prediction.
+    static let sIIMixtureRatioShiftCommand = 494.8   // FER Table 2-2 (H)
+    static let sIIMixtureRatioShift = 497.60         // FER Table 6-2, "PU valve step" (H)
     static let sIIOutboardCutoff = 548.22      // SP-4029 Apollo 11 Summary; Mission Report (H). LOX depletion
     static let sIISeparation = 549.00          // SP-4029 Apollo 11 Ascent Phase (H)
     static let sIVBIgnition = 552.20           // Mission Report; SP-4029 Propellant Usage (H)
@@ -142,16 +143,16 @@ enum AS506 {
     /// AS-506's commanded pitch (MAN506 Figure 2-2) follows SA-504's
     /// polynomial to within the figure's reading accuracy, about 1°: -20° a
     /// minute after first motion, -56° at two minutes and -67.5° at the
-    /// arrest, against -20.6, -56.5 and -68.0°. Flown by this model, which
-    /// climbs faster than AS-506 in the first minute (datasheet §8.5), that
-    /// program leaves the S-IC 1.6° steeper and 3.7 km higher at OECO than
-    /// AS-506 flew. The IU here therefore tilts 3 % more: a compensation for
-    /// the model, not AS-506 data, fitted to the nearest 0.01 on AS-506's
-    /// OECO flight-path angle (19.114°, FER Table 4-2). CECO's angle,
-    /// altitude and velocity, OECO's altitude and velocity, and both
-    /// headings, which are not fitted, then fall within the datasheet's
-    /// tolerances. Set it back to 1 once the S-IC propulsion matches the FER.
-    static let pitchScale = 1.03               // fitted model compensation (see above)
+    /// arrest, against -20.6, -56.5 and -68.0°. Flown by this model, that
+    /// program leaves the S-IC 1.3° steeper and 1.8 km higher at OECO than
+    /// AS-506 flew, even with the S-IC's thrust, flow and masses matching the
+    /// FER (datasheet §8.5). The IU here therefore tilts 2.5 % more: a
+    /// compensation for the model, not AS-506 data, fitted to the nearest
+    /// 0.005 on AS-506's OECO flight-path angle (19.114°, FER Table 4-2).
+    /// CECO's angle, altitude and velocity, OECO's altitude and velocity, and
+    /// both headings, which are not fitted, then fall within the datasheet's
+    /// tolerances. (It was 3 % before the propulsion was recalibrated.)
+    static let pitchScale = 1.025              // fitted model compensation (see above)
     static var tiltProgram: TiltProgram {
         TiltProgram(boundaries: pitchSegmentBoundaries,
                     coefficients: pitchCoefficients.map { $0.map { $0 * pitchScale } }, arrest: tiltArrest)
@@ -192,13 +193,19 @@ enum AS506 {
     /// the IU logs it and holds the attitude of the tilt arrest.
     static let igmStartTime = 42.4             // s from T3; FER (H)
     static let sIICenterCutoffTime = 299.0     // s from T3; FER (H)
-    /// The S-II mixture-ratio shift. On AS-506 the IU commanded it at ESC +
-    /// 331.8 s (range 494.8) on reaching a preset characteristic velocity, and
-    /// the engines reached the low EMR, 4.34 on average, at 498.0 s (FER §6.5,
-    /// p. 6-8, and Table 2-2). The propulsion model shifts at `sIIMixtureRatioShift`
-    /// to its 4.7 setting, which matches its 548.22 s depletion; the IU uses
-    /// that time until the S-II model is recalibrated to the FER.
-    static let sIIMixtureRatioShiftTime = sIIMixtureRatioShift - sICOutboardCutoff  // s from T3
+    /// FER's T3 (S-IC OECO sensed), the base of the S-II's sequence.
+    static let timeBase3 = 161.66              // range time, FER Table 2-1 (H)
+    /// S-II ullage motors lit, and their burn ended (thrust down to 75 %).
+    static let sIIUllageIgnitionTime = 0.5     // s from T3; FER Table 2-2 (H)
+    static let sIIUllageEndTime = 4.4          // s from T3; FER Table 2-2 (H)
+    /// High EMR Select (S-II PU system activated): ESC + 5.5 s, 168.5 s.
+    static let sIIHighMixtureRatioTime = 6.9   // s from T3; FER Table 2-2 and §6.5 (H)
+    /// The EMR shift command (IGM phase 2, artificial tau) and the PU valve
+    /// step that the model takes as the shift to low EMR. On AS-506 the IU
+    /// commanded it on reaching a preset characteristic velocity (FER §6.5,
+    /// §10.2.1); the model keeps the flight's times until IGM exists.
+    static let sIIMixtureRatioShiftCommandTime = sIIMixtureRatioShiftCommand - timeBase3   // s from T3
+    static let sIIMixtureRatioShiftTime = sIIMixtureRatioShift - timeBase3                 // s from T3
     /// From T4, S-II outboard cutoff sensed: separation command and S-IVB
     /// ignition (STDV open, range 552.2; FER Table 2-2, H). The S-IVB velocity
     /// cutoff command came at 699.34 s, T4 + 151.10 (T4 at 548.24, FER Table
@@ -216,41 +223,57 @@ enum AS506 {
     static let tb5UllageOff = 87.0             // s from T5; FER (H)
     static let orbitalGuidanceStart = 19.8     // s from T5; FER "begin maneuver to local horizontal" (H)
 
-    // MARK: Masses (lb)
+    // MARK: Masses
     //
-    // Tanks hold the main propellant aboard at first motion. Dry masses hold
-    // everything else that leaves with the part, including pressurants, frost,
-    // solid motors with their propellant, and all spacecraft propellants.
+    // Ground-ignition masses are SP-4029's Ground Ignition Weights (lb), which
+    // the FER's mass tables confirm to the pound. The rest are the FER's (kg):
+    // its propellant tables (5-2, 6-2, 7-3) and its flight sequence mass
+    // tables (20-1, 20-3, 20-5, 20-9), actual values (H).
+    //
+    // A tank holds the propellant aboard at first motion, and keeps the gas
+    // made from it in flight (the S-IC's GOX and the S-II's GOX and GH2
+    // pressurant, which stay in the ullage): what leaves a tank is what its
+    // engines burned. Dry masses hold everything else that leaves with the
+    // part: structure, the other gases, frost, solid motors with their
+    // propellant, and all spacecraft propellants.
 
-    static let groundIgnitionMass = 6_477_875.0  // SP-4029 Ground Ignition Weights (H): sum of the rows below
-    /// Propellant used between S-IC ignition and first motion, taken from the
-    /// S-IC tanks at `sICMixtureRatio`. No as-flown value was found.
-    static let preReleaseConsumption = 85_745.0  // Mission Operations Report M-932-69-11, Table 3, predicted (L)
+    static let groundIgnitionMass = 6_477_875.0  // lb, SP-4029 Ground Ignition Weights (H); FER Table 20-1: 2,938,315 kg
+    /// Vehicle mass used between S-IC ignition (-6.4 s) and first motion:
+    /// "S-IC thrust buildup" in FER Table 20-9 (predicted 38,893 kg). The
+    /// model starts at first motion with the S-IC tanks at their FER loads.
+    static let preReleaseMass = 39_307.0         // kg, FER Table 20-9 (H)
+    static let firstMotionMass = 2_899_008.0     // kg, FER Tables 20-1 and 20-9 (H)
 
     /// S-IC stage: structure, fins and fairings, 5 F-1 (dry), 8 retro motors
     /// (whether their propellant is here or in `sICOther` is not stated).
-    static let sICDry = 287_531.0                // SP-4029 Ground Ignition Weights (H)
+    static let sICDry = 287_531.0                // lb, SP-4029 Ground Ignition Weights (H); FER 130,422 kg
     /// Not itemised: frost, GN2 and helium, lubricants.
-    static let sICOther = 5_442.0                // SP-4029 Ground Ignition Weights (H)
-    static let sICLOXLoad = 3_305_786.0          // SP-4029 Ground Ignition Weights and Propellant Usage (H)
-    static let sICRP1Load = 1_424_889.0          // SP-4029 Ground Ignition Weights and Propellant Usage (H)
-    /// Ignition to OECO. The meaning of the column was inferred (M).
-    static let sICLOXConsumed = 3_266_014.0      // SP-4029 Propellant Usage (M)
-    static let sICRP1Consumed = 1_394_126.0      // SP-4029 Propellant Usage, ignition to OECO (M)
-    /// LOX on board at OECO, before tail-off: the unusable LOX, so LOX depletion
-    /// ends the burn, as the low-level sensors did.
-    static let sICLOXAtCutoff = 39_772.0         // SP-4029 Propellant Usage (M)
-    /// RP-1 on board at OECO. Not used by the model: its RP-1 residual is an output.
-    static let sICRP1AtCutoff = 30_763.0         // SP-4029 Propellant Usage (M)
-    /// Stage consumption ratio LOX/RP-1, used as the F-1's engine-overall
-    /// mixture ratio at the tanks (the rated inlet EMR is 2.27).
-    static let sICMixtureRatio = 2.3427          // derived (M): 3,266,014 / 1,394,126 lb consumed, rounded
-    static let sICLOXAtFirstMotion = sICLOXLoad - preReleaseConsumption * sICMixtureRatio / (1 + sICMixtureRatio)
-    static let sICRP1AtFirstMotion = sICRP1Load - preReleaseConsumption / (1 + sICMixtureRatio)
+    static let sICOther = 5_442.0                // lb, SP-4029 Ground Ignition Weights (H)
+    static let sICLOXLoad = 3_305_786.0          // lb, SP-4029 Ground Ignition Weights; FER Table 5-2 (H)
+    static let sICRP1Load = 1_424_889.0          // lb, SP-4029 Ground Ignition Weights; FER Table 5-2 (H)
+    /// The S-IC stage at holddown release (first motion), and its tanks then:
+    /// liquid LOX 1,468,594 kg (FER Table 5-2) and the 235 kg of GOX already
+    /// in its ullage (Table 20-1); liquid RP-1 (Table 5-2). The rest of the
+    /// stage is the part's dry mass.
+    static let sICAtFirstMotion = 2_239_381.0    // kg, FER Table 20-1 (H)
+    static let sICLOXAtFirstMotion = 1_468_594.0 + 235.0   // kg, FER Tables 5-2 and 20-1 (H)
+    static let sICRP1AtFirstMotion = 637_830.0   // kg, FER Table 5-2 (H)
+    /// LOX aboard at OECO, before tail-off: liquid 18,041 kg (Table 5-2) and
+    /// GOX 3,611 kg (Table 20-1). It is the tank's unusable mass, so LOX
+    /// depletion ends the burn, as the low-level sensors did.
+    static let sICLOXAtCutoff = 18_041.0 + 3_611.0   // kg, FER Tables 5-2 and 20-1 (H)
+    /// RP-1 aboard at OECO. Not set in the model, whose residual is an output
+    /// (the mixture-ratio scale is fitted to it).
+    static let sICRP1AtCutoff = 13_954.0         // kg, FER Table 5-2 (H)
 
-    /// S-IC/S-II interstage with the 4 S-II ullage motors (their propellant,
-    /// 4 x 336 lb, is booked here by inference).
-    static let sICSIIInterstage = 11_477.0       // SP-4029 Ground Ignition Weights (H)
+    /// The S-IC/S-II interstage (11,477 lb, SP-4029) is three items (FER
+    /// Tables 20-3 and 20-9): a small ring that leaves with the S-IC at
+    /// first-plane separation, the large interstage jettisoned at 192.3 s,
+    /// and the propellant of its four S-II ullage motors.
+    static let sICSIIInterstage = 11_477.0       // lb, SP-4029 Ground Ignition Weights (H)
+    static let sICSIIInterstageSmall = 614.0     // kg, FER Tables 20-3, 20-9 (H)
+    static let sICSIIInterstageLarge = 3_982.0   // kg, FER Tables 20-3, 20-9 (H)
+    static let sIIUllageMotorPropellant = 610.0  // kg, four motors, FER Tables 20-3, 20-9 (H)
 
     /// S-II stage: structure, 5 J-2 (dry); both interstages excluded.
     static let sIIDry = 79_714.0                 // SP-4029 Ground Ignition Weights (H)
@@ -259,9 +282,15 @@ enum AS506 {
     /// Loads at S-IC ignition; boil-off and venting before S-II ignition are not modelled.
     static let sIILOXLoad = 819_050.0            // SP-4029 Ground Ignition Weights (H)
     static let sIILH2Load = 158_116.0            // SP-4029 Ground Ignition Weights (H)
-    /// LOX the engine model leaves at its 548.22 s depletion cutoff (residual,
-    /// boil-off, GOX). The S-II LH2 residual is a model output.
-    static let sIILOXUnusable = 2_214.0          // derived from the model (L)
+    /// LOX aboard at OECO, before tail-off: liquid 1,603 kg (816 in the tank,
+    /// 787 below it) and the 2,147 kg of GOX made in flight (2,335 at OECO
+    /// less 188 at ignition), FER Table 20-3. The tank's unusable mass: LOX
+    /// depletion ends the burn at 548.22 s.
+    static let sIILOXAtCutoff = 816.0 + 787.0 + (2_335.0 - 188.0)   // kg, FER Table 20-3 (H)
+    /// LH2 aboard at OECO: liquid 2,695 kg and 658 kg of GH2 made in flight
+    /// (Table 20-3). Not set in the model, whose residual is an output (the
+    /// high mixture ratio is fitted to it).
+    static let sIILH2AtCutoff = 2_572.0 + 123.0 + (735.0 - 77.0)    // kg, FER Table 20-3 (H)
 
     /// S-II/S-IVB (aft) interstage with the 4 S-II retro motors (cases and
     /// propellant; booking not stated). It leaves with the S-II.
@@ -283,24 +312,23 @@ enum AS506 {
     static let sIVBLOXUnusable = 4_229.0         // derived from the model (L)
     static let sIVBLH2Unusable = 5_100.0         // derived from the model (L)
 
-    static let iu = 4_275.0                      // SP-4029 Ground Ignition Weights (H)
+    static let iu = 4_275.0                      // lb, SP-4029 Ground Ignition Weights (H); FER 1,939 kg
 
-    /// Spacecraft at ignition and liftoff: LES (with BPC), CM, SM, LM and SLA.
-    /// Only this total is high confidence; the split below is not.
-    static let spacecraft = 109_646.0            // SP-4029 Ground Ignition Weights (H)
+    /// Spacecraft at ignition and liftoff: LES (with BPC), CSM, LM and SLA.
+    static let spacecraft = 109_646.0            // lb, SP-4029 Ground Ignition Weights (H); FER 49,735 kg
     /// Tower; escape, jettison and pitch-control motors with propellant; boost
-    /// protective cover. Derived: 109,646 lb less the 100,756 lb spacecraft
-    /// after LES jettison (Wikipedia, recalled).
-    static let les = 8_890.0                     // derived (L-M)
+    /// protective cover.
+    static let les = 4_042.0                     // kg, FER Tables 20-3, 20-9 (H)
+    /// Command and service modules, loaded (SPS and RCS propellants).
+    static let csm = 28_806.0                    // kg, FER Table 20-7 (H)
     /// Command module; whether crew and probe are included is not stated.
-    static let cm = 12_250.0                     // recalled; equals the Mission Operations Report prediction (L)
-    /// Service module, loaded: SPS propellant ≈ 40,600 lb and RCS ≈ 1,300 lb (recalled, L) included.
-    static let sm = 51_243.0                     // recalled (L); Mission Operations Report predicted 51,160
+    /// The service module is the rest of `csm`.
+    static let cm = 12_250.0                     // lb, recalled; equals the Mission Operations Report prediction (L)
     /// Lunar module, loaded, no crew: DPS, APS and RCS propellants included.
-    /// The Mission Operations Report predicted 33,200 lb.
-    static let lm = 33_218.0                     // derived by closure of `spacecraft` (L)
-    /// Spacecraft-LM adapter with its 4 panels.
-    static let sla = 4_045.0                     // Mission Operations Report M-932-69-11, predicted (L)
+    static let lm = 15_095.0                     // kg, FER Table 20-7 (H)
+    /// Spacecraft-LM adapter: the 4 panels (1,166 kg) and the ring that stays
+    /// on the S-IVB (626 kg).
+    static let sla = 1_166.0 + 626.0             // kg, FER Tables 20-7, 20-9 (H)
 
     // MARK: Engines
 
@@ -319,17 +347,62 @@ enum AS506 {
         exitArea: (f1RatedThrustVacuum - f1RatedThrustSeaLevel) * poundForce / standardAtmosphere,
         mixtureRatio: f1RatedMixtureRatio)
 
-    /// AS-506 flight-matched F-1, the one the vehicle uses (M). Its flow,
-    /// 2,659.39 kg/s (+2.2 % over rated), consumes `sICLOXConsumed` +
-    /// `sICRP1Consumed` over the burn's 794.845 engine-seconds: 5 engines from
-    /// an equivalent full-flow start at -2.625 s (which uses exactly
-    /// `preReleaseConsumption` before first motion) to CECO, then 4 to OECO.
-    static let f1ThrustVacuum = 7_930_844.0          // N, derived: 2,659.39 kg/s x 304.1 s x g0
-    /// Effective exit area that keeps the rated 265.4 s sea-level Isp.
-    static let f1ExitArea = 9.96                     // m^2, derived (M); equivalent diameter 3.56 m
-    static let f1 = EngineRating.fixedNozzle(name: "F-1 (AS-506 flight-matched)", thrustVacuum: f1ThrustVacuum,
-                                             ispVacuum: f1RatedIspVacuum, exitArea: f1ExitArea,
-                                             mixtureRatio: sICMixtureRatio)
+    /// AS-506's F-1s as flown (FER §5), the ones the vehicle uses. The
+    /// stage's site flow and mixture ratio from first motion to OECO (FER
+    /// Figure 5-3, reconstructed, digitised: M, ±15-25 kg/s and ±0.002): range
+    /// time (s), stage flow (kg/s), engines firing, LOX/RP-1 ratio. The flow
+    /// rose about 2 % through the burn as the acceleration head grew, and the
+    /// four outboard engines ran slightly lower just after CECO. Integrated,
+    /// the flow comes within 0.06 % of the FER's propellant tables.
+    static let sICFlowHistory: [(t: Double, flow: Double, engines: Double, mixtureRatio: Double)] = [
+        (0.3, 13165, 5, 2.2835), (1, 13200, 5, 2.2910), (2, 13225, 5, 2.2917), (2.5, 13236, 5, 2.2920),
+        (5, 13236, 5, 2.2940), (10, 13236, 5, 2.2970), (15, 13233, 5, 2.2985), (20, 13222, 5, 2.3000),
+        (30, 13202, 5, 2.3030), (40, 13195, 5, 2.3080), (50, 13191, 5, 2.3130), (60, 13193, 5, 2.3140),
+        (70, 13212, 5, 2.3160), (80, 13235, 5, 2.3220), (90, 13271, 5, 2.3280), (100, 13313, 5, 2.3330),
+        (110, 13356, 5, 2.3380), (120, 13392, 5, 2.3430), (130, 13420, 5, 2.3490), (135.2, 13432, 5, 2.3510),
+        (135.25, 10740, 4, 2.3230), (136.5, 10740, 4, 2.3231), (140, 10678, 4, 2.3235), (145, 10682, 4, 2.3240),
+        (150, 10703, 4, 2.3260), (155, 10725, 4, 2.3320), (158, 10728, 4, 2.3344), (160, 10718, 4, 2.3360),
+        (161.63, 10712, 4, 2.3360),
+    ]
+    /// Scales on that flow and ratio that close the FER's propellant budget
+    /// exactly: the tanks burn from their first-motion loads to the OECO
+    /// residuals, with LOX depletion at 161.63 s (fitted to the model's own
+    /// burn, centre-engine tail-off included; within the figure's reading).
+    static let sICFlowScale = 0.99896                // fitted (model)
+    static let sICMixtureRatioScale = 0.99965        // fitted (model)
+    /// Vacuum specific impulse: the stage's site Isp at 140-160 s, where the
+    /// ambient pressure is a few tens of Pa (FER Figure 5-3: 2,980.5 N s/kg,
+    /// against Betts' rated 304.1 s). Thrust follows the flow at this Isp.
+    static let f1IspVacuum = 2_980.5 / 9.80665       // s (303.93), FER Figure 5-3 (M)
+    /// Exit area that gives the stage's site Isp at liftoff, 2,597 N s/kg at
+    /// 100.6 kPa (FER Figure 5-3): 10.10 m^2, against 9.93 m^2 from the
+    /// rating. With the Isp above it fits the figure's thrust within 0.4 %
+    /// through the burn.
+    static let f1ExitArea = 10.10                    // m^2, derived from FER Figure 5-3 (M)
+    /// The F-1 rating at first motion, per engine; its schedule
+    /// (`f1Schedule`) carries it along `sICFlowHistory`.
+    static var f1: EngineRating {
+        let h = sICFlowHistory[0], mdot = h.flow / h.engines
+        return EngineRating.fixedNozzle(name: "F-1 (AS-506 flight)",
+                                        thrustVacuum: mdot * f1IspVacuum * 9.80665,
+                                        ispVacuum: f1IspVacuum / sICFlowScale, exitArea: f1ExitArea,
+                                        mixtureRatio: h.mixtureRatio * sICMixtureRatioScale)
+    }
+    /// `sICFlowHistory` on the engine's burn clock (zero at first motion),
+    /// per engine and relative to `f1`: thrust and flow scale together.
+    static var f1Schedule: PerformanceSchedule {
+        let h0 = sICFlowHistory[0], ref = h0.flow / h0.engines
+        return PerformanceSchedule(sICFlowHistory.map { h in
+            let k = h.flow / h.engines / ref
+            return .init(time: h.t - firstMotion, thrustFactor: k, flowFactor: k,
+                         mixtureRatio: h.mixtureRatio * sICMixtureRatioScale)
+        })
+    }
+    /// Tail-off: each F-1 delivered about 0.33 s of full thrust after its
+    /// cutoff signal (FER §5.4: 10,612,096 N s for the four outboard engines
+    /// to separation, 2,659,605 N s for the centre engine), a linear decay
+    /// over 0.66 s. Its 908 kg per engine (Table 20-9) comes from the residual.
+    static let f1Transients = EngineTransients(shutdown: 0.66)   // FER §5.4, Table 20-9 (H impulse; shape L)
     /// Outboard engines only, each with a pitch-plane and a yaw-plane actuator
     /// (square pattern); the centre engine is fixed. Single secondary source.
     /// It is the control limit: the actuator stop (5.25°) and the bearing
@@ -342,37 +415,66 @@ enum AS506 {
     static let j2AreaRatio = 27.5                    // Wikipedia; Purdue (H)
     static let j2ExitArea = Double.pi / 4 * (j2ThroatDiameter * inch) * (j2ThroatDiameter * inch) * j2AreaRatio
 
-    /// S-II ignition setting (PU valve closed). Chosen over the published 232,250,
-    /// 228,000 and 225,000 lbf because it reproduces 1.82 g at S-II CECO.
-    static let sIIJ2ThrustVacuum = 230_000.0         // lbf, NTRS 20100032986 (H)
-    static let sIIJ2IspVacuum = 425.0                // s, NTRS 20100032986 (M)
-    static let sIIHighMixtureRatio = 5.5             // enginehistory.org (M)
-    static let sIIJ2 = EngineRating.fixedNozzle(name: "J-2 EMR 5.5", thrustVacuum: sIIJ2ThrustVacuum * poundForce,
-                                                ispVacuum: sIIJ2IspVacuum, exitArea: j2ExitArea,
-                                                mixtureRatio: sIIHighMixtureRatio)
-
-    /// S-IVB burn 1 (PU null). Thrust is the flight value, below the S-II's
-    /// only because of the lower EMR.
-    static let sIVBJ2ThrustVacuum = 202_603.0        // lbf, This Day in Aviation, from the Flight Evaluation Report (M)
-    static let sIVBJ2IspVacuum = 427.0               // s, Braeunig (L-M)
-    static let sIVBMixtureRatio = 5.0                // PU null (M)
-    static let sIVBJ2Burn1 = EngineRating.fixedNozzle(name: "J-2 EMR 5.0",
-                                                      thrustVacuum: sIVBJ2ThrustVacuum * poundForce,
-                                                      ispVacuum: sIVBJ2IspVacuum, exitArea: j2ExitArea,
-                                                      mixtureRatio: sIVBMixtureRatio)
-
-    /// S-II after the EMR shift (L). The AS-506 value was not found; 4.7 is
-    /// AS-501's. Thrust is linear in EMR through the two settings above
-    /// (186,165 lbf) and Isp gains 4 s per unit of EMR decrease (428.2 s).
-    /// For the IU item to assign at `sIIMixtureRatioShift`; the builder does not use it.
-    static let sIILowMixtureRatio = 4.7              // AS-501 Technical Information Summary (L)
+    /// AS-506's S-II J-2s at their three settings (FER §6), per engine. The
+    /// flows carry a scale that closes the FER's S-II budget: from the
+    /// ignition loads to the OECO residuals with LOX depletion at 548.22 s
+    /// (fitted to the model's burn, start and tail-off included; -0.25 %,
+    /// within the FER's flow reconstruction, which matches acceptance Isp).
+    static let sIIFlowScale = 0.99749                // fitted (model)
+    /// Start: the PU valve at null until High EMR Select, ESC + 5.5 s. Thrust
+    /// 861,496 to 895,080 N per engine (FER §6.2); EMR about 5.0 (MSFC-MAN-506,
+    /// L) and Isp assumed between the S-IVB's and the S-II's (L).
+    static let sIIJ2Start = EngineRating.fixedNozzle(
+        name: "J-2 S-II start (EMR 5.0)", thrustVacuum: 878_288, ispVacuum: 4_195 / 9.80665 / sIIFlowScale,
+        exitArea: j2ExitArea, mixtureRatio: 5.0)
+    /// High EMR, from High EMR Select to the EMR shift: thrust, flow and Isp
+    /// the mean of the five engines at ESC + 61 s (FER Table 6-1: 1,028,303
+    /// N, 246.9 kg/s, 4,164.9 N s/kg = 424.7 s, engine EMR 5.564). The
+    /// mixture ratio is fitted to the FER's LH2 residual at OECO; it is the
+    /// stage ratio's mean over this phase (Figure 6-3: 5.55 falling to 5.45).
+    static let sIIHighMixtureRatio = 5.5006          // fitted (model); FER Figure 6-3 (M)
+    static let sIIJ2 = EngineRating.fixedNozzle(
+        name: "J-2 S-II high EMR", thrustVacuum: 1_028_303, ispVacuum: 4_164.9 / 9.80665 / sIIFlowScale,
+        exitArea: j2ExitArea, mixtureRatio: sIIHighMixtureRatio)
+    /// Low EMR, from the PU valve step to OECO: the four engines delivered
+    /// 3,082,769 N at ESC + 351 s and 3,059,402 N at ESC + 381 s (FER §6.3),
+    /// 768,000 N each on average, at about 183 kg/s (Figure 6-3: 4,181-4,190
+    /// N s/kg), and an average EMR of 4.34 (§6.5; predicted 4.33). AS-506 ran
+    /// 7-8 % below the 828 kN the datasheet had assumed at EMR 4.7.
+    static let sIILowMixtureRatio = 4.34             // FER §6.5 (H)
     static let sIIJ2LowEMR = EngineRating.fixedNozzle(
-        name: "J-2 EMR 4.7",
-        thrustVacuum: (sIVBJ2ThrustVacuum + (sIILowMixtureRatio - sIVBMixtureRatio)
-                       * (sIIJ2ThrustVacuum - sIVBJ2ThrustVacuum) / (sIIHighMixtureRatio - sIVBMixtureRatio))
-                      * poundForce,
-        ispVacuum: sIIJ2IspVacuum + 4 * (sIIHighMixtureRatio - sIILowMixtureRatio), exitArea: j2ExitArea,
-        mixtureRatio: sIILowMixtureRatio)
+        name: "J-2 S-II low EMR", thrustVacuum: 768_000, ispVacuum: 4_190 / 9.80665 / sIIFlowScale,
+        exitArea: j2ExitArea, mixtureRatio: sIILowMixtureRatio)
+    /// Start and tail-off. Between STDV open (164.0 s) and mainstage (166.2
+    /// s) the stage burned 582 kg (FER Table 20-9), 0.56 s of full flow: a
+    /// linear rise over the last 1.11 s of those 2.2 s. The OECO cutoff
+    /// impulse to 5 % thrust was 581,916 N s at 2,783,479 N (§6.4), 0.21 s of
+    /// full thrust: a decay over 0.42 s.
+    static let sIIJ2Transients = EngineTransients(startDelay: 1.09, startRise: 1.11, shutdown: 0.42)   // FER (shape L)
+
+    /// S-IVB burn 1 (PU null): the flight values of FER Figure 7-2 (thrust
+    /// 902-906 kN; the standardised Table 7-1 value is 901,223 N), the
+    /// mainstage flow of Table 20-9 (31,152 kg in 144.64 s, venting included)
+    /// and the tanks' consumption ratio (Table 20-5: LOX 25,873 kg, LH2 5,339
+    /// kg; the engine's own EMR was about 4.96).
+    static let sIVBJ2ThrustVacuum = 903_000.0        // N, FER Figure 7-2 (M)
+    static let sIVBJ2MassFlow = 215.37               // kg/s, FER Table 20-9 (H)
+    static let sIVBMixtureRatio = 4.85               // FER Table 20-5 (H)
+    static let sIVBJ2Burn1 = EngineRating.fixedNozzle(
+        name: "J-2 S-IVB burn 1", thrustVacuum: sIVBJ2ThrustVacuum,
+        ispVacuum: sIVBJ2ThrustVacuum / (sIVBJ2MassFlow * 9.80665), exitArea: j2ExitArea,
+        mixtureRatio: sIVBMixtureRatio)
+    /// Start: 857,243 N s from STDV open to STDV + 2.5 s (FER §7.2), 0.95 s of
+    /// full thrust: a rise over 1.9 s after a 0.6 s delay. Cutoff: 188,302 N
+    /// s (§7.4), 0.21 s: a decay over 0.42 s.
+    static let sIVBJ2Transients = EngineTransients(startDelay: 0.6, startRise: 1.9, shutdown: 0.42)   // FER (shape L)
+
+    /// The four S-II ullage motors on the S-IC/S-II interstage: 23,000 lbf
+    /// for 3.75 s each (MSFC-MAN-506), 152.5 kg of propellant each (FER: 610
+    /// kg in all), so an effective Isp of 256.5 s. Lit at 162.1 s, they
+    /// burned 33 kg by separation and 300 kg by S-II ignition (Table 20-9).
+    static let sIIUllageMotorThrust = 23_000.0       // lbf, MSFC-MAN-506 (M)
+    static let sIIUllageMotorBurnTime = 3.75         // s, MSFC-MAN-506 (M)
     /// Outboard J-2s only, pitch-plane and yaw-plane actuators like the F-1's.
     static let sIIJ2GimbalRange = 7.0                // deg per actuator, EH 8.20 (M)
     static let sIIJ2GimbalRate = 8.0                 // deg/s, EH 8.20 (M-L)

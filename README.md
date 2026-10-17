@@ -5,10 +5,11 @@ procedurally realistic Apollo and Space Shuttle missions.
 
 This is **milestone M0** (the physics core and a Metal viewer, flown with a
 generic two-stage test rocket and capsule) plus the first M1 items: Apollo 11's
-Saturn V stack, its engine gimballing and thrust vector control, and the first
-half of its Instrument Unit flight program, which flies the S-IC's attitude
-programs and the whole staging sequence (guidance for the upper stages comes
-next). See [docs/ROADMAP.md](docs/ROADMAP.md) for the path to Apollo and the
+Saturn V stack, with its propulsion and masses calibrated to AS-506's flight
+evaluation report, its engine gimballing and thrust vector control, and the
+first half of its Instrument Unit flight program, which flies the S-IC's
+attitude programs and the whole staging sequence (guidance for the upper stages
+comes next). See [docs/ROADMAP.md](docs/ROADMAP.md) for the path to Apollo and the
 Shuttle.
 
 ## Build and run

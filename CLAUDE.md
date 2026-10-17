@@ -4,7 +4,8 @@ Native Apple Silicon space flight simulator (Swift + Metal), aiming at
 procedurally realistic Apollo and Space Shuttle missions. Owner: Francesco
 Grossetti (Franz). Read `README.md` for architecture and `docs/ROADMAP.md` for
 milestones; M0 (physics core + Metal viewer) is done, M1 (Saturn V to parking
-orbit) is in progress: the AS-506 stack and its gimballing/TVC are done, and of
+orbit) is in progress: the AS-506 stack (propulsion and masses calibrated to its
+Flight Evaluation Report, datasheet §9) and its gimballing/TVC are done, and of
 the IU flight program its open-loop half (part 1); IGM (part 2) is next.
 
 ## Rules

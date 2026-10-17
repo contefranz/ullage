@@ -46,12 +46,17 @@ final class SaturnVFlightTests: XCTestCase {
         sim.tick()
         XCTAssertEqual(v.status, .flying)
         XCTAssertTrue(sim.events.contains { $0.message == "Apollo 11: liftoff" })
-        // Mechanism: five fixed nozzles at full level, F = 5 (F_vac - p A_e)
-        // with the flight-matched F-1 (7,930,844 N, 9.96 m^2; M1 datasheet §3).
-        XCTAssertEqual(v.thrustAcceleration, 5 * (7_930_844 - p * 9.96) / m0, accuracy: v.thrustAcceleration * 2e-3)
-        // Liftoff thrust 7,648,000 lbf (This Day in Aviation, Braeunig; basis
-        // unknown); the constant-flow model is about 1.7 % high at liftoff.
-        XCTAssertEqual(v.thrustAcceleration * m0, 7_648_000 * lbf, accuracy: 7_648_000 * lbf * 0.025)
+        // Mechanism: five fixed nozzles at full level, F = 5 (F_vac - p A_e),
+        // with the F-1 at first motion: 2,633 kg/s at 2,980.5 N s/kg and a
+        // 10.10 m^2 exit (FER Figure 5-3, derived; `AS506.f1`).
+        XCTAssertEqual(v.thrustAcceleration, 5 * (2_633 * 2_980.5 - p * 10.10) / m0,
+                       accuracy: v.thrustAcceleration * 2e-4)
+        // Independent: the stage's site thrust at liftoff, about 34.35 MN (FER
+        // Figure 5-3, M; at the pad's 100.6 kPa, not the model's standard
+        // atmosphere), and "a steady-state acceleration of approximately
+        // 1.2 g" (FER §9.2.1).
+        XCTAssertEqual(v.thrustAcceleration * m0, 34.35e6, accuracy: 34.35e6 * 0.01)
+        XCTAssertEqual(v.thrustAcceleration / g0, 1.2, accuracy: 0.02)
     }
 
     // C3: vertical S-IC flight, centre engine cut at the published CECO: LOX
@@ -82,15 +87,17 @@ final class SaturnVFlightTests: XCTestCase {
         XCTAssertEqual(deflected, 0)
         XCTAssertLessThan(worstCoM, 1e-9)
         XCTAssertLessThan(worstTilt, 0.5 * deg)
-        // Consistency: the F-1 flow was derived from these times and the
-        // published consumption. OECO at range 161.63 s (SP-4029 Apollo 11
-        // Summary); RP-1 at OECO 30,763 lb (SP-4029 Propellant Usage); vehicle
-        // 1,817,735 lb (ground ignition weight less the consumption, SP-4029).
-        XCTAssertEqual(Double(steps) * 0.02 + 0.30, 161.63, accuracy: 0.2)
-        XCTAssertEqual(rp1.mass / lb, 30_763, accuracy: 30_763 * 1e-2)
-        XCTAssertEqual(v.mass / lb, 1_817_735, accuracy: 1_817_735 * 5e-3)
-        // Independent: 3.94 g just before OECO (SP-4029 Ascent Phase).
-        XCTAssertEqual(acceleration / g0, 3.94, accuracy: 0.05)
+        // Consistency: the F-1 flow and mixture-ratio scales were fitted to
+        // these. LOX depletion at range 161.63 s (FER Table 2-2) with 13,954
+        // kg of RP-1 aboard (FER Table 5-2).
+        XCTAssertEqual(Double(steps) * 0.02 + 0.30, 161.63, accuracy: 0.03)
+        XCTAssertEqual(rp1.mass, 13_954, accuracy: 13_954 * 1e-3)
+        // Independent: the vehicle at OECO, 827,292 kg (FER Table 20-1; the
+        // model's upper stages carry about 350 kg the flight had vented or
+        // shed), and 38.61 m/s^2 just before it (FER Table 4-1, the S-IC's
+        // maximum total inertial acceleration; drag is negligible there).
+        XCTAssertEqual(v.mass, 827_292, accuracy: 827_292 * 1e-3)
+        XCTAssertEqual(acceleration, 38.61, accuracy: 38.61 * 3e-3)
     }
 
     // C3 in closed loop: a pitch and yaw kick of 0.29°/s just after liftoff.
@@ -159,12 +166,13 @@ final class SaturnVFlightTests: XCTestCase {
         guard ahead.count == 4 else { return XCTFail("expected 4 separations") }
         XCTAssertGreaterThan(ahead[2], 0)
         for i in [0, 1, 3] { XCTAssertLessThan(ahead[i], 0) }
-        // Bookkeeping: S-IVB 262,613 + IU 4,275 + spacecraft 109,646 less the
-        // LES 8,890 lb (SP-4029 Ground Ignition Weights; LES by difference).
-        XCTAssertEqual(v.mass / lb, 262_613 + 4_275 + 109_646 - 8_890, accuracy: 1e-6)
+        // Bookkeeping: S-IVB 262,613 and IU 4,275 lb (SP-4029 Ground Ignition
+        // Weights) and the spacecraft after LET jettison, 45,693 kg (FER Table
+        // 20-9).
+        XCTAssertEqual(v.mass, (262_613 + 4_275) * lb + 45_693, accuracy: 1e-6)
     }
 
-    // C5: gimbal authority at each stage's ignition (vacuum), from the
+    // C5: gimbal authority at each stage's full thrust (vacuum), from the
     // model's own geometry (gimbal heights and the F-1 radius are L, so no
     // published torque is used): pitch and yaw n F L delta, roll 4 F R sqrt(2) delta for the
     // clusters (both actuators of a diagonal engine), the single J-2 none,
@@ -175,6 +183,10 @@ final class SaturnVFlightTests: XCTestCase {
         func check(_ label: String, engines n: Double, range: Double) {
             v.mainThrottle = 1
             v.applyThrottles()
+            // Past the start ramp: the gimbals count only thrust delivered.
+            let ramp = v.activeStage!.thrusters.compactMap { $0.transients.map { $0.startDelay + $0.startRise } }
+            for _ in 0...Int((ramp.max() ?? 0) / 0.02) + 1 { v.consumePropellant(dt: 0.02) }
+            v.recenter()
             let c = v.controlAllocation()
             let e = v.activeStage!.thrusters.first { !$0.gimbal.isEmpty }!
             let L = -(e.position.x + v.activeStage!.offset.x), f = e.maxThrustVacuum, delta = range * deg
@@ -301,6 +313,7 @@ final class SaturnVFlightTests: XCTestCase {
         v.mainThrottle = 1
         sim.run(seconds: 60)
         v.mainThrottle = 0
+        sim.run(seconds: 1)   // the F-1 tail-off
         twin.position = v.position
         twin.velocity = v.velocity
         v.angularVelocity = Vec3(0, 0.05, 0)
