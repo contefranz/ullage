@@ -135,7 +135,8 @@ final class AerodynamicsTests: XCTestCase {
     // the S-IVB's free-molecular drag; a jettisoned S-IC flies the generic
     // drag. The centre of pressure sits at its station: REF504 Fig 3-4's
     // 3.50 calibers forward of STA 100 at liftoff, 37.74 m above STA 0,
-    // which is 7.5 m (0.75 caliber) ahead of the stack's centre of mass.
+    // which is 7.5 m (0.75 caliber) ahead of REF504's centre of mass (Fig
+    // 3-15) and of AS-506's (0.74, FER Table 20-10); the model's is 0.70.
     func testConfigurationsAndCentreOfPressure() throws {
         let sim = try Simulation.forTests(perturbations: true)
         let v = VesselLibrary.apollo11OnPad(in: sim)
