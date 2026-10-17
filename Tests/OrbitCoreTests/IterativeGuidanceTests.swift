@@ -32,6 +32,23 @@ final class IterativeGuidanceTests: XCTestCase {
         XCTAssertEqual(IterativeGuidance.integrals(4_175.4, 480, 0).l, 0)
     }
 
+    // GE504 Fig 4-5: an S-II that burns on after T2 has run out leaves T2 at
+    // 0 (stage 2 over), not negative, until its cutoff starts the coast; the
+    // time to go is then the coast's and the S-IVB's.
+    func testT2HoldsAtZeroWhenTheSIIBurnsLonger() {
+        let f = PointMassFlight(presettings: presettings())
+        var igm = IterativeGuidance(presettings: f.presettings, launchLatitude: f.latitude, azimuth: f.azimuth)
+        let nav = IGMNavigation(position: f.r, velocity: f.v, gravity: f.r.normalized * -9.5, sensedAcceleration: 12,
+                                characteristicVelocity: f.presettings.shiftVelocity + 1)
+        XCTAssertTrue(igm.cycle(nav, interval: nil).commandShift)
+        XCTAssertEqual(igm.t2, f.presettings.stage2Time)
+        for _ in 0..<40 { _ = igm.cycle(nav, interval: 1.7) }   // 68 s, T2 53.4 s
+        XCTAssertEqual(igm.stage, .second)
+        XCTAssertEqual(igm.t1, 0)
+        XCTAssertEqual(igm.t2, 0)
+        XCTAssertEqual(igm.tc, f.presettings.coastTime)
+    }
+
     /// The AS-506 model's S-II and S-IVB as a point mass: five J-2s at high
     /// EMR to the centre engine cutoff at 460.6 s, then four; the low EMR
     /// 2.8 s after the IGM's shift command; the S-II's LOX gone at the model's
@@ -50,8 +67,10 @@ final class IterativeGuidanceTests: XCTestCase {
 
         struct Result {
             var r: Vec3, v: Vec3, cutoff: Double, shift: Double?, terminalGuidance: Double?
-            var highSpeedLoop: Double?, sIIOut: Double, guidance: IterativeGuidance
+            var highSpeedLoop: Double?, sIIOut: Double, sIVBAtThrust: Double?, guidance: IterativeGuidance
             var pitch: [(t: Double, deg: Double)]
+            /// The cycles that gave no command before the high-speed loop.
+            var frozen: [Double]
         }
 
         mutating func fly() -> Result {
@@ -64,6 +83,8 @@ final class IterativeGuidanceTests: XCTestCase {
             var engines = 5.0, low = false, shiftAt: Double?, sIIOut: Double?, ignition: Double?
             var cutoff: Double?, tg: Double?, hsl: Double?
             var target = chi, lastCycle: Double?, sensed = 0.0, bnvc = 0.0, pitch: [(Double, Double)] = []
+            var frozen: [Double] = []
+            func atThrust(_ t: Double) -> Bool { ignition.map { t >= $0 + 0.6 + 0.9 * 1.9 } ?? false }
             func thrust(_ t: Double) -> (Double, Double) {
                 if cutoff != nil { return (0, 0) }
                 if let s = ignition {
@@ -91,9 +112,10 @@ final class IterativeGuidanceTests: XCTestCase {
                     let nav = IGMNavigation(position: r, velocity: v, gravity: earth.gravity(at: r, pole: pole),
                                             sensedAcceleration: interval.map { sensed / $0 } ?? fm,
                                             characteristicVelocity: bnvc, sIICutoff: sIIOut != nil,
-                                            sIVBIgnition: ignition.map { t >= $0 + 0.6 + 0.9 * 1.9 } ?? false)
+                                            sIVBIgnition: atThrust(t))
                     let out = igm.cycle(nav, interval: interval)
                     if let p = out.pitch, let y = out.yaw { target = Vec3(0, p, y) }
+                    if out.pitch == nil && !igm.highSpeedLoop { frozen.append(t) }
                     if out.commandShift { shiftAt = t }
                     if out.beganTerminalGuidance { tg = t }
                     if out.enteredHighSpeedLoop { hsl = t }
@@ -127,7 +149,8 @@ final class IterativeGuidanceTests: XCTestCase {
                 if dt < h { cutoff = t }
             }
             return Result(r: r, v: v, cutoff: cutoff ?? t, shift: shiftAt, terminalGuidance: tg, highSpeedLoop: hsl,
-                          sIIOut: sIIOut ?? .nan, guidance: igm, pitch: pitch)
+                          sIIOut: sIIOut ?? .nan, sIVBAtThrust: ignition.map { $0 + 0.6 + 0.9 * 1.9 }, guidance: igm,
+                          pitch: pitch, frozen: frozen)
         }
 
         func direction(_ chi: Vec3) -> Vec3 {
@@ -135,7 +158,9 @@ final class IterativeGuidanceTests: XCTestCase {
         }
     }
 
-    /// The AS-506 presettings of datasheet §10 (from the model's vehicle).
+    /// Datasheet §10.3's presettings, except the point mass's own: V_C (its
+    /// characteristic velocity is summed from 200 s, not from S-II ignition),
+    /// ΔV_B (no thrust decay), and τ2 and τ3 (from its estimated masses).
     func presettings() -> IGMPresettings {
         IGMPresettings(exhaustVelocity: (4_175.37, 4_200.55, 4_192.78), tau2: 347.0, tau3: 773.5,
                        stage2Time: 53.4, coastTime: 6.3, stage3Time: 144.0, shiftVelocity: 3_652,
@@ -168,7 +193,7 @@ final class IterativeGuidanceTests: XCTestCase {
     // (699.34 s, FER Table 2-2). The pitch history follows AS-506's commands
     // (FER Figure 10-4, LVDC: about -64° at 240 s, -82° at 400 s, -97.8° at
     // S-II OECO, -113.8° at 680 s) within 3°; it is within about 1°.
-    func testIGMFliesAPointMassFromAS506StateToTheTargetOrbit() {
+    func testIGMFliesAPointMassFromAS506StateToTheTargetOrbit() throws {
         var flight = PointMassFlight(presettings: presettings())
         let res = flight.fly()
         let p = presettings(), igm = res.guidance
@@ -185,6 +210,13 @@ final class IterativeGuidanceTests: XCTestCase {
         XCTAssertEqual(res.sIIOut, 548.2, accuracy: 3)
         XCTAssertEqual(try XCTUnwrap(res.terminalGuidance), res.cutoff - 35, accuracy: 2)
         XCTAssertEqual(try XCTUnwrap(res.highSpeedLoop), res.cutoff - 8, accuracy: 2)
+        // The steering freezes from the first cycle after the S-II cutoff
+        // until the S-IVB's 90 % thrust, and only then.
+        let atThrust = try XCTUnwrap(res.sIVBAtThrust)
+        XCTAssertEqual(try XCTUnwrap(res.frozen.first), res.sIIOut, accuracy: 1.7)
+        XCTAssertEqual(try XCTUnwrap(res.frozen.last), atThrust, accuracy: 1.7)
+        XCTAssertTrue(res.frozen.allSatisfy { $0 >= res.sIIOut && $0 < atThrust }, "\(res.frozen)")
+        XCTAssertGreaterThanOrEqual(res.frozen.count, 3)
         for (t, fer) in [(240.0, -64.1), (400, -81.6), (548, -97.8), (680, -113.8)] {
             let near = res.pitch.min { abs($0.t - t) < abs($1.t - t) }!
             XCTAssertEqual(near.deg, fer, accuracy: 3, "\(t) s")

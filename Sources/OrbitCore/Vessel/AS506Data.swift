@@ -234,13 +234,13 @@ enum AS506 {
     /// stack mass then over the flow of four low-EMR J-2s and of the S-IVB
     /// J-2 (from the model's flight, rounded to 0.5 s).
     static let igmTau2 = 347.5                 // s, model
-    static let igmTau3 = 773.0                 // s, model
+    static let igmTau3 = 773.5                 // s, model
     /// T2 from the shift command to S-II OECO, Tc from S-II cutoff (T4) to
     /// S-IVB 90 % thrust, and the first T3′ estimate: AS-506's (494.8 to
     /// 548.22 s; 548.24 to 554.5 s; 554.5 to 699.34 s, rounded).
     static let igmStage2Time = 53.4            // s, FER Table 2-2 (H), inferred preset
     static let igmCoastTime = 6.3              // s, FER Table 2-2 and the model's start ramp (inferred)
-    static let igmStage3Time = 144.0           // s, FER Table 2-2 (inferred preset)
+    static let igmStage3Time = 144.8           // s, FER Table 2-2 (inferred preset)
     /// The S-II characteristic velocity (sensed velocity gained from engine
     /// start) at which the IGM commands the EMR shift (T1 = 0): fitted so the
     /// model commands it on the cycle at AS-506's 494.8 s. AS-506's own

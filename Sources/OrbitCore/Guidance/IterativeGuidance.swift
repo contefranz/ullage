@@ -84,8 +84,9 @@ public struct IGMNavigation {
 
 /// The Saturn V LVDC's iterative guidance mode for the boost to orbit (S-II
 /// and S-IVB first burn), as GE504 gives it (§3.1, §4.1.3-4.1.8, Figures 4-1,
-/// 4-5, 4-8, 4-9, 4-11, 4-12, Tables 4-III to 4-V), with AS-506's own stage 1
-/// logic and phase timing from its Flight Evaluation Report (FER).
+/// 4-5, 4-8, 4-9, 4-11, 4-12, Tables 4-III and 4-IV, and Table 4-V's chi
+/// freeze), with AS-506's own stage 1 logic and phase timing from its Flight
+/// Evaluation Report (FER).
 ///
 /// Each guidance cycle it estimates the time to go to the terminal point from
 /// the velocity still to be gained, in two passes; steers along the velocity
@@ -103,8 +104,12 @@ public struct IGMNavigation {
 /// with the IGM's own MRS command (AS-506; GE504 takes a timed MRS discrete
 /// and a 50 s transition); an artificial tau mode follows the MRS command
 /// (AS-506); the terminal gravity G_T is computed with the targeting (GE504
-/// omits it on this path); the arctangents are four-quadrant. Not modelled:
-/// the steering misalignment correction, engine-out and direct staging.
+/// omits it on this path); the range angle's, χ̃_p's and the commanded
+/// pitch's arctangents are four-quadrant; the cutoff time-to-go comes from the
+/// speed's present rate, not Table 4-V's quadratic fit to the last three
+/// speeds; the stage logic runs on the cycle, so the coast starts on the first
+/// cycle after the S-II cutoff. Not modelled: the steering misalignment
+/// correction, engine-out and direct staging.
 public struct IterativeGuidance {
     public enum Stage: Equatable { case first, second, coast, third }
 
@@ -218,6 +223,8 @@ public struct IterativeGuidance {
             }
         case .second:
             t1 = 0
+            // T2 run out before the S-II cutoff: stage 2 is over (Fig 4-5).
+            t2 = max(0, t2)
             if c2 < p.artificialTau.stage2 {
                 tau2 = artificialTauValue(tau2N, vex.1, fm, dt, c2, p.artificialTau.stage2)
                 tau2N -= dt

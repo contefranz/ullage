@@ -31,8 +31,9 @@ public struct TiltProgram {
 }
 
 /// The Saturn V Instrument Unit's flight program (LVDC and flight control
-/// computer) for Apollo 11, open loop. It runs the flight sequence on the
-/// IU's time bases and flies the S-IC's attitude programs:
+/// computer) for Apollo 11: the S-IC's open-loop attitude programs, then
+/// iterative guidance (IGM) through the S-II and S-IVB. It runs the flight
+/// sequence on the IU's time bases:
 ///
 /// - T1 starts at liftoff. The tower-clearance yaw, then, once the vehicle
 ///   has risen clear of the tower, the roll program from the pad azimuth to
@@ -286,7 +287,12 @@ public final class SaturnIU: FlightProgram {
         // guidance reference release, before the Earth turned the pad on.
         let o = sim.snapshot.orientation(v.reference)
         let back = Quat(axis: o.angularVelocity, angle: -o.angularVelocity.length * plan.referenceToLiftoff)
-        let up = v.position.normalized
+        // X_S is the plumb line, opposite local gravity (GE504 Fig 1-1): the
+        // reference body's gravity and its rotation's centrifugal term, which
+        // on the Earth tilt it from the radial as the geodetic vertical is.
+        let plumb = v.reference.gravity(at: v.position, pole: o.pole)
+            - o.angularVelocity.cross(o.angularVelocity.cross(v.position))
+        let up = -plumb.normalized
         let east = o.pole.cross(up).normalized, north = up.cross(east)
         let downrange = north * cos(plan.flightAzimuth) + east * sin(plan.flightAzimuth)
         let x = back.rotate(up), z = back.rotate(downrange)
@@ -315,12 +321,14 @@ public final class SaturnIU: FlightProgram {
             log.append((now, "\(b): \(what) sensed"))
             // The LVDC leaves the earlier time bases' tables. The IGM start is
             // the guidance equations' own timer (GE504 Fig 4-1), not a table
-            // entry: it stands.
-            for (i, e) in plan.sequence.enumerated() where e.base < b && e.action != .iterativeGuidance {
+            // entry: it stands until the S-IVB cutoff.
+            for (i, e) in plan.sequence.enumerated()
+            where e.base < b && (e.action != .iterativeGuidance || b == .t5) {
                 done.insert(i)
             }
-            // The S-IVB cut off (by the pilot, or out of propellant): no more IGM.
-            if b == .t5 && guidance != nil {
+            // The S-IVB cut off (by the IGM, the pilot, or out of propellant):
+            // no more IGM, whether or not it had started.
+            if b == .t5 {
                 guidance = nil
                 guidanceDone = true
                 cutoffAt = nil
@@ -471,7 +479,9 @@ public final class SaturnIU: FlightProgram {
             }
             return
         }
-        if let last = lastCycle, now - last < g.cycle - 1e-9 { return }
+        // A cycle every `cycle` s: the slack covers the epoch's rounding (a
+        // 0.02 s step adds 0.019999981 s in 1969), well inside a step.
+        if let last = lastCycle, now - last < g.cycle - 1e-4 { return }
         let toS = frame.conjugate
         let interval = lastCycle.map { now - $0 }
         let fm = interval.map { $0 > 0 ? sensedSinceCycle / $0 : v.thrustAcceleration } ?? v.thrustAcceleration
