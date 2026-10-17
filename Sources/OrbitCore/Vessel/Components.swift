@@ -238,8 +238,10 @@ public final class Thruster {
     private var lastOutput: (fraction: Double, rating: EngineRating)?
     /// Seconds since the engine stopped, while its shutdown ramp runs.
     private var shutdownElapsed: Double?
-    /// Length of the last step: the ramps are sampled at the middle of the
-    /// coming step, assuming it is as long.
+    /// Length of the last step the engine was commanded or ramping in: the
+    /// ramps are sampled at the middle of the coming step, assuming it is as
+    /// long. Zero after a coast, so a long coast step does not move the
+    /// first sample of a start into its ramp.
     private var lastStep = 0.0
 
     /// `gimbal` holds at most two actuators, their tilts perpendicular to
@@ -336,17 +338,18 @@ public final class Thruster {
     /// Move the burn clock and the ramps on by `dt`, after the step has used
     /// this step's output. Call once per step.
     func advanceTransients(dt: Double) {
-        defer { lastStep = dt }
         if isCommanded {
             lastOutput = output
             shutdownElapsed = nil
             burnTime += dt
+            lastStep = dt
             return
         }
         burnTime = 0
         guard let tr = transients, tr.shutdown > 0, let last = lastOutput, last.fraction > 0 else {
             lastOutput = nil
             shutdownElapsed = nil
+            lastStep = 0
             return
         }
         // A cutoff commanded before this step started the ramp with it; an
@@ -356,8 +359,10 @@ public final class Thruster {
         if e >= tr.shutdown {
             lastOutput = nil
             shutdownElapsed = nil
+            lastStep = 0
         } else {
             shutdownElapsed = e
+            lastStep = dt
         }
     }
 

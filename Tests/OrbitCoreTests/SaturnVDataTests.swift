@@ -244,14 +244,69 @@ final class SaturnVDataTests: XCTestCase {
         // Independent: the S-II's high-EMR setting against the J-2's rating,
         // 230,000 lbf and 425 s at EMR 5.5 (NTRS 20100032986;
         // enginehistory.org), and against the FER's own flow at ESC + 61 s,
-        // 246.9 kg/s (Table 6-1); the S-IVB's against 202,603 lbf, FER Table
-        // 7-1's standardised value (also This Day in Aviation; Braeunig), and
-        // the published 427 s.
+        // 246.9 kg/s (Table 6-1); the S-IVB's against FER Table 7-1's
+        // standardised 202,603 lbf (also This Day in Aviation; Braeunig) and
+        // 4,204 N s/kg, the engine's own flow: the model's flow is Table
+        // 20-9's mainstage consumption, venting included, so its Isp is 0.3 %
+        // lower.
         XCTAssertEqual(AS506.sIIJ2.thrustVacuum, 230_000 * lbf, accuracy: 230_000 * lbf * 0.01)
         XCTAssertEqual(AS506.sIIJ2.ispVacuum, 425, accuracy: 1)
         XCTAssertEqual(AS506.sIIJ2.massFlow, 246.9, accuracy: 246.9 * 3e-3)
         XCTAssertEqual(AS506.sIVBJ2Burn1.thrustVacuum, 202_603 * lbf, accuracy: 202_603 * lbf * 3e-3)
-        XCTAssertEqual(AS506.sIVBJ2Burn1.ispVacuum, 427, accuracy: 1)
+        XCTAssertEqual(AS506.sIVBJ2Burn1.ispVacuum * g0, 4_204, accuracy: 4_204 * 5e-3)
+    }
+
+    // B2, transients: the impulse each start and shutdown ramp delivers, run
+    // through the engines, against the FER's (H): F-1 centre engine from
+    // its cutoff signal to zero thrust 2,659,605 N s, outboard engines from
+    // OECO to separation 10,612,096 N s (§5.4); S-II start, 582 kg burned
+    // from STDV open to mainstage (Table 20-9), and OECO cutoff 581,916 N s
+    // to 5 % thrust (§6.4); S-IVB start, 857,243 N s from STDV open to STDV
+    // + 2.5 s (§7.2), and cutoff 188,302 N s (§7.4).
+    func testTransientImpulsesMatchTheFER() {
+        let v = VesselLibrary.saturnV()
+        func engines(_ part: String) -> [Thruster] {
+            v.parts.first { $0.name == part }!.thrusters.filter { $0.groups.contains(.main) }
+        }
+        /// Vacuum impulse of `es` over `steps` 0.02 s steps.
+        func impulse(_ es: [Thruster], steps: Int) -> Double {
+            var j = 0.0
+            for _ in 0..<steps {
+                j += es.reduce(0) { $0 + $1.thrust(ambientPressure: 0, seaLevelPressure: 101_325) } * 0.02
+                v.consumePropellant(dt: 0.02)
+            }
+            return j
+        }
+        let sIC = engines("S-IC")
+        for e in sIC { e.level = 1 }
+        var t = AS506.firstMotion
+        while t < AS506.sICCenterCutoff - 1e-9 { v.consumePropellant(dt: 0.02); t += 0.02 }
+        sIC[4].isEnabled = false
+        XCTAssertEqual(impulse([sIC[4]], steps: 40), 2_659_605, accuracy: 2_659_605 * 0.01)
+        while sIC[0].hasPropellant { v.consumePropellant(dt: 0.02) }
+        XCTAssertEqual(impulse(Array(sIC.prefix(4)), steps: 40), 10_612_096, accuracy: 10_612_096 * 0.01)
+        XCTAssertFalse(sIC.contains { $0.isDelivering })
+
+        v.jettisonNextStage()
+        let sII = engines("S-II"), tanks = v.tanks.filter { $0.name.hasPrefix("S-II L") }
+        let loaded = tanks.reduce(0) { $0 + $1.mass }
+        for e in sII { e.level = 1 }
+        _ = impulse(sII, steps: 110)   // to 166.2 s
+        XCTAssertEqual(loaded - tanks.reduce(0) { $0 + $1.mass }, 582, accuracy: 582 * 0.01)
+        sII[4].isEnabled = false
+        for e in sII { e.rating = AS506.sIIJ2LowEMR }
+        _ = impulse(sII, steps: 50)
+        for e in sII { e.level = 0 }
+        XCTAssertEqual(impulse(sII, steps: 40), 581_916, accuracy: 581_916 * 0.01)
+
+        for _ in 0..<3 { v.jettisonNextStage() }
+        let j2 = engines("S-IVB")
+        j2[0].level = 1
+        XCTAssertEqual(impulse(j2, steps: 125), 857_243, accuracy: 857_243 * 0.01)
+        _ = impulse(j2, steps: 50)
+        j2[0].level = 0
+        XCTAssertEqual(impulse(j2, steps: 40), 188_302, accuracy: 188_302 * 0.01)
+        XCTAssertFalse(j2[0].isDelivering)
     }
 
     // A1 on the S-IC: with the centre engine cut at 135.20 s, the shared feed

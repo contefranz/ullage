@@ -92,11 +92,14 @@ final class SaturnVFlightTests: XCTestCase {
         // kg of RP-1 aboard (FER Table 5-2).
         XCTAssertEqual(Double(steps) * 0.02 + 0.30, 161.63, accuracy: 0.03)
         XCTAssertEqual(rp1.mass, 13_954, accuracy: 13_954 * 1e-3)
-        // Independent: the vehicle at OECO, 827,292 kg (FER Table 20-1; the
-        // model's upper stages carry about 350 kg the flight had vented or
-        // shed), and 38.61 m/s^2 just before it (FER Table 4-1, the S-IC's
+        // Bookkeeping, given the FER's first-motion mass and LOX residual and
+        // the fitted RP-1 residual: the vehicle at OECO is 664 kg above FER
+        // Table 20-1's 827,292 kg, the S-IC's frost and purges (312 kg) and
+        // the upper stages' frost and purge gas (349 kg), which the model
+        // does not shed.
+        XCTAssertEqual(v.mass - 827_292, 664, accuracy: 10)
+        // Independent: 38.61 m/s^2 just before OECO (FER Table 4-1, the S-IC's
         // maximum total inertial acceleration; drag is negligible there).
-        XCTAssertEqual(v.mass, 827_292, accuracy: 827_292 * 1e-3)
         XCTAssertEqual(acceleration, 38.61, accuracy: 38.61 * 3e-3)
     }
 
@@ -214,6 +217,54 @@ final class SaturnVFlightTests: XCTestCase {
         XCTAssertEqual(v.parts[0].name, "S-IVB")
         check("S-IVB ignition", engines: 1, range: 7)
         XCTAssertEqual(v.rotationAuthority().x, 2 * 147 * lbf * 3.5, accuracy: 1e-6)
+    }
+
+    // C5 through a shutdown ramp: the gimbals keep steering the decaying
+    // thrust however the engines were cut, by the throttle (as the IU does
+    // at T3, T4 and the S-IVB cutoff) or by disabling them, and stop when
+    // it ends (0.66 s for the F-1).
+    func testGimbalsSteerThroughTheTailOff() {
+        for byThrottle in [true, false] {
+            let v = VesselLibrary.saturnV()
+            let outboard = mains(v, "S-IC").prefix(4)
+            v.mainThrottle = 1
+            v.applyThrottles()
+            v.consumePropellant(dt: 0.02)
+            let full = v.controlAllocation().gimbalAuthority.y
+            if byThrottle {
+                v.mainThrottle = 0
+                v.applyThrottles()
+            } else {
+                for e in mains(v, "S-IC") { e.isEnabled = false }
+            }
+            XCTAssertTrue(outboard.allSatisfy { $0.isDelivering })
+            XCTAssertEqual(v.controlAllocation().gimbalAuthority.y, full, accuracy: full * 0.02, "\(byThrottle)")
+            for _ in 0..<33 { v.consumePropellant(dt: 0.02) }
+            XCTAssertFalse(outboard.contains { $0.isDelivering })
+            XCTAssertEqual(v.controlAllocation().gimbalAuthority.y, 0, "\(byThrottle)")
+        }
+    }
+
+    // A start ramp at time warp: the simulation keeps its thrust steps from
+    // the start command, not from the first thrust, so the S-IVB J-2's start
+    // (nothing for 0.6 s, then a 1.9 s rise) gives the same velocity at 100x
+    // and 1,000x as at 1x in the app's 1/60 s frames, after a coast frame.
+    func testStartRampAtTimeWarp() throws {
+        var gained: [Double] = []
+        for (warp, frames) in [(1.0, 2_000), (100, 20), (1_000, 2)] {
+            let sim = try Simulation.forTests(perturbations: false)
+            let v = VesselLibrary.saturnV()
+            for _ in 0..<4 { v.jettisonNextStage() }
+            sim.add(v)
+            let x = sim.placeInFreeSpace(v)
+            sim.warp = warp
+            sim.advance(by: 1.0 / 60)
+            v.mainThrottle = 1
+            for _ in 0..<frames { sim.advance(by: 1.0 / 60) }   // 33.3 s
+            gained.append(v.velocity.dot(x))
+        }
+        XCTAssertGreaterThan(gained[0], 150)
+        for g in gained.dropFirst() { XCTAssertEqual(g, gained[0], accuracy: gained[0] * 1e-4) }
     }
 
     // C5, the outboard cant (TVC datasheet §7.1 and §7.4 A): an actuator bias

@@ -77,7 +77,7 @@ program at its command rate limits: 1°/s until the S-IVB cutoff, 0.4°/s
 (0.6°/s in roll) after it. Iterative guidance is not modelled
 yet, so after the S-IC the IU holds the attitude it had when the tilt was
 arrested, and the S-IVB, cut off after Apollo 11's burn time, ends suborbital:
-it coasts up to about 760 km and comes down about 42 minutes after liftoff
+it coasts up to about 705 km and comes down about 40 minutes after liftoff
 unless you burn it again (Z).
 
 ## How it works

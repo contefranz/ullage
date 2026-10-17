@@ -274,7 +274,7 @@ final class AppModel: ObservableObject {
     /// "1.2° / 5.0°": the largest deflection of a firing gimballed engine and
     /// its range; nil when no gimballed engine fires.
     static func gimbalSummary(_ v: Vessel) -> String? {
-        let firing = v.thrusters.filter { $0.isEnabled && $0.level > 0 && $0.hasPropellant && !$0.gimbal.isEmpty }
+        let firing = v.thrusters.filter { $0.isDelivering && !$0.gimbal.isEmpty }
         guard let range = firing.flatMap({ $0.gimbal.map(\.range.upperBound) }).max() else { return nil }
         let worst = firing.flatMap { $0.gimbal.map { abs($0.angle) } }.max() ?? 0
         return String(format: "%.1f° / %.1f°", worst * 180 / .pi, range * 180 / .pi)

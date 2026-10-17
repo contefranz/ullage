@@ -185,9 +185,9 @@ final class SaturnIUTests: XCTestCase {
     // was fitted (`pitchScale`); the rest are checks, the headings of the
     // space-fixed frame, flight azimuth and roll program in particular.
     // Mach 1 within 3 s of 66.3 s and a max Q of 28-36 kPa (US-1976 has no
-    // July density excess). Max Q comes at 75 s rather than 83 s and the
-    // pitch program starts at T1 + 10.4 s rather than 12.6 s: the model
-    // climbs faster than the real stack in the first minute (datasheet §8).
+    // July density excess). Max Q comes at about 76 s rather than 83 s and
+    // the pitch program starts at T1 + 10.7 s rather than 12.6 s: the model
+    // climbs faster than the real stack in the first minute (datasheet §8.5).
     // The thrust acceleration (ambient pressure included) against AS-506's
     // total inertial acceleration (FER Figure 4-3, M) where drag is under
     // 0.3 % of thrust, so the placeholder drag coefficient does not matter.
@@ -289,9 +289,10 @@ final class SaturnIUTests: XCTestCase {
     // events (FER Tables 2-1 and 2-2). Timed events are logged at their
     // scheduled time and act within a step (0.02 s); T2-T5 start when the IU
     // sees the cutoff, one or two steps after it (the LVDC took 0.03-0.23 s).
-    // The propellant model puts the S-IC burnout at 161.63 s and the S-II's
-    // at 548.28 s (its J-2s light at 164.04 s, the model being calibrated
-    // from 164.00). The stack ends as S-IVB, IU, SLA, LM and CSM, with every
+    // The propellant model puts the S-IC burnout at 161.64 s and the S-II's
+    // within the step before 548.24 s (its J-2s start at 164.04 s; from
+    // 164.00 they would run dry at 548.16 s), so the S-IVB lights at about
+    // 552.24 s. The stack ends as S-IVB, IU, SLA, LM and CSM, with every
     // spent part its own vessel, the S-II on its low mixture ratio, and the
     // APS ullage burn over. IGM is not modelled, so the S-IVB cuts off as
     // long after T4 as on the flight (T4 + 151.10 s).

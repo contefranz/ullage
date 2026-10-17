@@ -63,9 +63,10 @@ enum AS506 {
     static let sICCenterCutoff = 135.20        // SP-4029 Apollo 11 Timeline and Ascent Phase (H)
     static let sICOutboardCutoff = 161.63      // SP-4029 Apollo 11 Summary; Mission Report (H). LOX depletion
     static let sICSeparation = 162.30          // SP-4029 Apollo 11 Ascent Phase (H)
-    /// Burn reference start, about mainstage; the model lights the J-2s here at
-    /// full thrust (the start command was at 163.04 s).
-    static let sIIIgnition = 164.00            // SP-4029 Propellant Usage and Ascent Phase durations (M)
+    /// S-II engine start (solenoid activation, STDV open; the start command
+    /// was at 163.04 s). The J-2s' start transient (`sIIJ2Transients`) gives
+    /// nothing for 1.09 s and full thrust from mainstage, 166.2 s (FER Table 2-2).
+    static let sIIIgnition = 164.00            // SP-4029 Propellant Usage and Ascent Phase durations; FER Table 2-2 (H)
     static let interstageJettison = 192.3      // SP-4029 Apollo 11 Timeline (H)
     static let lesJettison = 197.9             // SP-4029 Apollo 11 Timeline; Apollo Flight Journal (M-H)
     static let sIICenterCutoff = 460.62        // SP-4029 Apollo 11 Ascent Phase and Timeline (H)
@@ -182,9 +183,9 @@ enum AS506 {
     /// 135.20, FER Table 2-2 and §5.1, H); the LVDC senses it and starts T2.
     static let sICCenterCutoffTime = 134.56    // s from T1; FER (H)
     /// From T3, S-IC outboard cutoff sensed: separation command, S-II engine
-    /// solenoid activation (where the model lights the J-2s at full thrust;
-    /// range 164.0), aft interstage and LET jettison, and S-II centre engine
-    /// cutoff (FER Table 2-2, time from base, H).
+    /// solenoid activation (range 164.0, where the J-2s' start transient
+    /// begins: mainstage at 166.2 s), aft interstage and LET jettison, and
+    /// S-II centre engine cutoff (FER Table 2-2, time from base, H).
     static let sICSeparationTime = 0.7         // s from T3; FER (H)
     static let sIIIgnitionTime = 2.4           // s from T3; FER (H)
     static let interstageJettisonTime = 30.7   // s from T3; FER (H)
@@ -306,9 +307,10 @@ enum AS506 {
     static let sIVBLOXLoad = 192_497.0           // SP-4029 Ground Ignition Weights (H)
     static let sIVBLH2Load = 43_608.0            // SP-4029 Ground Ignition Weights (H)
     /// Propellant not consumed by burn 1 and TLI (residuals plus boost and
-    /// orbital venting), from the engine model. Venting is not modelled, so
-    /// both overstate the residual. At EMR 5.0 the usable LOX lasts 476 s and
-    /// the usable LH2 487 s; burn 1 ends on guidance after 147 s.
+    /// orbital venting), derived from the pre-FER engine model (EMR 5.0) and
+    /// not re-derived. Venting is not modelled, so both overstate the
+    /// residual. At burn 1's EMR 4.85 and 215.37 kg/s the usable LOX would
+    /// last 478 s and the usable LH2 474 s; burn 1 ends on guidance after 147 s.
     static let sIVBLOXUnusable = 4_229.0         // derived from the model (L)
     static let sIVBLH2Unusable = 5_100.0         // derived from the model (L)
 
@@ -374,10 +376,11 @@ enum AS506 {
     /// ambient pressure is a few tens of Pa (FER Figure 5-3: 2,980.5 N s/kg,
     /// against Betts' rated 304.1 s). Thrust follows the flow at this Isp.
     static let f1IspVacuum = 2_980.5 / 9.80665       // s (303.93), FER Figure 5-3 (M)
-    /// Exit area that gives the stage's site Isp at liftoff, 2,597 N s/kg at
-    /// 100.6 kPa (FER Figure 5-3): 10.10 m^2, against 9.93 m^2 from the
-    /// rating. With the Isp above it fits the figure's thrust within 0.4 %
-    /// through the burn.
+    /// Exit area that gives the stage's site Isp at liftoff on the figure's
+    /// flow, about 2,594 N s/kg at 100.6 kPa (FER Figure 5-3): 10.10 m^2,
+    /// against 9.93 m^2 from the rating. With the Isp above it fits the
+    /// figure's thrust within 0.4 % at CECO and at 160 s, and is 0.6 % low at
+    /// liftoff, where the figure's thrust is 0.6 % above its flow times Isp.
     static let f1ExitArea = 10.10                    // m^2, derived from FER Figure 5-3 (M)
     /// The F-1 rating at first motion, per engine; its schedule
     /// (`f1Schedule`) carries it along `sICFlowHistory`.
@@ -448,9 +451,10 @@ enum AS506 {
     /// Start and tail-off. Between STDV open (164.0 s) and mainstage (166.2
     /// s) the stage burned 582 kg (FER Table 20-9), 0.56 s of full flow: a
     /// linear rise over the last 1.11 s of those 2.2 s. The OECO cutoff
-    /// impulse to 5 % thrust was 581,916 N s at 2,783,479 N (§6.4), 0.21 s of
-    /// full thrust: a decay over 0.42 s.
-    static let sIIJ2Transients = EngineTransients(startDelay: 1.09, startRise: 1.11, shutdown: 0.42)   // FER (shape L)
+    /// impulse to 5 % thrust was 581,916 N s (§6.4), from 2,783,479 N after
+    /// the LOX starvation that the model does not have: 0.19 s of the
+    /// model's 3,072,000 N, a decay over 0.38 s.
+    static let sIIJ2Transients = EngineTransients(startDelay: 1.09, startRise: 1.11, shutdown: 0.38)   // FER (shape L)
 
     /// S-IVB burn 1 (PU null): the flight values of FER Figure 7-2 (thrust
     /// 902-906 kN; the standardised Table 7-1 value is 901,223 N), the
