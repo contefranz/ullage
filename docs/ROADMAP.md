@@ -31,6 +31,9 @@ native macOS simulator. Each milestone should be flyable on its own.
   *(jettisons and the S-II ullage motors done; the S-IVB's ullage motors, the retros and
   engine-out to do)*
 - Aerodynamic normal force and moments for the launch stack
+  *(done: axial force by the Saturn V flight-evaluation method, normal force and centre of
+  pressure from the design data, their moments about the centre of mass, and the launch day's
+  measured atmosphere and winds)*
 - Nutation in Earth orientation; IAU 2006 precession
 - Real launch scenario (Apollo 11, 16 July 1969, 13:32:00 UTC, LC-39A)
 

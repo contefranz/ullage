@@ -9,7 +9,8 @@ Saturn V stack, with its propulsion and masses calibrated to AS-506's flight
 evaluation report, its engine gimballing and thrust vector control, and its
 Instrument Unit flight program, which flies the S-IC's attitude programs, the
 staging sequence and the iterative guidance of the S-II and S-IVB to the
-parking orbit. See [docs/ROADMAP.md](docs/ROADMAP.md) for the path to Apollo and the
+parking orbit, through the launch day's measured air and winds with the
+stack's sourced aerodynamics. See [docs/ROADMAP.md](docs/ROADMAP.md) for the path to Apollo and the
 Shuttle.
 
 ## Build and run
@@ -77,8 +78,12 @@ program at its command rate limits: 1°/s until the S-IVB cutoff, 0.4°/s
 (0.6°/s in roll) after it. From 204 s the IU's iterative guidance mode (IGM)
 steers the S-II and S-IVB, commands the S-II's mixture-ratio shift and cuts the
 S-IVB off on velocity, into a 100 n mi (185 km) circular parking orbit at
-Apollo 11's inclination, about 5 s later than Apollo 11 did; the HUD's IU row
-shows the IGM's phase.
+Apollo 11's inclination, about 3.5 s later than Apollo 11 did; the HUD's IU row
+shows the IGM's phase. The stack flies through the air of 16 July 1969 at the
+Cape (its measured temperature, pressure, density and winds to 56 km) with the
+Saturn V's flight-evaluated axial force, normal force and centre of pressure:
+max Q comes at 34.9 kPa at 83.3 s, against Apollo 11's 35.2 kPa at 83.0 s.
+The stack is aerodynamically unstable, and its gimballed engines hold it.
 
 ## How it works
 
@@ -87,9 +92,10 @@ Sources/OrbitCore      Pure Swift + Foundation (builds on Linux too)
   Math/                Double-precision vectors, matrices, quaternions
   Time/                TDB/UTC epochs with leap seconds
   Ephemeris/           JPL DE421 Chebyshev reader, lunar libration, star catalogue
-  Bodies/              Bodies, Earth/Moon orientation, J2 gravity, US Std Atmosphere 1976
+  Bodies/              Bodies, Earth/Moon orientation, J2 gravity, US Std Atmosphere 1976, soundings
   Orbit/               Osculating elements
-  Vessel/              Parts, tanks, thrusters, staging, gimballed engines, TVC and RCS/APS autopilots
+  Vessel/              Parts, tanks, thrusters, staging, gimballed engines, TVC and RCS/APS autopilots,
+                       launch-stack aerodynamics
   Guidance/            Flight programs: the Saturn V Instrument Unit (time bases, programs, sequence)
   Simulation/          RK4 rigid-body integration, time warp, landing, SOI switching
 Sources/OrbitSim       macOS app: SwiftUI shell, Metal renderer, input, HUD

@@ -211,6 +211,7 @@ extension VesselLibrary {
                            reference: placeholderBody)
         // The IU's APS switching logic flies the APS in every mode but kill rotation.
         stack.phasePlane = D.apsLaw
+        stack.aerodynamics = D.aerodynamics
         return stack
     }
 

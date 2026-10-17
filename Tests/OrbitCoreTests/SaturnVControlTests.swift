@@ -130,10 +130,13 @@ final class SaturnVControlTests: XCTestCase {
     // integral term). Kill-rotation, which only damps rates, drifts at about
     // 1.6°/s here; selected again, the hold captures the drifting attitude at
     // once (a steady drift is within the law's linear range) and stops it.
-    // Self-consistency, apart from the moment balance.
+    // Self-consistency, apart from the moment balance. The aerodynamic model
+    // is off, so the balance is the thrust's alone (from 30 s the air would
+    // add its own moment as the engine-out stack drifts across the flow).
     func testEngineOutTrim() throws {
         let sim = try Simulation.forTests(perturbations: true)
         let v = onPad(sim)
+        v.aerodynamics = []
         v.autopilot = .attitudeHold
         v.mainThrottle = 1
         sim.run(seconds: 30)

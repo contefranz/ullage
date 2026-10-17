@@ -92,6 +92,9 @@ public final class Vessel: Identifiable {
     public internal(set) var airspeed = 0.0
     public internal(set) var dynamicPressure = 0.0
     public internal(set) var mach = 0.0
+    /// Total angle of attack: between +x and the velocity relative to the
+    /// air, winds included (rad).
+    public internal(set) var angleOfAttack = 0.0
     public internal(set) var thrustAcceleration = 0.0
 
     public init(name: String, parts: [VesselPart], reference: CelestialBody,
@@ -151,6 +154,11 @@ public final class Vessel: Identifiable {
         -(parts.map { $0.offset.x - $0.length / 2 }.min() ?? 0)
     }
 
+    /// Aerodynamic models by configuration, in order of preference: the first
+    /// whose parts are all aboard flies (`activeAerodynamics`). Without one
+    /// the vessel has only the drag of `dragArea` along the airflow.
+    public var aerodynamics: [AerodynamicModel] = []
+
     /// Maximum cross-section times drag coefficient (m^2).
     public var dragArea: Double {
         parts.map { Double.pi * $0.radius * $0.radius * $0.dragCoefficient }.max() ?? 0
@@ -196,6 +204,7 @@ public final class Vessel: Identifiable {
         other.status = status
         // Its offsets were in this vessel's frame, so it shares this construction origin.
         other.structureOrigin += structureOrigin
+        other.aerodynamics = aerodynamics
         if let l = oldLanded {
             other.landed = LandedState(body: l.body,
                                        bodyFixedPosition: l.bodyFixedPosition + l.bodyFixedAttitude.rotate(leavingCom),

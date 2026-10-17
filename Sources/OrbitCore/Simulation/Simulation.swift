@@ -33,9 +33,30 @@ public final class Simulation {
     /// Set when the last `advance` hit `maxSubsteps`.
     public private(set) var warpLimited = false
 
+    /// The day's atmosphere of a body, by NAIF id, in place of its standard
+    /// model in this simulation (a launch day's measured air and winds). The
+    /// solar system is shared between simulations, so the weather lives here.
+    public var atmospheres: [Int: Atmosphere] = [:]
+
     public init(system: SolarSystem, time: Epoch) {
         self.system = system
         self.time = time
+    }
+
+    public func atmosphere(of body: CelestialBody) -> Atmosphere? { atmospheres[body.id] ?? body.atmosphere }
+
+    /// Velocity of a point at `r` moving at `v` relative to the air of `body`
+    /// (its rotating atmosphere and the wind), ICRF axes.
+    func airVelocity(r: Vec3, v: Vec3, body: CelestialBody, atmosphere: Atmosphere, altitude: Double,
+                     snapshot s: SystemSnapshot) -> Vec3 {
+        let o = s.orientation(body)
+        var air = v - o.angularVelocity.cross(r)
+        let w = atmosphere.wind(altitude: altitude)
+        if w.east != 0 || w.north != 0 {
+            let up = r.normalized, east = o.pole.cross(up).normalized, north = up.cross(east)
+            air -= east * w.east + north * w.north
+        }
+        return air
     }
 
     public var snapshot: SystemSnapshot { system.snapshot(at: time) }
@@ -164,7 +185,7 @@ public final class Simulation {
 
     func environment(_ v: Vessel, r: Vec3, snapshot s: SystemSnapshot) -> (alt: Double, atm: AtmosphereState) {
         let alt = r.length - v.reference.radius
-        guard let atm = v.reference.atmosphere, alt < atm.ceiling else { return (alt, .vacuum) }
+        guard let atm = atmosphere(of: v.reference), alt < atm.ceiling else { return (alt, .vacuum) }
         return (alt, atm.state(altitude: alt))
     }
 
@@ -174,25 +195,39 @@ public final class Simulation {
         let invInertia = inertia.inverse
         let s0 = system.snapshot(at: t0)
         let env0 = environment(v, r: v.position, snapshot: s0)
-        let p0 = v.reference.atmosphere?.seaLevelPressure ?? 0
+        let atmosphere = atmosphere(of: v.reference)
+        let p0 = atmosphere?.seaLevelPressure ?? 0
         let (thrustBody, torqueBody) = v.thrustForceAndTorque(ambientPressure: env0.atm.pressure, seaLevelPressure: p0)
         let dragArea = v.dragArea
         let ref = v.reference
+        // The configuration's aerodynamics, fixed over the step like the thrust.
+        let aero = v.activeAerodynamics
+        let powered = aero.map(v.basePowered) ?? false
+        let cpX = aero.map(v.centerOfPressureX) ?? { _ in 0 }
+        let planform = v.planform
 
         func deriv(_ t: Epoch, _ s: RigidState) -> RigidState {
             let snap = system.snapshot(at: t)
             var a = system.acceleration(relativeTo: ref, at: s.r, snapshot: snap)
             a += s.q.rotate(thrustBody) / mass
-            if let atm = ref.atmosphere {
+            var torque = torqueBody
+            if let atm = atmosphere {
                 let alt = s.r.length - ref.radius
                 if alt < atm.ceiling {
-                    let rho = atm.state(altitude: alt).density
-                    let air = s.v - snap.orientation(ref).angularVelocity.cross(s.r)
-                    a += air * (-0.5 * rho * air.length * dragArea / mass)
+                    let state = atm.state(altitude: alt)
+                    let air = airVelocity(r: s.r, v: s.v, body: ref, atmosphere: atm, altitude: alt, snapshot: snap)
+                    if let model = aero {
+                        let l = model.loads(air: s.q.inverseRotate(air), atmosphere: state, altitude: alt,
+                                            powered: powered, centerOfPressureX: cpX, planform: planform)
+                        a += s.q.rotate(l.force) / mass
+                        torque += l.torque
+                    } else {
+                        a += air * (-0.5 * state.density * air.length * dragArea / mass)
+                    }
                 }
             }
             let iw = inertia * s.w
-            let dw = invInertia * (torqueBody - s.w.cross(iw))
+            let dw = invInertia * (torque - s.w.cross(iw))
             return RigidState(r: s.v, v: a, q: s.q.derivative(bodyRate: s.w), w: dw)
         }
 
@@ -218,7 +253,7 @@ public final class Simulation {
         let s0 = system.snapshot(at: t0)
         // Lift-off when thrust exceeds weight along the local vertical.
         let env = environment(v, r: v.position, snapshot: s0)
-        let p0 = v.reference.atmosphere?.seaLevelPressure ?? 0
+        let p0 = atmosphere(of: v.reference)?.seaLevelPressure ?? 0
         let thrust = v.attitude.rotate(v.thrustForceAndTorque(ambientPressure: env.atm.pressure, seaLevelPressure: p0).force)
         let g = system.acceleration(relativeTo: v.reference, at: v.position, snapshot: s0)
         let up = v.position.normalized
@@ -249,10 +284,15 @@ public final class Simulation {
         let env = environment(v, r: v.position, snapshot: s)
         v.altitude = env.alt
         v.atmosphere = env.atm
-        let air = v.surfaceVelocity(snapshot: s)
+        var air = v.surfaceVelocity(snapshot: s)
+        if let atm = atmosphere(of: v.reference), env.atm.density > 0 {
+            air = airVelocity(r: v.position, v: v.velocity, body: v.reference, atmosphere: atm, altitude: env.alt,
+                              snapshot: s)
+        }
         v.airspeed = air.length
         v.dynamicPressure = 0.5 * env.atm.density * v.airspeed * v.airspeed
         v.mach = env.atm.speedOfSound > 0 && env.atm.density > 0 ? v.airspeed / env.atm.speedOfSound : 0
+        v.angleOfAttack = v.airspeed > 1e-6 ? angleBetween(v.attitude.rotate(.unitX), air) : 0
     }
 
     func checkSurfaceContact(_ v: Vessel, snapshot s: SystemSnapshot) {

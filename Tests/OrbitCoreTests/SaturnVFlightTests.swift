@@ -64,9 +64,13 @@ final class SaturnVFlightTests: XCTestCase {
     // the CoM. With no attitude control at all the stack stays vertical: the
     // thrust has no moment about the CoM and the gimbals stay at null (a
     // symmetry check; closed loop is tested below and in SaturnVControlTests).
+    // The aerodynamic model is off: the Saturn V is aerodynamically unstable
+    // (datasheet §11), so uncontrolled it would not stay vertical; the
+    // generic drag along the airflow remains.
     func testVerticalSICFlight() throws {
         let sim = try Simulation.forTests(perturbations: true)
         let v = onPad(sim)
+        v.aerodynamics = []
         let engines = mains(v, "S-IC")
         let rp1 = v.tanks[1]
         v.mainThrottle = 1
