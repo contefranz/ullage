@@ -143,13 +143,13 @@ Read from `Sources/OrbitCore` as of M0, before the stack was built. Since then t
 |---|---|---|---|---|---|
 | overall_height_base_to_LES_tip | 110.642 m | 363 ft | Apollo 11 press kit, Wikipedia (recalled) | M | Datum taken as the F-1 nozzle-exit plane. |
 | launch_vehicle_height (base → IU top) | 85.674 m | 281 ft (3,373 in) | Saturn V News Reference (recalled) | L-M | Equal to stations −115 → 3258. |
-| sic_length | 42.062 m | 138 ft | News Reference, Wikipedia | M | Nozzle exit to the S-IC/S-II plane (STA 1541). |
-| sii_length (with S-IC/S-II interstage) | 24.841 m | 81.5 ft (978 in) | News Reference | M | STA 1541 → 2519. 81 ft 7 in (979 in) differs by 1 inch. |
-| sic_sii_interstage_height | 5.563 m | 219 in | STA 1760 − 1541 (recalled) | L | |
-| sivb_length (with S-II/S-IVB aft interstage) | 17.856 m | 703 in (58 ft 7 in) | News Reference | M (length), L (bookkeeping) | Chosen convention: **each upper-stage length includes the interstage below it**, as the S-II's does. This is consistent with the 281 ft sum. |
-| sii_sivb_separation_plane | STA 2746.5 → h 72.682 m | | **recalled**, unverified | L | It makes the aft interstage 227.5 in (5.78 m) and the S-IVB proper 475.5 in. Alternative: the Skylab OWS lead (≈ 48 ft S-IVB proper) would put the plane at about STA 2646 (h 70.15 m). |
+| sic_length | 42.062 m | 138 ft | News Reference, Wikipedia | M | Nozzle exit to the S-IC forward skirt top, STA 1541 (H: Boeing 9253429, MSFC-MAN-504 Fig 5-1). The first separation plane is 23 in higher, at STA 1564 (§4). |
+| sii_length (with S-IC/S-II interstage) | 24.841 m | 81.5 ft (978 in) | News Reference; MSFC-MAN-504 Fig 5-1 | H | STA 1541 → 2519, which MAN-504 Fig 5-1 dimensions as 81-1/2 ft. The News Reference's 81 ft 7 in (979 in) differs by 1 inch. |
+| sic_sii_interstage_height | 5.563 m | 219 in | STA 1760 − 1541: Boeing 9253429; MSFC-MAN-506 Fig 5-19 | H | MAN-504 Fig 5-1: 18-1/4 ft. |
+| sivb_length (with S-II/S-IVB aft interstage) | 17.856 m | 703 in (58 ft 7 in) | News Reference | M (length), H (bookkeeping) | **Each upper-stage length includes the interstage below it**, as the S-II's does: MSFC-MAN-504 Fig 6-1 draws the S-IVB as 59.0 ft with its 19 ft aft interstage, and the News Reference's S-IVB dry weight includes the interstage. This is consistent with the 281 ft sum. |
+| sii_sivb_separation_plane | STA 2746.5 → h 72.682 m | | MSFC-MAN-504 §6; MSFC-MAN-506 Fig 5-19; Boeing 9253429 (S-IVB aft skirt bottom) | H | It makes the aft interstage 227.5 in (5.78 m; MAN-504 Fig 6-1: 19 ft) and the S-IVB proper 475.5 in. The former alternative, about STA 2646 (from a Skylab OWS lead), is the S-IVB J-2's gimbal plane, STA 2645.85 (§4). |
 | body diameters | 10.058 m (S-IC, S-II, interstages); 6.604 m (S-IVB, IU, SLA base); 3.912 m (SLA top, SM, CM) | 396 in / 260 in / 154 in | News Reference, press kit | M | Fins and fairings excluded. |
-| iu_height | 0.9144 m | 36 in | Wikipedia; STA 3222 → 3258 | M | |
+| iu_height | 0.9144 m | 36 in | Wikipedia; STA 3222 → 3258 | M | Boeing 9253429: STA 3222.56 → 3258.56, also 36 in; the model keeps 3222 → 3258 (1.4 cm lower). |
 | sla_height | 8.534 m | 28 ft | press kit | L-M | Matches Xa 502 → 838 (recalled). |
 | s_ic_outboard_engine_radius | 4.623 m | 182 in (364 in circle) | fan wiki only | L | Geometrically plausible: the bells sit under the fairings. |
 | s_ii_outboard_engine_radius | 2.667 m | 17.5 ft circle | EH | M | |
@@ -368,7 +368,11 @@ For the F(p) model, Isp_SL is chosen so that F_vac − F_SL = p0 × Ae_eff. "Fli
 
 ## 4. Geometry: heights above the vehicle base along the axis
 
-**Datum derivation.** The S-IC is 138 ft = 1,656 in long and ends at the separation plane, STA 1541 (recalled from MSFC-MAN-503), so the base is at STA −115. The F-1 gimbal at STA 100 (CSS, M; §7.1), which CSS also places 100 in above station 0, then sits 215 in (17.9 ft) above the nozzle exit, consistent with a 19 ft engine. The LES tip at 363 ft is Xa ≈ 1485. Vehicle station = Xa + 2756 follows from SLA base Xa 502 = IU top STA 3258 (recalled).
+**Datum derivation.** The S-IC is 138 ft = 1,656 in long and ends at its forward skirt top, STA 1541 (Boeing 9253429, MSFC-MAN-504 Fig 5-1; the first separation plane is 23 in higher, at STA 1564), so the base is at STA −115. The F-1 gimbal at STA 100 (CSS, M; §7.1), which CSS also places 100 in above station 0, then sits 215 in (17.9 ft) above the nozzle exit, consistent with a 19 ft engine. The LES tip at 363 ft is Xa ≈ 1485. Vehicle station = Xa + 2756 follows from SLA base Xa 502 = IU top STA 3258 (recalled).
+
+**Stations from primary sources (2026-10-17).** Boeing's *Saturn V Apollo Flight Configuration* diagram (MSFC, 1 March 1967; NASA image 9253429), which lists vehicle and stage stations in inches and metres, and the flight manuals MSFC-MAN-504 (Figs 5-1 and 6-1, §5 and §6) and MSFC-MAN-506 (Fig 5-19) settle the interfaces from the S-IC top to the IU, and the J-2 gimbal planes. Each upper stage has its own station system, with the J-2 gimbal at stage station 100: S-II station = STA − 1564 (its zero is the first separation plane) and S-IVB station = STA − 2545.85. The diagram calls the S-II's station 100 the "gimbal plane" and the S-IVB's the "top J-2 engine"; REF504 Fig 3-1 also takes STA 1664 as the S-II gimbal station (§11). Neither source tabulates the J-2 nozzle exits. They are 116 ± 3 in below the gimbal, measured on the side view of the News Reference's J-2 fact sheet. That drawing is to scale: its length, from the top of the fuel inlet duct to the exit, and its width match the stated 11 ft 1 in and 6 ft 8-1/2 in within 2%, and the gimbal sits 17 in below the duct's top, so the 11 ft 1 in is not gimbal to exit. The exits then fall inside the interstages, 7 in above the S-IC/S-II interstage's bottom and 11 in above the aft interstage's, as MAN-504's figures draw them; 133 in would have put the S-IVB's nozzle into the S-II's forward LH2 dome, whose vent is at STA 2506 (M). The same clearance supports reading the S-IVB's "top J-2 engine" as its gimbal plane, like the S-II's station 100: were it the duct tops, the gimbal would be 17 in lower and the nozzle in that dome. Only the nozzle shapes use the exits. A 2026-10-17 study took both stage lengths to run to the J-2 exits (S-II exit at STA 1540, S-IVB at 2519.6). MAN-504 Figs 5-1 and 6-1 show both lengths ending at the interstage bottoms instead.
+
+Moving the gimbals to these stations (S-II 3.21 m lower than the estimate, S-IVB 1.57 m lower) lengthens the J-2 lever arms: by 27% at S-II ignition, 12% at S-II OECO and 15-17% on the S-IVB (§7.1, §7.2). The IGM flight (§10.4) is unchanged at its printed precision: the S-II OECO speed rises by 0.03 m/s, the S-IVB cutoff comes 4 ms earlier, and the orbit moves by 1 m. `SaturnVDataTests.testJ2GimbalsAtThePublishedStations` pins the gimbal planes, the nozzle exits and the interfaces above to these stations.
 
 **Interfaces**
 
@@ -376,12 +380,15 @@ For the F(p) model, Isp_SL is chosen so that F_vac − F_SL = p0 × Ae_eff. "Fli
 |---|---|---|---|
 | F-1 nozzle-exit plane = vehicle base | STA −115 | 0.000 | L-M |
 | F-1 gimbal plane; S-IC body (thrust-structure) aft end | STA 100 | 5.461 | M (CSS, §7.1) |
-| S-IC/S-II separation plane (S-IC top) | 1541 | 42.062 | M-L |
-| second plane (S-II aft skirt base, interstage top) | 1760 | 47.625 | L |
-| S-II forward skirt top = aft interstage base | 2519 | 66.904 | L-M |
-| S-II/S-IVB separation plane (aft interstage top) | 2746.5 (recalled) | 72.682 | L (alternative ≈ 70.15) |
-| S-IVB/IU | 3222 (alternative 3223) | 84.760 | L-M |
-| IU/SLA | 3258 (Xa 502) | 85.674 | M-L |
+| S-IC forward skirt top = S-IC/S-II interstage bottom (S-IC top) | 1541 | 42.062 | H (Boeing; MAN-504 Fig 5-1) |
+| S-IC/S-II first separation plane (S-II station 0); the ring below it leaves with the S-IC, but the model's S-IC part ends at 1541 | 1564 | 42.647 | H (MAN-504 §5; MAN-506 Fig 5-19; Boeing) |
+| S-II J-2 gimbal plane (S-II station 100) | 1664 | 45.187 | H (Boeing; REF504 Fig 3-1) |
+| second plane (S-II aft skirt base, interstage top) | 1760 | 47.625 | H (MAN-506 Fig 5-19; Boeing) |
+| S-II forward skirt top = aft interstage base | 2519 | 66.904 | H (Boeing; MAN-504 Fig 5-1) |
+| S-IVB J-2 gimbal plane, "top J-2 engine" (S-IVB station 100) | 2645.85 | 70.126 | H (Boeing) |
+| S-II/S-IVB separation plane (aft interstage top, S-IVB aft skirt bottom) | 2746.5 | 72.682 | H (MAN-504 §6; MAN-506 Fig 5-19; Boeing) |
+| S-IVB/IU | 3222 (Boeing: 3222.56) | 84.760 | L-M; the model keeps 3222 |
+| IU/SLA | 3258 (Xa 502; Boeing: 3258.56) | 85.674 | M-L |
 | SLA top = SM aft bulkhead | Xa 838 | 94.209 | L |
 | SM/CM (CM heat-shield base) | Xa 1010 | 98.577 | L |
 | CM apex | Xa 1137 | 101.803 | L |
@@ -392,9 +399,9 @@ For the F(p) model, Isp_SL is chosen so that F_vac − F_SL = p0 × Ae_eff. "Fli
 | part | bottom | top | length | diameter (bottom → top) | r_sim | notes |
 |---|---|---|---|---|---|---|
 | S-IC | 0.000 | 42.062 | 42.062 | 10.058 | 5.029 | Fins and fairings excluded. Below 5.46 m there are only engines, fairings and fins. |
-| S-IC/S-II interstage | 42.062 | 47.625 | 5.563 | 10.058 | 5.029 | The S-II J-2 bells hang into it, down to about 45.0. |
+| S-IC/S-II interstage | 42.062 | 47.625 | 5.563 | 10.058 | 5.029 | The S-II J-2s hang into it, from their gimbal plane at 45.187 to their exits at 42.240 (derived), 0.18 m above its bottom. |
 | S-II + aft interstage | 47.625 | 72.682 | 25.057 | 10.058 → 6.604 (frustum from 66.904 to 72.682) | 5.029 | |
-| S-IVB | 72.682 | 84.760 | 12.078 | 6.604 | 3.302 | J-2 exit at about 68.3, inside the aft interstage. |
+| S-IVB | 72.682 | 84.760 | 12.078 | 6.604 | 3.302 | Its J-2 hangs into the aft interstage, from the gimbal plane at 70.126 to the exit at 67.179 (derived), 0.28 m above the interstage's bottom. |
 | IU | 84.760 | 85.674 | 0.914 | 6.604 | 3.302 | |
 | SLA | 85.674 | 94.209 | 8.535 | 6.604 → 3.912 | 3.302 | |
 | LM (inside SLA) | ≈ 85.9 | ≈ 90.9 | ≈ 5.0 | stowed envelope ≈ 4.2 | ≈ 2.1 | Estimate (L). Its top must clear the SPS exit at about 91.08. |
@@ -410,8 +417,8 @@ Set each part's `offset.x` to its CoM in the vessel frame. Midpoints are accepta
 |---|---|---|---|---|---|
 | F-1 centre (fixed) | 5.461 | 0.000 | 0 | 3.556 effective (3.76 envelope) | L / M |
 | F-1 outboard × 4 (±5°) | 5.461 | 0.000 | 4.623 (182 in) | 3.556 | L (radius from fan wiki). Engines 1–4 sit under fins A–D, on the diagonals 45° from the pitch plane (M, §7.1); the S-II numbering is the same. The 20.6 s outboard cant (≈ 2°, M) costs only 0.06% of thrust, but it shortens the outboard moment arms by 21–34% (§7.1). |
-| J-2 S-II centre (fixed) and outboard × 4 (±7°) | ≈ 48.4 ± 1.0 | ≈ 45.0 ± 1.0 | 0 / 2.667 | 1.958 (derived; 2.07 envelope) | L / M radius |
-| J-2 S-IVB | ≈ 71.7 ± 1.0 | ≈ 68.3 ± 1.0 | 0 | 1.958 | L |
+| J-2 S-II centre (fixed) and outboard × 4 (±7°) | 45.187 (STA 1664) | 42.240 (STA 1548, derived) | 0 / 2.667 | 1.958 (derived; 2.07 envelope) | H gimbal / M exit / M radius |
+| J-2 S-IVB | 70.126 (STA 2645.85) | 67.179 (STA 2529.85, derived) | 0 | 1.958 | H gimbal / M exit |
 | SPS | ≈ 94.08 (Xa 833) | ≈ 91.08 (Xa 715) | 0 | ≈ 2.5 (recalled) | L |
 | SM RCS quads × 4 | ≈ 97.3 (Xa ≈ 959) | — | ≈ 2.1 | — | L |
 | S-IVB APS modules × 2 (180° apart) | ≈ 73.4 (aft skirt) | — | ≈ 3.5 | — | L |
@@ -486,7 +493,7 @@ Set each part's `offset.x` to its CoM in the vessel frame. Midpoints are accepta
 
 **Unresolved conflicts**
 
-- **S-II/S-IVB separation-plane station.** STA 2746.5 (recalled; aft interstage 5.78 m) versus about 2646 (Skylab OWS ≈ 48 ft lead). Which stage length contains the aft interstage is not documented in the inputs.
+- **S-II/S-IVB separation-plane station.** ~~STA 2746.5 (recalled; aft interstage 5.78 m) versus about 2646 (Skylab OWS ≈ 48 ft lead). Which stage length contains the aft interstage is not documented in the inputs.~~ *Resolved (§4): STA 2746.5 (MSFC-MAN-504, MSFC-MAN-506, Boeing 9253429); STA 2645.85 is the S-IVB J-2's gimbal plane, and the S-IVB's length includes the aft interstage (MAN-504 Fig 6-1).*
 - **S-II EMR shift and low EMR.** (491 s, 4.7) versus (502 s, ≈ 4.55); AS-501's 4.7, EH's 4.3 and the 4.5 hardware limit. *Resolved by the FER (§8.7): commanded at 494.8 s, shifted at 498.0 s, average low EMR 4.34; applied in §9.2.*
 - **F-1 liftoff thrust.** 7,648,000 versus 7,552,000 lbf (bases unknown). The 9,180,000 / 9,088,419 lbf "max" figures are physically implausible for this engine model.
 - **First-engine ignition.** −6.4 versus −6.1 s. All-engines-running at −1.6 versus −1.92 s.
@@ -500,7 +507,7 @@ Set each part's `offset.x` to its CoM in the vessel frame. Midpoints are accepta
 1. SP-4029 Propellant Usage, S-II and S-IVB rows: consumption, at-cutoff amounts, mixture ratio. These would replace the §2.2 S-II and S-IVB model loads.
 2. FER mass characteristics: the flight-sequence mass summary (masses at CECO, OECO, S-II ignition, jettisons, S-IVB ignition and cutoff), CG and inertias, and the event table (EMR shift, tilt arrest). *Read (§8, §9.1, §9.4): Tables 2-2, 20-1, 20-3, 20-5, 20-7, 20-9; CG and inertias (Table 20-10) not used yet.*
 3. As-flown liftoff mass, or the ignition-to-release consumption. The sim's −2.625 s ignition depends on the predicted 85,745 lb. *Resolved (§9.1): 2,899,008 kg at first motion and 39,307 kg of thrust buildup (FER Tables 20-1, 20-9); the sim starts at first motion.*
-4. MSFC-MAN-503 station diagram: datum, S-IVB separation plane, tank stations, gimbal planes, nozzle protrusions, fin span.
+4. MSFC-MAN-503 station diagram: datum, S-IVB separation plane, tank stations, gimbal planes, nozzle protrusions, fin span. *Read in part (§4): Boeing's 1967 configuration diagram and MSFC-MAN-504/506 give the interface stations, the separation planes and both J-2 gimbal planes; the J-2 exits are derived; the tank stations and fin span are not used yet.*
 5. Saturn V aerodynamics: CA(M) with its reference area, centre of pressure, CN_α. *Resolved in §11.*
 6. Apollo 11 Mission Report mass properties: CM, SM, LM, SLA, LES as flown; SPS and RCS loads.
 7. F-1 thrust-vs-time (FER) to calibrate the optional flow ramp. J-2 flight Isp at each EMR.
@@ -525,7 +532,7 @@ Set each part's `offset.x` to its CoM in the vessel frame. Midpoints are accepta
 - Pre-release consumption of 85,745 lb (predicted).
 - MOR separation weights.
 - FER insertion mass (±1% only).
-- All tank stations, part CoMs, gimbal heights, the S-IVB separation-plane height, the LM envelope, and Xa-based spacecraft heights.
+- All tank stations, part CoMs, the J-2 nozzle-exit heights (M, drawn only), the LM envelope, and Xa-based spacecraft heights. (The J-2 gimbal planes and the S-IVB separation plane are H since §4's 2026-10-17 update.)
 - Spacecraft breakdown (only the 49,734.6 kg total is H).
 - LES motor data, SPS/RCS/APS Isp, APS loads.
 - The placeholder Cd(M), superseded by §11.
@@ -538,7 +545,7 @@ Set each part's `offset.x` to its CoM in the vessel frame. Midpoints are accepta
 
 Compiled on 2026-10-16 for the M1 item "engine gimballing and TVC" from three research categories, each independently re-verified: TVC hardware, flight-control laws, and the S-IVB APS. The conventions are those of the header (t is range time, h is height above the vehicle base, STA converts as h = (STA + 115) × 0.0254, SI units, H/M/L grades).
 
-**Limits.** As before, no NASA document could be fetched; every value comes from search extracts. No AS-506 Flight Evaluation Report (FER) control-performance or APS-consumption number was retrieved, so §7.4 has no FER targets. Rows marked **derived** are arithmetic on sourced values. Rows marked **sim** come from the current `VesselLibrary.saturnV()` model, evaluated in a probe run on 2026-10-16. They inherit that model's L-graded geometry: gimbal heights, tank extents and CoM placement.
+**Limits.** As before, no NASA document could be fetched; every value comes from search extracts. No AS-506 Flight Evaluation Report (FER) control-performance or APS-consumption number was retrieved, so §7.4 has no FER targets. Rows marked **derived** are arithmetic on sourced values. Rows marked **sim** come from the current `VesselLibrary.saturnV()` model, evaluated in a probe run on 2026-10-16. They inherit that model's L-graded geometry: gimbal heights (replaced by published stations on 2026-10-17, §4), tank extents and CoM placement.
 
 **Status.** M1 item 2 implemented the §7.1 actuator model, the §7.2 command seam and the §7.3 APS; the gain schedules, cant schedule and APS phase-plane logic are left to the IU item. Where this section says "today", "the builder" or "the current model", and in the rows marked **sim** and the test names of §7.4, it describes the model before item 2. Item 2 moved the APS propellant into point tanks at r = 3.5 m, which shifts the S-IVB inertias by under 0.4% (insertion Ixx 5.877e5 kg m², S-IVB ignition Iyy 1.312e7 kg m²), and renamed `testKillRotationDampsAKickWithTheStandIns` to `testKillRotationDampsAKickWithGimbals`.
 
@@ -604,8 +611,8 @@ The last corner is TM X-53532's 8°30′ label. If the 6° were instead a cone (
 | id | chosen | original | source | conf | notes |
 |---|---|---|---|---|---|
 | f1_gimbal_plane | h 5.461 m | STA 100; "structural body axes origin 100 in below the gimbal reference plane" | CSS (primary, search extract); §4 (recalled) | **M** | Upgraded from L. This also confirms station 0 = 100 in below the gimbal plane, consistent with the §4 datum. |
-| sii_j2_gimbal | h ≈ 48.4 ± 1.0 m | — | §4 estimate | L | Not found. In the sim the lever arm to the CoM is 11.8 m at S-II ignition and 27.7 m at OECO, so ±1 m changes control effectiveness by ±8% falling to ±4%. |
-| sivb_j2_gimbal | h ≈ 71.7 ± 1.0 m | — | §4 estimate | L | Not found. It lies below the S-IVB part's own aft end (72.68 m); this is still unresolved (see `AS506.sIVBJ2GimbalHeight`). In the sim the lever arm is 9.2 m at ignition and 10.3 m at cutoff, so ±1 m changes effectiveness by about ±10%. |
+| sii_j2_gimbal | h 45.187 m | STA 1664, the S-II "gimbal plane" at S-II station 100 | Boeing 9253429; REF504 Fig 3-1 (§4) | **H** | Upgraded from L on 2026-10-17: the estimate (48.4 ± 1.0 m) was 3.21 m high. In the sim the lever arm to the CoM is now 15.0 m at S-II ignition and 30.5 m at OECO (11.8 and 27.3 m before), so control effectiveness is 27% higher at ignition and 12% at OECO. |
+| sivb_j2_gimbal | h 70.126 m | STA 2645.85, the S-IVB "top J-2 engine" at S-IVB station 100 | Boeing 9253429 (§4) | **H** | Upgraded from L on 2026-10-17: the estimate (71.7 ± 1.0 m) was 1.57 m high. It does lie 2.56 m below the S-IVB part's aft end (72.68 m), on the thrust structure in the aft interstage. In the sim the lever arm is now 10.8 m at ignition and 11.8 m at cutoff (9.2 and 10.2 m before): 17% and 15% more effectiveness. |
 
 **Outboard cant (S-IC)**
 
@@ -696,12 +703,14 @@ Each axis is a rate-limited position servo: |δ̇| ≤ the rate above, |δ| ≤ 
 | S-IC 105, band 1 → 2 | 1.270 | 0.9 → 0.45 | 0.170 → 0.120 | 0.41 → 0.37 | 0.77 → 0.98 | 6.3 |
 | S-IC 130, band 2 → 3 | 1.690 | 0.45 → 0.32 | 0.139 → 0.117 | 0.43 → 0.34 | 0.98 → 0.94 | 8.4 |
 | S-IC OECO (161.6) | 3.369 | 0.32 / 0.30 | 0.165 | 0.49 | 0.94 | 16.8 |
-| S-II ignition (164.0) | 0.366 | 1.12 / 1.9 | 0.102 | 0.54 | 1.70 | 2.6 |
-| S-II +60 s, band 2 | 0.427 | 0.65 / 1.1 | 0.084 | 0.45 | 1.69 | 3.0 |
-| S-II CECO (460.6) | 1.188 | 0.44 / 0.74 | 0.115 | 0.61 | 1.68 | 8.3 |
-| S-II OECO (548.0) | 2.675 | 0.44 / 0.74 | 0.173 | 0.91 | 1.68 | 18.7 |
-| S-IVB ignition (552.2) | 0.636 | 0.81 / 0.97 | 0.114 | 0.43 | 1.20 | 4.4 |
-| S-IVB cutoff (699.3) | 0.770 | 0.81 / 0.97 | 0.126 | 0.47 | 1.20 | 5.4 |
+| S-II ignition (164.0) | 0.469 | 1.12 / 1.9 | 0.115 | 0.61 | 1.70 | 3.3 |
+| S-II +60 s, band 2 | 0.540 | 0.65 / 1.1 | 0.094 | 0.50 | 1.69 | 3.8 |
+| S-II CECO (460.6) | 1.363 | 0.44 / 0.74 | 0.123 | 0.65 | 1.68 | 9.5 |
+| S-II OECO (548.2) | 2.590 | 0.44 / 0.74 | 0.170 | 0.90 | 1.68 | 18.1 |
+| S-IVB ignition (552.2) | 0.744 | 0.81 / 0.97 | 0.124 | 0.46 | 1.20 | 5.2 |
+| S-IVB cutoff (699.3) | 0.885 | 0.81 / 0.97 | 0.135 | 0.51 | 1.20 | 6.2 |
+
+The S-II and S-IVB rows were recomputed on 2026-10-17 with the published gimbal stations (§4), from the FER-calibrated model (§9) flown through the propellant model alone. With the former estimates they gave c 0.369 / 0.428 / 1.181 / 2.317 and 0.635 / 0.767 (S-II OECO now at the low EMR's 768 kN per engine). The S-IC rows and the inputs below are from the 2026-10-16 probe.
 
 Sim inputs used for the table:
 
@@ -709,11 +718,12 @@ Sim inputs used for the table:
 |---|---|
 | Iyy (kg m²) | 9.758e8 at release, 4.294e8 at S-IC OECO, 1.321e8 at S-II ignition, 3.42e7 at S-II OECO, 1.311e7 at S-IVB ignition, 1.201e7 at insertion |
 | CoM height (m) | 33.08 at release, 51.07 at S-IC OECO, 60.20 at S-II ignition, 76.06 at S-II OECO, 80.94 at S-IVB ignition, 81.96 at insertion |
+| S-II and S-IVB rows, 2026-10-17 model | CoM h 60.22 / 60.71 / 69.18 / 75.69 m and Iyy 1.318e8 / 1.183e8 / 7.240e7 / 3.618e7 kg m² at S-II ignition / +60 s / CECO / OECO; 80.93 / 81.93 m and 1.312e7 / 1.204e7 kg m² at S-IVB ignition / cutoff; gimbals at 45.187 and 70.126 m |
 
 Findings:
 
 1. **S-IC.** TN5869's schedule keeps the sim between 0.11 and 0.17 Hz, consistent with TN5869's "≈ 0.15 Hz" first-stage frequency. The steps at 105 s and 130 s are what hold it there. This supports the TN5869 gains, the sim inertia and the 5.461 m gimbal plane together (L-M).
-2. **S-IVB.** The 0.81/0.97 pair gives 0.11–0.13 Hz. Reaching 0.2 Hz would need a0 ≈ 2.0–2.5, and 0.5 Hz would need a0 ≈ 13–16. Either the pair is not the S-IVB burn-1 gain, or TN5869's 0.2–0.5 Hz covers TLI, where c rises as the stage empties. Unresolved (§7.5).
+2. **S-IVB.** The 0.81/0.97 pair gives 0.12–0.14 Hz (0.11–0.13 Hz with the former gimbal estimate). Reaching 0.2 Hz would need a0 ≈ 1.8–2.1, and 0.5 Hz would need a0 ≈ 11–13. Either the pair is not the S-IVB burn-1 gain, or TN5869's 0.2–0.5 Hz covers TLI, where c rises as the stage empties. Unresolved (§7.5).
 3. **Rate demand.** At these frequencies, actuator rates in response to 1° errors are below 1°/s, far from the 5–8°/s limits. Rate limits matter only for staging transients and engine-out.
 
 **Limits and command constraints**
@@ -865,7 +875,7 @@ Every published control-performance figure (FER maximum deflections, attitude er
 | per-axis clamp | F-1 ±0.08727 rad (outboard only); J-2 ±0.12217 rad (S-II outboard, S-IVB); centre engines never move | exact | §7.1 data (F-1 L, J-2 M) |
 | rate limit | 5°/s F-1; 8°/s S-II; 8°/s S-IVB placeholder | per step | data L / M-L / placeholder |
 | decoupling | unit βp, βy or βr gives torque only about its axis | off-axis below 1e-6 of on-axis | mixing geometry |
-| torque per deflection | τy = 4·F·L·sin β (S-IC, S-II), F·L·sin β (S-IVB), with the sim's own F, L and I. Sim α at full deflection: 3.9 / 2.6 / 4.4 °/s² at release / S-II ignition / S-IVB ignition | 0.5% against the formula | formula only: L depends on L-graded gimbal heights, so never compare with a published inertia |
+| torque per deflection | τy = 4·F·L·sin β (S-IC, S-II), F·L·sin β (S-IVB), with the sim's own F, L and I. Sim α at full deflection: 3.9 / 3.3 / 5.2 °/s² at release / S-II ignition / S-IVB ignition | 0.5% against the formula | formula only: the gimbal stations are H since §4's update, but the sim's CoM and inertia are not, so never compare with a published inertia |
 | cant geometry | after the ramp, each outboard thrust line is 2.000° inward (radial), the net lateral force and torque are 0, axial thrust is × 0.99939, and the start is at 20.6 s | 1e-6; start ± one step | cant axis definition (L); ramp shape is a placeholder, so test only the end state |
 | null holds | S-II engines at 0 until 162.30; S-IVB J-2 at 0 until 552.20 | exact | EH (M) |
 
@@ -878,7 +888,7 @@ Every published control-performance figure (FER maximum deflections, attitude er
 | ramp-tracking lag | — | (a1/a0) × rate: 0.77° at 1°/s (S-IC band 1), 1.70° (S-II band 1), 1.20° (S-IVB) | ±0.05° once settled | self-consistency. It holds exactly only with no disturbance torques, which is the case in the sim. |
 | kick damping | — | a 0.29°/s pitch and yaw kick after liftoff decays to below 0.015°/s within about 3 envelope time constants: 1/(ζωn) = 3.7 s, so about 11 s | factor 1.5 | same; replaces the stand-in test `testKillRotationDampsAKickWithTheStandIns` |
 | deflection in nominal no-wind flight | FER values unusable | below 1° except during command-rate changes and staging | sanity | no aero or misalignment, so any large deflection is a bug |
-| S-IVB control frequency | 0.2–0.5 Hz (TN5869) | 0.11–0.13 Hz with 0.81/0.97 | **do not test** | §7.5 conflict |
+| S-IVB control frequency | 0.2–0.5 Hz (TN5869) | 0.12–0.14 Hz with 0.81/0.97 | **do not test** | §7.5 conflict |
 
 **C. Commanded manoeuvres** (the test supplies the command profile until the IU item exists)
 
@@ -940,7 +950,7 @@ Every published control-performance figure (FER maximum deflections, attitude er
 - **F-1 gimbal rate:** 5°/s versus 5.25°/s or 10.5°/s implied by "5.25° in 1 s". Loaded or no-load is unknown for every stage.
 - **S-IC gain switches:** TN5869 has two switches (105 s, 130 s); EL says one switchpoint at 100 s. TN5869 calls its values "typical", not AS-506. *The SA-507 flight sequence ICD and the AS-508 timeline put FCC switch points 1 and 2 at T1 + 105.0 and 130.0 s (§8).*
 - **S-II gain rows:** ~~the stage assignment is inferred from band edges.~~ *Resolved (§8): TN5869 Table 3 labels them "Second Stage Propulsion Period".*
-- **S-IVB gains:** the 0.81/0.97 pair gives 0.11–0.13 Hz in the sim against TN5869's 0.2–0.5 Hz third-stage frequency. Either the pair or the frequency definition is misread. The S-IVB gimbal height (L, ±1 m) changes this by only ±5%.
+- **S-IVB gains:** the 0.81/0.97 pair gives 0.12–0.14 Hz in the sim against TN5869's 0.2–0.5 Hz third-stage frequency. Either the pair or the frequency definition is misread. The published gimbal station (§4) raised it from 0.11–0.13 Hz, which does not close the gap.
 - **Cant axis:** 2° radial (1.41° per actuator) versus 2° per actuator (2.83° radial).
 - **Cant purpose:** misalignment sensitivity (EL paraphrase) versus engine-out load relief (plausible, unsourced). The ramp rate and the hold-to-OECO are unknown.
 - **APS:**
@@ -953,7 +963,7 @@ Every published control-performance figure (FER maximum deflections, attitude er
   - Pre-restart ullage: 77 s versus "≈ 1 minute".
 - **EDS pitch/yaw overrate:** 3, 4 or 5°/s (≈ 9°/s later).
 - **Sim placement:** the flight tests' azimuth 72 (−z downrange) puts Position III downrange. This is harmless for symmetric tests but wrong for engine-out, APS-module and yaw-direction tests.
-- **S-IVB J-2 gimbal height:** 71.7 m (L) lies below the S-IVB part's aft end at 72.68 m (§4; L).
+- **S-IVB J-2 gimbal height:** ~~71.7 m (L) lies below the S-IVB part's aft end at 72.68 m (§4; L).~~ *Resolved (§4): the gimbal plane is at STA 2645.85 (h 70.126, Boeing 9253429), and it does hang 2.56 m below the aft skirt, on the thrust structure under the LOX tank's aft dome.*
 
 **Gaps (next research turn, highest value first)**
 
@@ -964,7 +974,7 @@ Every published control-performance figure (FER maximum deflections, attitude er
    - APS phase-plane switching line, hysteresis and minimum pulse;
    - powered-flight attitude-error limits;
    - APS module positions, stations and nozzle cant;
-   - J-2 gimbal stations (S-II and S-IVB).
+   - J-2 gimbal stations (S-II and S-IVB). *Found (§4): STA 1664 and 2645.85, Boeing 9253429.*
 3. A clean read of TN5869 Table 3 (all stages and time references).
 4. Primary F-1 gimbal limit, rate and pattern: SAE650304, TMX53532 Fig. 19, R-3896-1. S-IVB J-2 gimbal rate.
 5. Actuator bandwidth and dynamic-pressure-feedback parameters. Gimballed mass and inertia about the gimbal for the F-1 and J-2 (tail-wags-dog).
@@ -977,7 +987,7 @@ Every published control-performance figure (FER maximum deflections, attitude er
 - Every gain (TN5869 S-IC M as a reading but L for AS-506; S-II and S-IVB L); the roll gains (D5-15481-1, L); switch times.
 - F-1 gimbal limit (±5°, L) and rate (L); S-II rate (M-L); the S-IVB rate placeholder; any actuator dynamics.
 - Cant ramp rate and axis definition. The 2° angle and 20.6 s start (M) may be used only for the end state and the start time.
-- J-2 gimbal heights (S-II and S-IVB), and therefore every absolute torque, control frequency or angular acceleration. Test formulas against the sim's own mass properties, not published inertias.
+- Absolute torques, control frequencies and angular accelerations. The J-2 gimbal stations are H since §4's 2026-10-17 update, but the sim's CoM and inertias are not: test formulas against the sim's own mass properties, not published inertias.
 - APS module positions, radius, height, nozzle directions and cant. APS Isp (both values). APS switching-line K and minimum on-time. Per-module loads (equal split assumed) and the AS-507 proxy totals.
 - APS pre-restart ullage duration; the slingshot burn duration (lead only).
 - EDS pitch/yaw overrate thresholds, except as a loose sanity bound.
@@ -1467,7 +1477,7 @@ Not found online: TM X-53517 itself; TM X-53599 (range-safety aerodynamics, with
 
 | item | model | source | conf |
 |---|---|---|---|
-| reference | D = 396 in (10.058 m), S = π D²/4 = 79.46 m²; centre of pressure in calibers forward of the stage gimbal station: STA 100 for the S-IC configuration (H), STA 1664 for the S-II (the S-II gimbal, inferred) | TM X-53770, REF504 | H; S-II origin L |
+| reference | D = 396 in (10.058 m), S = π D²/4 = 79.46 m²; centre of pressure in calibers forward of the stage gimbal station: STA 100 for the S-IC configuration (H), STA 1664 for the S-II, the S-II gimbal plane (Boeing 9253429, §4) | TM X-53770, REF504 | H |
 | axial force, S-IC configuration | F_A = C_Af(M) q S + F_Ab. With the F-1s running, F_Ab = −0.798 (P_b − P∞) S, with P_b − P∞ against altitude; "base pressures … are more a function of altitude than Mach number" (D5 §2.3). With them off, F_Ab = C_Ab(M) q S. Both terms act along −x: the forebody term scales with cos α, the powered base term does not. | D5 Figs. 2-7 and 2-8; TM X-53770 Fig. 28 (power-off: a wind-tunnel model with base flow deflectors at a twentieth of flight Reynolds number, L for flight) | M |
 | base differential, below 1 km | −260 Pa at liftoff (the CoM 33 m up on the pad), −236 Pa by 10 s (the CoM at about 138 m); then interpolated to −1,030 Pa at 1 km. D5 says the base pressure follows range time up to about 1 km. | D5 Fig. 2-7 time panel (M); interpolation (L) | M–L |
 | normal force | C_N = C_Nα(M) sin α \|cos α\|, at X_cp(M); plus η C_dc A_p (sin²α − sin²4°) q beyond 4° at the planform centroid of the parts' bounding cylinders (η C_dc = 0.8: a generic slender body, Jorgensen, NASA TR R-474). TM X-53770 finds C_N linear to about ±2–4°. | REF504 Figs. 3-3 and 3-4 (= TM X-53517); crossflow L | M; crossflow L |

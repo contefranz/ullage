@@ -161,14 +161,60 @@ final class SaturnVDataTests: XCTestCase {
         XCTAssertEqual(span(v.parts.map(\.name)), 363 * ft, accuracy: 1e-9)
         XCTAssertEqual(span(["S-IC"]), 138 * ft, accuracy: 1e-9)
         XCTAssertEqual(2 * v.parts.map(\.radius).max()!, 33 * ft, accuracy: 1e-9)
-        // Consistent with the stations the datasheet chose: each upper stage's
-        // length includes the interstage below it, a convention picked to fit
-        // these News Reference lengths (the 281 ft is recalled; the model is
-        // 1 in over).
+        // Each upper stage's length includes the interstage below it, as
+        // MSFC-MAN-504 Figs 5-1 and 6-1 draw them (the S-II's 81-1/2 ft from
+        // STA 1541 to 2519; the S-IVB's 59.0 ft with its 19 ft aft
+        // interstage), against these News Reference lengths (the 281 ft is
+        // recalled; the model is 1 in over).
         XCTAssertEqual(span(["S-IC/S-II interstage", "S-II"]), 81.5 * ft, accuracy: 0.3)
         XCTAssertEqual(span(["S-II/S-IVB interstage", "S-IVB"]), (58 * 12 + 7) * inch, accuracy: 0.3)
         XCTAssertEqual(span(["S-IC", "S-IC/S-II interstage", "S-II", "S-II/S-IVB interstage", "S-IVB", "IU"]),
                        281 * ft, accuracy: 0.3)
+    }
+
+    // B7: the J-2s and the interfaces around them at their published
+    // stations. Independent (H): Boeing's Saturn V/Apollo configuration
+    // diagram (MSFC, 1967; NASA image 9253429) has the S-II "gimbal plane" at
+    // S-II station 100, STA 1664 (REF504 Fig 3-1 takes the same S-II gimbal
+    // station), and the S-IVB "top J-2 engine" at S-IVB station 100, STA
+    // 2645.85; the S-IC/S-II interstage from the S-IC forward skirt top, STA
+    // 1541 (also MSFC-MAN-504 Fig 5-1), to the second separation plane, STA
+    // 1760; the S-II's forward skirt top, STA 2519; the S-II/S-IVB separation
+    // plane, STA 2746.5 (both planes also MSFC-MAN-506 Fig 5-19). Derived (M):
+    // the nozzle exits 116 in below the gimbals, measured on the to-scale
+    // J-2 drawing of the News Reference's fact sheet, inside both
+    // interstages.
+    func testJ2GimbalsAtThePublishedStations() {
+        let v = VesselLibrary.saturnV()
+        func station(_ p: VesselPart, _ x: Double) -> Double { (p.offset.x + x - v.structureOrigin.x) / inch }
+        func ends(_ name: String) -> [Double] {
+            let p = part(v, name)
+            return [station(p, -p.length / 2), station(p, p.length / 2)]
+        }
+        for (name, expected) in [("S-IC/S-II interstage", [1541, 1760]), ("S-II", [1760, 2519]),
+                                 ("S-II/S-IVB interstage", [2519, 2746.5])] {
+            for (a, b) in zip(ends(name), expected) { XCTAssertEqual(a, b, accuracy: 1e-6, name) }
+        }
+        for (stage, gimbal) in [("S-II", 1664.0), ("S-IVB", 2645.85)] {
+            let p = part(v, stage)
+            let engines = p.thrusters.filter { $0.groups.contains(.main) }
+            XCTAssertEqual(engines.count, stage == "S-II" ? 5 : 1)
+            for e in engines {
+                XCTAssertEqual(station(p, e.position.x), gimbal, accuracy: 1e-6, e.name)
+                let bells = p.shapes.filter { s in
+                    guard case .frustum(let r0, _) = s.kind else { return false }
+                    return r0 < p.radius && s.origin.y == e.position.y && s.origin.z == e.position.z
+                }
+                XCTAssertEqual(bells.count, 1, e.name)
+                for b in bells {
+                    XCTAssertEqual(station(p, b.origin.x), gimbal - 116, accuracy: 1e-6, e.name)
+                    XCTAssertGreaterThan(station(p, b.origin.x), stage == "S-II" ? 1541 : 2519, e.name)
+                    XCTAssertEqual(station(p, b.origin.x + b.length), gimbal, accuracy: 1e-6, e.name)
+                }
+            }
+        }
+        // REF504's S-II centre-of-pressure origin is that gimbal plane.
+        XCTAssertEqual(AS506.aerodynamics[1].referenceStation / inch, 1664, accuracy: 1e-9)
     }
 
     // B1, B2: engine ratings.
