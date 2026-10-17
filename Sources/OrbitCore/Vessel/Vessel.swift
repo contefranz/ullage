@@ -351,15 +351,22 @@ public final class Vessel: Identifiable {
         return (f, tq)
     }
 
-    /// Draw each firing thruster's propellant for `dt`. Returns true if any
-    /// propellant was drawn (the centre of mass may have moved).
+    /// Draw each firing thruster's propellant for `dt`, then move the
+    /// engines' burn clocks and ramps on (once per step). Every engine's
+    /// step is fixed before any draws, so engines sharing a tank that runs
+    /// dry within it are treated alike. Returns true if any propellant was
+    /// drawn (the centre of mass may have moved).
     @discardableResult
     func consumePropellant(dt: Double) -> Bool {
+        let steps = thrusters.map { ($0, $0.output, $0.isCommanded) }
         var drew = false
-        for t in thrusters where t.massFlow > 0 {
-            t.draw(dt: dt)
-            drew = true
+        for (t, output, commanded) in steps {
+            if let o = output, o.fraction * o.rating.massFlow > 0 {
+                t.draw(dt: dt, output: o, commanded: commanded)
+                drew = true
+            }
         }
+        for t in thrusters { t.advanceTransients(dt: dt) }
         return drew
     }
 
@@ -386,9 +393,12 @@ public final class Vessel: Identifiable {
     /// Δv available from the active stage's main engines (rocket equation, vacuum
     /// Isp): the enabled mains burn together at full level until the first tank
     /// they draw from is down to its unusable mass. Effective Isp is ΣF / Σṁ.
+    /// Engines with a performance schedule follow it (`scheduledDeltaV`);
+    /// start and shutdown ramps are ignored.
     public var mainDeltaV: Double {
         guard let active = activeStage else { return 0 }
         let mains = active.thrusters.filter { $0.groups.contains(.main) && $0.isEnabled && $0.hasPropellant }
+        if mains.contains(where: { $0.schedule != nil }) { return scheduledDeltaV(mains) }
         var demand: [ObjectIdentifier: (tank: PropellantTank, rate: Double)] = [:]
         var flow = 0.0, thrust = 0.0
         for t in mains {
@@ -408,5 +418,40 @@ public final class Vessel: Identifiable {
         let burnTime = demand.values.map { $0.tank.usableMass / $0.rate }.min() ?? 0
         let m0 = mass
         return thrust / flow * log(m0 / (m0 - flow * burnTime))
+    }
+
+    /// `mainDeltaV` along the engines' schedules, from each one's burn clock:
+    /// the rocket equation over 0.5 s steps at the step's mid-point rates,
+    /// the last step cut where the first tank reaches its unusable mass.
+    func scheduledDeltaV(_ mains: [Thruster]) -> Double {
+        var left: [ObjectIdentifier: Double] = [:]
+        for t in mains { for tk in t.feed?.tanks ?? [] { left[ObjectIdentifier(tk)] = tk.usableMass } }
+        var m = mass, dv = 0.0, elapsed = 0.0
+        let h = 0.5
+        while m > 0 {
+            var flow = 0.0, thrust = 0.0, demand: [ObjectIdentifier: Double] = [:]
+            for t in mains {
+                guard let feed = t.feed else { continue }
+                let rating = t.rating(atBurnTime: t.burnTime + elapsed + h / 2), mdot = rating.massFlow
+                flow += mdot
+                thrust += rating.thrustVacuum
+                let r = rating.mixtureRatio ?? 0
+                switch feed {
+                case .single(let tk): demand[ObjectIdentifier(tk), default: 0] += mdot
+                case let .bipropellant(o, f):
+                    demand[ObjectIdentifier(o), default: 0] += mdot * r / (1 + r)
+                    demand[ObjectIdentifier(f), default: 0] += mdot / (1 + r)
+                }
+            }
+            guard flow > 0 else { break }
+            let s = demand.map { id, rate in rate > 0 ? (left[id] ?? 0) / (rate * h) : 1 }.min() ?? 0
+            let dt = h * max(0, min(1, s))
+            dv += thrust / flow * log(m / (m - flow * dt))
+            m -= flow * dt
+            for (id, rate) in demand { left[id, default: 0] -= rate * dt }
+            elapsed += dt
+            if s < 1 { break }
+        }
+        return dv
     }
 }

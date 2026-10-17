@@ -5,10 +5,11 @@ procedurally realistic Apollo and Space Shuttle missions.
 
 This is **milestone M0** (the physics core and a Metal viewer, flown with a
 generic two-stage test rocket and capsule) plus the first M1 items: Apollo 11's
-Saturn V stack, its engine gimballing and thrust vector control, and the first
-half of its Instrument Unit flight program, which flies the S-IC's attitude
-programs and the whole staging sequence (guidance for the upper stages comes
-next). See [docs/ROADMAP.md](docs/ROADMAP.md) for the path to Apollo and the
+Saturn V stack, with its propulsion and masses calibrated to AS-506's flight
+evaluation report, its engine gimballing and thrust vector control, and the
+first half of its Instrument Unit flight program, which flies the S-IC's
+attitude programs and the whole staging sequence (guidance for the upper stages
+comes next). See [docs/ROADMAP.md](docs/ROADMAP.md) for the path to Apollo and the
 Shuttle.
 
 ## Build and run
@@ -76,7 +77,7 @@ program at its command rate limits: 1°/s until the S-IVB cutoff, 0.4°/s
 (0.6°/s in roll) after it. Iterative guidance is not modelled
 yet, so after the S-IC the IU holds the attitude it had when the tilt was
 arrested, and the S-IVB, cut off after Apollo 11's burn time, ends suborbital:
-it coasts up to about 760 km and comes down about 42 minutes after liftoff
+it coasts up to about 705 km and comes down about 40 minutes after liftoff
 unless you burn it again (Z).
 
 ## How it works

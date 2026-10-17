@@ -232,4 +232,155 @@ final class PropulsionModelTests: XCTestCase {
         XCTAssertEqual(stage.tanks[1].mass, 200)
         XCTAssertEqual(v.velocity.dot(x), expected, accuracy: 0.02 * 1.8e6 / v.mass)
     }
+
+    /// One engine on large tanks, stepped by hand like `Vessel.consumePropellant`.
+    func engine(_ transients: EngineTransients? = nil, unusable: Double = 0) -> (Thruster, PropellantTank, PropellantTank) {
+        let ox = PropellantTank(name: "Ox", capacity: 100_000, unusableMass: unusable)
+        let fuel = PropellantTank(name: "Fuel", capacity: 100_000)
+        let e = Thruster(name: "E", position: .zero, direction: .unitX, rating: Toy.engine,
+                         feed: .bipropellant(oxidizer: ox, fuel: fuel), groups: [.main])
+        e.transients = transients
+        e.level = 1
+        return (e, ox, fuel)
+    }
+
+    func step(_ e: Thruster, _ n: Int, impulse: inout Double) {
+        for _ in 0..<n {
+            impulse += e.thrust(ambientPressure: 0, seaLevelPressure: 0) * 0.02
+            if e.massFlow > 0 { e.draw(dt: 0.02) }
+            e.advanceTransients(dt: 0.02)
+        }
+    }
+
+    // A6: a performance schedule scales thrust and flow along the burn clock
+    // and moves the mixture ratio, on the same nozzle (the pressure loss stays
+    // p A_e). It holds beyond its last knot, and the clock restarts when the
+    // engine is lit again.
+    func testPerformanceScheduleFollowsTheBurnClock() {
+        let (e, ox, fuel) = engine()
+        e.schedule = PerformanceSchedule([.init(time: 0, thrustFactor: 1, flowFactor: 1, mixtureRatio: 2.5),
+                                          .init(time: 10, thrustFactor: 1.1, flowFactor: 1.05, mixtureRatio: 3.0)])
+        var impulse = 0.0
+        step(e, 250, impulse: &impulse)   // 5 s
+        XCTAssertEqual(e.burnTime, 5, accuracy: 1e-9)
+        XCTAssertEqual(e.maxThrustVacuum, 1.05e6, accuracy: 1e-3)
+        XCTAssertEqual(e.currentRating.massFlow, Toy.engine.massFlow * 1.025, accuracy: 1e-9)
+        XCTAssertEqual(e.currentRating.mixtureRatio ?? 0, 2.75, accuracy: 1e-12)
+        XCTAssertEqual(e.currentRating.impliedExitArea, 0.8, accuracy: 1e-9)
+        XCTAssertEqual(e.thrust(ambientPressure: 101_325, seaLevelPressure: 101_325), 1.05e6 - 101_325 * 0.8,
+                       accuracy: 1e-3)
+        // Propellant and impulse so far: the integrals of the schedule
+        // (each 0.02 s step at its start value, so within half a step's change).
+        var oxExpected = 0.0, fuelExpected = 0.0
+        for k in 0..<50_000 {
+            let t = (Double(k) + 0.5) * 1e-4, mdot = Toy.engine.massFlow * (1 + 0.005 * t), r = 2.5 + 0.05 * t
+            oxExpected += mdot * r / (1 + r) * 1e-4
+            fuelExpected += mdot / (1 + r) * 1e-4
+        }
+        XCTAssertEqual(100_000 - ox.mass, oxExpected, accuracy: oxExpected * 2e-4)
+        XCTAssertEqual(100_000 - fuel.mass, fuelExpected, accuracy: fuelExpected * 2e-4)
+        XCTAssertEqual(impulse, 1e6 * (5 + 0.01 * 12.5), accuracy: 1e6 * 5 * 2e-4)
+        step(e, 500, impulse: &impulse)   // 15 s
+        XCTAssertEqual(e.maxThrustVacuum, 1.1e6, accuracy: 1e-3)
+        e.level = 0
+        e.advanceTransients(dt: 0.02)
+        XCTAssertEqual(e.burnTime, 0)
+        e.level = 1
+        XCTAssertEqual(e.maxThrustVacuum, 1e6, accuracy: 1e-6)
+        XCTAssertEqual(e.currentRating.mixtureRatio ?? 0, 2.5, accuracy: 1e-12)
+    }
+
+    // A7: a start ramp. The engine is commanded (it counts as lit for the
+    // controls) but gives nothing for the delay, then rises linearly; sampled
+    // at each step's middle, the start impulse and propellant are exactly
+    // half the rise at full thrust.
+    func testStartRampDelaysThenRaisesThrust() {
+        let (e, ox, fuel) = engine(EngineTransients(startDelay: 0.5, startRise: 1.0))
+        var impulse = 0.0
+        step(e, 24, impulse: &impulse)    // the next step, 0.48-0.50 s, is the last of the delay
+        XCTAssertTrue(e.isCommanded)
+        XCTAssertFalse(e.isDelivering)
+        step(e, 1, impulse: &impulse)
+        XCTAssertEqual(impulse, 0)
+        XCTAssertTrue(e.isDelivering)
+        step(e, 125, impulse: &impulse)   // to 3 s
+        XCTAssertEqual(impulse, 1e6 * (3 - 0.5 - 0.5), accuracy: 1e-3)
+        XCTAssertEqual(200_000 - ox.mass - fuel.mass, Toy.engine.massFlow * 2, accuracy: 1e-6)
+        XCTAssertEqual(e.thrust(ambientPressure: 0, seaLevelPressure: 0), 1e6)
+    }
+
+    // A8, a relight during the decay: a cut engine runs its shutdown ramp to
+    // the end before it can start again (0.3 s of full thrust here, however
+    // soon it is commanded), then starts with its full start ramp.
+    func testRelightWaitsForTheShutdownRamp() {
+        let (e, _, _) = engine(EngineTransients(startDelay: 0.2, startRise: 0.4, shutdown: 0.6))
+        var impulse = 0.0
+        step(e, 50, impulse: &impulse)
+        e.level = 0
+        impulse = 0
+        step(e, 5, impulse: &impulse)
+        e.level = 1
+        XCTAssertFalse(e.isCommanded)
+        XCTAssertTrue(e.isDelivering)
+        step(e, 25, impulse: &impulse)
+        XCTAssertEqual(impulse, 1e6 * 0.3, accuracy: 1e-3)
+        XCTAssertFalse(e.isDelivering)
+        XCTAssertTrue(e.isCommanded)
+        impulse = 0
+        step(e, 30, impulse: &impulse)
+        XCTAssertEqual(impulse, 1e6 * 0.2, accuracy: 1e-3)
+        XCTAssertEqual(e.burnTime, 0.6, accuracy: 1e-9)
+    }
+
+    // A8: a shutdown ramp. Cut off (here disabled, as the IU cuts an engine)
+    // or run dry, the engine falls linearly from full to zero over the ramp:
+    // half the ramp of full-thrust impulse, drawing the tail-off propellant
+    // from below the unusable mass. It is no longer commanded, so the IU
+    // senses the cutoff at once.
+    func testShutdownRampAfterCutoffAndDepletion() {
+        let (e, ox, fuel) = engine(EngineTransients(shutdown: 0.6), unusable: 300)
+        var impulse = 0.0
+        step(e, 50, impulse: &impulse)
+        let (ox1, fuel1) = (ox.mass, fuel.mass)
+        e.isEnabled = false
+        impulse = 0
+        XCTAssertFalse(e.isCommanded)
+        XCTAssertTrue(e.isDelivering)
+        step(e, 50, impulse: &impulse)
+        XCTAssertEqual(impulse, 1e6 * 0.3, accuracy: 1e-3)
+        XCTAssertEqual(ox1 + fuel1 - ox.mass - fuel.mass, Toy.engine.massFlow * 0.3, accuracy: 1e-6)
+        XCTAssertFalse(e.isDelivering)
+
+        // Run dry: the depleting step runs to its end, then the ramp draws
+        // below the oxidizer's unusable 300 kg (never below zero).
+        let (d, dOx, _) = engine(EngineTransients(shutdown: 0.6), unusable: 300)
+        dOx.mass = 300 + Toy.engine.massFlow * 2.5 / 3.5 * 1.01   // 1.01 s of oxidizer
+        var dImpulse = 0.0
+        step(d, 51, impulse: &dImpulse)   // the 51st step runs dry
+        XCTAssertFalse(d.hasPropellant)
+        XCTAssertEqual(dOx.mass, 300)
+        dImpulse = 0
+        step(d, 50, impulse: &dImpulse)
+        XCTAssertEqual(dImpulse, 1e6 * 0.3, accuracy: 1e-3)
+        XCTAssertEqual(300 - dOx.mass, Toy.engine.massFlow * 2.5 / 3.5 * 0.3, accuracy: 1e-6)
+    }
+
+    // A9: the HUD's Δv follows a schedule: a free-space burn to depletion
+    // with flow rising 10 % and thrust 12 % achieves it.
+    func testMainDeltaVFollowsTheSchedule() throws {
+        let stage = Toy.stage()
+        for e in stage.thrusters {
+            e.position = Vec3(-10, 0, 0)
+            e.schedule = PerformanceSchedule([.init(time: 0, thrustFactor: 1, flowFactor: 1),
+                                              .init(time: 60, thrustFactor: 1.12, flowFactor: 1.1)])
+        }
+        let v = Vessel(name: "Toy", parts: [stage], reference: VesselLibrary.placeholderBody)
+        let expected = v.mainDeltaV
+        let sim = try Simulation.forTests(perturbations: false)
+        sim.add(v)
+        let x = sim.placeInFreeSpace(v)
+        v.mainThrottle = 1
+        for _ in 0..<10_000 where stage.thrusters[0].hasPropellant { sim.tick() }
+        XCTAssertEqual(v.velocity.dot(x), expected, accuracy: expected * 1e-3)
+    }
 }

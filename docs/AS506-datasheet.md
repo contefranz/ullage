@@ -2,7 +2,7 @@
 
 Compiled on 2026-10-15 for M1 item 1 (the Saturn V stack) from web research in four categories: launch-vehicle masses and timeline, propulsion, geometry and aero, and spacecraft. Each category was independently re-verified, then reconciled here. `Sources/OrbitCore/Vessel/AS506Data.swift` holds the values the simulator uses, with the same sources and confidence grades.
 
-**Limits.** The NASA documents could not be fetched directly; values come from search extracts of them, from arithmetic on those values, or (marked **recalled**) from memory without a check against the source. The SP-4029 S-II and S-IVB propellant-usage rows and the FER mass tables are still unread; they are the most valuable follow-up. *Update (§8, 2026-10-16): the FER was then read directly; §8.7 lists its values that bear on §1–§7, not yet applied here.*
+**Limits.** The NASA documents could not be fetched directly; values come from search extracts of them, from arithmetic on those values, or (marked **recalled**) from memory without a check against the source. The SP-4029 S-II and S-IVB propellant-usage rows and the FER mass tables are still unread; they are the most valuable follow-up. *Update (§8, 2026-10-16): the FER was then read directly; §8.7 lists its values that bear on §1–§7. Update (§9, 2026-10-17): the model's propulsion and masses are now calibrated to the FER. §9 supersedes, for the model, the derived masses of §1.1, the S-II and S-IVB engine rows of §1.2 and §1.3 and §1.7's decision 7, all of §2, the flight rows of §3 and targets A and B of §5, which stay here as the pre-FER record.*
 
 ## Conventions
 
@@ -98,11 +98,11 @@ Read from `Sources/OrbitCore` as of M0, before the stack was built. Since then t
 | S-IC OECO | 161.63 | SUM, MR (161.7) | H | Triggered by the LOX low-level sensors (depletion). |
 | S-IC/S-II separation | 162.30 | AP | H | |
 | S-II engine start command | 163.04 | TL, MR | H | |
-| S-II burn reference start (≈ mainstage) | 164.00 | PU, AP durations | M | **The sim ignites the J-2s here at full thrust.** |
+| S-II engine start (solenoids, STDV open) | 164.00 | PU, AP durations; FER Table 2-2 | M-H | The sim starts the J-2s' ramp here; mainstage at 166.2 s (FER Table 2-2; §9.2). *Pre-FER: the sim ignited them here at full thrust.* |
 | S-II aft interstage jettison | 192.3 | TL | H | |
 | LET jettison | 197.9 | TL, AFJ | M-H | |
 | S-II CECO | 460.62 | AP, TL | H | 460.75 in the statistical tables; 462 in the AFJ. |
-| S-II EMR shift (high → low) | 491 | DLR citing FER Fig. 6-3 | L-M | Chosen over 502 s, which is the crew/MCC voice report and an upper bound. The FER says the shift was 9.5 s later than the final prediction. |
+| S-II EMR shift (high → low) | 491 | DLR citing FER Fig. 6-3 | L-M | Chosen over 502 s, which is the crew/MCC voice report and an upper bound. The FER says the shift was 9.5 s later than the final prediction. *Pre-FER; the FER has the command at 494.8 s and the PU valve step at 497.60 s (§9.2).* |
 | S-II OECO | 548.22 | SUM, MR | H | Triggered by LOX low-level sensors, 3.5 s earlier than predicted (FER Table 2-2; the 0.55 s late is the S-IC OECO's). |
 | S-II/S-IVB separation | 549.00 | AP | H | |
 | S-IVB ignition | 552.20 | MR, PU | H | The SP-4029 "start command" at 549.00 is a sequence start. |
@@ -126,9 +126,9 @@ Read from `Sources/OrbitCore` as of M0, before the stack was built. Since then t
 | f1_gimbal_limit | ±5° (0.0873 rad) per actuator axis, 5 °/s | | EH 8.13 | L | One secondary source. The 5.25° and 6° of other sources are read as the actuator stop and the bearing envelope (§7.1). The centre engine is fixed. |
 | j2_rated_emr5.5 | 1,023,091 N, Isp_vac 425 s, 245.474 kg/s | 230,000 lbf | NTRS 20100032986, J-2X heritage paper | H (thrust), M (Isp) | Chosen over 232,250 / 228,000 / 225,000 lbf. It reproduces 1.82 g at S-II CECO (§2.4). |
 | j2_emr_range (PU valve) | 4.5 (full open) … 5.5 (closed) | | EH | M | |
-| s_ii_low_emr | 4.7 | | TIS-501 | L | AS-506 value not found. EH's 4.3 lies below the PU hardware limit. With a 491 s shift, 4.7 closes the LOX budget (§2). |
-| s_ivb_burn1_thrust | 901,223 N | 202,603 lbf | TDiA (presumably the FER, ESC+137 s) | M | EMR ≈ 5.0 (PU null). FER: +0.20% thrust and +0.05% Isp versus prediction. |
-| j2_isp_vac_emr5.0 | 427 s | | Braeunig (via researcher) | L-M | Gives burn-1 consumption 31,665 kg, consistent with the Δv budget (§5). |
+| s_ii_low_emr | 4.7 (pre-FER; FER 4.34, §9.2) | | TIS-501 | L | AS-506 value not found. EH's 4.3 lies below the PU hardware limit. With a 491 s shift, 4.7 closes the LOX budget (§2). |
+| s_ivb_burn1_thrust | 901,223 N | 202,603 lbf | TDiA; FER Table 7-1 (STDV + 137 s, standardised) | H | EMR ≈ 5.0 (PU null); the model uses Figure 7-2's 903 kN at EMR 4.85 (§9.2). FER: +0.20% thrust and +0.05% Isp versus prediction. |
+| j2_isp_vac_emr5.0 | 427 s | | Braeunig (via researcher) | L-M | Gives burn-1 consumption 31,665 kg, consistent with the Δv budget (§5). Pre-FER: FER Table 7-1 gives 4,204 N·s/kg (428.7 s); the model's flow is Table 20-9's (§9.2). |
 | s_ivb_tli_thrust | 894,364 N | 201,061 lbf | TDiA | M | M2 only. |
 | j2_throat / area ratio | 0.37338 m / 27.5 | 14.7 in | SP-8120; Wikipedia, Purdue | H / H | The geometric exit area of 3.011 m² (Ø 1.958 m) is derived. The Wikipedia sea-level figures (486 kN, 200 s) are refuted. |
 | j2_gimbal_limit (S-II outboard, S-IVB) | ±7° (0.1222 rad) per actuator axis | | EH 8.20; EH 8.30, Haynes | M | S-IVB: "7.0° square pattern" (§7.1). |
@@ -190,7 +190,7 @@ Read from `Sources/OrbitCore` as of M0, before the stack was built. Since then t
 4. **F-1 flight thrust.** Adopted the flight-matched flow (§3), which is +2.2% over rated. The verifier showed that 3.94 g implies about 1.79 Mlbf per engine. Rejected 9.18 Mlbf.
 5. **Nozzle exits.** Refuted the 12.2 ft F-1 exit and the Wikipedia J-2 sea-level thrust and Isp; chose areas derived from thrust and geometry.
 6. **J-2 per-engine basis.** Chose 230,000 lbf; the 1,161,250 lbf S-II total (5 × 232,250) is dropped.
-7. **S-II EMR.** Downgraded the "5.5 s PU activation" from H to L (it is an AS-501 document). Chose low EMR 4.7 over 4.3 (below the hardware limit) and the shift at 491 s over 502 s.
+7. **S-II EMR.** Downgraded the "5.5 s PU activation" from H to L (it is an AS-501 document). Chose low EMR 4.7 over 4.3 (below the hardware limit) and the shift at 491 s over 502 s. *Superseded by the FER (§9.2): High EMR Select at ESC + 5.5 s, the PU valve step at 497.60 s, low EMR 4.34.*
 8. **Spacecraft total.** Relabelled "at ground ignition"; it is identical at liftoff. Read 100,756 lb as post-LES and including the SLA (verifier), hence LES = 8,890 lb. The CM value of 12,250 lb may be the predicted figure (verifier). Chose SM 51,243 lb over MOR's 51,160 lb because CSM = 28,800 kg matches the recalled as-flown CSM mass. The LM is set by closure.
 9. **Interstage bookkeeping.** The verifier showed the researcher's labels were self-contradictory. Chose "each upper-stage length includes the interstage below it", with the S-II/S-IVB separation plane at STA 2746.5 (recalled, L). The OWS-based alternative is kept in §6.
 10. **Solid-motor propellant.** S-IC retro 278 lb and S-IVB ullage 58.7 lb (verifier impulse checks). LES escape-motor thrust, burn time and propellant are mutually inconsistent (Isp ≈ 100 s). This is not needed for a nominal flight.
@@ -200,6 +200,8 @@ Read from `Sources/OrbitCore` as of M0, before the stack was built. Since then t
 ---
 
 ## 2. Mass accounting for the sim
+
+*Pre-FER record, superseded for the model by §9.1 and §9.4 (2026-10-17).*
 
 ### 2.1 Parts
 
@@ -323,6 +325,8 @@ The pair (491 s, EMR 4.7) is not unique. (502 s, EMR 4.55) also closes the LOX b
 
 ## 3. Engine performance (self-consistent sets)
 
+*The "flight" rows and the solid-motor choices below are the pre-FER record; the model's engines are in §9.2 (2026-10-17). The rated rows still serve as references.*
+
 For the F(p) model, Isp_SL is chosen so that F_vac − F_SL = p0 × Ae_eff. "Flight" rows are what the sim should use.
 
 | engine / mode | role in sim | F_vac (N) | F_SL (N) | Isp_vac (s) | Isp_SL (s) | mdot (kg/s) | MR | ox / fuel (kg/s) | basis | conf |
@@ -432,6 +436,8 @@ Set each part's `offset.x` to its CoM in the vessel frame. Midpoints are accepta
 - Velocities are **space-fixed (inertial)**, which matches the ICRF state.
 - The "sim expectation" column comes from the §2/§3 definition.
 
+*Targets A and B are the pre-FER record; the model is now tested against the FER's event masses and accelerations (§9.4, §9.6). Target C still holds; its separation row's sim value is the recalibrated model's (§9.4).*
+
 **A. Vehicle definition (static; exact)**
 
 | target | value | tolerance | why |
@@ -467,8 +473,8 @@ Set each part's `offset.x` to its CoM in the vessel frame. Midpoints are accepta
 | Mach 1 (66.3) | time | 66.3 s | ±3 s | US-1976 versus July sound speed (Mach 1.04 in US-1976 at the published state). |
 | max Q (83.0) | time; value | 83.0 s; 35,200 Pa | ±5 s; 28–36 kPa | US-1976 under-predicts by about 12%; sim Cd is a placeholder. |
 | S-IC CECO (135.2) | V_inertial; altitude | 1,979.0 m/s; 44.0 km (geodetic) | ±50 m/s; ±2.5 km | Pitch-program dependent. |
-| S-IC OECO (161.63) | V_inertial; r; γ_inertial | 2,764.1 m/s; 6,439.33 km; 19.11° | ±40 m/s; ±2.5 km; ±1.5° | Drag (placeholder Cd), pitch program, +1.7% early thrust. |
-| S-IC/S-II separation (162.30) | V_inertial | 2,773.9 m/s | sim expected ≈ 2,762 m/s; ±40 | No tail-off in the sim: −11.9 m/s is expected. |
+| S-IC OECO (161.63) | V_inertial; r; γ_inertial | 2,764.1 m/s; 6,439.33 km; 19.11° | ±40 m/s; ±2.5 km; ±1.5° | Drag (placeholder Cd), pitch program, the model's low-altitude climb (§9.5). |
+| S-IC/S-II separation (162.30) | V_inertial | 2,773.9 m/s | sim 2,754.8 m/s; ±40 | The F-1 decay and the S-II ullage motors add 10.7 m/s from OECO (FER 9.8; §9.4). |
 | S-II CECO (460.62) | V_inertial; r; γ | 5,707.5 m/s; 6,552.65 km; 0.897° | ±50 m/s; ±3 km; ±0.5° | Guidance. |
 | S-II OECO (548.22) | V_inertial; r; γ | 6,916.2 m/s; 6,559.55 km; 0.619° | ±50 m/s; ±3 km; ±0.5° | Guidance; the published value is 22.8 m/s below the AS-506 nominal. |
 | insertion (709.33) | V_inertial; r; γ | 7,793.1 m/s; 6,563.05 km; 0.012° | ±3 m/s; ±1.5 km; ±0.05° | Guidance closes the loop. The table's altitude noise is about 0.05 n mi. |
@@ -481,19 +487,19 @@ Set each part's `offset.x` to its CoM in the vessel frame. Midpoints are accepta
 **Unresolved conflicts**
 
 - **S-II/S-IVB separation-plane station.** STA 2746.5 (recalled; aft interstage 5.78 m) versus about 2646 (Skylab OWS ≈ 48 ft lead). Which stage length contains the aft interstage is not documented in the inputs.
-- **S-II EMR shift and low EMR.** (491 s, 4.7) versus (502 s, ≈ 4.55); AS-501's 4.7, EH's 4.3 and the 4.5 hardware limit. *Resolved by the FER (§8.7): commanded at 494.8 s, shifted at 498.0 s, average low EMR 4.34; the model keeps (491 s, 4.7) until the S-II is recalibrated.*
+- **S-II EMR shift and low EMR.** (491 s, 4.7) versus (502 s, ≈ 4.55); AS-501's 4.7, EH's 4.3 and the 4.5 hardware limit. *Resolved by the FER (§8.7): commanded at 494.8 s, shifted at 498.0 s, average low EMR 4.34; applied in §9.2.*
 - **F-1 liftoff thrust.** 7,648,000 versus 7,552,000 lbf (bases unknown). The 9,180,000 / 9,088,419 lbf "max" figures are physically implausible for this engine model.
 - **First-engine ignition.** −6.4 versus −6.1 s. All-engines-running at −1.6 versus −1.92 s.
 - **Spacecraft breakdown.** CM predicted versus as-flown, SM 51,243 versus 51,160, LM 33,218 (by closure) versus 33,200, SLA predicted only.
 - **LES escape motor.** 147,000 versus 155,000 lbf; propellant 4,700 lb against the burn time.
 - **Other figures.** SPS thrust/Isp pair; APS loads (O/F 1.30, superseded by the FER-507 proxy in §7.3); R-4D Isp; S-IVB ullage thrust 3,390–3,460 lbf; S-IC retro 0.6–0.667 s.
-- **S-IVB acceleration at cutoff.** 0.69 g against T/m of 0.680 g. FER insertion mass 135,669 kg against the 135,095 kg budget.
+- **S-IVB acceleration at cutoff.** 0.69 g against T/m of 0.680 g. FER insertion mass 135,669 kg against the 135,095 kg budget. *Resolved by the FER (§9.4, §9.5): 135,102 kg at the end of the first thrust decay (Table 20-5), and Table 4-1's 6.73 m/s² exceeds the FER's own thrust over mass.*
 
 **Gaps (next research turn, highest value first)**
 
 1. SP-4029 Propellant Usage, S-II and S-IVB rows: consumption, at-cutoff amounts, mixture ratio. These would replace the §2.2 S-II and S-IVB model loads.
-2. FER mass characteristics: the flight-sequence mass summary (masses at CECO, OECO, S-II ignition, jettisons, S-IVB ignition and cutoff), CG and inertias, and the event table (EMR shift, tilt arrest).
-3. As-flown liftoff mass, or the ignition-to-release consumption. The sim's −2.625 s ignition depends on the predicted 85,745 lb.
+2. FER mass characteristics: the flight-sequence mass summary (masses at CECO, OECO, S-II ignition, jettisons, S-IVB ignition and cutoff), CG and inertias, and the event table (EMR shift, tilt arrest). *Read (§8, §9.1, §9.4): Tables 2-2, 20-1, 20-3, 20-5, 20-7, 20-9; CG and inertias (Table 20-10) not used yet.*
+3. As-flown liftoff mass, or the ignition-to-release consumption. The sim's −2.625 s ignition depends on the predicted 85,745 lb. *Resolved (§9.1): 2,899,008 kg at first motion and 39,307 kg of thrust buildup (FER Tables 20-1, 20-9); the sim starts at first motion.*
 4. MSFC-MAN-503 station diagram: datum, S-IVB separation plane, tank stations, gimbal planes, nozzle protrusions, fin span.
 5. Saturn V aerodynamics: CA(M) with its reference area, centre of pressure, CN_α.
 6. Apollo 11 Mission Report mass properties: CM, SM, LM, SLA, LES as flown; SPS and RCS loads.
@@ -1015,9 +1021,9 @@ AS-506's own guidance presettings (its *Operational Trajectory* and *Flight Sequ
 | T0 | −16.97 | guidance reference release | fixes the space-fixed frame (T1 − 17.60 s) |
 | T1 | 0.63 | IU umbilical disconnect | first motion + 0.33 s |
 | T2 | 135.27 | S-IC CECO sensed by the LVDC | the step after the centre engine is cut (135.22) |
-| T3 | 161.66 | S-IC OECO sensed | the step after LOX depletion (161.64) |
-| T4 | 548.24 | S-II OECO sensed | the step after LOX depletion (548.30): the J-2s light at T3 + 2.4 = 164.04 s, and the S-II model was calibrated to deplete at 548.22 s from a 164.00 s start |
-| T5 | 699.57 | S-IVB velocity cutoff sensed | two steps after the cutoff command at T4 + 151.10 (699.40, then 699.44) |
+| T3 | 161.66 | S-IC OECO sensed | at LOX depletion, 161.64 (§9) |
+| T4 | 548.24 | S-II OECO sensed | at LOX depletion, 548.24: the J-2s start at T3 + 2.4 = 164.04 s; from a 164.00 s start the S-II depletes at 548.16 s (§9.4) |
+| T5 | 699.57 | S-IVB velocity cutoff sensed | two steps after the cutoff command at T4 + 151.10 (699.34, then 699.38) |
 
 The model senses each cutoff one or two integration steps (0.02–0.04 s) after it; the LVDC took 0.03–0.23 s. When a time base starts, the IU drops the earlier bases' pending events, as the LVDC moved to the new base's switch-selector table.
 
@@ -1030,29 +1036,33 @@ Offsets are vehicle time from the time base, from FER Table 2-2 unless marked; t
 | S-IC flight-control gains, band 1 | T1 + 0 | — | §7.2 schedule (TN5869, L); roll a0 0.245, a1 0.15 s throughout the S-IC (REF504, L) |
 | tower-clearance yaw on | T1 + 1.0 | 1.7 | chi_Z = 1.25° at 1°/s, "starting at 1.39 seconds from first motion" (MAN506); GE504 the same |
 | yaw command back to zero | T1 + 8.75 (GE504) | 9.7 (end of manoeuvre) | "ramped back to zero degrees 9 seconds later" (MAN506): at 1°/s the manoeuvre ends at T1 + 10.0, the FER's predicted end; the FER's actual T1 + 9.0 is "accurate to a major computation cycle". |
-| roll and pitch programs | rise of 137 m, or T1 + 13.0 | 13.2 (T1 + 12.6; FER predicted 13.1, MAN506 11.9) | GE504 §4.1.2. The model reaches 137 m at T1 + 10.4 (§8.5). |
+| roll and pitch programs | rise of 137 m, or T1 + 13.0 | 13.2 (T1 + 12.6; FER predicted 13.1, MAN506 11.9) | GE504 §4.1.2. The model reaches 137 m at T1 + 10.7 (§8.5). |
 | S-IC outboard cant | T1 + 20.0 | 20.6 | 2° radial, 0.2°/s ramp (§7.1; ramp is a placeholder) |
 | S-IC gains, bands 2 and 3 | T1 + 105.0, T1 + 130.0 | — | FCC switch points 1 and 2 (ICD507, M); band 3 is a0 0.32, a1 0.30 (TN5869 page image) |
 | S-IC CECO | T1 + 134.56 | 135.20 | commanded by the IU (FER §5.1) |
 | tilt arrest | T1 + 159.37 | 160.0 (T2 + 24.7; predicted T2 + 25.5; MAN506 T2 + 25.0) | SA-504's preset was 153.0 s. Part of the pitch program on T1, so it holds through T2. |
 | S-IC OECO | LOX depletion | 161.63 | propellant model; the IU sets the throttle to 0 at T3 so the S-II does not light at separation |
+| S-II ullage motors on | T3 + 0.5 | 162.1 | the four solids on the interstage, 3.75 s each (§9.2) |
 | S-IC/S-II separation | T3 + 0.7 | (command) 162.3 | |
-| S-II ignition and gains, band 1 | T3 + 2.4 | 164.0 | engine solenoid activation; the model lights the J-2s at full thrust here (§1.2); roll a0 0.25, a1 0.20 s throughout the S-II (REF504, L) |
+| S-II ignition and gains, band 1 | T3 + 2.4 | 164.0 | engine solenoid activation: the J-2s' start ramp reaches mainstage at 166.2 s (§9.2); roll a0 0.25, a1 0.20 s throughout the S-II (REF504, L) |
+| S-II ullage motors off | T3 + 4.4 | 166.1 | the FER's "burn termination" (thrust at 75 %); the model's motors have burned out at 3.75 s |
+| S-II high EMR select | T3 + 6.9 | 168.5 | ESC + 5.5 s: the PU system takes the J-2s from their start setting (EMR 5.0) to high EMR (§9.2) |
 | aft interstage jettison | T3 + 30.7 | 192.3 | |
 | LET jettison | T3 + 36.2 | 197.9 | |
 | IGM phase 1 | T3 + 42.4 (logged) | 204.1 | part 2; the model holds the attitude of the tilt arrest |
 | S-II gains, bands 2 and 3 | T3 + 61.4, T3 + 191.4 | — | FCC switch points 3 and 4 (ICD507, page images; M) |
 | S-II CECO | T3 + 299.0 | 460.6 | |
-| S-II EMR shift | T3 + 329.37 (the model's 491.0 s) | command 494.8, shift 498.0 | See §8.7: kept at the propulsion model's calibration. |
-| S-II OECO | LOX depletion | 548.22 | propellant model (548.28 with the J-2s lit at 164.04, §8.2) |
+| EMR shift command | T3 + 333.14 (logged) | 494.8 | IGM phase 2 commands it on a preset characteristic velocity (part 2); the model keeps the flight's times |
+| S-II low EMR | T3 + 335.94 | 497.60 (PU valve step, FER Table 6-2; low EMR by 498.0) | §9.2 |
+| S-II OECO | LOX depletion | 548.22 | propellant model: 548.24 in flight (§8.2) |
 | S-II/S-IVB separation | T4 + 0.8 | (command) 549.0 | |
-| S-IVB ignition | T4 + 4.0 | 552.2 | the S-IVB J-2 flies the vehicle's own gains law (§7.2: TN5869's S-IVB pair is inconsistent) |
-| S-IVB cutoff | T4 + 151.10 (stand-in: the FER's cutoff command less its T4) | 699.34 | the model's 699.40. IGM's velocity cutoff in part 2. Without IGM the stack is suborbital here: apogee about 758 km, periapsis −1,515 km, impact 2,505 s after first motion. |
+| S-IVB ignition | T4 + 4.0 | 552.2 | STDV open; the start ramp reaches mainstage at 554.7 s (§9.2); the S-IVB J-2 flies the vehicle's own gains law (§7.2: TN5869's S-IVB pair is inconsistent) |
+| S-IVB cutoff | T4 + 151.10 (stand-in: the FER's cutoff command less its T4) | 699.34 | the model's 699.34. IGM's velocity cutoff in part 2. Without IGM the stack is suborbital here: apogee about 705 km, periapsis −1,619 km, impact 2,375 s after first motion. |
 | APS ullage on | T5 + 0.3 | 699.8 | both engines; No. 2 0.1 s later on the vehicle |
 | local horizontal | T5 + 19.8 | 719.3 | GE504 §4.1.11: +X along the local horizontal in the direction of motion, +Z towards the Earth |
 | APS ullage off | T5 + 87.0 | 786.5 | |
 
-The IU stages by part: an event whose part or engine has gone (a pilot's Space press) does nothing and is logged "(nothing to do: gone)". The S-II dropped by hand starts T4 early, which leaves the S-II's remaining events (gain switches, centre engine cutoff, mixture-ratio shift) behind. The IU refuses manual staging before T3, when Space would drop the S-IC on the pad, or full and burning in flight.
+The IU stages by part: an event whose part or engine has gone (a pilot's Space press) does nothing and is logged "(nothing to do: gone)". The S-II dropped by hand starts T4 early, which leaves the S-II's remaining events (gain switches, centre engine cutoff, mixture-ratio shift) behind. Engines decay over their shutdown ramp after a cutoff (§9.2); the IU senses the cutoff itself, not the end of the decay. The IU refuses manual staging before T3, when Space would drop the S-IC on the pad, or full and burning in flight.
 
 ### 8.4 Pre-IGM pitch program
 
@@ -1075,42 +1085,42 @@ Checks: the segments join within 0.04° (5.59/5.62° at 35 s, 35.16° at 80 s, 5
 | 2 min | −56° | −56.5° |
 | tilt arrest (plateau) | −67.5° | −68.0° (at T1 + 159.37) |
 
-**Model compensation (fitted, not data).** Flown by this model with AS-506's 160.0 s arrest, the polynomial leaves the S-IC 1.6° steeper and 3.7 km higher at OECO than AS-506 flew, because the model climbs faster than AS-506 in the first minute (§8.5). So that the S-II starts from AS-506's state, the IU multiplies the polynomial by 1.03 (`AS506.pitchScale`, fitted to the nearest 0.01 on the OECO flight-path angle), 2° more pitch at the arrest than AS-506 commanded. Set it back to 1 once the S-IC propulsion matches the FER (§8.7). It gives:
+**Model compensation (fitted, not data).** Flown by this model with AS-506's 160.0 s arrest, the polynomial leaves the S-IC 1.3° steeper and 1.8 km higher at OECO than AS-506 flew, even with the S-IC's thrust, flow and masses matching the FER (§9), because the model climbs faster than AS-506 in the first minute (§8.5). So that the S-II starts from AS-506's state, the IU multiplies the polynomial by 1.025 (`AS506.pitchScale`, fitted to the nearest 0.005 on the OECO flight-path angle), 1.7° more pitch at the arrest than AS-506 commanded. Before the recalibration of §9 it was 1.03. It gives:
 
-| | quantity | FER (Table 4-2) | model, ×1.00 | model, ×1.03 | tolerance (§5) |
+| | quantity | FER (Table 4-2) | model, ×1.00 | model, ×1.025 | tolerance (§5) |
 |---|---|---|---|---|---|
-| CECO, 135.2 s | altitude above the pad | 44.0 km | 46.3 | 45.4 | ±2.5 km |
-| | space-fixed velocity | 1,979.0 m/s | 1,963.7 | 1,977.8 | ±50 |
-| | flight-path angle | 22.957° | 24.68 | 23.40 | ±1.5° |
-| | heading | 76.315° | — | 76.51 | ±0.5° |
-| OECO, 161.63 s | altitude above the pad | 66.1 km | 69.8 | 67.7 | ±2.5 km |
-| | space-fixed velocity | 2,764.1 m/s | 2,736.1 | 2,756.3 | ±40 |
-| | flight-path angle | 19.114° | 20.71 | 19.21 (fitted) | — |
-| | heading | 75.439° | — | 75.57 | ±0.5° |
-| | Mach 1 time | 66.3 s | 64.4 | 64.4 | ±3 s |
-| | max Q | 35.2 kPa at 83.0 s | 31.7 at 75.2 | 32.0 at 75.2 | 28–36 kPa |
+| CECO, 135.2 s | altitude above the pad | 44.0 km | 44.9 | 44.1 | ±2.5 km |
+| | space-fixed velocity | 1,979.0 m/s | 1,950.3 | 1,962.2 | ±50 |
+| | flight-path angle | 22.957° | 24.28 | 23.21 | ±1.5° |
+| | heading | 76.315° | 76.59 | 76.54 | ±0.5° |
+| OECO, 161.63 s | altitude above the pad | 66.1 km | 67.9 | 66.2 | ±2.5 km |
+| | space-fixed velocity | 2,764.1 m/s | 2,727.2 | 2,744.1 | ±40 |
+| | flight-path angle | 19.114° | 20.40 | 19.14 (fitted) | — |
+| | heading | 75.439° | 75.60 | 75.57 | ±0.5° |
+| | Mach 1 time | 66.3 s | 65.6 | 65.5 | ±3 s |
+| | max Q | 35.2 kPa at 83.0 s | 31.7 at 76.3 | 32.0 at 76.4 | 28–36 kPa |
 
-Only the OECO flight-path angle was fitted; everything else in the table is a check. The headings, within 0.2°, check the space-fixed frame, flight azimuth and roll program independently of the pitch program.
+Only the OECO flight-path angle was fitted; everything else in the table is a check. The headings, within 0.25°, check the space-fixed frame, flight azimuth and roll program independently of the pitch program. The S-IC's velocity runs 17–20 m/s (0.7 %) below AS-506's (§9.5).
 
 **Compare altitude above the pad during the ascent.** The model's pad sits on a sphere of R = 6,378,137 m, 4.78 km further from the Earth's centre than the real pad (§1.6), and the atmosphere is indexed by r − R. The S-IC states are therefore compared as altitude above the pad (the FER's geodetic altitudes; the ellipsoid's curvature over 94 km downrange changes them by under 0.1 km). Radius stays the measure for the orbit (§5).
 
 ### 8.5 Known deviations of the S-IC ascent
 
-- **The model climbs faster than AS-506 in the first minute.** It reaches 137 m at T1 + 10.4 s (AS-506: T1 + 12.6), Mach 1 at 64.4 s (66.3) and max Q at 75.2 s (83.0). The FER's stage thrust at liftoff (Figure 5-3, about 34 MN, against the model's 34.6 MN) accounts for little of this. The model has no controlled-release mechanism (the FER gives 1.07 g total acceleration at first motion), no thrust build-up, a placeholder drag coefficient and the US-1976 atmosphere (the July Cape atmosphere was about 14% denser near max Q, §1.6). Max Q's time and the program-start time are therefore not test targets.
-- **The pitch polynomial is SA-504's, scaled 3 % to compensate.** AS-506's commanded pitch matches it unscaled (MAN506 Fig. 2-2); replace both the polynomial and the scale with AS-506's presettings if its operational trajectory turns up, and drop the scale once the propulsion is recalibrated.
+- **The model climbs faster than AS-506 in the first minute.** It reaches 137 m at T1 + 10.7 s (AS-506: T1 + 12.6), Mach 1 at 65.5 s (66.3) and max Q at 76.4 s (83.0). Thrust is not the cause: the model's stage thrust at liftoff is 34.1 MN at the standard 101.3 kPa, against about 34.35 MN in FER Figure 5-3 at the pad's 100.6 kPa, and its acceleration matches Figure 4-3 within 0.8 % wherever drag is negligible (§9.4). The model has no controlled-release mechanism (the release rods held the vehicle until about 0.6 s after first motion, FER Figure 9-1, hence the FER's 1.07 g there), a placeholder drag coefficient and the US-1976 atmosphere (the July Cape atmosphere was about 14% denser near max Q, §1.6). Max Q's time and the program-start time are therefore not test targets.
+- **The pitch polynomial is SA-504's, scaled 2.5 % to compensate.** AS-506's commanded pitch matches it unscaled (MAN506 Fig. 2-2); replace both the polynomial and the scale with AS-506's presettings if its operational trajectory turns up. The scale survived the propulsion recalibration (it went from 3 % to 2.5 %), so what it compensates lies in the low-altitude flight above.
 
 ### 8.6 Flight control and APS logic as implemented
 
-- **FCC law** (§7.2): β = a0·e − a1·ω on each gimbal-flown axis, in the IU's hold, with TN5869's gain schedule on the S-IC and S-II switched at the IU's switch points (§8.3), and REF504's roll pair (S-IC 0.245 / 0.15 s, S-II 0.25 / 0.20 s; L). β is each engine's deflection: per actuator in pitch and yaw, tangential in roll (§7.2: if REF504's roll β is per actuator, a diagonal engine deflects √2 times it). REF504's filters (S-IC pitch and yaw attitude gain 0.4(s + 0.095)/(s + 0.038), S-IC roll 2.35/(s + 2.35)) are not modelled. Checks: in the roll program the model peaks at a 1.18° roll error and 1.39°/s roll rate, against AS-506's 0.92° and 1.38°/s (FER Table 11-2); with the pitch pair in roll (the earlier placeholder) the rate peaked at 1.03°/s. The peaks come 2 and 3 s after the program start, against AS-506's 0.6 and 1.2 s, so the model's roll loop is slower than AS-506's. Late in the ramp the law tracks it 0.60° behind (a1/a0 = 0.61°) at 1.00°/s, and Position I settles on 72.058°. A 0.5° pitch step at liftoff mass in vacuum (c = 0.898 s⁻², so ωn = 0.90 rad/s and ζ = 0.345) overshoots 32% at 3.7 s, as §7.4 B's formulas predict.
+- **FCC law** (§7.2): β = a0·e − a1·ω on each gimbal-flown axis, in the IU's hold, with TN5869's gain schedule on the S-IC and S-II switched at the IU's switch points (§8.3), and REF504's roll pair (S-IC 0.245 / 0.15 s, S-II 0.25 / 0.20 s; L). β is each engine's deflection: per actuator in pitch and yaw, tangential in roll (§7.2: if REF504's roll β is per actuator, a diagonal engine deflects √2 times it). REF504's filters (S-IC pitch and yaw attitude gain 0.4(s + 0.095)/(s + 0.038), S-IC roll 2.35/(s + 2.35)) are not modelled. Checks: in the roll program the model peaks at a 1.18° roll error and 1.39°/s roll rate, against AS-506's 0.92° and 1.38°/s (FER Table 11-2); with the pitch pair in roll (the earlier placeholder) the rate peaked at 1.03°/s. The peaks come 2 and 3 s after the program start, against AS-506's 0.6 and 1.2 s, so the model's roll loop is slower than AS-506's. Late in the ramp the law tracks it 0.60° behind (a1/a0 = 0.61°) at 1.00°/s, and Position I settles on 72.058°. A 0.5° pitch step at liftoff mass in vacuum (c = 0.887 s⁻², so ωn = 0.893 rad/s and ζ = 0.343) overshoots 32% at 3.7 s, as §7.4 B's formulas predict.
 - **Pilot hand-back**: manual input or another autopilot mode takes the attitude from the IU, which keeps sequencing. When the hold flies again (input released, or key 8 after another mode), the IU restarts its command from the vehicle's attitude and returns to its program within its command rate limits: 1°/s per angle until the S-IVB cutoff, ASH's coast limits (below) from T5 on. 13° off the program at 60 s, the stack turns back at 1.3°/s at most, where the FCC law on the whole error swung it at up to 7.7°/s near max Q.
 - **S-IVB burn**: the vehicle's own self-tuned gimbal law (`tvcGains`) flies the J-2, because TN5869's S-IVB pair contradicts its stated control frequency (§7.5).
-- **APS phase plane** (§7.2): ±1° dead band; error clipped at 2.5° in pitch and yaw and 3.5° in roll; switching line e − 5 s × ω (placeholder slope); 0.06 s minimum on-time; full-thrust pulses, no hysteresis. It flies the APS in every autopilot mode except kill rotation, and in the IU's hold; in the pointing modes, which set no roll attitude, roll keeps M0's rate damping (proportional levels, as in kill rotation). The law decides once a step, so the simulation ends a coasting step where an axis is predicted to reach its switching line, and a pulse step where the minimum on-time ends: the law then works the same at any frame rate and time warp. Measured: manoeuvres at 0.30°/s in pitch and 0.51°/s in roll; pulses of exactly 0.06 s with the app's 1/60 s frames; holding in free space after a slew, about 0.9 kg/h at both 1× and 10,000× (0.91 and 0.87 kg/h in `testAPSHoldAtTimeWarp`; 47 kg/h at 10,000× with coast steps of up to 60 s); on the light S-IVB after TLI, Prograde uses 0.2 kg of APS propellant an hour, where M0's law emptied both modules (298 kg) within the hour.
+- **APS phase plane** (§7.2): ±1° dead band; error clipped at 2.5° in pitch and yaw and 3.5° in roll; switching line e − 5 s × ω (placeholder slope); 0.06 s minimum on-time; full-thrust pulses, no hysteresis. It flies the APS in every autopilot mode except kill rotation, and in the IU's hold; in the pointing modes, which set no roll attitude, roll keeps M0's rate damping (proportional levels, as in kill rotation). The law decides once a step, so the simulation ends a coasting step where an axis is predicted to reach its switching line, and a pulse step where the minimum on-time ends: the law then works the same at any frame rate and time warp. Measured: manoeuvres at 0.30°/s in pitch and 0.51°/s in roll; pulses of exactly 0.06 s with the app's 1/60 s frames; holding in free space after a slew, well under 1 kg/h at both 1× and 10,000× (0.13 and 0.18 kg/h in `testAPSHoldAtTimeWarp`; 47 kg/h at 10,000× with coast steps of up to 60 s). The rate is set by the roll rate the slew leaves, which a 0.2 % change in roll inertia moved: with the pre-FER spacecraft masses it was 0.91 and 0.87 kg/h, 14 roll pulses in the 900 s at 1× against 2 now; on the light S-IVB after TLI, Prograde uses 0.2 kg of APS propellant an hour, where M0's law emptied both modules (298 kg) within the hour.
 - **Orbital attitude**: after T5 + 19.8 s the IU commands the local horizontal (+x along the horizontal velocity, +z down), turning at the orbital rate; the APS holds it within 1.9° (dead band plus 5 s × the 0.07°/s orbital rate on each axis). The FER's mission description has the vehicle "aligned with the local horizontal" from about 10 s after insertion through the parking orbit; GE504's SA-504 landmark-sighting manoeuvres (a 180° roll and 20° nose-down from insertion + 45 min) do not appear in it and are not modelled. The command moves there within the LVDC's coast rate limits, 0.4°/s in pitch and yaw and 0.6°/s in roll (ASH §3.1, Table 3.1-3, "Coast"; M), which the model applies from the S-IVB cutoff (T5) on; SA-504's presettings had 1.0°/s (GE504). FER Figure 11-12 (digitised during the research pass: L-M) supports the ASH value: AS-506's pitch error grew at 0.33–0.37°/s from 721 to 727 s, before the vehicle had turned, and reached the 2.5° clip at about 729 s, where a 1.0°/s limit would have saturated within about 3 s. The model's pitch error grows at 0.34°/s over the same seconds. The vehicle then turned at about 0.2°/s and the manoeuvre was about 6° in all; the model's slew is about 54° at the APS's clip-limited 0.30°/s, because without IGM the stack still has the tilt arrest's attitude.
 - **S-IVB burn roll**: AS-506 held a roll error of about −1° through the first burn (FER Figure 11-11), the APS working against a steady 61.4 N·m roll torque (FER §11.4.1). The model has no such torque, so its roll stays inside the dead band.
 
-### 8.7 FER values that touch §1–§7 (not yet applied)
+### 8.7 FER values that touch §1–§7 (applied in §9)
 
-The propulsion and mass model of §1–§3 was calibrated without the FER. These values from it should drive the next calibration pass:
+The propulsion and mass model of §1–§3 was calibrated without the FER. These values from it drove the recalibration of §9 (2026-10-17), which uses Table 20-9's 39,307 kg for the thrust buildup to holddown release (the propellant tables' 39,374 kg is the propellant used, not the vehicle's mass change). The first-motion acceleration stays unmodelled (§9.5).
 
 | item | FER value | datasheet now | effect |
 |---|---|---|---|
@@ -1119,7 +1129,7 @@ The propulsion and mass model of §1–§3 was calibrated without the FER. These
 | F-1 performance at 35–38 s, standard sea level | thrust 6,674–6,783 kN (1,500–1,525 klbf), Isp 2,584–2,599 N·s/kg (263.5–265.0 s), flow 2,569–2,613 kg/s, MR 2.241–2.279 per engine (Table 5-1) | flight-matched 6.92 MN sea-level thrust, 2,659 kg/s (§3) | flow rises through the burn (Figure 5-3: stage flow about 13,100 kg/s at liftoff, thrust 34 MN rising to about 40 MN by 130 s) |
 | S-II EMR | high 5.50 from ESC + 5.5 s; IU shift command at ESC + 331.8 s (494.8 s) on a preset characteristic velocity; shift 498.0 s; low EMR 4.34 average (predicted 4.33) (§6, Table 2-2) | shift 491 s to 4.7 (§1.2, §3; L-M) | resolves the §6 conflict; needs the S-II recalibrated to hold the 548.22 s depletion |
 | S-II thrust at low EMR | 3,059,402 N (687,781 lbf) for four engines at EMR 4.29 (§6) | 186,165 lbf per engine at 4.7 (derived) | |
-| first-motion total acceleration | 1.07 g actual, 1.08 g nominal (Table 4-1) | rejected as low confidence (§6) | genuine at first motion; the model gives 1.217 g |
+| first-motion total acceleration | 1.07 g actual, 1.08 g nominal (Table 4-1) | rejected as low confidence (§6) | genuine at first motion (controlled release); the model gives 1.20 g (§9.4) |
 | S-IC/S-II separation | 162.3 s, 2,773.9 m/s, 66.7 km, γ 19.020° (Table 4-3) | AP values (H) | consistent |
 | max angle of attack near max Q | 1.6° pitch, 1.4° yaw; engine deflections 0.2° and 0.3° from wind shear (§11.2) | — | targets for the aerodynamics item |
 | TB5 APS ullage | No. 1 on at T5 + 0.3, off at T5 + 87.0 (No. 2 0.1 s later each), 86.7 s (Table 2-2) | 88 s (§7.3, §7.4 D; MAN503) | the IU flies 86.7 s; §7.4 D's Δv and propellant scale by 86.7/88 |
@@ -1129,12 +1139,12 @@ The propulsion and mass model of §1–§3 was calibrated without the FER. These
 | test | checks | depends on |
 |---|---|---|
 | `testOnThePad` | geocentric pad, nose up, Position I east, IU idle until liftoff; Space refused | §1.6, §7.1 (M) |
-| `testPitchPolynomialTranscription` | GE504 segments join, start near 0, rates under 1°/s, −66.59° at 153 s; unscaled within 2° of MAN506 Fig. 2-2; the IU's = 1.03 × SA-504 to 159.37 s | GE504 (H for SA-504), MAN506 (figure reading) |
+| `testPitchPolynomialTranscription` | GE504 segments join, start near 0, rates under 1°/s, −66.59° at 153 s; unscaled within 2° of MAN506 Fig. 2-2; the IU's = 1.025 × SA-504 to 159.37 s | GE504 (H for SA-504), MAN506 (figure reading) |
 | `testTowerYawAndRollProgram` | yaw to 1.25° at ≤ 1°/s and away from the tower; start at 137 m; roll peaks 1.38 ± 0.1°/s and 0.92 ± 0.35° (FER Table 11-2); lag a1/a0 = 0.61° late in the ramp; Position I on 72.058° | GE504, FER (H), REF504 (roll gains L) |
-| `testSICAscentMatchesApollo11` | the §8.4 table, except the fitted angle (±0.2°) | FER Table 4-1/4-2 (H); `pitchScale` (fitted) |
+| `testSICAscentMatchesApollo11` | the §8.4 table, except the fitted angle (±0.2°); thrust acceleration within 1 % of FER Figure 4-3 at 10.3, 147.4, 152.3 and 158.8 s, where drag is under 0.3 % of thrust | FER Table 4-1/4-2 (H), Figure 4-3 (M); `pitchScale` (fitted) |
 | `testOutboardCantSchedule` | cant from T1 + 20.0 s to 2° radial | FER (H), EL (M) |
 | `testFlightControlStepResponse` | ωn and overshoot of the FCC law | TN5869 (L), model mass properties |
-| `testFlightSequenceFollowsTheApollo11Timeline` | every IU event against FER Tables 2-1 and 2-2 (S-II gain switches against ICD507); staging by part; S-II at low EMR; ullage 86.7 s; the local-horizontal command within ASH's orbital rate limits, reaching 0.4°/s in pitch, and the pitch error growing at 0.35 ± 0.05°/s from 721 to 727 s (FER Figure 11-12: 0.33–0.37); local horizontal held within 1.9°; a hand-back in orbit restarts the command from the attitude and returns within the limits | FER (H; Figure 11-12 digitised, L-M), ICD507 (M), ASH (M) |
+| `testFlightSequenceFollowsTheApollo11Timeline` | every IU event against FER Tables 2-1 and 2-2 (S-II gain switches against ICD507), within 0.1 s from T3 on (T3 within 0.05 s), the S-II ullage motors and EMR steps included; staging by part; S-II at low EMR; ullage 86.7 s; the local-horizontal command within ASH's orbital rate limits, reaching 0.4°/s in pitch, and the pitch error growing at 0.35 ± 0.05°/s from 721 to 727 s (FER Figure 11-12: 0.33–0.37); local horizontal held within 1.9°; a hand-back in orbit restarts the command from the attitude and returns within the limits | FER (H; Figure 11-12 digitised, L-M), ICD507 (M), ASH (M) |
 | `testCoastCommandRateFromTheSIVBCutoff` | after the S-IVB cutoff and before the turn to the local horizontal, a hand-back returns at the coast limits (0.6°/s in roll), not 1°/s | ASH (M) |
 | `testIUStagesByPartAfterAManualSpacePress` | Space refused before T3; from T3 a pilot's Space press and attitude takeover leave the sequence intact | — |
 | `testEarlierTimeBaseEventsDropWhenTheNextStarts` | the S-II dropped by hand starts T4, and the S-II's pending events never fire into the S-IVB | — |
@@ -1150,7 +1160,120 @@ The propulsion and mass model of §1–§3 was calibrated without the FER. These
 1. AS-506's own pre-IGM presettings (pitch polynomial, t_AR, start test): its July 1969 Operational Trajectory or the SA-506 Flight Sequence Program ICD (40M33626B).
 2. PFT Table B-II/B-III: the S-IC time history, to check the whole ascent rather than two points (the tables are scanned and must be read from the page images).
 3. IGM presettings for AS-506 (part 2): GE504 §4 and Table 5-I give SA-504's; FER Table 10-4 and Figure 10-4 give AS-506's IGM phase times and attitude commands.
-4. The S-II EMR shift by characteristic velocity (needs the S-II recalibration of §8.7).
+4. The S-II EMR shift by characteristic velocity (part 2, with IGM; the S-II propulsion is calibrated, §9).
 5. AS-506's roll gains and the definition of the roll β (per actuator or tangential, §7.2), and the FCC filters (REF504 §3.5). The model's roll loop peaks 2–3 s after the program start where AS-506's peaked within 1.2 s (§8.6), which points at the roll authority, the roll inertia or the gains.
 
 **Values tests must not depend on**: `pitchScale` beyond the OECO angle it was fitted to; the cant ramp rate; every gain (§7.5), beyond the roll-program peaks checked against the FER; APS K and minimum on-time; max Q time and the program-start time (§8.5).
+
+---
+
+## 9. Propulsion and masses from the FER (M1 propulsion recalibration)
+
+Compiled on 2026-10-17 to apply §8.7. Values come from the FER (MPR-SAT-FE-69-9) unless marked: SP-4029's ground-ignition rows (which the FER confirms), the S-II start setting's EMR and Isp and the ullage motors' thrust and burn time (MSFC-MAN-506 or assumed, §9.2), and the S-IVB's model-derived unusable masses. The FER was read directly with its tables checked against the page images, and its figures digitised from them (M): Tables 2-1 and 2-2 (events), Table 4-1 and Figure 4-3 (accelerations), Tables 5-1 and 5-2 and Figure 5-3 (S-IC), Tables 6-1 and 6-2, Figure 6-3 and §6.2–6.5 (S-II), Tables 7-1 and 7-3, Figure 7-2 and §7.2–7.4 (S-IVB), and the mass tables 20-1, 20-3, 20-5, 20-7 and 20-9. `AS506Data.swift` holds the values with the same sources and grades. For the model this section supersedes the derived masses of §1.1, the S-II and S-IVB engine rows of §1.2 and §1.3, all of §2, the flight rows of §3, and targets A and B of §5.
+
+### 9.1 Mass model
+
+- **First motion.** Simulation time 0 is holddown release (0.30 s) with the FER's vehicle, 2,899,008 kg (Table 20-1). The 39,307 kg burned in thrust buildup (Table 20-9) is history. The S-IC is the FER's at release: stage 2,239,381 kg, LOX 1,468,594 kg of liquid (Table 5-2) plus the 235 kg of GOX in its ullage (Table 20-1), RP-1 637,830 kg (Table 5-2). The S-II, both interstages' totals, the S-IVB and the IU keep SP-4029's ground-ignition rows (the FER's tables agree to the pound), and the spacecraft is the FER's: LES 4,042, CSM 28,806, LM 15,095 and SLA 1,166 + 626 kg (Tables 20-7 and 20-9), 49,735 kg in all, SP-4029's 109,646 lb. Together they give Table 20-1's 2,899,008 kg to the kilogram, a check across the two sources.
+- **Tanks.** A tank holds the propellant aboard at first motion and keeps the gas made from it in flight (the S-IC's GOX, the S-II's GOX and GH2), which stays in the ullage, so what leaves a tank is what its engines burned. Its unusable mass is the liquid at cutoff plus that gas: S-IC LOX 18,041 + 3,611 = 21,652 kg (Tables 5-2, 20-1), S-II LOX 1,603 + 2,147 = 3,750 kg (Table 20-3). LOX depletion ends both burns, as the low-level sensors did. The fuel left is an output: the S-IC's RP-1 should be 13,954 kg (Table 5-2) and the S-II's LH2 2,695 + 658 = 3,353 kg (Table 20-3); the mixture ratios are fitted to them (§9.3). The S-IVB's tanks keep their §2 loads and the unusable masses derived for the pre-FER engine (at burn 1's EMR 4.85 the usable LOX would last 478 s and the LH2 474 s; burn 1 ends after 147 s, and TLI is M2's).
+- **S-IC/S-II interstage.** Three items (Table 20-9): the 614 kg ring that leaves with the S-IC at first-plane separation (booked in the S-IC part), the large interstage, 3,982 kg, jettisoned at 192.3 s, and its four ullage motors' 610 kg of propellant (one tank for the four grains, which burn together).
+- **Not modelled.** The S-II's and S-IVB's frost (204 and 91 kg) and the S-II insulation purge gas (54 kg), shed in the S-IC burn; venting and boil-off before ignition; the S-IVB aft frame and detonation package (23 kg, with the S-II); the S-IVB's TX-280 ullage motors and their 61 kg of cases (jettisoned at 561 s); the S-IC's frost (295 kg) and purges. They leave the model's upper stages 150–360 kg heavier than the FER's at each event (§9.4).
+
+### 9.2 Engines
+
+| engine | model | basis | conf |
+|---|---|---|---|
+| F-1 | One rating at first motion carried along a schedule of the stage's site flow and mixture ratio (29 knots, 0.3–161.63 s; the flow rises about 2 % through the burn). Per engine: vacuum thrust = flow/5 × 2,980.5 N·s/kg (7,847,657 N at first motion), flow × 0.99896, mixture ratio × 0.99965 (both fitted, §9.3), exit area 10.10 m². | Figure 5-3 (stage flow, MR; ±15–25 kg/s and ±0.002); 2,980.5 N·s/kg is the stage's site Isp at 140–160 s, where p is tens of Pa; the exit area gives the figure's liftoff Isp, about 2,594 N·s/kg at 100.6 kPa, on the figure's flow. The thrust then follows the figure within 0.4 % at CECO and at 160 s, and is 0.6 % low at liftoff, where the figure's thrust is 0.6 % above its flow times Isp. | M |
+| F-1 shutdown | Linear decay over 0.66 s from the cutoff (0.33 s of full thrust); its propellant comes from below the unusable mass. | §5.4: 10,612,096 N·s for the four outboard engines from OECO to separation, 2,659,605 N·s for the centre engine. The decay burned 908 kg per engine (Table 20-9). | H (impulse), L (shape) |
+| J-2, S-II start | 878,288 N, 4,195 N·s/kg, EMR 5.0, from engine start to High EMR Select at ESC + 5.5 s (168.5 s). | §6.2: 861,496–895,080 N per engine at start; EMR at PU null (MAN506, L); Isp assumed between the S-IVB's and the S-II's (L). | M thrust, L Isp |
+| J-2, S-II high EMR | 1,028,303 N, 4,164.9 N·s/kg (424.7 s), EMR 5.5006 (fitted) to the PU valve step. | Table 6-1, the five engines' mean at ESC + 61 s (engine EMR 5.564); Figure 6-3: stage EMR 5.55 falling to 5.45. | H |
+| J-2, S-II low EMR | 768,000 N, 4,190 N·s/kg, EMR 4.34, from the PU valve step at 497.60 s to OECO. | §6.3: 3,082,769 N for four at ESC + 351 s and 3,059,402 N at ESC + 381 s; Figure 6-3: 4,181–4,190 N·s/kg; §6.5: average EMR 4.34 (predicted 4.33). AS-506 ran 7–8 % below §3's 828 kN at EMR 4.7. | H |
+| S-II flows | All three settings' flows × 0.99749 (fitted, §9.3). | Within the FER's flow reconstruction, which matched acceptance Isp. | — |
+| J-2, S-II transients | Start: nothing for 1.09 s after the solenoids (164.0 s), then a linear rise over 1.11 s to mainstage at 166.2 s. Shutdown: linear over 0.38 s. | 582 kg burned between 164.0 and 166.2 s (Table 20-9), 0.56 s of full flow; OECO cutoff impulse 581,916 N·s to 5 % thrust (§6.4), from 2,783,479 N after a LOX-starvation decay the model does not have: 0.19 s of the model's 3,072,000 N. The centre engine's decay then burns 47 kg (Table 20-9: 49 kg). | H (data), L (shape) |
+| J-2, S-IVB burn 1 | 903,000 N, 215.37 kg/s (427.5 s), EMR 4.85. | Figure 7-2: 902–906 kN in flight (Table 7-1's standardised 901,223 N); Table 20-9: 31,152 kg in 144.64 s of mainstage, venting included; Table 20-5: LOX 25,873 kg and LH2 5,339 kg used (the engine's own EMR was about 4.96). | M thrust, H flow and ratio |
+| J-2, S-IVB transients | Start: nothing for 0.6 s after STDV open (552.2 s), then a linear rise over 1.9 s to mainstage (554.7 s). Shutdown: linear over 0.42 s. | §7.2: 857,243 N·s from STDV open to STDV + 2.5 s, 0.95 s of full thrust; §7.4: 188,302 N·s at cutoff, 0.21 s. | H (data), L (shape) |
+| S-II ullage motors | Four solids, 23,000 lbf for 3.75 s each and 152.5 kg of propellant each (Isp_eff 256.5 s), on the interstage; lit by the IU at T3 + 0.5 s, off at T3 + 4.4 s. | MAN506 (thrust, burn time; M); Table 20-9 (610 kg in all; 309 kg left at S-II engine start; H); Table 2-2 (times; H). | M |
+
+**How the engines work in the core** (`Components.swift`, `PropulsionModelTests` A6–A9). A `PerformanceSchedule` scales an engine's rating, thrust and flow by factors and sets its mixture ratio, piecewise linear on the engine's burn clock, which runs from its start; the exit area stays. `EngineTransients` add a start delay with a linear rise and a linear shutdown. Ramps are sampled at the middle of each step. A cutoff commanded before a step starts the decay with that step; an engine whose tank runs dry within a step runs to its end, then decays. Every engine's step is fixed before any draws, so engines sharing a tank that runs dry within a step are treated alike. A cut engine runs its decay to the end before a new command can start it, and the simulation keeps 0.02 s steps from a start command, through the delay, so the ramps are the same at any time warp. The IU senses an engine's cutoff, not the end of its decay, and the HUD's stage Δv follows the schedule and ignores the ramps.
+
+### 9.3 Fitted values
+
+| value | fitted to | result |
+|---|---|---|
+| `sICFlowScale` 0.99896 | LOX depletion at 161.63 s from the first-motion loads, the centre engine's decay included | 161.64 s (T3 at 161.64 in flight; FER 161.66) |
+| `sICMixtureRatioScale` 0.99965 | RP-1 at OECO, 13,954 kg | 13,955 kg |
+| `sIIFlowScale` 0.99749 | LOX depletion at 548.22 s, start and decays included | 548.16 s from a 164.00 s start; T4 at 548.24 in flight (FER 548.24) |
+| `sIIHighMixtureRatio` 5.5006 | LH2 at OECO, 3,353 kg | 3,354 kg |
+| `pitchScale` 1.025 (§8.4) | OECO flight-path angle, 19.114° | 19.14° |
+
+The flow scales move the figures they adjust by 0.10 % and 0.25 %, inside their reading accuracy.
+
+### 9.4 Results against the FER
+
+**Event masses**, with the propellant model alone at the FER's event times (`testEventTimelineThroughThePropellantModel`):
+
+| range time (s) | event | model (kg) | FER (kg) | difference |
+|---|---|---|---|---|
+| 0.30 | first motion | 2,899,008 | 2,899,008 (Table 20-1) | 0 |
+| 135.20 | S-IC CECO | 1,111,611 | 1,110,189 (20-1) | +1,422 (+0.13 %) |
+| 161.64 | S-IC OECO (FER 161.63) | 827,956 | 827,292 (20-1) | +664 (+0.08 %) |
+| 162.30 | S-IC/S-II separation | 824,402 | 823,625 (20-1) | +777 (+0.09 %) |
+| 164.00 | S-II engine start | 658,713 | 658,363 (20-9) | +350 (+0.05 %) |
+| 166.20 | S-II mainstage | 657,823 | 657,459 (20-9) | +364 (+0.06 %) |
+| 548.16 | S-II OECO (FER 548.22) | 214,248 | 213,888 (20-3) | +360 (+0.17 %) |
+| 549.00 | S-II/S-IVB separation | 214,109 | 213,757 (20-3) | +352 (+0.16 %) |
+| 552.20 | S-IVB ignition | 166,751 | 166,571 (20-9) | +180 (+0.11 %) |
+| 554.70 | S-IVB mainstage | 166,547 | 166,396 (20-9) | +151 (+0.09 %) |
+| 699.34 | S-IVB cutoff | 135,396 | 135,182 (20-5) | +214 (+0.16 %) |
+| 699.54 | end of thrust decay | 135,363 | 135,102 (20-5) | +261 (+0.19 %) |
+
+The S-IC's propellant is the FER's, so from OECO on the differences are the upper stages' unmodelled losses (§9.1); the S-IC's own +314 kg at OECO is frost and purges, and the CECO difference is within Figure 5-3's flow reading. Also: S-II ullage propellant left at S-II engine start 311 kg (FER 309); the outboard F-1s' decay to separation 3,531 kg (FER 3,634, −2.8 %); the residuals as fitted (§9.3).
+
+**Accelerations.** Thrust over mass, in vacuum, against Table 4-1's stage maxima (total inertial acceleration; drag is negligible there) and Figure 4-3 (M, ±1 %); "flight" rows are from the IU's trajectory, with ambient pressure:
+
+| point | model | FER | difference |
+|---|---|---|---|
+| liftoff (flight, 101.3 kPa) | stage thrust 34.1 MN; 11.78 m/s² (1.20 g) | about 34.35 MN at 100.6 kPa (Figure 5-3); "approximately 1.2 g" (§9.2.1) | −0.6 % |
+| 10.3 s (flight) | 12.44 m/s² | 12.41 (Figure 4-3) | +0.2 % |
+| S-IC CECO | stage thrust 40.03 MN | 40.05 MN (Figure 5-3) | −0.1 % |
+| 147.4, 152.3, 158.8 s (flight) | 32.48, 34.39, 37.21 | 32.23, 34.31, 37.23 (Figure 4-3) | +0.8, +0.2, −0.0 % |
+| S-IC OECO | 38.55 | 38.61 (Table 4-1) | −0.2 % |
+| S-II, 180 s | 8.02 | 7.75 (Figure 4-3) | +3.4 % (§9.5) |
+| S-II, 300 and 400 s | 10.59, 14.19 | 10.60, 14.01 (Figure 4-3) | −0.1, +1.3 % |
+| S-II CECO | 17.87 | 17.84 (Table 4-1) | +0.2 % |
+| S-II, 503.6 s (low EMR) | 12.45 | 12.69 (Figure 4-3) | −1.9 % (§9.5) |
+| S-II OECO | 14.34 | 14.3 (Figure 4-3) | +0.3 % |
+| S-IVB, 557.1 s | 5.44 | 5.29 (Figure 4-3) | +2.8 % (§9.5) |
+| S-IVB, 627.4 s | 5.98 | 5.98 (Figure 4-3) | 0.0 % |
+| S-IVB cutoff | 6.67 | 6.69 (Figure 4-3); 6.73 (Table 4-1) | −0.3 %; −0.9 % (§9.5) |
+
+**Trajectory** (the IU flight, §8.4): CECO and OECO within §5 C's tolerances, the S-IC 17–20 m/s slow (§9.5). The S-IC's decay and the S-II ullage motors add 10.7 m/s from OECO to separation (FER Tables 4-2 and 4-3: 2,764.1 to 2,773.9 m/s, 9.8 m/s).
+
+### 9.5 Known deviations
+
+1. **The S-IC is 17–20 m/s (0.7 %) slow at CECO and OECO,** although its thrust, flow and masses match the FER and its acceleration matches Figure 4-3 within 0.8 % wherever drag is negligible. The loss is in the low-altitude flight, where the model climbs faster than AS-506 (§8.5) with a placeholder drag coefficient and the US-1976 atmosphere, without the controlled release. `pitchScale` absorbs the attitude; the speed stays within §5 C's ±40–50 m/s.
+2. **Early S-II acceleration is 2–4 % above Figure 4-3** from about 170 to 200 s (+3.4 % at 180 s). This is an inconsistency inside the FER, not a model error: Figure 6-3's stage thrust is flat at 5.138–5.160 MN from ESC + 4 s, the model's 5 × 1,028,303 N, and over the FER's own mass (Table 20-9 at mainstage less Figure 6-3's flow) it gives 8.03 m/s² at 180 s, where Figure 4-3 reads 7.75. The model's mass is within 0.06 % at mainstage and its CECO maximum within 0.2 % of Table 4-1.
+3. **The S-II's low-EMR thrust is held at its 768 kN average** (§6.3), while Figure 6-3's declines through the phase from 3.093 MN for the four engines just after the step (ESC + 338 s; §6.3: 3,082,769 N at ESC + 351 s) to 3.054 MN at OECO: the model is 0.7 % low after the step and 0.6 % high at OECO. Against Figure 4-3 it is 1.9 % low at 503.6 s, the other 1.2 % being Figure 4-3 above the FER's thrust over mass.
+4. **The S-IVB's thrust in its first seconds of mainstage** was below Figure 7-2's steady value: Figure 4-3 times the FER's mass gives about 878 kN at 557 s, against 904.5 kN where Figure 7-2 starts (567 s). The model, at 903 kN throughout, is 2.8 % above Figure 4-3 at 557 s and matches it from about 600 s.
+5. **Table 4-1's S-IVB maximum, 6.73 m/s²,** is more than Figure 7-2's thrust over Table 20-5's mass allows (6.68–6.70 m/s²). The model gives 6.67 and is tested against Figure 4-3's 6.69.
+6. **Upper-stage masses are 150–360 kg high** (§9.1's unmodelled items).
+7. **Other solid motors** (the S-IC and S-II retros, the S-IVB's TX-280 ullage motors) are not modelled. The S-II ullage motors are on/off thrusters on the translate-forward group, so a pilot can stop and restart them, and the U key fires them on the pad.
+8. **The ramp shapes are linear,** fitted only to the FER's impulses and propellant.
+
+### 9.6 Tests
+
+| test | checks | depends on |
+|---|---|---|
+| `PropulsionModelTests` A6–A9 | schedule on the burn clock; start ramp; shutdown ramp after a cutoff and after depletion; a relight waits for the decay to end; scheduled stage Δv | mechanism only |
+| `SaturnVDataTests.testFirstMotionMassesMatchTheFER` (B3) | 2,899,008 kg at first motion to 1 kg, the ground-ignition 6,477,875 lb, every part, and the FER's interstage and spacecraft items against SP-4029's rows | FER Tables 20-1, 20-7, 20-9 (H); GIW (H) |
+| `testEngineRatings` (B1, B2) | the F-1's flight rating and its schedule against Figure 5-3 at liftoff, CECO and 160 s; against Betts' rating; the J-2 settings; the S-II's high EMR against the J-2 rating and Table 6-1's flow; the S-IVB's thrust and Isp against Table 7-1 | FER (H tables, M figures), Betts, NTRS 20100032986 |
+| `testTransientImpulsesMatchTheFER` (B2) | every start and shutdown ramp's impulse (or the S-II start's propellant), run through the engines, within 1 % of the FER's | FER §5.4, §6.4, §7.2, §7.4, Table 20-9 (H) |
+| `testSICDrawStopsOnLOXDepletion` (A1) | depletion at exactly the unusable mass at 161.63 s with 13,954 kg of RP-1; the outboard decay's 3,634 kg ±5 % | FER (fitted, and H) |
+| `testSIIMixtureRatioShift` (A2) | the J-2 start ramp; rating changes mid-burn change thrust, flow and split without a restart | FER (H) |
+| `testEventTimelineThroughThePropellantModel` (B4) | §9.4's event masses (±0.1–0.25 %), the Table 4-1 maxima (±0.3 %), Figure 4-3 at S-II OECO and S-IVB cutoff, the fitted depletions and residuals, the ullage propellant | FER |
+| `SaturnVFlightTests.testLiftsOffOnFirstStep` (C2) | the liftoff thrust mechanism; 34.35 MN ±1 % and 1.2 g | Figure 5-3 (M), §9.2.1 |
+| `testVerticalSICFlight` (C3) | depletion at 161.63 s, RP-1, the OECO mass 664 kg above the FER's (bookkeeping), 38.61 m/s² ±0.3 % | FER |
+| `testGimbalsSteerThroughTheTailOff`, `testStartRampAtTimeWarp` | the gimbals steer a decaying engine however it was cut; a start ramp gives the same Δv at 1×, 100× and 1,000× (the step cap holds from the start command) | mechanism only |
+| `SaturnIUTests.testSICAscentMatchesApollo11`, `testFlightSequenceFollowsTheApollo11Timeline` | §8.8 | FER |
+| `SaturnVControlTests.testTB5UllageBurn` | after burn 1's 147.13 s and decay, within 0.3 % of 135,102 kg | FER Table 20-5 |
+
+**Values tests must not depend on**: the ramp shapes; the S-II start setting's Isp and EMR; the ullage motors' thrust history; Figure 4-3 and 5-3 readings beyond about 1 %; the fitted scales beyond the depletions and residuals they were fitted to.

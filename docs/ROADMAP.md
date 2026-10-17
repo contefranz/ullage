@@ -17,7 +17,8 @@ native macOS simulator. Each milestone should be flyable on its own.
 ## M1 — Saturn V to Earth parking orbit
 
 - Saturn V stack: S-IC, S-II, S-IVB, IU, CSM, LES; real masses, F-1/J-2 performance
-  *(done: AS-506 at first motion)*
+  *(done: AS-506 at first motion, calibrated to its Flight Evaluation Report: the F-1s'
+  flow history, the S-II's three mixture-ratio settings, start and shutdown transients)*
 - Engine gimballing and thrust vector control
   *(done: gimballed outboard F-1s and J-2s and the S-IVB J-2, attitude hold with a
   command seam for the IU, S-IVB APS)*
@@ -27,6 +28,8 @@ native macOS simulator. Each milestone should be flyable on its own.
   pitch programs, tilt arrest, flight-control gain and cant schedules, APS phase-plane logic,
   orbital attitude; part 2, IGM for the S-II and S-IVB, to do)*
 - Interstage and LES jettison, ullage motors, engine-out
+  *(jettisons and the S-II ullage motors done; the S-IVB's ullage motors, the retros and
+  engine-out to do)*
 - Aerodynamic normal force and moments for the launch stack
 - Nutation in Earth orientation; IAU 2006 precession
 - Real launch scenario (Apollo 11, 16 July 1969, 13:32:00 UTC, LC-39A)

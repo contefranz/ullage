@@ -144,12 +144,12 @@ struct ControlAllocation {
 
 extension Vessel {
     /// This step's allocation: call after the throttles have set the levels.
-    /// Gimbals count when their engine delivers thrust now (enabled, lit,
-    /// fed; ambient pressure from telemetry).
+    /// Gimbals count when their engine delivers thrust now (start and
+    /// shutdown ramps included; ambient pressure from telemetry).
     func controlAllocation() -> ControlAllocation {
         var out = ControlAllocation()
         out.groupAuthority = rcsAuthority()
-        guard thrusters.contains(where: { !$0.gimbal.isEmpty && $0.level > 0 }) else { return out }
+        guard thrusters.contains(where: { !$0.gimbal.isEmpty && $0.isDelivering }) else { return out }
         let com = centerOfMass
         let p = atmosphere.pressure, p0 = reference.atmosphere?.seaLevelPressure ?? 0
         // Torque per unit of travel of each actuator, and their Gram matrix.
