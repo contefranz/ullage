@@ -626,19 +626,50 @@ enum AS506 {
     static let lmTopHeight = 90.9                    // m, estimate (L): clears the SPS exit at ≈ 91.08
     static let lmRadius = 2.1                        // m, estimate (L)
 
-    /// Dry CoM of the S-IC (the engines dominate it). No other dry CG was found.
-    static let sICDryCoMHeight = 14.0                // m, estimate (L)
+    /// Dry centres of mass, FER Table 20-10 (actual; H for each stage dry).
+    /// Each part's other non-propellant mass (the S-IC's 2.9 t beyond its
+    /// 130,422 kg dry stage, the S-II's and S-IVB's "other" rows) is put
+    /// there too (M). The S-IC/S-II interstage stays at its middle: the
+    /// FER's total, with the ring and the ullage motors, puts the large
+    /// interstage within 6 in of it.
+    static let sICDryCoMStation = 368.8              // STA, FER Table 20-10 (H)
+    static let sIIDryCoMStation = 1_892.3            // STA, FER Table 20-10 (H)
+    static let sIISIVBInterstageCoMStation = 2_595.9 // STA, FER Table 20-10 (H)
+    static let sIVBDryCoMStation = 2_856.7           // STA, FER Table 20-10 (H)
+    static let iuCoMStation = 3_244.7                // STA, FER Table 20-10 (H)
 
-    // Propellant extents, m above the base (aft and forward dome apexes, or
-    // the common-bulkhead rim for the S-II LH2): estimates from the loads and
-    // diameters with assumed domes, ±1.5 m (L). The model puts each load's
-    // centroid at the middle of its extent.
-    static let sICRP1Extent = (aft: 8.1, forward: 19.8)
-    static let sICLOXExtent = (aft: 21.3, forward: 40.5)
-    static let sIILOXExtent = (aft: 47.9, forward: 54.2)
-    static let sIILH2Extent = (aft: 51.1, forward: 66.7)
-    static let sIVBLOXExtent = (aft: 72.5, forward: 76.5)
-    static let sIVBLH2Extent = (aft: 76.5, forward: 84.0)
+    // Propellant extents, STA (aft and forward dome apexes, or the common
+    // bulkhead's rim for the S-II LH2). The model puts each load's centroid at
+    // the middle of its extent and drains it from the top as a column.
+    //
+    // S-IC: Boeing's "bottom/top of fuel tank" and "bottom of LOX tank",
+    // and MSFC-MAN-504 Fig 4-1's 517 in fuel and 769 in LOX tanks, which put
+    // the LOX tank's top at STA 1541, its forward Y-ring (1404) plus the
+    // 137 in of its aft dome (909 - 772) and of the fuel tank's forward dome
+    // (742 - 605).
+    static let sICRP1Extent = (aft: 225.0, forward: 742.0)    // STA, Boeing 9253429; MAN-504 Fig 4-1 (H)
+    static let sICLOXExtent = (aft: 772.0, forward: 1_541.0)  // STA, Boeing 9253429; MAN-504 Fig 4-1 (H)
+    /// S-II: the LOX tank is two bulkheads welded at the equator, STA 1848
+    /// (Boeing), 22 ft tall (MAN-504 Fig 5-1), taken as halves of 132 in;
+    /// that holds MAN-504's 12,745.5 cu ft within 2 %. The common bulkhead is
+    /// its top half, so the LH2 starts at its rim. The LH2 tank's top is the
+    /// apex that holds MAN-504's 37,737 cu ft with a forward bulkhead like
+    /// the others, between Boeing's LH2 vent (2506) and Fig 5-1's 56 ft from
+    /// the rim (2520).
+    static let sIILOXExtent = (aft: 1_716.0, forward: 1_980.0)  // STA, derived (M)
+    static let sIILH2Extent = (aft: 1_848.0, forward: 2_510.0)  // STA, derived (M)
+    /// S-IVB: one tank with a hemispherical dome at each end (MAN-504 §6),
+    /// 44.0 ft long (Fig 6-1). The forward skirt starts where the sidewall
+    /// meets the forward dome (Boeing: STA 3100.56), so the forward apex is
+    /// 130 in higher, 8 in into the IU, and the aft apex 528 in lower: the
+    /// aft dome hangs 44 in below the aft skirt, inside the thrust
+    /// structure's cone. The cylinder then starts at STA 2832.56, where
+    /// Boeing has the aft skirt's top (2832.00) and MAN-504 bolts the skirt
+    /// on. The common bulkhead rises from the aft equator (Fig 6-1) to the
+    /// apex that holds MAN-504's 2,830 cu ft of LOX; the LH2 starts at its
+    /// rim.
+    static let sIVBLOXExtent = (aft: 2_702.56, forward: 2_840.7)   // STA, derived (M)
+    static let sIVBLH2Extent = (aft: 2_832.56, forward: 3_230.56)  // STA, derived (M-H)
 
     // Nominal liquid densities, kg/m^3 (they only set the column heights).
     static let loxDensity = 1_141.0

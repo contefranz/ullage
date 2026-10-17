@@ -303,8 +303,11 @@ final class SaturnIUTests: XCTestCase {
     // (a0 0.9, a1 0.69 s; TN D-5869 Table 3): a 0.5° pitch command step is a
     // second-order response with wn = sqrt(a0 c) and zeta = a1 c / (2 wn),
     // c = 4 F L / Iyy from the model's own geometry, in vacuum (datasheet
-    // §8.6: c 0.887 s^-2, wn 0.893 rad/s, zeta 0.343, a 32 % overshoot at
-    // 3.7 s). Mass properties frozen; self-consistency of law, gains and model.
+    // §8.6: c 0.973 s^-2, wn 0.936 rad/s, zeta 0.359, a 30 % overshoot at
+    // 3.6 s; 0.887 s^-2 before §4's tank stations and dry CGs, which put the
+    // CoM 0.60 m higher and Iyy 6.9 % lower, within 0.5 % of FER Table
+    // 20-10's). Mass properties frozen; self-consistency of law, gains and
+    // model.
     func testFlightControlStepResponse() throws {
         let sim = try Simulation.forTests(perturbations: false)
         let v = VesselLibrary.saturnV()
@@ -331,8 +334,8 @@ final class SaturnIUTests: XCTestCase {
         let peak = pitch.max { $0.1 < $1.1 }!
         XCTAssertEqual(peak.0, Double.pi / wd, accuracy: 0.1 * Double.pi / wd)
         XCTAssertEqual(peak.1 / step - 1, exp(-zeta * Double.pi / (1 - zeta * zeta).squareRoot()), accuracy: 0.05)
-        XCTAssertEqual(c, 0.887, accuracy: 0.005)
-        XCTAssertEqual(wn, 0.893, accuracy: 0.005)
+        XCTAssertEqual(c, 0.973, accuracy: 0.005)
+        XCTAssertEqual(wn, 0.936, accuracy: 0.005)
     }
 
     // One flight, first motion to T5 + 87 s, against AS-506's sequence of

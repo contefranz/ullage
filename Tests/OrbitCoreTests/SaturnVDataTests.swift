@@ -217,6 +217,39 @@ final class SaturnVDataTests: XCTestCase {
         XCTAssertEqual(AS506.aerodynamics[1].referenceStation / inch, 1664, accuracy: 1e-9)
     }
 
+    // B7: the propellant tanks. Transcriptions: the S-IC's ends are Boeing's
+    // "bottom/top of fuel tank" and "bottom of LOX tank" (9253429), with
+    // MSFC-MAN-504 Fig 4-1's 769 in LOX tank, and the S-IVB tank is Fig 6-1's
+    // 44.0 ft. Independent: the S-IVB tank's hemispherical aft dome (MAN-504
+    // §6) ends at Boeing's aft-skirt top, STA 2832.00, where MAN-504 says the
+    // skirt is bolted on; and with the domes AS506Data assumes (the S-IC's
+    // 137 in deep, the S-II LOX tank's 132 in halves, the S-IVB's
+    // hemispheres, on the 396 in and 260 in skins) the tanks hold MAN-504's
+    // volumes: 216,000 and 345,000 gal (S-IC; 5.1 % and 4.7 % over on the
+    // outer skin), 12,745.5 cu ft (S-II LOX; 1.6 % under) and 2,830 + 10,418
+    // cu ft (S-IVB; 2.4 % over). The S-II LH2 tank's top and the S-IVB's
+    // LOX/LH2 boundary were derived from MAN-504's volumes.
+    func testTankStationsAndVolumes() {
+        let gal = 0.003785411784, cuft = 0.028316846592
+        let (rP1, sICLOX, sIILOX) = (AS506.sICRP1Extent, AS506.sICLOXExtent, AS506.sIILOXExtent)
+        let (sIVBLOX, sIVBLH2) = (AS506.sIVBLOXExtent, AS506.sIVBLH2Extent)
+        XCTAssertEqual([rP1.aft, rP1.forward, sICLOX.aft], [225, 742, 772])
+        XCTAssertEqual(sICLOX.forward - sICLOX.aft, 769, accuracy: 1e-9)
+        XCTAssertEqual(sIVBLH2.forward - sIVBLOX.aft, 44 * 12, accuracy: 1e-9)
+        XCTAssertEqual(sIVBLOX.aft + 130, 2_832.00, accuracy: 1)
+        func cylinder(_ r: Double, _ l: Double) -> Double { Double.pi * r * r * l }
+        func dome(_ r: Double, _ c: Double) -> Double { 2.0 / 3 * Double.pi * r * r * c }
+        func sIC(_ e: (aft: Double, forward: Double)) -> Double {
+            cylinder(198 * inch, (e.forward - e.aft - 2 * 137) * inch) + 2 * dome(198 * inch, 137 * inch)
+        }
+        XCTAssertEqual(sIC(rP1), 216_000 * gal, accuracy: 0.06 * 216_000 * gal)
+        XCTAssertEqual(sIC(sICLOX), 345_000 * gal, accuracy: 0.06 * 345_000 * gal)
+        XCTAssertEqual(2 * dome(198 * inch, (sIILOX.forward - sIILOX.aft) / 2 * inch), 12_745.5 * cuft,
+                       accuracy: 0.03 * 12_745.5 * cuft)
+        let sIVB = cylinder(130 * inch, (sIVBLH2.forward - sIVBLOX.aft - 2 * 130) * inch) + 2 * dome(130 * inch, 130 * inch)
+        XCTAssertEqual(sIVB, (2_830 + 10_418) * cuft, accuracy: 0.03 * (2_830 + 10_418) * cuft)
+    }
+
     // B1, B2: engine ratings.
     func testEngineRatings() {
         let p0 = 101_325.0
@@ -420,7 +453,14 @@ final class SaturnVDataTests: XCTestCase {
     // events from T3, 161.66 s, Table 2-1): the vehicle against the FER's
     // event masses (Tables 20-1, 20-3, 20-5, 20-9), and its thrust
     // acceleration against the stage maxima of Table 4-1 (total inertial
-    // acceleration; drag is negligible there) or Figure 4-3 (M).
+    // acceleration; drag is negligible there) or Figure 4-3 (M). Its centre
+    // of mass and pitch inertia against Table 20-10's (independent: the
+    // stations come from the stage drawings, the dry CGs from Table 20-10's
+    // stage rows): within 6 in and 3 % through the S-II burn; within 6 in
+    // and 12 % through the S-IVB's, whose stack the model makes 8-10 %
+    // stiffer in pitch; within 20 in and 2 % on the S-IC, whose 22 t of LOX
+    // and 6 t of RP-1 below the tanks (Table 20-1) and ullage the model keeps
+    // in its tank columns, 15-18 in too high (datasheet §4).
     func testEventTimelineThroughThePropellantModel() {
         let v = VesselLibrary.saturnV()
         var t = AS506.firstMotion, acceleration = 0.0
@@ -447,6 +487,13 @@ final class SaturnVDataTests: XCTestCase {
         func mass(_ kg: Double, _ label: String, within tolerance: Double = 2e-3) {
             XCTAssertEqual(v.mass, kg, accuracy: kg * tolerance, label)
         }
+        /// Centre of mass (STA, in) and pitch inertia (kg m^2 x 1e-6, about
+        /// the centre of mass) against Table 20-10's actual values.
+        func massProperties(_ sta: Double, within dx: Double, _ iyy: Double, within di: Double, _ label: String) {
+            XCTAssertEqual(v.structuralCenterOfMass.x / inch, sta, accuracy: dx, label)
+            XCTAssertEqual(v.inertia[1, 1] / 1e6, iyy, accuracy: iyy * di, label)
+        }
+        massProperties(1_192.0, within: 20, 914.293, within: 0.02, "S-IC holddown release")
 
         // S-IC: centre engine cut at 135.20 s, outboard engines to LOX depletion.
         set(mains(), 1)
@@ -457,6 +504,7 @@ final class SaturnVDataTests: XCTestCase {
         // Consistency (the F-1's flow scales were fitted to it): 161.63 s.
         XCTAssertEqual(t, 161.63, accuracy: 0.03)
         mass(827_292, "S-IC OECO", within: 1e-3)
+        massProperties(1_828.9, within: 20, 440.511, within: 0.02, "S-IC OECO")
         XCTAssertEqual(acceleration, 38.61, accuracy: 38.61 * 3e-3)   // 3.94 g
 
         // Thrust decay; the S-II ullage motors from T3 + 0.5 s; separation.
@@ -466,6 +514,7 @@ final class SaturnVDataTests: XCTestCase {
         set(ullage, 1)
         XCTAssertFalse(burn(to: AS506.sICSeparation))
         mass(823_625, "S-IC/S-II separation", within: 1e-3)
+        massProperties(1_835.1, within: 20, 435.728, within: 0.02, "S-IC/S-II separation")
         XCTAssertEqual(v.jettisonNextStage()?.parts.map(\.name), ["S-IC"])
 
         // S-II: engine start (solenoids) at 164.0 s, mainstage at 166.2 s,
@@ -474,6 +523,7 @@ final class SaturnVDataTests: XCTestCase {
         // at the PU valve step, and LOX depletion.
         XCTAssertFalse(burn(to: AS506.sIIIgnition))
         mass(658_363, "S-II engine start")
+        massProperties(2_199.0, within: 6, 135.506, within: 0.03, "S-II engine start")
         XCTAssertEqual(tank("S-II ullage").mass, 309, accuracy: 5)
         set(mains(), 1)
         XCTAssertFalse(burn(to: t3 + AS506.sIIUllageEndTime))
@@ -481,6 +531,7 @@ final class SaturnVDataTests: XCTestCase {
         set(ullage, 0)
         XCTAssertFalse(burn(to: 166.2))
         mass(657_459, "S-II mainstage")
+        massProperties(2_199.5, within: 6, 135.387, within: 0.03, "S-II mainstage")
         XCTAssertFalse(burn(to: t3 + AS506.sIIHighMixtureRatioTime))
         for e in mains() { e.rating = AS506.sIIJ2 }
         XCTAssertFalse(burn(to: AS506.interstageJettison))
@@ -500,6 +551,7 @@ final class SaturnVDataTests: XCTestCase {
         XCTAssertEqual(tank("S-II LOX").mass, tank("S-II LOX").unusableMass)
         XCTAssertEqual(tank("S-II LH2").mass, 3_353, accuracy: 3_353 * 1e-3)
         mass(213_888, "S-II OECO")
+        massProperties(2_795.8, within: 6, 44.932, within: 0.03, "S-II OECO")
         XCTAssertEqual(acceleration, 14.3, accuracy: 14.3 * 0.01)   // Figure 4-3
 
         // Thrust decay to separation at 549.0 s; S-IVB burn 1 from 552.20 s
@@ -507,20 +559,25 @@ final class SaturnVDataTests: XCTestCase {
         set(mains(), 0)
         XCTAssertFalse(burn(to: AS506.sIISeparation))
         mass(213_757, "S-II/S-IVB separation")
+        massProperties(2_796.4, within: 6, 44.849, within: 0.03, "S-II/S-IVB separation")
         XCTAssertEqual(v.jettisonNextStage()?.parts.map(\.name), ["S-II", "S-II/S-IVB interstage"])
         XCTAssertFalse(burn(to: AS506.sIVBIgnition))
         mass(166_571, "S-IVB ignition")
+        massProperties(3_036.4, within: 6, 13.413, within: 0.12, "S-IVB ignition")
         set(mains(), 1)
         XCTAssertFalse(burn(to: 554.70))
         mass(166_396, "S-IVB mainstage")
+        massProperties(3_036.5, within: 6, 13.412, within: 0.12, "S-IVB mainstage")
         XCTAssertFalse(burn(to: 699.34))
         mass(135_182, "S-IVB cutoff")
+        massProperties(3_072.7, within: 6, 12.594, within: 0.12, "S-IVB cutoff")
         // Figure 4-3 (M) rather than Table 4-1's 6.73 m/s^2, which is more
         // than the S-IVB's thrust (FER Figure 7-2) over the tabulated mass.
         XCTAssertEqual(acceleration, 6.69, accuracy: 6.69 * 5e-3)
         set(mains(), 0)
         XCTAssertFalse(burn(to: 699.54))
         mass(135_102, "S-IVB end of thrust decay", within: 2.5e-3)
+        massProperties(3_072.9, within: 6, 12.591, within: 0.12, "S-IVB end of thrust decay")
         XCTAssertEqual(v.parts.map(\.name), ["S-IVB", "IU", "SLA", "LM", "CSM"])
     }
 }

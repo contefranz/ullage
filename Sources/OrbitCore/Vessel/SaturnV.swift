@@ -43,10 +43,10 @@ extension VesselLibrary {
             .frustum(from: local(p, bottom, y, z), length: top - bottom, baseRadius: r0, topRadius: r1, color: color)
         }
         /// A settled column holding `load` kg, whose full-load centroid is the
-        /// middle of `extent` (m above the base).
+        /// middle of `extent` (stations).
         func tank(_ name: String, in p: VesselPart, load m: Double, unusable: Double = 0,
                   extent: (aft: Double, forward: Double), density: Double) -> PropellantTank {
-            let centroid = local(p, D.height((extent.aft + extent.forward) / 2))
+            let centroid = local(p, D.station((extent.aft + extent.forward) / 2))
             return PropellantTank(name: name, capacity: m, unusableMass: unusable,
                                   geometry: .column(fullLoadCentroid: centroid, radius: p.radius, capacity: m,
                                                     density: density))
@@ -87,7 +87,7 @@ extension VesselLibrary {
         let sIC = part("S-IC", D.station(D.baseStation), D.station(D.sICTop), radius: body,
                        dryMass: D.sICAtFirstMotion - D.sICLOXAtFirstMotion - D.sICRP1AtFirstMotion
                            + D.sICSIIInterstageSmall,
-                       dryCenterOfMass: D.height(D.sICDryCoMHeight),
+                       dryCenterOfMass: D.station(D.sICDryCoMStation),
                        dragCoefficient: D.bodyDragCoefficient, staging: .event(1))
         let sICLOX = tank("S-IC LOX", in: sIC, load: D.sICLOXAtFirstMotion, unusable: D.sICLOXAtCutoff,
                           extent: D.sICLOXExtent, density: D.loxDensity)
@@ -125,8 +125,8 @@ extension VesselLibrary {
         // S-II: LOX aft, LH2 forward over a common bulkhead. Its J-2s hang
         // into the interstage below.
         let sII = part("S-II", D.station(D.sIIAftSkirt), D.station(D.sIITop), radius: body,
-                       dryMass: (D.sIIDry + D.sIIOther) * lb, dragCoefficient: D.bodyDragCoefficient,
-                       staging: .event(4))
+                       dryMass: (D.sIIDry + D.sIIOther) * lb, dryCenterOfMass: D.station(D.sIIDryCoMStation),
+                       dragCoefficient: D.bodyDragCoefficient, staging: .event(4))
         let sIILOX = tank("S-II LOX", in: sII, load: D.sIILOXLoad * lb, unusable: D.sIILOXAtCutoff,
                           extent: D.sIILOXExtent, density: D.loxDensity)
         let sIILH2 = tank("S-II LH2", in: sII, load: D.sIILH2Load * lb, extent: D.sIILH2Extent,
@@ -141,6 +141,7 @@ extension VesselLibrary {
 
         let aftInterstage = part("S-II/S-IVB interstage", D.station(D.sIITop), D.station(D.sIVBAftSkirt),
                                  radius: body, dryMass: D.sIISIVBInterstage * lb,
+                                 dryCenterOfMass: D.station(D.sIISIVBInterstageCoMStation),
                                  dragCoefficient: D.bodyDragCoefficient, staging: .event(4))
         aftInterstage.shapes = [frustum(aftInterstage, D.station(D.sIITop), D.station(D.sIVBAftSkirt), body, upper,
                                         white)]
@@ -149,7 +150,7 @@ extension VesselLibrary {
         // APS propellant, booked in `sIVBOther`, moves to the APS tanks.
         let sIVB = part("S-IVB", D.station(D.sIVBAftSkirt), D.station(D.sIVBTop), radius: upper,
                         dryMass: (D.sIVBDry + D.sIVBOther - 2 * (D.apsOxidizerLoad + D.apsFuelLoad)) * lb,
-                        staging: .fixed)
+                        dryCenterOfMass: D.station(D.sIVBDryCoMStation), staging: .fixed)
         let sIVBLOX = tank("S-IVB LOX", in: sIVB, load: D.sIVBLOXLoad * lb, unusable: D.sIVBLOXUnusable * lb,
                            extent: D.sIVBLOXExtent, density: D.loxDensity)
         let sIVBLH2 = tank("S-IVB LH2", in: sIVB, load: D.sIVBLH2Load * lb, unusable: D.sIVBLH2Unusable * lb,
@@ -176,7 +177,7 @@ extension VesselLibrary {
         }
 
         let iu = part("IU", D.station(D.sIVBTop), D.station(D.iuTop), radius: upper, dryMass: D.iu * lb,
-                      staging: .fixed)
+                      dryCenterOfMass: D.station(D.iuCoMStation), staging: .fixed)
         iu.shapes = [frustum(iu, D.station(D.sIVBTop), D.station(D.iuTop), upper, upper, grey)]
 
         let sla = part("SLA", D.station(D.iuTop), D.apolloStation(D.slaTop), radius: upper, dryMass: D.sla,

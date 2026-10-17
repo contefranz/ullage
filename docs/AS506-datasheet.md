@@ -409,7 +409,7 @@ Moving the gimbals to these stations (S-II 3.21 m lower than the estimate, S-IVB
 | CM | 98.577 | 101.803 | 3.226 | 3.912 → ≈ 0.8 | 1.956 | |
 | LES (with BPC) | 100.584 | 110.642 | 10.058 | BPC ≈ 3.9 at base; tower and motor ≈ 0.66 | ≈ 0.5 | The BPC overlaps the CM by 1.22 m. |
 
-Set each part's `offset.x` to its CoM in the vessel frame. Midpoints are acceptable for M1. Estimated loaded CoM of the S-IC part is about 25 m, dry about 14 m (L). Because the sim keeps part CoM fixed, the vehicle CoM will not travel as it really does. Do not write CG tests yet.
+Set each part's `offset.x` to its CoM in the vessel frame. Midpoints are acceptable for M1. Estimated loaded CoM of the S-IC part is about 25 m, dry about 14 m (L). Because the sim keeps part CoM fixed, the vehicle CoM will not travel as it really does. Do not write CG tests yet. *Superseded on 2026-10-17 (Tanks, below): the tanks drain as columns, the stage dry masses sit at FER Table 20-10's dry CGs, and the vehicle CG and pitch inertia are tested against that table.*
 
 **Engines** (positions are heights; radial offsets from the axis)
 
@@ -423,7 +423,49 @@ Set each part's `offset.x` to its CoM in the vessel frame. Midpoints are accepta
 | SM RCS quads × 4 | ≈ 97.3 (Xa ≈ 959) | — | ≈ 2.1 | — | L |
 | S-IVB APS modules × 2 (180° apart) | ≈ 73.4 (aft skirt) | — | ≈ 3.5 | — | L |
 
-**Tanks.** Estimated from loads, a 10.06 m or 6.60 m diameter and assumed dome shapes; ±1.5 m; not from a station diagram; not used by the current model.
+**Tanks.** ~~Estimated from loads, a 10.06 m or 6.60 m diameter and assumed dome shapes; ±1.5 m; not from a station diagram; not used by the current model.~~
+
+**Tanks and dry CGs (2026-10-17).** The propellant extents now come from the stations, and the stage dry masses sit at the FER's dry CGs. The model puts each load's full-load centroid at the middle of its extent (dome apex to dome apex, or from a common bulkhead's rim) and drains it from the top as a constant-section column. Sources: Boeing 9253429; MSFC-MAN-504 Figs 4-1, 5-1 and 6-1, its §6 text ("a cylindrical tank with a hemispherical shaped dome at each end"; the forward skirt starts where the LH2 tank's sidewall meets the forward dome; the aft skirt bolts to the tank's forward edge) and its tank volumes; FER Table 20-10.
+
+| tank | extent, STA | h (m) | how | conf |
+|---|---|---|---|---|
+| S-IC RP-1 | 225 → 742 | 8.636 → 21.768 | Boeing "bottom/top of fuel tank"; MAN-504 Fig 4-1: 517 in; forward Y-ring 605 | H |
+| S-IC LOX | 772 → 1541 | 22.530 → 42.062 | Boeing "bottom of LOX tank"; MAN-504 Fig 4-1: 769 in. Its Y-rings (909, 1404) and the fuel tank's forward one make all four domes 137 in deep, and its top reaches the S-IC's top. | H |
+| S-II LOX | 1716 → 1980 | 46.507 → 53.213 | Two bulkheads welded at the equator, STA 1848 (Boeing), 22 ft tall (MAN-504 Fig 5-1), taken as equal halves | M |
+| S-II LH2 | 1848 → 2510 | 49.860 → 66.675 | From the common bulkhead's rim, at the equator, to the apex that holds MAN-504's 37,737 cu ft with a forward bulkhead like the others; Boeing's LH2 vent is at 2506, and Fig 5-1's 56 ft from the rim gives 2520 | M |
+| S-IVB LOX | 2702.56 → 2840.7 | 71.566 → 75.075 | The 44.0 ft tank (Fig 6-1) with hemispherical domes, from a forward apex 130 in above the forward skirt's bottom (Boeing 3100.56). Its cylinder then starts at 2832.56, Boeing's aft-skirt top (2832.00), and its aft dome hangs 44 in below the aft skirt, 57 in above the J-2 gimbal, inside the thrust structure's cone. The top is the common bulkhead's apex, convex forward from its rim at the aft equator (Fig 6-1), for MAN-504's 2,830 cu ft. | M |
+| S-IVB LH2 | 2832.56 → 3230.56 | 74.868 → 84.977 | From the common bulkhead's rim to the forward apex, 8 in above the S-IVB/IU interface | M-H |
+
+With those domes the tanks hold MAN-504's volumes: the S-IC's 216,000 and 345,000 gal 5.1% and 4.7% over on the 396 in outer skin, the S-II LOX tank's 12,745.5 cu ft 1.6% under, the S-IVB tank's 2,830 + 10,418 cu ft 2.4% over.
+
+| part | dry CG, STA | h (m) | FER Table 20-10 row (actual) | before |
+|---|---|---|---|---|
+| S-IC (with its other 2.9 t: frost, helium, retro propellant, purge gas) | 368.8 | 12.289 | S-IC stage dry, 130,422 kg | 14.0 m (L) |
+| S-II (with its "other" 1,260 lb) | 1892.3 | 50.985 | S-II stage dry, 36,158 kg | its middle, 57.264 m |
+| S-II/S-IVB interstage | 2595.9 | 68.857 | 3,650 kg | its middle, 69.793 m |
+| S-IVB (with its "other" less the APS propellant) | 2856.7 | 75.481 | S-IVB stage dry, 11,273 kg | its middle, 78.721 m |
+| IU | 3244.7 | 85.336 | 1,940 kg | its middle, 85.217 m |
+
+The S-IC/S-II interstage keeps its middle: the FER's total, with the ring and the ullage motors, puts the large interstage within 6 in of it. The spacecraft parts keep their estimates (L).
+
+**Results against FER Table 20-10** (the propellant model alone, `testEventTimelineThroughThePropellantModel`): CG station in inches, model − FER; pitch inertia, model against FER.
+
+| event | FER CG | before | now | FER Iyy (kg m²) | before | now |
+|---|---|---|---|---|---|---|
+| holddown release | 1192.0 | −5.6 | +18.2 | 9.143e8 | +6.8% | −0.5% |
+| S-IC OECO | 1828.9 | +61.3 | +11.4 | 4.405e8 | −1.8% | −0.9% |
+| S-II start command | 2199.0 | +56.7 | +4.7 | 1.355e8 | −2.7% | +1.7% |
+| S-II cutoff | 2795.8 | +69.0 | −2.3 | 4.493e7 | −19.5% | +2.4% |
+| S-IVB start command | 3036.6 | +34.8 | +0.0 | 1.342e7 | −2.2% | +9.9% |
+| S-IVB cutoff | 3072.7 | +37.8 | +4.4 | 1.259e7 | −4.4% | +7.6% |
+
+("Before" is with PR #7's gimbal stations, which do not move the CG.) Known deviations:
+
+- **S-IC, 10–18 in high.** The FER puts 21,868 kg of LOX and 5,983 kg of RP-1 below the tanks at release (Table 20-1), in the suction ducts and engines, and 16,761 kg and 5,946 kg there at OECO. The model keeps them in its tank columns. With the ullage above each liquid, that is about 17 of the 18 in at release.
+- **S-IVB stack, 8–10% stiff in pitch.** Its CG is right, but its mass is spread too far. The S-IVB's dry mass is not the cause: as a solid cylinder over its part it is less stiff than the FER's 0.296e6 kg m². More likely, the LOX sits at its extent's middle, about 15 in below the hemisphere's own centroid, and the spacecraft parts (L) sit high: FER Table 20-10 puts the spacecraft at STA 3608.6 (48,626 kg), the model at 3621.5 (49,735 kg with the LES). The two errors cancel in the CG but not in the inertia.
+- **Roll inertia, not tested.** The model's is about ten times the FER's (3.53e7 against 3.70e6 kg m² at release), most likely because Table 20-10 leaves out the liquid propellant, which does not turn with the tanks in roll.
+
+The CG and inertia change the control figures (§7.2): the lever arms at S-II and S-IVB ignition are now 13.7 and 9.9 m, against 13.6 and 9.9 m from the FER's CGs and the published gimbal stations.
 
 - S-IC RP-1: cylinder 10.6 → 17.3; dome apexes 8.1 and 19.8.
 - S-IC intertank: about 17.3 → 23.8.
@@ -505,7 +547,7 @@ Set each part's `offset.x` to its CoM in the vessel frame. Midpoints are accepta
 **Gaps (next research turn, highest value first)**
 
 1. SP-4029 Propellant Usage, S-II and S-IVB rows: consumption, at-cutoff amounts, mixture ratio. These would replace the §2.2 S-II and S-IVB model loads.
-2. FER mass characteristics: the flight-sequence mass summary (masses at CECO, OECO, S-II ignition, jettisons, S-IVB ignition and cutoff), CG and inertias, and the event table (EMR shift, tilt arrest). *Read (§8, §9.1, §9.4): Tables 2-2, 20-1, 20-3, 20-5, 20-7, 20-9; CG and inertias (Table 20-10) not used yet.*
+2. FER mass characteristics: the flight-sequence mass summary (masses at CECO, OECO, S-II ignition, jettisons, S-IVB ignition and cutoff), CG and inertias, and the event table (EMR shift, tilt arrest). *Read (§8, §9.1, §9.4): Tables 2-2, 20-1, 20-3, 20-5, 20-7, 20-9; CG and inertias (Table 20-10) not used yet.* *Used (§4, 2026-10-17): the stage dry CGs, and the vehicle CG and pitch inertia at each event as test targets.*
 3. As-flown liftoff mass, or the ignition-to-release consumption. The sim's −2.625 s ignition depends on the predicted 85,745 lb. *Resolved (§9.1): 2,899,008 kg at first motion and 39,307 kg of thrust buildup (FER Tables 20-1, 20-9); the sim starts at first motion.*
 4. MSFC-MAN-503 station diagram: datum, S-IVB separation plane, tank stations, gimbal planes, nozzle protrusions, fin span. *Read in part (§4): Boeing's 1967 configuration diagram and MSFC-MAN-504/506 give the interface stations, the separation planes and both J-2 gimbal planes; the J-2 exits are derived; the tank stations and fin span are not used yet.*
 5. Saturn V aerodynamics: CA(M) with its reference area, centre of pressure, CN_α. *Resolved in §11.*
@@ -532,7 +574,7 @@ Set each part's `offset.x` to its CoM in the vessel frame. Midpoints are accepta
 - Pre-release consumption of 85,745 lb (predicted).
 - MOR separation weights.
 - FER insertion mass (±1% only).
-- All tank stations, part CoMs, the J-2 nozzle-exit heights (M, drawn only), the LM envelope, and Xa-based spacecraft heights. (The J-2 gimbal planes and the S-IVB separation plane are H since §4's 2026-10-17 update.)
+- The spacecraft parts' CoMs, the J-2 nozzle-exit heights (M, drawn only), the LM envelope, and Xa-based spacecraft heights. (The J-2 gimbal planes, the S-IVB separation plane, the tank stations and the stage dry CGs are H or M since §4's 2026-10-17 updates, and the vehicle CG and pitch inertia are tested against FER Table 20-10.)
 - Spacecraft breakdown (only the 49,734.6 kg total is H).
 - LES motor data, SPS/RCS/APS Isp, APS loads.
 - The placeholder Cd(M), superseded by §11.
@@ -611,8 +653,8 @@ The last corner is TM X-53532's 8°30′ label. If the 6° were instead a cone (
 | id | chosen | original | source | conf | notes |
 |---|---|---|---|---|---|
 | f1_gimbal_plane | h 5.461 m | STA 100; "structural body axes origin 100 in below the gimbal reference plane" | CSS (primary, search extract); §4 (recalled) | **M** | Upgraded from L. This also confirms station 0 = 100 in below the gimbal plane, consistent with the §4 datum. |
-| sii_j2_gimbal | h 45.187 m | STA 1664, the S-II "gimbal plane" at S-II station 100 | Boeing 9253429; REF504 Fig 3-1 (§4) | **H** | Upgraded from L on 2026-10-17: the estimate (48.4 ± 1.0 m) was 3.21 m high. In the sim the lever arm to the CoM is now 15.0 m at S-II ignition and 30.5 m at OECO (11.8 and 27.3 m before), so control effectiveness is 27% higher at ignition and 12% at OECO. |
-| sivb_j2_gimbal | h 70.126 m | STA 2645.85, the S-IVB "top J-2 engine" at S-IVB station 100 | Boeing 9253429 (§4) | **H** | Upgraded from L on 2026-10-17: the estimate (71.7 ± 1.0 m) was 1.57 m high. It does lie 2.56 m below the S-IVB part's aft end (72.68 m), on the thrust structure in the aft interstage. In the sim the lever arm is now 10.8 m at ignition and 11.8 m at cutoff (9.2 and 10.2 m before): 17% and 15% more effectiveness. |
+| sii_j2_gimbal | h 45.187 m | STA 1664, the S-II "gimbal plane" at S-II station 100 | Boeing 9253429; REF504 Fig 3-1 (§4) | **H** | Upgraded from L on 2026-10-17: the estimate (48.4 ± 1.0 m) was 3.21 m high. With this station alone the sim's lever arm to the CoM became 15.0 m at S-II ignition and 30.5 m at OECO (11.8 and 27.3 m before). With §4's tank stations and dry CGs, which put the CoM within 5 in of FER Table 20-10's, it is 13.7 and 28.7 m: 11% and 5% more than the original estimate gave, and 13.6 and 28.8 m from the FER's CGs. |
+| sivb_j2_gimbal | h 70.126 m | STA 2645.85, the S-IVB "top J-2 engine" at S-IVB station 100 | Boeing 9253429 (§4) | **H** | Upgraded from L on 2026-10-17: the estimate (71.7 ± 1.0 m) was 1.57 m high. It does lie 2.56 m below the S-IVB part's aft end (72.68 m), on the thrust structure in the aft interstage. With this station alone the sim's lever arm became 10.8 m at ignition and 11.8 m at cutoff (9.2 and 10.2 m before). With §4's tank stations and dry CGs it is 9.9 and 11.0 m, against 9.9 and 10.8 m from FER Table 20-10's CGs. |
 
 **Outboard cant (S-IC)**
 
@@ -698,32 +740,31 @@ Each axis is a rate-limited position servo: |δ̇| ≤ the rate above, |δ| ≤ 
 
 | point (t) | c (s⁻²) | gains | f_n (Hz) | ζ | lag (s) | α at full deflection (°/s²) |
 |---|---|---|---|---|---|---|
-| S-IC release (0.30) | 0.784 | 0.9 / 0.69 | 0.134 | 0.32 | 0.77 | 3.9 |
-| S-IC max Q (83.0) | 1.086 | 0.9 / 0.69 | 0.157 | 0.38 | 0.77 | 5.4 |
-| S-IC 105, band 1 → 2 | 1.270 | 0.9 → 0.45 | 0.170 → 0.120 | 0.41 → 0.37 | 0.77 → 0.98 | 6.3 |
-| S-IC 130, band 2 → 3 | 1.690 | 0.45 → 0.32 | 0.139 → 0.117 | 0.43 → 0.34 | 0.98 → 0.94 | 8.4 |
-| S-IC OECO (161.6) | 3.369 | 0.32 / 0.30 | 0.165 | 0.49 | 0.94 | 16.8 |
-| S-II ignition (164.0) | 0.469 | 1.12 / 1.9 | 0.115 | 0.61 | 1.70 | 3.3 |
-| S-II +60 s, band 2 | 0.540 | 0.65 / 1.1 | 0.094 | 0.50 | 1.69 | 3.8 |
-| S-II CECO (460.6) | 1.363 | 0.44 / 0.74 | 0.123 | 0.65 | 1.68 | 9.5 |
-| S-II OECO (548.2) | 2.590 | 0.44 / 0.74 | 0.170 | 0.90 | 1.68 | 18.1 |
-| S-IVB ignition (552.2) | 0.744 | 0.81 / 0.97 | 0.124 | 0.46 | 1.20 | 5.2 |
-| S-IVB cutoff (699.3) | 0.885 | 0.81 / 0.97 | 0.135 | 0.51 | 1.20 | 6.2 |
+| S-IC release (0.30) | 0.973 | 0.9 / 0.69 | 0.149 | 0.36 | 0.77 | 4.9 |
+| S-IC max Q (83.0) | 1.186 | 0.9 / 0.69 | 0.164 | 0.40 | 0.77 | 5.9 |
+| S-IC 105, band 1 → 2 | 1.354 | 0.9 → 0.45 | 0.176 → 0.124 | 0.42 → 0.38 | 0.77 → 0.98 | 6.8 |
+| S-IC 130, band 2 → 3 | 1.757 | 0.45 → 0.32 | 0.142 → 0.119 | 0.43 → 0.35 | 0.98 → 0.94 | 8.8 |
+| S-IC OECO (161.6) | 3.180 | 0.32 / 0.30 | 0.161 | 0.47 | 0.94 | 15.9 |
+| S-II ignition (164.0) | 0.409 | 1.12 / 1.9 | 0.108 | 0.57 | 1.70 | 2.9 |
+| S-II +60 s, band 2 | 0.470 | 0.65 / 1.1 | 0.088 | 0.47 | 1.69 | 3.3 |
+| S-II CECO (460.6) | 1.145 | 0.44 / 0.74 | 0.113 | 0.60 | 1.68 | 8.0 |
+| S-II OECO (548.2) | 1.916 | 0.44 / 0.74 | 0.146 | 0.77 | 1.68 | 13.4 |
+| S-IVB ignition (552.2) | 0.608 | 0.81 / 0.97 | 0.112 | 0.42 | 1.20 | 4.2 |
+| S-IVB cutoff (699.3) | 0.730 | 0.81 / 0.97 | 0.122 | 0.46 | 1.20 | 5.1 |
 
-The S-II and S-IVB rows were recomputed on 2026-10-17 with the published gimbal stations (§4), from the FER-calibrated model (§9) flown through the propellant model alone. With the former estimates they gave c 0.369 / 0.428 / 1.181 / 2.317 and 0.635 / 0.767 (S-II OECO now at the low EMR's 768 kN per engine). The S-IC rows and the inputs below are from the 2026-10-16 probe.
+Recomputed on 2026-10-17 from the FER-calibrated model (§9) with the published gimbal stations and §4's tank stations and dry CGs, flown through the propellant model alone, with each gimballed engine's vacuum thrust (the S-II's high-EMR rating at ignition, its low-EMR 768 kN per engine at OECO). The 2026-10-16 probe gave c 0.784 / 1.086 / 1.270 / 1.690 / 3.369 on the S-IC, 0.366 / 0.427 / 1.188 / 2.675 on the S-II and 0.636 / 0.770 on the S-IVB.
 
-Sim inputs used for the table:
+Sim inputs used for the table, against FER Table 20-10:
 
-| quantity | values |
-|---|---|
-| Iyy (kg m²) | 9.758e8 at release, 4.294e8 at S-IC OECO, 1.321e8 at S-II ignition, 3.42e7 at S-II OECO, 1.311e7 at S-IVB ignition, 1.201e7 at insertion |
-| CoM height (m) | 33.08 at release, 51.07 at S-IC OECO, 60.20 at S-II ignition, 76.06 at S-II OECO, 80.94 at S-IVB ignition, 81.96 at insertion |
-| S-II and S-IVB rows, 2026-10-17 model | CoM h 60.22 / 60.71 / 69.18 / 75.69 m and Iyy 1.318e8 / 1.183e8 / 7.240e7 / 3.618e7 kg m² at S-II ignition / +60 s / CECO / OECO; 80.93 / 81.93 m and 1.312e7 / 1.204e7 kg m² at S-IVB ignition / cutoff; gimbals at 45.187 and 70.126 m |
+| quantity | sim | FER Table 20-10 (actual) |
+|---|---|---|
+| Iyy (kg m²) | 9.094e8 at release, 4.364e8 at S-IC OECO, 1.378e8 at S-II ignition, 4.601e7 at S-II OECO, 1.475e7 at S-IVB ignition, 1.355e7 at cutoff | 9.143e8, 4.405e8, 1.355e8, 4.493e7, 1.341e7, 1.259e7 |
+| CoM height (m) | 33.66 at release, 49.66 at S-IC OECO, 58.90 at S-II ignition, 73.88 at S-II OECO, 80.05 at S-IVB ignition, 81.08 at cutoff | 33.20, 49.38, 58.78, 73.93, 80.05, 80.97 |
 
 Findings:
 
-1. **S-IC.** TN5869's schedule keeps the sim between 0.11 and 0.17 Hz, consistent with TN5869's "≈ 0.15 Hz" first-stage frequency. The steps at 105 s and 130 s are what hold it there. This supports the TN5869 gains, the sim inertia and the 5.461 m gimbal plane together (L-M).
-2. **S-IVB.** The 0.81/0.97 pair gives 0.12–0.14 Hz (0.11–0.13 Hz with the former gimbal estimate). Reaching 0.2 Hz would need a0 ≈ 1.8–2.1, and 0.5 Hz would need a0 ≈ 11–13. Either the pair is not the S-IVB burn-1 gain, or TN5869's 0.2–0.5 Hz covers TLI, where c rises as the stage empties. Unresolved (§7.5).
+1. **S-IC.** TN5869's schedule keeps the sim between 0.12 and 0.18 Hz, consistent with TN5869's "≈ 0.15 Hz" first-stage frequency. The steps at 105 s and 130 s are what hold it there. This supports the TN5869 gains, the sim inertia and the 5.461 m gimbal plane together (L-M).
+2. **S-IVB.** The 0.81/0.97 pair gives 0.11–0.12 Hz. Reaching 0.2 Hz would need a0 ≈ 2.2–2.6, and 0.5 Hz would need a0 ≈ 13–16. Either the pair is not the S-IVB burn-1 gain, or TN5869's 0.2–0.5 Hz covers TLI, where c rises as the stage empties. Unresolved (§7.5).
 3. **Rate demand.** At these frequencies, actuator rates in response to 1° errors are below 1°/s, far from the 5–8°/s limits. Rate limits matter only for staging transients and engine-out.
 
 **Limits and command constraints**
@@ -875,7 +916,7 @@ Every published control-performance figure (FER maximum deflections, attitude er
 | per-axis clamp | F-1 ±0.08727 rad (outboard only); J-2 ±0.12217 rad (S-II outboard, S-IVB); centre engines never move | exact | §7.1 data (F-1 L, J-2 M) |
 | rate limit | 5°/s F-1; 8°/s S-II; 8°/s S-IVB placeholder | per step | data L / M-L / placeholder |
 | decoupling | unit βp, βy or βr gives torque only about its axis | off-axis below 1e-6 of on-axis | mixing geometry |
-| torque per deflection | τy = 4·F·L·sin β (S-IC, S-II), F·L·sin β (S-IVB), with the sim's own F, L and I. Sim α at full deflection: 3.9 / 3.3 / 5.2 °/s² at release / S-II ignition / S-IVB ignition | 0.5% against the formula | formula only: the gimbal stations are H since §4's update, but the sim's CoM and inertia are not, so never compare with a published inertia |
+| torque per deflection | τy = 4·F·L·sin β (S-IC, S-II), F·L·sin β (S-IVB), with the sim's own F, L and I. Sim α at full deflection: 4.9 / 2.9 / 4.2 °/s² at release / S-II ignition / S-IVB ignition | 0.5% against the formula | formula only: the gimbal stations are H since §4's update, but the sim's CoM and inertia are not, so never compare with a published inertia |
 | cant geometry | after the ramp, each outboard thrust line is 2.000° inward (radial), the net lateral force and torque are 0, axial thrust is × 0.99939, and the start is at 20.6 s | 1e-6; start ± one step | cant axis definition (L); ramp shape is a placeholder, so test only the end state |
 | null holds | S-II engines at 0 until 162.30; S-IVB J-2 at 0 until 552.20 | exact | EH (M) |
 
@@ -883,12 +924,12 @@ Every published control-performance figure (FER maximum deflections, attitude er
 
 | target | published | sim expectation | tolerance | depends on |
 |---|---|---|---|---|
-| S-IC rigid-body control frequency | ≈ 0.15 Hz (TN5869) | 0.134 Hz at release, 0.157 at max Q, 0.11–0.17 across bands | 0.10–0.20 Hz | TN5869 gains (L), sim L and I (L). Aero would lower it near max Q, so the band applies only to the no-aero sim. |
-| step response, S-IC at about 5 s | — | ωn 0.84 rad/s, ζ 0.32: first peak 3.95 s, overshoot 35% for a 0.5° attitude-command step | ±10% on time; ±5 points on overshoot | self-consistency of law, gains and mass properties. Keep the step at or below 0.5°: the command jumps by a0 × step (0.45°), so the 5°/s rate limit binds for under 0.1 s and the position limit never. |
+| S-IC rigid-body control frequency | ≈ 0.15 Hz (TN5869) | 0.149 Hz at release, 0.164 at max Q, 0.12–0.18 across bands (§7.2's table) | 0.10–0.20 Hz | TN5869 gains (L), sim L and I (L). Aero would lower it near max Q, so the band applies only to the no-aero sim. |
+| step response, S-IC at about 5 s | — | ωn 0.84 rad/s, ζ 0.32: first peak 3.95 s, overshoot 35% for a 0.5° attitude-command step (as implemented at liftoff mass, §8.6: ωn 0.936 rad/s, ζ 0.36, 30% at 3.6 s) | ±10% on time; ±5 points on overshoot | self-consistency of law, gains and mass properties. Keep the step at or below 0.5°: the command jumps by a0 × step (0.45°), so the 5°/s rate limit binds for under 0.1 s and the position limit never. |
 | ramp-tracking lag | — | (a1/a0) × rate: 0.77° at 1°/s (S-IC band 1), 1.70° (S-II band 1), 1.20° (S-IVB) | ±0.05° once settled | self-consistency. It holds exactly only with no disturbance torques, which is the case in the sim. |
-| kick damping | — | a 0.29°/s pitch and yaw kick after liftoff decays to below 0.015°/s within about 3 envelope time constants: 1/(ζωn) = 3.7 s, so about 11 s | factor 1.5 | same; replaces the stand-in test `testKillRotationDampsAKickWithTheStandIns` |
+| kick damping | — | a 0.29°/s pitch and yaw kick after liftoff decays to below 0.015°/s within about 3 envelope time constants: 1/(ζωn) = 3.7 s, so about 11 s (3.0 s and about 9 s with the liftoff mass properties of §4's 2026-10-17 update) | factor 1.5 | same; replaces the stand-in test `testKillRotationDampsAKickWithTheStandIns` |
 | deflection in nominal no-wind flight | FER values unusable | below 1° except during command-rate changes and staging | sanity | no aero or misalignment, so any large deflection is a bug |
-| S-IVB control frequency | 0.2–0.5 Hz (TN5869) | 0.12–0.14 Hz with 0.81/0.97 | **do not test** | §7.5 conflict |
+| S-IVB control frequency | 0.2–0.5 Hz (TN5869) | 0.11–0.12 Hz with 0.81/0.97 | **do not test** | §7.5 conflict |
 
 **C. Commanded manoeuvres** (the test supplies the command profile until the IU item exists)
 
@@ -950,7 +991,7 @@ Every published control-performance figure (FER maximum deflections, attitude er
 - **F-1 gimbal rate:** 5°/s versus 5.25°/s or 10.5°/s implied by "5.25° in 1 s". Loaded or no-load is unknown for every stage.
 - **S-IC gain switches:** TN5869 has two switches (105 s, 130 s); EL says one switchpoint at 100 s. TN5869 calls its values "typical", not AS-506. *The SA-507 flight sequence ICD and the AS-508 timeline put FCC switch points 1 and 2 at T1 + 105.0 and 130.0 s (§8).*
 - **S-II gain rows:** ~~the stage assignment is inferred from band edges.~~ *Resolved (§8): TN5869 Table 3 labels them "Second Stage Propulsion Period".*
-- **S-IVB gains:** the 0.81/0.97 pair gives 0.12–0.14 Hz in the sim against TN5869's 0.2–0.5 Hz third-stage frequency. Either the pair or the frequency definition is misread. The published gimbal station (§4) raised it from 0.11–0.13 Hz, which does not close the gap.
+- **S-IVB gains:** the 0.81/0.97 pair gives 0.11–0.12 Hz in the sim against TN5869's 0.2–0.5 Hz third-stage frequency. Either the pair or the frequency definition is misread. The published gimbal station and tank stations (§4), which put the lever arm within 1% of the FER's, leave the gap open.
 - **Cant axis:** 2° radial (1.41° per actuator) versus 2° per actuator (2.83° radial).
 - **Cant purpose:** misalignment sensitivity (EL paraphrase) versus engine-out load relief (plausible, unsourced). The ramp rate and the hold-to-OECO are unknown.
 - **APS:**
@@ -1124,7 +1165,7 @@ Only the OECO flight-path angle was fitted; everything else in the table is a ch
 
 ### 8.6 Flight control and APS logic as implemented
 
-- **FCC law** (§7.2): β = a0·e − a1·ω on each gimbal-flown axis, in the IU's hold, with TN5869's gain schedule on the S-IC and S-II switched at the IU's switch points (§8.3), and REF504's roll pair (S-IC 0.245 / 0.15 s, S-II 0.25 / 0.20 s; L). β is each engine's deflection: per actuator in pitch and yaw, tangential in roll (§7.2: if REF504's roll β is per actuator, a diagonal engine deflects √2 times it). REF504's filters (S-IC pitch and yaw attitude gain 0.4(s + 0.095)/(s + 0.038), S-IC roll 2.35/(s + 2.35)) are not modelled. Checks: in the roll program the model peaks at a 1.18° roll error and 1.39°/s roll rate, against AS-506's 0.92° and 1.38°/s (FER Table 11-2); with the pitch pair in roll (the earlier placeholder) the rate peaked at 1.03°/s. The peaks come 2 and 3 s after the program start, against AS-506's 0.6 and 1.2 s, so the model's roll loop is slower than AS-506's. Late in the ramp the law tracks it 0.60° behind (a1/a0 = 0.61°) at 1.00°/s, and Position I settles on 72.058°. A 0.5° pitch step at liftoff mass in vacuum (c = 0.887 s⁻², so ωn = 0.893 rad/s and ζ = 0.343) overshoots 32% at 3.7 s, as §7.4 B's formulas predict.
+- **FCC law** (§7.2): β = a0·e − a1·ω on each gimbal-flown axis, in the IU's hold, with TN5869's gain schedule on the S-IC and S-II switched at the IU's switch points (§8.3), and REF504's roll pair (S-IC 0.245 / 0.15 s, S-II 0.25 / 0.20 s; L). β is each engine's deflection: per actuator in pitch and yaw, tangential in roll (§7.2: if REF504's roll β is per actuator, a diagonal engine deflects √2 times it). REF504's filters (S-IC pitch and yaw attitude gain 0.4(s + 0.095)/(s + 0.038), S-IC roll 2.35/(s + 2.35)) are not modelled. Checks: in the roll program the model peaks at a 1.18° roll error and 1.39°/s roll rate, against AS-506's 0.92° and 1.38°/s (FER Table 11-2); with the pitch pair in roll (the earlier placeholder) the rate peaked at 1.03°/s. The peaks come 2 and 3 s after the program start, against AS-506's 0.6 and 1.2 s, so the model's roll loop is slower than AS-506's. Late in the ramp the law tracks it 0.60° behind (a1/a0 = 0.61°) at 1.00°/s, and Position I settles on 72.058°. A 0.5° pitch step at liftoff mass in vacuum (c = 0.973 s⁻², so ωn = 0.936 rad/s and ζ = 0.359; 0.887, 0.893 and 0.343 before §4's tank stations and dry CGs) overshoots 30% at 3.6 s, as §7.4 B's formulas predict.
 - **Pilot hand-back**: manual input or another autopilot mode takes the attitude from the IU, which keeps sequencing. When the hold flies again (input released, or key 8 after another mode), the IU restarts its command from the vehicle's attitude and returns to its program within its command rate limits: 1°/s per angle until the S-IVB cutoff, ASH's coast limits (below) from T5 on. 13° off the program at 60 s, the stack turns back at 1.3°/s at most, where the FCC law on the whole error swung it at up to 7.7°/s near max Q.
 - **S-IVB burn**: the vehicle's own self-tuned gimbal law (`tvcGains`) flies the J-2, because TN5869's S-IVB pair contradicts its stated control frequency (§7.5).
 - **APS phase plane** (§7.2): ±1° dead band; error clipped at 2.5° in pitch and yaw and 3.5° in roll; switching line e − 5 s × ω (placeholder slope); 0.06 s minimum on-time; full-thrust pulses, no hysteresis. It flies the APS in every autopilot mode except kill rotation, and in the IU's hold; in the pointing modes, which set no roll attitude, roll keeps M0's rate damping (proportional levels, as in kill rotation). The law decides once a step, so the simulation ends a coasting step where an axis is predicted to reach its switching line, and a pulse step where the minimum on-time ends: the law then works the same at any frame rate and time warp. Measured: manoeuvres at 0.30°/s in pitch and 0.51°/s in roll; pulses of exactly 0.06 s with the app's 1/60 s frames; holding in free space after a slew, well under 1 kg/h at both 1× and 10,000× (0.13 and 0.18 kg/h in `testAPSHoldAtTimeWarp`; 47 kg/h at 10,000× with coast steps of up to 60 s). The rate is set by the roll rate the slew leaves, which a 0.2 % change in roll inertia moved: with the pre-FER spacecraft masses it was 0.91 and 0.87 kg/h, 14 roll pulses in the 900 s at 1× against 2 now; on the light S-IVB after TLI, Prograde uses 0.2 kg of APS propellant an hour, where M0's law emptied both modules (298 kg) within the hour.
