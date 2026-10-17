@@ -3,7 +3,8 @@ import Foundation
 extension SaturnIU {
     /// The AS-506 (Apollo 11) flight program: times, angles and gains from
     /// `AS506` (datasheet §8), as offsets from the time base that triggers
-    /// them; `tilt` replaces the pitch program.
+    /// them, and iterative guidance with its presettings (datasheet §10);
+    /// `tilt` replaces the pitch program.
     public static func as506(tilt: TiltProgram? = nil) -> SaturnIU {
         typealias D = AS506
         let deg = D.degree
@@ -25,16 +26,12 @@ extension SaturnIU {
             Event(.t3, D.sIIHighMixtureRatioTime, "S-II high EMR select", .rating(part: "S-II", D.sIIJ2)),
             Event(.t3, D.interstageJettisonTime, "S-II aft interstage jettison", .separate("S-IC/S-II interstage")),
             Event(.t3, D.lesJettisonTime, "launch escape tower jettison", .separate("LES")),
-            Event(.t3, D.igmStartTime, "IGM phase 1 (not modelled: attitude held)", .note),
+            Event(.t3, D.igmStartTime, "IGM phase 1", .iterativeGuidance),
             Event(.t3, D.sIICenterCutoffTime, "S-II centre engine cutoff", .engineCutoff("S-II engine 5")),
-            Event(.t3, D.sIIMixtureRatioShiftCommandTime, "EMR shift command (IGM phase 2 not modelled)", .note),
-            Event(.t3, D.sIIMixtureRatioShiftTime, "S-II low EMR (PU valve step)", .rating(part: "S-II", D.sIIJ2LowEMR)),
             Event(.t4, 0, "S-II outboard engine cutoff", .mainThrottle(0)),
             Event(.t4, D.sIISeparationTime, "S-II/S-IVB separation", .separate("S-II")),
             Event(.t4, D.sIVBIgnitionTime, "S-IVB flight control law", .gains(nil)),
             Event(.t4, D.sIVBIgnitionTime, "S-IVB ignition", .mainThrottle(1)),
-            // Until IGM exists, the cutoff comes as long after T4 as on the flight.
-            Event(.t4, D.sIVBCutoffTime, "S-IVB cutoff (Apollo 11's burn time: IGM not modelled)", .mainThrottle(0)),
             Event(.t5, D.tb5UllageOn, "APS ullage on", .ullage(true)),
             Event(.t5, D.orbitalGuidanceStart, "orbital guidance: local horizontal", .localHorizontal),
             Event(.t5, D.tb5UllageOff, "APS ullage off", .ullage(false)),
@@ -57,7 +54,10 @@ extension SaturnIU {
             coastRateLimit: Vec3(D.coastRateLimit.roll, D.coastRateLimit.pitch, D.coastRateLimit.yaw) * deg,
             cant: (D.cantAngle * deg, D.cantRampRate * deg),
             sequence: sequence,
-            stages: ("S-IC", "S-II", "S-IVB"), centreEngine: "S-IC engine 5"))
+            stages: ("S-IC", "S-II", "S-IVB"), centreEngine: "S-IC engine 5",
+            guidance: Guidance(presettings: D.igmPresettings(gm: 0), cycle: D.igmCycle,
+                               shift: (D.sIIMixtureRatioShiftDelay, "S-II low EMR (PU valve step)",
+                                       .rating(part: "S-II", D.sIIJ2LowEMR)))))
     }
 }
 

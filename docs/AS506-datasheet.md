@@ -2,7 +2,7 @@
 
 Compiled on 2026-10-15 for M1 item 1 (the Saturn V stack) from web research in four categories: launch-vehicle masses and timeline, propulsion, geometry and aero, and spacecraft. Each category was independently re-verified, then reconciled here. `Sources/OrbitCore/Vessel/AS506Data.swift` holds the values the simulator uses, with the same sources and confidence grades.
 
-**Limits.** The NASA documents could not be fetched directly; values come from search extracts of them, from arithmetic on those values, or (marked **recalled**) from memory without a check against the source. The SP-4029 S-II and S-IVB propellant-usage rows and the FER mass tables are still unread; they are the most valuable follow-up. *Update (§8, 2026-10-16): the FER was then read directly; §8.7 lists its values that bear on §1–§7. Update (§9, 2026-10-17): the model's propulsion and masses are now calibrated to the FER. §9 supersedes, for the model, the derived masses of §1.1, the S-II and S-IVB engine rows of §1.2 and §1.3 and §1.7's decision 7, all of §2, the flight rows of §3 and targets A and B of §5, which stay here as the pre-FER record.*
+**Limits.** The NASA documents could not be fetched directly; values come from search extracts of them, from arithmetic on those values, or (marked **recalled**) from memory without a check against the source. The SP-4029 S-II and S-IVB propellant-usage rows and the FER mass tables are still unread; they are the most valuable follow-up. *Update (§8, 2026-10-16): the FER was then read directly; §8.7 lists its values that bear on §1–§7. Update (§9, 2026-10-17): the model's propulsion and masses are now calibrated to the FER. §9 supersedes, for the model, the derived masses of §1.1, the S-II and S-IVB engine rows of §1.2 and §1.3 and §1.7's decision 7, all of §2, the flight rows of §3 and targets A and B of §5, which stay here as the pre-FER record. Update (§10, 2026-10-17): the IU now flies the S-II and S-IVB on iterative guidance (IGM), which commands the EMR shift and the S-IVB cutoff in place of §8's timed stand-ins.*
 
 ## Conventions
 
@@ -988,7 +988,7 @@ Every published control-performance figure (FER maximum deflections, attitude er
 
 ## 8. IU flight program (M1 item 3, part 1: open loop)
 
-Compiled on 2026-10-16 for the first half of the IU item: the flight sequence on the LVDC's time bases, the S-IC's open-loop attitude programs, the flight-control gain and cant schedules, the APS switching logic and orbital attitude. Iterative guidance (IGM) for the S-II and S-IVB is part 2. `Sources/OrbitCore/Vessel/AS506Data.swift` ("IU flight program") holds the values, and `SaturnIU.as506()` the sequence.
+Compiled on 2026-10-16 for the first half of the IU item: the flight sequence on the LVDC's time bases, the S-IC's open-loop attitude programs, the flight-control gain and cant schedules, the APS switching logic and orbital attitude. Iterative guidance (IGM) for the S-II and S-IVB is part 2 (§10). `Sources/OrbitCore/Vessel/AS506Data.swift` ("IU flight program") holds the values, and `SaturnIU.as506()` the sequence.
 
 **Sources read directly** (for the first time in this datasheet; the network allowlist now includes ibiblio.org):
 
@@ -1000,7 +1000,7 @@ Compiled on 2026-10-16 for the first half of the IU item: the flight sequence on
 - REF504: Boeing D5-15481-1, *Saturn V AS-504 Launch Vehicle Reference Trajectory*, Vol. I (15 May 1967; ibiblio), Table 3-IV (control gains, roll included) and §3.5 (filters).
 - ASH: IBM, *Astrionics System Handbook, Saturn Launch Vehicles*, MSFC No. IV-4-401-1 (changed 15 November 1969; ibiblio.org/apollo/Documents/AstrionicsSystemsHandbook_Nov69.pdf). §3.1 and Table 3.1-3 (attitude constants: error limits and command rate limits by flight phase). Generic Saturn V, so M for AS-506.
 - MAN503: MSFC-MAN-503, *Saturn V Flight Manual SA-503*, Figure 2-1. Context only.
-- PFT: Boeing D5-15560-6, *Apollo/Saturn V Postflight Trajectory AS-506* (ibiblio.org/apollo/Documents/19920075301.pdf): Table B-II gives the LVDC navigation state every 2 s in the space-fixed frame. Not used yet; the reference for IGM in part 2.
+- PFT: Boeing D5-15560-6, *Apollo/Saturn V Postflight Trajectory AS-506* (ibiblio.org/apollo/Documents/19920075301.pdf): Table B-II gives the LVDC navigation state every 2 s in the space-fixed frame. Used for IGM (§10).
 
 AS-506's own guidance presettings (its *Operational Trajectory* and *Flight Sequence Program* ICD 40M33626B, cited by the FER) were not found. GE504's SA-504 presettings stand in for the pitch polynomial and the program-start test, graded M as a proxy; MAN506 confirms the yaw command and that AS-506's commanded pitch follows SA-504's polynomial (§8.4).
 
@@ -1012,7 +1012,7 @@ AS-506's own guidance presettings (its *Operational Trajectory* and *Flight Sequ
 | euler_sequence | chi_Y (pitch), then chi_Z (yaw), then chi_X (roll), about the vehicle-fixed axes; positive counterclockwise | GE504 §5.1 symbol list | H | With Saturn (X, Y, Z) = OrbitSim (x, y, z) (§7.1), the pitch polynomial is negative downrange and the tower yaw positive towards +Y_S (azimuth 162°, away from the tower to the north). |
 | initial_roll | chi_X = A_Z − 90° = −17.942° | GE504 Table 4-I | H | The model measures it from the stack's attitude at T1 (Position I east). |
 | command_rate_limit | 1.0 deg/s on each of chi_X, chi_Y, chi_Z | GE504 §2.1.2, Table 5-I | H (SA-504), M (AS-506) | The AS-506 roll, 17.94° from T1 + 12.6 to T1 + 30.5 s (FER), is flown at this limit. |
-| yaw_command_limit | 45° | GE504 §2.1.2 | H | Not reached in the S-IC programs; not modelled. |
+| yaw_command_limit | 45° | GE504 §2.1.2 | H | Not reached in the S-IC programs; applied to the IGM's yaw command (§10), which stays within about 1°. |
 
 ### 8.2 Time bases (FER Table 2-1)
 
@@ -1023,7 +1023,7 @@ AS-506's own guidance presettings (its *Operational Trajectory* and *Flight Sequ
 | T2 | 135.27 | S-IC CECO sensed by the LVDC | the step after the centre engine is cut (135.22) |
 | T3 | 161.66 | S-IC OECO sensed | at LOX depletion, 161.64 (§9) |
 | T4 | 548.24 | S-II OECO sensed | at LOX depletion, 548.24: the J-2s start at T3 + 2.4 = 164.04 s; from a 164.00 s start the S-II depletes at 548.16 s (§9.4) |
-| T5 | 699.57 | S-IVB velocity cutoff sensed | two steps after the cutoff command at T4 + 151.10 (699.34, then 699.38) |
+| T5 | 699.57 | S-IVB velocity cutoff sensed | the step after the IGM's velocity cutoff (§10): 704.18, then 704.20, 4.8 s after AS-506's |
 
 The model senses each cutoff one or two integration steps (0.02–0.04 s) after it; the LVDC took 0.03–0.23 s. When a time base starts, the IU drops the earlier bases' pending events, as the LVDC moved to the new base's switch-selector table.
 
@@ -1049,20 +1049,23 @@ Offsets are vehicle time from the time base, from FER Table 2-2 unless marked; t
 | S-II high EMR select | T3 + 6.9 | 168.5 | ESC + 5.5 s: the PU system takes the J-2s from their start setting (EMR 5.0) to high EMR (§9.2) |
 | aft interstage jettison | T3 + 30.7 | 192.3 | |
 | LET jettison | T3 + 36.2 | 197.9 | |
-| IGM phase 1 | T3 + 42.4 (logged) | 204.1 | part 2; the model holds the attitude of the tilt arrest |
+| IGM phase 1 | T3 + 42.4 | 204.1 (204.07, Table 10-4) | the IGM steers from here (§10) |
 | S-II gains, bands 2 and 3 | T3 + 61.4, T3 + 191.4 | — | FCC switch points 3 and 4 (ICD507, page images; M) |
 | S-II CECO | T3 + 299.0 | 460.6 | |
-| EMR shift command | T3 + 333.14 (logged) | 494.8 | IGM phase 2 commands it on a preset characteristic velocity (part 2); the model keeps the flight's times |
-| S-II low EMR | T3 + 335.94 | 497.60 (PU valve step, FER Table 6-2; low EMR by 498.0) | §9.2 |
+| EMR shift command | IGM (§10) | 494.8 (494.83, Table 10-4) | the IGM commands it when the S-II's characteristic velocity reaches its preset, and enters phase 2: 494.74 s in the model |
+| S-II low EMR | shift command + 2.8 | 497.60 (PU valve step, FER Table 6-2; low EMR by 498.0) | §9.2; the FER's interval from the command (494.8) to the valve step; 497.54 s in the model |
 | S-II OECO | LOX depletion | 548.22 | propellant model: 548.24 in flight (§8.2) |
 | S-II/S-IVB separation | T4 + 0.8 | (command) 549.0 | |
+| IGM phase 3 (steering frozen) | IGM, first cycle after T4 | 548.2 (Table 10-4) | §10 |
 | S-IVB ignition | T4 + 4.0 | 552.2 | STDV open; the start ramp reaches mainstage at 554.7 s (§9.2); the S-IVB J-2 flies the vehicle's own gains law (§7.2: TN5869's S-IVB pair is inconsistent) |
-| S-IVB cutoff | T4 + 151.10 (stand-in: the FER's cutoff command less its T4) | 699.34 | the model's 699.34. IGM's velocity cutoff in part 2. Without IGM the stack is suborbital here: apogee about 705 km, periapsis −1,619 km, impact 2,375 s after first motion. |
+| IGM steering on the S-IVB | IGM, at 90 % thrust | 555.6 (555.57, Table 10-4: artificial tau) | §10 |
+| terminal guidance, chi freeze | IGM | 665.2, 691.6 (Table 10-4) | §10: 670.18 and 697.70 s in the model |
+| S-IVB velocity cutoff | IGM (§10) | 699.34 | the model's 704.18 s, 4.8 s after AS-506's (§10.4) |
 | APS ullage on | T5 + 0.3 | 699.8 | both engines; No. 2 0.1 s later on the vehicle |
 | local horizontal | T5 + 19.8 | 719.3 | GE504 §4.1.11: +X along the local horizontal in the direction of motion, +Z towards the Earth |
 | APS ullage off | T5 + 87.0 | 786.5 | |
 
-The IU stages by part: an event whose part or engine has gone (a pilot's Space press) does nothing and is logged "(nothing to do: gone)". The S-II dropped by hand starts T4 early, which leaves the S-II's remaining events (gain switches, centre engine cutoff, mixture-ratio shift) behind. Engines decay over their shutdown ramp after a cutoff (§9.2); the IU senses the cutoff itself, not the end of the decay. The IU refuses manual staging before T3, when Space would drop the S-IC on the pad, or full and burning in flight.
+The IU stages by part: an event whose part or engine has gone (a pilot's Space press) does nothing and is logged "(nothing to do: gone)". The S-II dropped by hand starts T4 early, which leaves the S-II's remaining events (gain switches, centre engine cutoff) behind; the IGM's start is kept, and the IGM then steers the S-IVB. T5 stops the IGM however the S-IVB was cut. Engines decay over their shutdown ramp after a cutoff (§9.2); the IU senses the cutoff itself, not the end of the decay. The IU refuses manual staging before T3, when Space would drop the S-IC on the pad, or full and burning in flight.
 
 ### 8.4 Pre-IGM pitch program
 
@@ -1115,7 +1118,7 @@ Only the OECO flight-path angle was fitted; everything else in the table is a ch
 - **Pilot hand-back**: manual input or another autopilot mode takes the attitude from the IU, which keeps sequencing. When the hold flies again (input released, or key 8 after another mode), the IU restarts its command from the vehicle's attitude and returns to its program within its command rate limits: 1°/s per angle until the S-IVB cutoff, ASH's coast limits (below) from T5 on. 13° off the program at 60 s, the stack turns back at 1.3°/s at most, where the FCC law on the whole error swung it at up to 7.7°/s near max Q.
 - **S-IVB burn**: the vehicle's own self-tuned gimbal law (`tvcGains`) flies the J-2, because TN5869's S-IVB pair contradicts its stated control frequency (§7.5).
 - **APS phase plane** (§7.2): ±1° dead band; error clipped at 2.5° in pitch and yaw and 3.5° in roll; switching line e − 5 s × ω (placeholder slope); 0.06 s minimum on-time; full-thrust pulses, no hysteresis. It flies the APS in every autopilot mode except kill rotation, and in the IU's hold; in the pointing modes, which set no roll attitude, roll keeps M0's rate damping (proportional levels, as in kill rotation). The law decides once a step, so the simulation ends a coasting step where an axis is predicted to reach its switching line, and a pulse step where the minimum on-time ends: the law then works the same at any frame rate and time warp. Measured: manoeuvres at 0.30°/s in pitch and 0.51°/s in roll; pulses of exactly 0.06 s with the app's 1/60 s frames; holding in free space after a slew, well under 1 kg/h at both 1× and 10,000× (0.13 and 0.18 kg/h in `testAPSHoldAtTimeWarp`; 47 kg/h at 10,000× with coast steps of up to 60 s). The rate is set by the roll rate the slew leaves, which a 0.2 % change in roll inertia moved: with the pre-FER spacecraft masses it was 0.91 and 0.87 kg/h, 14 roll pulses in the 900 s at 1× against 2 now; on the light S-IVB after TLI, Prograde uses 0.2 kg of APS propellant an hour, where M0's law emptied both modules (298 kg) within the hour.
-- **Orbital attitude**: after T5 + 19.8 s the IU commands the local horizontal (+x along the horizontal velocity, +z down), turning at the orbital rate; the APS holds it within 1.9° (dead band plus 5 s × the 0.07°/s orbital rate on each axis). The FER's mission description has the vehicle "aligned with the local horizontal" from about 10 s after insertion through the parking orbit; GE504's SA-504 landmark-sighting manoeuvres (a 180° roll and 20° nose-down from insertion + 45 min) do not appear in it and are not modelled. The command moves there within the LVDC's coast rate limits, 0.4°/s in pitch and yaw and 0.6°/s in roll (ASH §3.1, Table 3.1-3, "Coast"; M), which the model applies from the S-IVB cutoff (T5) on; SA-504's presettings had 1.0°/s (GE504). FER Figure 11-12 (digitised during the research pass: L-M) supports the ASH value: AS-506's pitch error grew at 0.33–0.37°/s from 721 to 727 s, before the vehicle had turned, and reached the 2.5° clip at about 729 s, where a 1.0°/s limit would have saturated within about 3 s. The model's pitch error grows at 0.34°/s over the same seconds. The vehicle then turned at about 0.2°/s and the manoeuvre was about 6° in all; the model's slew is about 54° at the APS's clip-limited 0.30°/s, because without IGM the stack still has the tilt arrest's attitude.
+- **Orbital attitude**: after T5 + 19.8 s the IU commands the local horizontal (+x along the horizontal velocity, +z down), turning at the orbital rate; the APS holds it within 1.9° (dead band plus 5 s × the 0.07°/s orbital rate on each axis). The FER's mission description has the vehicle "aligned with the local horizontal" from about 10 s after insertion through the parking orbit; GE504's SA-504 landmark-sighting manoeuvres (a 180° roll and 20° nose-down from insertion + 45 min) do not appear in it and are not modelled. The command moves there within the LVDC's coast rate limits, 0.4°/s in pitch and yaw and 0.6°/s in roll (ASH §3.1, Table 3.1-3, "Coast"; M), which the model applies from the S-IVB cutoff (T5) on; SA-504's presettings had 1.0°/s (GE504). FER Figure 11-12 (digitised during the research pass: L-M) supports the ASH value: AS-506's pitch error grew at 0.33–0.37°/s from 721 to 727 s, before the vehicle had turned, and reached the 2.5° clip at about 729 s, where a 1.0°/s limit would have saturated within about 3 s. The model's pitch error grows at 0.34°/s over the same seconds after its own T5 (T5 + 21.4 to 27.4 s). The vehicle then turned at about 0.2°/s and the manoeuvre was about 6° in all; from the IGM's cutoff attitude the model's slew is 6.1° (6.1° in pitch), at the APS's clip-limited 0.30°/s.
 - **S-IVB burn roll**: AS-506 held a roll error of about −1° through the first burn (FER Figure 11-11), the APS working against a steady 61.4 N·m roll torque (FER §11.4.1). The model has no such torque, so its roll stays inside the dead band.
 
 ### 8.7 FER values that touch §1–§7 (applied in §9)
@@ -1144,10 +1147,11 @@ The propulsion and mass model of §1–§3 was calibrated without the FER. These
 | `testSICAscentMatchesApollo11` | the §8.4 table, except the fitted angle (±0.2°); thrust acceleration within 1 % of FER Figure 4-3 at 10.3, 147.4, 152.3 and 158.8 s, where drag is under 0.3 % of thrust | FER Table 4-1/4-2 (H), Figure 4-3 (M); `pitchScale` (fitted) |
 | `testOutboardCantSchedule` | cant from T1 + 20.0 s to 2° radial | FER (H), EL (M) |
 | `testFlightControlStepResponse` | ωn and overshoot of the FCC law | TN5869 (L), model mass properties |
-| `testFlightSequenceFollowsTheApollo11Timeline` | every IU event against FER Tables 2-1 and 2-2 (S-II gain switches against ICD507), within 0.1 s from T3 on (T3 within 0.05 s), the S-II ullage motors and EMR steps included; staging by part; S-II at low EMR; ullage 86.7 s; the local-horizontal command within ASH's orbital rate limits, reaching 0.4°/s in pitch, and the pitch error growing at 0.35 ± 0.05°/s from 721 to 727 s (FER Figure 11-12: 0.33–0.37); local horizontal held within 1.9°; a hand-back in orbit restarts the command from the attitude and returns within the limits | FER (H; Figure 11-12 digitised, L-M), ICD507 (M), ASH (M) |
+| `testFlightSequenceFollowsTheApollo11Timeline` | every IU event against FER Tables 2-1, 2-2 and 10-4 (S-II gain switches against ICD507), within 0.1 s from T3 on (T3 within 0.05 s), the S-II ullage motors and EMR steps included; the IGM's phase changes within a cycle (1.7 s), terminal guidance and the chi freeze timed from the model's cutoff as the FER's from AS-506's, the velocity cutoff within 6 s of AS-506's; staging by part; S-II at low EMR; ullage 86.7 s; a slew of 3–10° to the local horizontal (AS-506 about 6°); the local-horizontal command within ASH's orbital rate limits, reaching 0.4°/s in pitch, and the pitch error growing at 0.35 ± 0.05°/s from T5 + 21.4 to T5 + 27.4 s (FER Figure 11-12, 721 to 727 s: 0.33–0.37); local horizontal held within 1.9°; a hand-back in orbit restarts the command from the attitude and returns within the limits | FER (H; Figure 11-12 digitised, L-M), ICD507 (M), ASH (M) |
+| `testIGMFliesApollo11ToItsParkingOrbit` | §10.6 | FER §10 |
 | `testCoastCommandRateFromTheSIVBCutoff` | after the S-IVB cutoff and before the turn to the local horizontal, a hand-back returns at the coast limits (0.6°/s in roll), not 1°/s | ASH (M) |
 | `testIUStagesByPartAfterAManualSpacePress` | Space refused before T3; from T3 a pilot's Space press and attitude takeover leave the sequence intact | — |
-| `testEarlierTimeBaseEventsDropWhenTheNextStarts` | the S-II dropped by hand starts T4, and the S-II's pending events never fire into the S-IVB | — |
+| `testEarlierTimeBaseEventsDropWhenTheNextStarts` | the S-II dropped by hand starts T4, and the S-II's pending events never fire into the S-IVB; the IGM still starts and steers the S-IVB | — |
 | `testAttitudeHandBackReturnsAtTheCommandRate` | handed back 13° off the program, the stack returns at 1.3°/s at most and rejoins the program | GE504 command rate limit |
 | `testIUStartedInFlightWaitsForTheProgramStart` | an IU attached in flight takes its rise from there: programs at the 13 s backup | GE504 |
 | `testAPSPhasePlaneSlewsAndHolds`, `testAPSDoesNotDrainHoldingPrograde` | §8.6 APS figures | EH 8.30 (M); placeholders K and minimum on-time |
@@ -1159,8 +1163,8 @@ The propulsion and mass model of §1–§3 was calibrated without the FER. These
 
 1. AS-506's own pre-IGM presettings (pitch polynomial, t_AR, start test): its July 1969 Operational Trajectory or the SA-506 Flight Sequence Program ICD (40M33626B).
 2. PFT Table B-II/B-III: the S-IC time history, to check the whole ascent rather than two points (the tables are scanned and must be read from the page images).
-3. IGM presettings for AS-506 (part 2): GE504 §4 and Table 5-I give SA-504's; FER Table 10-4 and Figure 10-4 give AS-506's IGM phase times and attitude commands.
-4. The S-II EMR shift by characteristic velocity (part 2, with IGM; the S-II propulsion is calibrated, §9).
+3. *Resolved in §10:* IGM, with presettings from the model's vehicle and AS-506's flight (AS-506's own presettings are still missing, §10.7).
+4. *Resolved in §10:* the S-II EMR shift by characteristic velocity.
 5. AS-506's roll gains and the definition of the roll β (per actuator or tangential, §7.2), and the FCC filters (REF504 §3.5). The model's roll loop peaks 2–3 s after the program start where AS-506's peaked within 1.2 s (§8.6), which points at the roll authority, the roll inertia or the gains.
 
 **Values tests must not depend on**: `pitchScale` beyond the OECO angle it was fitted to; the cant ramp rate; every gain (§7.5), beyond the roll-program peaks checked against the FER; APS K and minimum on-time; max Q time and the program-start time (§8.5).
@@ -1277,3 +1281,149 @@ The S-IC's propellant is the FER's, so from OECO on the differences are the uppe
 | `SaturnVControlTests.testTB5UllageBurn` | after burn 1's 147.13 s and decay, within 0.3 % of 135,102 kg | FER Table 20-5 |
 
 **Values tests must not depend on**: the ramp shapes; the S-II start setting's Isp and EMR; the ullage motors' thrust history; Figure 4-3 and 5-3 readings beyond about 1 %; the fitted scales beyond the depletions and residuals they were fitted to.
+
+---
+
+## 10. Iterative guidance (M1 item 3, part 2: IGM)
+
+Compiled on 2026-10-17 for the second half of the IU item: the LVDC's iterative guidance mode from its start at T3 + 42.4 s through the S-II and the S-IVB's first burn to the velocity cutoff. `Sources/OrbitCore/Guidance/IterativeGuidance.swift` holds the equations, `AS506Data.swift` ("Iterative guidance") the presettings, and `SaturnIU` the navigation inputs, the stage discretes, the EMR shift and the cutoff.
+
+**Sources** (read directly, tables and equations checked against the page images):
+
+- GE504 §3.1, §4.1.3–4.1.8, Figures 4-1, 4-5, 4-8, 4-9, 4-11 and 4-12, Tables 4-I, 4-III, 4-IV and 4-V (the into-orbit equations), Table 5-I (SA-504's presettings). H for SA-504.
+- FER §6.1 and §6.5 (the EMR shift), §10 (Tables 10-2 to 10-5, Figures 10-3 and 10-4, the latter digitised: M on isolated stretches, L where the curves overlap or step), §11.3, Tables 2-2 and 4-5. AS-506's phase times, attitude commands, cutoff and insertion states.
+- PFT Table B-II: AS-506's navigation state every 2 s, for the point-mass test's state at 200 s. Recomputing the PFT's and the FER's insertion elements from these states identifies the frame and the node definitions below (H).
+- MAN506 §7, ASH §2.3 and Decher: descriptive, consistent with GE504 (M).
+- The AS-512 LVDC material on Virtual AGC (an abridged flight-program listing that keeps only the mathematical utilities, the preflight program descriptions, a repeatable-flight-test time history) holds no IGM code or presettings.
+
+AS-506's own IGM presettings (its operational trajectory and flight-sequence ICD 40M33626B) were not found. The model's are therefore derived as the LVDC's were, from the predicted vehicle, here the model's own (§10.3), with thresholds from SA-504 or inferred from AS-506's flight.
+
+### 10.1 Frames, targets and inputs
+
+| id | value | source | conf | notes |
+|---|---|---|---|---|
+| space-fixed frame | X_S, Y_S, Z_S of §8.1 (PACSS 13): X_S up at GRR, Z_S along the 72.058° azimuth | GE504 Fig. 1-1; FER, PFT | H | The IGM's [A] (Table 4-I) takes the latitude of X_S from the Earth's pole in the IU's frame: 28.447° on the model's spherical Earth, where AS-506's X_S was the geodetic vertical at 28.608°. Both lie in the launch meridian, so i and θ_N mean the same. |
+| [G] = [B][A] | X_4 along the descending node, Z_4 90° on in the orbit plane, Y_4 against the orbit normal | GE504 Table 4-I | H | [B] from i and θ_N. |
+| R_T | 6,563,365 m: 100 n mi above the 6,378,165 m sphere | GE504 Table 5-I (SA-504's −μ/C3); MAN506 and TIS "100 n mi" | H | AS-506's LVDC cut off at 6,563,335 m (FER Table 10-2). |
+| V_T, γ_T | √(μ/R_T) (circular: e = 0, C3 = −μ/R_T), 0° | GE504 Table 5-I | H | 7,793.02 m/s with the model's μ, 3.986004418 × 10¹⁴ m³/s² (SA-504: 3.986032 × 10¹⁴). |
+| i | 32.531° | FER Tables 4-5 and 10-5, nominal | H (nominal), inferred (as the target) | The LVDC's insertion state gives 32.532° (Table 10-5), so the targets were within 0.002° of the nominal elements. SA-504's polynomial at 72.058°: 32.534°. |
+| θ_N | 123.100°, eastward in the equator from the launch meridian fixed at GRR | FER Tables 4-5 and 10-5, nominal | H (nominal), inferred (definition and target) | The definition reproduces Table 4-5's actual 123.088° from the postflight state to 0.001°; LVDC 123.102°. SA-504's polynomial: 123.118°. |
+| navigation | the model's state, rotated into the space-fixed frame, and its J2 gravity | — | — | Perfect navigation; the LVDC integrated its platform's velocity increments with its own gravity model. |
+| F/m | the mean thrust acceleration over the last cycle (the cycle's sensed Δv over its length) | GE504 Fig. 4-5 (m/F) | H | τ = Vex/(F/m) once a stage's tau is measured. |
+| BNVC | the S-II's characteristic velocity: thrust acceleration integrated from S-II engine start to T4 | FER §10.2.1 | H (definition) | AS-506's LVDC summed the platform increments and lost about 92 m/s through scaling (FER Figure 10-3: 91.8 m/s at 494.8 s). The model's sum is exact; its preset absorbs the difference (§10.3). |
+| stage discretes | S-II cutoff: T4. S-IVB ignition: the J-2 at 90 % of its vacuum thrust (554.57 s) | GE504 §3.1.1 ("S-IVB stage ignition (90-percent thrust)") | H | |
+
+### 10.2 What is implemented, and the departures from GE504
+
+GE504's into-orbit path, every 1.7 s cycle (Fig. 4-1): the time update (Fig. 4-12); the stage logic (Fig. 4-5) with the coast freeze (GATE) and the artificial tau mode (Table 4-III); the chi-tilde logic (Fig. 4-8, Table 4-IV): the stage integrals L, J, S, Q, P, U of Vex/(τ − t) and their "12" and Y/P combinations, range angle 1 with the ROV bias, the terminal frame [K] = [φ_T][G], the velocity to be gained with the gravity averaged between the vehicle and the target, ΔL3 and ΔT3 in two passes with the T′ update between them, χ̃_p and χ̃_y; the K1–K4 terms for the radius and the plane (Fig. 4-9, Table 4-IV p5); the steering angles χ″ = χ̃ − K + K·t (t = 2 s) rotated into the space-fixed frame (Table 4-IV p6); terminal guidance (K = 0) from T_T′ ≤ ε2; the high-speed loop and chi freeze from T_T′ ≤ ε4 with V + V_TC ≥ V_T (Fig. 4-11), then the cutoff at V_T − ΔV_B. The commands go through the IU's 1°/s rate limit (§8.1), as the pre-IGM ones do.
+
+| item | GE504 (SA-504) | model | basis |
+|---|---|---|---|
+| end of stage 1 and the EMR shift | an MRS discrete (timed in SA-504's sequence), then a 50 s transition folding the flow change into τ2 and T2 | the IGM computes T1 = τ1(1 − exp(−(V_C − BNVC)/Vex1)), the burn time left to the preset characteristic velocity V_C, and when T1 ≤ 0 it commands the shift itself and enters stage 2; the IU steps the PU valve 2.8 s later | FER §6.1 ("upon attainment of a preprogramed stage characteristic velocity as sensed by the LVDC"), §10.2.1 ("entered when a time-to-go quantity T1i becomes zero or negative"); the FER does not give T1i's formula (inferred); the 2.8 s is the FER's 494.8 to 497.60 s |
+| tau after the shift | the preset τ2 until the transition ends | artificial tau for C0′ = 9 s from τ2N, the preset τ2, then measured | FER Table 10-4: artificial tau 494.83–504.16 s |
+| G_T | not computed on the unrotated into-orbit path | −μ/R_T² along ξ, computed with the targeting | GE504 omits it there (the averaged gravity needs it) |
+| arctangents | two-argument forms as printed | χ̃_p and the commanded pitch four-quadrant (atan2) | the pitch passes −90° in the S-II |
+| cutoff | T_GO from a quadratic fit to the last three speeds (Table 4-V) | from the speed's rate (thrust acceleration along the velocity plus gravity), the simulation ending a step on the predicted cutoff | the step then lands on V_T − ΔV_B within 0.01 m/s |
+| phase 3 | from the T4 interrupt | from the first IGM cycle after T4 (up to 1.7 s late; the steering is frozen through the coast either way) | — |
+| IGM start | TB3 + T_LET (40.671 s) | T3 + 42.4 s, AS-506's | FER Tables 2-2 and 10-4 |
+| not modelled | steering misalignment correction (SMC), S-II engine-out (the 5/4 factors), direct staging, rotated terminal conditions, range angle 2 (ε1), terminal-condition updates (ε3) | — | AS-506 ran SMC from 221.5 s (FER Table 10-4); it corrects a thrust misalignment the model does not have. ε1 and ε3 never apply into orbit with SA-504's values. |
+
+### 10.3 Presettings
+
+| symbol | model | SA-504 (GE504 Table 5-I) | basis | conf |
+|---|---|---|---|---|
+| Δt (cycle) | 1.7 s | 1.7 s | GE504 | H (SA-504), M (AS-506) |
+| IGM start | T3 + 42.4 s | TB3 + 40.671 s | FER Table 2-2 | H |
+| Vex1, Vex2, Vex3 | 4,175.4, 4,200.5, 4,192.8 m/s | 4,169.23, 4,204.26, 4,170.57 m/s | the model's S-II high and low EMR and S-IVB settings, thrust over flow (§9.2) | model |
+| τ2, τ3 | 347.5 s, 773.0 s | 309.23 s, 665.86 s | the model's mass at the shift command over four low-EMR J-2s' flow; at S-IVB 90 % thrust over the J-2's flow (rounded to 0.5 s) | model |
+| T2, Tc, T3′ | 53.4, 6.3, 144.0 s | 99.886, 4.718, 120.565 s | AS-506's shift command to S-II OECO (494.8 to 548.22 s), T4 to 90 % thrust in the model (548.24 to 554.5 s), and 554.5 to 699.34 s | inferred from the FER |
+| V_C (shift) | 3,906 m/s | — (a discrete) | fitted: the command on the model's cycle at 494.74 s, against AS-506's 494.83 s; it absorbs AS-506's scaling error and the model's S-II differences | fitted |
+| C0′ | 9.0 s after the shift, 6.0 s after S-IVB ignition | none, 25 s | FER Table 10-4: 9.33 and 6.86 s, from cycle starts | L |
+| ROV, t | 1.5, 2.0 s | the same | GE504 | M |
+| ε2 | 35 s | 10 s | FER Table 10-4: terminal guidance 34.19 s before the cutoff command, on the reading that the FER's "terminal guidance" ("begin chi bar steering", Figure 10-4) is GE504's K = 0 mode, whose dropped K terms match the 2–2.5° nose-down step at 665 s in Figure 10-4 | L (inferred) |
+| ε4, V_TC | 8 s, 300 m/s | the same | GE504; AS-506's chi freeze came 7.70 s before its cutoff (FER Table 10-4) | H (SA-504), M |
+| ΔV_B | 1.45 m/s | 2.0275 m/s | the model's own gain from the cutoff command to insertion, 1.40 m/s from the J-2's thrust decay (§9.2) and 0.05 m/s from the APS ullage burn, so it inserts at circular speed. AS-506's LVDC gained 1.85 m/s over the same 10 s (FER Table 10-2: 7,791.43 to 7,793.28 m/s), vents included. | model |
+| R_T, γ_T, i, θ_N, μ | §10.1 | 6,563,365 m, 0, polynomials in azimuth, 3.986032 × 10¹⁴ | §10.1 | H |
+
+### 10.4 Results against AS-506
+
+From `testIGMFliesApollo11ToItsParkingOrbit` and `testFlightSequenceFollowsTheApollo11Timeline`, the IU flying the whole ascent; the IGM's events come on its cycles, as the FER's (Table 10-4: "for the start of the computation cycle"):
+
+| event | model (s) | AS-506 (s; FER Tables 2-2 and 10-4) |
+|---|---|---|
+| IGM phase 1 | 204.04 | 204.07 |
+| EMR shift command, IGM phase 2 | 494.74 (fitted) | 494.83 |
+| PU valve step | 497.54 | 497.60 |
+| T4 | 548.26 | 548.24 |
+| IGM phase 3 (steering frozen) | 549.78 | 548.2 |
+| S-IVB steering (artificial tau) | 554.94 | 555.57 |
+| terminal guidance | 670.18 (cutoff − 34.00) | 665.15 (cutoff − 34.19) |
+| chi freeze | 697.70 (cutoff − 6.48) | 691.64 (cutoff − 7.70) |
+| velocity cutoff command | 704.18 | 699.34 |
+| T5 | 704.20 | 699.57 |
+
+| state | quantity | model | AS-506 LVDC (FER Table 10-2) |
+|---|---|---|---|
+| S-II OECO (T4) | radius | 6,560,316 m | 6,559,961 m |
+| | speed | 6,892.2 m/s | 6,915.96 m/s |
+| | flight-path angle | 0.703° | 0.614° |
+| velocity cutoff | radius | 6,563,331 m | 6,563,335 m |
+| | speed | 7,791.59 m/s | 7,791.43 m/s |
+| | flight-path angle | −0.0009° | −0.0015° |
+| | commanded pitch | −111.7° | OT −112.4°, LVDC −113.6° (Figure 10-4) |
+| insertion (cutoff + 10 s) | speed | 7,793.04 m/s | 7,793.28 m/s |
+| | inclination | 32.531° | 32.532° (nominal 32.531°, actual 32.521°) |
+| | descending node | 123.098° | 123.102° (nominal 123.100°, actual 123.088°) |
+| | apogee × perigee above 6,378,165 m | 185.2 × 185.2 km | 186.0 × 185.2 km (actual 186.0 × 183.2) |
+| | eccentricity | 0.000003 | 0.00006 (Table 10-5: 0.00007) |
+| | period | 88.20 min | 88.20 min |
+
+Commanded attitude against FER Figure 10-4 (degrees; operational trajectory, OT, and the LVDC's own):
+
+| t (s) | pitch, model | OT | LVDC | yaw, model | OT | LVDC |
+|---|---|---|---|---|---|---|
+| 212 | −62.3 | −62.5 | −61.3 | −0.97 | −0.08 | −0.36 |
+| 240 | −64.6 | −65.1 | −64.1 | −0.86 | 0.18 | −0.27 |
+| 300 | −70.1 | −70.8 | −70.0 | −0.61 | 0.36 | −0.11 |
+| 400 | −80.5 | −81.6 | −81.6 | −0.20 | 0.55 | 0.09 |
+| 450 | −86.2 | −87.5 | −86.5 | 0.01 | 0.59 | 0.21 |
+| 500 | −91.2 | −91.0 | −92.5 | 0.19 | 0.44 | about 0.6 |
+| 548 | −96.8 | −96.5 | −97.8 | 0.36 | 0.51 | 0.61 |
+| 580 | −101.0 | −100.7 | −99.1 | 0.47 | 0.60 | 1.02 |
+| 600 | −103.2 | −103.4 | −102.8 | 0.54 | 0.79 | 1.30 |
+| 650 | −108.2 | −108.7 | −108.7 | 0.74 | 0.77 | 1.28 |
+| 680 | −111.7 | −112.6 | −113.8 | 1.03 | 0.81 | 1.24 |
+
+The pitch follows the OT within 1.4° throughout, including the pitch-up at IGM start from the tilt arrest's attitude (to −62.3° at 212 s; AS-506's peaked at −62.5° on the OT and −61.3° on the LVDC). After the cutoff the IU's slew to the local horizontal is 6.1°, as AS-506's was about 6° (§8.6).
+
+**Point mass from AS-506's state.** `IterativeGuidanceTests` flies a point mass with the model's S-II and S-IVB performance from AS-506's PFT state at 200 s (6,464,247; 44,119; 264,596 m and 576.4; 120.7; 2,884.5 m/s in PACSS 13; mass 608,178 kg, estimated), with its own V_C (3,652 m/s) and ΔV_B (1.6 m/s, no decay). It cuts off at V_T − ΔV_B within 0.01 m/s, 49 m from R_T, at γ 0.0007° and 0.001° from the target plane, about where AS-506 did.
+
+### 10.5 Known deviations
+
+1. **The cutoff is 4.8 s after AS-506's,** from a longer S-IVB burn: 151.9 s from STDV open against 147.1 s. The model reaches S-II OECO 23.7 m/s slower than AS-506 (the S-IC's 17–20 m/s deficit, §9.5, and a few m/s more in the S-II), about 3.5 s of S-IVB burn at its final 6.7 m/s²; the other 1.3 s is not broken down (the model's S-IVB is 150–360 kg heavier, §9.5, and its OECO state 355 m higher at a 0.09° steeper flight-path angle). AS-506's own burn was 3.4 s longer than predicted, its S-II having cut off 3.5 s early and 22.8 m/s below nominal (FER §7, Table 4-2; the link is inferred).
+2. **Yaw early in the S-II** is about 0.9° below the OT (−0.97° against −0.08° at 212 s; −0.36° on AS-506's LVDC), and within 0.25° of it from 500 s to the cutoff. The model's S-IC leaves a different crossrange state (inferred); AS-506's LVDC yaw itself ran up to 0.5° from the OT's.
+3. **The chi freeze comes 6.5 s before the cutoff,** against AS-506's 7.70 s: the ε4 test runs on the 1.7 s cycle, so the freeze falls 6.3–8 s before the cutoff.
+4. **Terminal guidance as ε2 = 35 s** rests on reading the FER's "begin chi bar steering" as GE504's K = 0 mode (§10.3).
+5. **The model's presettings are its own vehicle's,** not AS-506's (§10.3), and V_C is fitted to the shift command's time.
+6. **Phase 3 starts on the first cycle after T4,** 1.5 s after it here; the steering is frozen through the coast either way.
+7. **Perfect navigation and an exact BNVC;** no SMC, engine-out or direct staging.
+8. **The model inserts at circular speed,** where AS-506's vents left the LVDC 0.22 m/s above it (186.0 × 185.2 km).
+
+### 10.6 Tests
+
+| test | checks | depends on |
+|---|---|---|
+| `IterativeGuidanceTests.testStageIntegralsAreTheThrustMoments` | Table 4-IV's closed forms of L, J, S, Q, P, U against Simpson integrals of the thrust acceleration's moments (1 part in 10¹⁰) | GE504 (H) |
+| `testIGMFliesAPointMassFromAS506StateToTheTargetOrbit` | from the PFT state at 200 s: the cutoff at V_T − ΔV_B (0.01 m/s), R_T (100 m), γ_T (0.005°), i and θ_N (0.002°); the shift command (494.8 ± 3 s), S-II OECO (548.2 ± 3 s) and cutoff (699.34 ± 4 s); terminal guidance and the chi freeze at their times to go (±2 s); the pitch within 3° of Figure 10-4's LVDC at 240, 400, 548 and 680 s | PFT Table B-II (H); FER Tables 2-2, 4-5, 10-4 (H), Figure 10-4 (M) |
+| `SaturnIUTests.testIGMFliesApollo11ToItsParkingOrbit` | the commands within 2° in pitch and 1.2° in yaw of the OT at 212–680 s, and −112.4 ± 2° at the cutoff; S-II OECO within 1 km, 30 m/s and 0.15° of the LVDC's state; the cutoff within 50 m, 0.25 m/s and 0.005° of the LVDC's; at insertion i 32.532 ± 0.003°, θ_N 123.102 ± 0.006°, apogee 186.0 ± 1 km, perigee 185.2 ± 0.5 km, e < 0.0002, period 88.20 ± 0.02 min | FER Tables 10-2 and 10-5 (H), Figure 10-4 (M) |
+| `testFlightSequenceFollowsTheApollo11Timeline` | §8.8: the IGM's events against FER Tables 2-2 and 10-4, the slew after the cutoff | FER |
+| `testEarlierTimeBaseEventsDropWhenTheNextStarts` | with the S-II dropped by hand, the IGM still starts and steers the S-IVB | — |
+
+### 10.7 Remaining gaps
+
+1. AS-506's own IGM presettings (operational trajectory, ICD 40M33626B), and its formula for T1i from BNVC.
+2. SMC, the S-II engine-out logic and direct staging; navigation errors and the LVDC's gravity model and BNVC scaling.
+3. The S-IVB second burn (TLI) is M2: GE504's out-of-orbit path and AS-506's restart presettings.
+4. The S-IC's speed deficit (§9.5), which delays the cutoff by 4.8 s.
+
+**Values tests must not depend on**: V_C beyond the shift command's time; C0′; ε2; ΔV_B beyond insertion at circular speed; the yaw beyond about 1°; the point mass's burn times beyond a few seconds.

@@ -6,10 +6,10 @@ procedurally realistic Apollo and Space Shuttle missions.
 This is **milestone M0** (the physics core and a Metal viewer, flown with a
 generic two-stage test rocket and capsule) plus the first M1 items: Apollo 11's
 Saturn V stack, with its propulsion and masses calibrated to AS-506's flight
-evaluation report, its engine gimballing and thrust vector control, and the
-first half of its Instrument Unit flight program, which flies the S-IC's
-attitude programs and the whole staging sequence (guidance for the upper stages
-comes next). See [docs/ROADMAP.md](docs/ROADMAP.md) for the path to Apollo and the
+evaluation report, its engine gimballing and thrust vector control, and its
+Instrument Unit flight program, which flies the S-IC's attitude programs, the
+staging sequence and the iterative guidance of the S-II and S-IVB to the
+parking orbit. See [docs/ROADMAP.md](docs/ROADMAP.md) for the path to Apollo and the
 Shuttle.
 
 ## Build and run
@@ -74,11 +74,11 @@ burned out. Flying by hand or selecting another autopilot mode takes the
 attitude away from the IU, which keeps sequencing the flight. Releasing the
 keys (or 8, after another mode) gives it back, and the IU returns to its
 program at its command rate limits: 1°/s until the S-IVB cutoff, 0.4°/s
-(0.6°/s in roll) after it. Iterative guidance is not modelled
-yet, so after the S-IC the IU holds the attitude it had when the tilt was
-arrested, and the S-IVB, cut off after Apollo 11's burn time, ends suborbital:
-it coasts up to about 705 km and comes down about 40 minutes after liftoff
-unless you burn it again (Z).
+(0.6°/s in roll) after it. From 204 s the IU's iterative guidance mode (IGM)
+steers the S-II and S-IVB, commands the S-II's mixture-ratio shift and cuts the
+S-IVB off on velocity, into a 100 n mi (185 km) circular parking orbit at
+Apollo 11's inclination, about 5 s later than Apollo 11 did; the HUD's IU row
+shows the IGM's phase.
 
 ## How it works
 
