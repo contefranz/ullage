@@ -599,23 +599,26 @@ enum AS506 {
     static let f1OutboardRadius = 182.0              // in, fan wiki only (L); the bells sit under the fairings
     /// J-2 gimbal planes, at station 100 of each stage: the S-II's "gimbal
     /// plane" (S-II station = STA - 1564) and the S-IVB's "top J-2 engine"
-    /// (S-IVB station = STA - 2545.85) in Boeing's diagram. REF504 Fig 3-1
-    /// also takes STA 1664 as the S-II gimbal (`sIIGimbalStation`). Both hang
-    /// below their stage's part: the S-II's 96 in below its aft skirt, inside
-    /// the interstage; the S-IVB's 100.65 in below its aft skirt, on the
-    /// thrust structure under the LOX tank's aft dome, inside the aft
-    /// interstage.
+    /// (S-IVB station = STA - 2545.85) in Boeing's diagram. Were the latter
+    /// the J-2's very top (its inlet ducts), the nozzle would sit in the
+    /// S-II's LH2 dome (`j2GimbalToExit`). REF504 Fig 3-1 also takes STA 1664
+    /// as the S-II gimbal (`sIIGimbalStation`). Both hang below their stage's
+    /// part: the S-II's 96 in below its aft skirt, inside the interstage; the
+    /// S-IVB's 100.65 in below its aft skirt, on the thrust structure under
+    /// the LOX tank's aft dome, inside the aft interstage.
     static let sIIJ2GimbalStation = 1_664.0          // STA, Boeing 9253429; REF504 Fig 3-1 (H)
     static let sIVBJ2GimbalStation = 2_645.85        // STA, Boeing 9253429 (H)
-    /// The J-2's length, 11 ft 1 in, taken from the gimbal mount on top of the
-    /// engine to the nozzle exit. It puts the exits 10 in below the S-IC/S-II
-    /// interstage's bottom (STA 1541) and 6 in below the aft interstage's
-    /// (STA 2519), where MSFC-MAN-504 Figs 5-1 and 6-1 (not to scale) draw
-    /// them inside: the exits may be up to that much higher. Only the nozzle
-    /// shapes use them.
-    static let j2Length = 133.0                      // in, Saturn V News Reference, J-2 fact sheet (H; as gimbal to exit, M)
-    static let sIIJ2ExitStation = sIIJ2GimbalStation - j2Length     // STA 1531, derived (M)
-    static let sIVBJ2ExitStation = sIVBJ2GimbalStation - j2Length   // STA 2512.85, derived (M)
+    /// Gimbal to nozzle exit, measured on the side view in the News
+    /// Reference's J-2 fact sheet: the drawing is to scale (its length, from
+    /// the fuel inlet duct's top to the exit, and its width match the stated
+    /// 11 ft 1 in and 6 ft 8-1/2 in within 2 %), and the gimbal sits 17 in
+    /// below the duct's top. The exits then fall inside the interstages, 7 in
+    /// above the S-IC/S-II interstage's bottom (STA 1541) and 11 in above the
+    /// aft interstage's (STA 2519), as MSFC-MAN-504 Figs 5-1 and 6-1 draw
+    /// them. Only the nozzle shapes use them.
+    static let j2GimbalToExit = 116.0                // in, ±3, J-2 fact sheet drawing (M)
+    static let sIIJ2ExitStation = sIIJ2GimbalStation - j2GimbalToExit     // STA 1548, derived (M)
+    static let sIVBJ2ExitStation = sIVBJ2GimbalStation - j2GimbalToExit   // STA 2529.85, derived (M)
     static let sIIOutboardCircle = 17.5              // ft, diameter of the outboard J-2 circle, enginehistory.org (M)
 
     /// LM stowed in the SLA: stowed geometry was not found.

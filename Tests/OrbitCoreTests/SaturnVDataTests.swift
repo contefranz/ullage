@@ -181,8 +181,9 @@ final class SaturnVDataTests: XCTestCase {
     // 1541 (also MSFC-MAN-504 Fig 5-1), to the second separation plane, STA
     // 1760; the S-II's forward skirt top, STA 2519; the S-II/S-IVB separation
     // plane, STA 2746.5 (both planes also MSFC-MAN-506 Fig 5-19). Derived (M):
-    // the nozzle exits 11 ft 1 in (the J-2's length, News Reference) below
-    // the gimbals.
+    // the nozzle exits 116 in below the gimbals, measured on the to-scale
+    // J-2 drawing of the News Reference's fact sheet, inside both
+    // interstages.
     func testJ2GimbalsAtThePublishedStations() {
         let v = VesselLibrary.saturnV()
         func station(_ p: VesselPart, _ x: Double) -> Double { (p.offset.x + x - v.structureOrigin.x) / inch }
@@ -206,7 +207,8 @@ final class SaturnVDataTests: XCTestCase {
                 }
                 XCTAssertEqual(bells.count, 1, e.name)
                 for b in bells {
-                    XCTAssertEqual(station(p, b.origin.x), gimbal - 133, accuracy: 1e-6, e.name)
+                    XCTAssertEqual(station(p, b.origin.x), gimbal - 116, accuracy: 1e-6, e.name)
+                    XCTAssertGreaterThan(station(p, b.origin.x), stage == "S-II" ? 1541 : 2519, e.name)
                     XCTAssertEqual(station(p, b.origin.x + b.length), gimbal, accuracy: 1e-6, e.name)
                 }
             }
