@@ -160,10 +160,10 @@ final class IterativeGuidanceTests: XCTestCase {
 
     /// Datasheet §10.3's presettings, except the point mass's own: V_C (its
     /// characteristic velocity is summed from 200 s, not from S-II ignition),
-    /// ΔV_B (no thrust decay), and τ2 and τ3 (from its estimated masses).
+    /// ΔV_B (no thrust decay) and τ2 (from its estimated mass).
     func presettings() -> IGMPresettings {
         IGMPresettings(exhaustVelocity: (4_175.37, 4_200.55, 4_192.78), tau2: 347.0, tau3: 773.5,
-                       stage2Time: 53.4, coastTime: 6.3, stage3Time: 144.0, shiftVelocity: 3_652,
+                       stage2Time: 53.4, coastTime: 6.3, stage3Time: 144.8, shiftVelocity: 3_652,
                        artificialTau: (9.0, 6.0), rangeAngleBias: 1.5, lead: 2.0, terminalGuidanceTime: 35,
                        cutoffLoopTime: 8, cutoffLoopVelocityMargin: 300, cutoffVelocityBias: 1.6,
                        terminalRadius: 6_563_365, terminalFlightPathAngle: 0, inclination: 32.531 * deg,

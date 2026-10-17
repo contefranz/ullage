@@ -383,6 +383,10 @@ final class SaturnIUTests: XCTestCase {
         func logged(_ event: String) throws -> Epoch { try XCTUnwrap(f.iu.log.first { $0.event == event }).time }
         XCTAssertEqual(try logged("S-II low EMR (PU valve step)") - logged("EMR shift command (IGM phase 2)"),
                        AS506.sIIMixtureRatioShiftDelay, accuracy: 1e-6)
+        // The IGM cycles every 1.7 s (GE504 Δt): phase 3 falls a whole number
+        // of cycles after the shift command.
+        let cycles = try (logged("IGM phase 3: steering frozen") - logged("EMR shift command (IGM phase 2)")) / cycle
+        XCTAssertEqual(cycles, cycles.rounded(), accuracy: 0.01)
         XCTAssertEqual(f.v.parts.map(\.name), ["S-IVB", "IU", "SLA", "LM", "CSM"])
         XCTAssertEqual(f.sim.vessels.map(\.name), ["Apollo 11", "Apollo 11 – S-IC", "Apollo 11 – S-IC/S-II interstage",
                                                   "Apollo 11 – LES", "Apollo 11 – S-II"])
@@ -451,13 +455,41 @@ final class SaturnIUTests: XCTestCase {
         XCTAssertLessThan(angleBetween(f.v.attitude.rotate(.unitZ), -upNow), 1.9 * deg)
     }
 
+    // In the app, `Simulation.advance` cuts each frame into steps; at 10x
+    // warp a 1/60 s frame is eight 0.02 s steps and a remainder. The IU ends
+    // a step on the IGM's next cycle, so the cycles stay 1.7 s apart (GE504
+    // Δt) at any warp, as in fixed steps.
+    func testIGMCyclesStay1Point7SecondsApartAtTimeWarp() throws {
+        let f = try launch()
+        f.fly(to: 230)
+        var cycles: [Epoch] = [], last = f.iu.guidance?.totalTime
+        while f.range() < 250 {
+            // One frame, stepped as `advance` steps it.
+            var remaining = 10.0 / 60
+            while remaining > 1e-9 {
+                for w in f.sim.vessels { f.sim.prepareControls(w) }
+                if let t = f.iu.guidance?.totalTime, t != last {
+                    cycles.append(f.sim.time)
+                    last = t
+                }
+                let h = min(remaining, f.sim.maxStep())
+                f.sim.step(h)
+                remaining -= h
+            }
+        }
+        XCTAssertGreaterThanOrEqual(cycles.count, 11)
+        for (a, b) in zip(cycles, cycles.dropFirst()) { XCTAssertEqual(b - a, AS506.igmCycle, accuracy: 1e-4) }
+    }
+
     // Iterative guidance on the model's Apollo 11 (datasheet §10), against
     // AS-506's own (FER §10). Its commanded pitch follows AS-506's
     // operational trajectory (FER Figure 10-4, OT, digitised: M) within 2°
-    // from IGM start to cutoff, and its yaw within 1.2° (the LVDC's own ran
-    // up to 0.5° off the OT, and the model's S-IC leaves another crossrange
-    // velocity). At S-II OECO its state is AS-506's (FER Table 10-2,
-    // guidance) within the model's speed deficit; at the velocity cutoff it
+    // from IGM start to cutoff, and its yaw within 0.8° (the LVDC's own ran
+    // up to 0.5° off the OT; the model's runs 0.15-0.65° below it, datasheet
+    // §10.4). Its space-fixed X_S is the plumb line at the pad, as AS-506's
+    // (PACSS 13) was the geodetic vertical at 28.6084° (FER; GE504's sin φ_L
+    // 0.478814 gives 28.608°). At S-II OECO its state is AS-506's (FER Table
+    // 10-2, guidance) within the model's speed deficit; at the velocity cutoff it
     // is the LVDC's (Table 10-2, first S-IVB ECO: 6,563,335 m, 7,791.43 m/s,
     // γ -0.0015°); and 10 s later, at insertion, its orbit is the LVDC's
     // (Table 10-5 and the Table 10-2 state: i 32.532°, descending node
@@ -501,12 +533,12 @@ final class SaturnIUTests: XCTestCase {
         XCTAssertEqual(commands.count, ot.count)
         for (cmd, ref) in zip(commands, ot) {
             XCTAssertEqual(cmd.pitch / deg, ref.pitch, accuracy: 2, "\(ref.t) s")
-            XCTAssertEqual(cmd.yaw / deg, ref.yaw, accuracy: 1.2, "\(ref.t) s")
+            XCTAssertEqual(cmd.yaw / deg, ref.yaw, accuracy: 0.8, "\(ref.t) s")
         }
         XCTAssertEqual(c.pitch / deg, -112.4, accuracy: 2)   // OT at cutoff (LVDC -113.6)
         func gamma(_ r: Vec3, _ v: Vec3) -> Double { asin(r.normalized.dot(v.normalized)) / deg }
         // S-II OECO: AS-506's 6,559,961 m, 6,915.96 m/s, 0.614°. The model is
-        // about 24 m/s slower, the S-IC's deficit (datasheet §9.5) and more.
+        // about 23 m/s slower, the S-IC's deficit (datasheet §9.5) and more.
         XCTAssertEqual(s2.r.length, 6_559_961, accuracy: 1_000)
         XCTAssertEqual(s2.v.length, 6_915.96, accuracy: 30)
         XCTAssertEqual(gamma(s2.r, s2.v), 0.614, accuracy: 0.15)
@@ -520,6 +552,7 @@ final class SaturnIUTests: XCTestCase {
         // The orbit 10 s after the cutoff, in the IU's space-fixed frame.
         let frame = try XCTUnwrap(f.iu.spaceFixed)
         let pole = frame.conjugate.rotate(f.sim.snapshot.orientation(f.sim.system.earth).pole)
+        XCTAssertEqual(asin(pole.x) / deg, 28.6084, accuracy: 0.001)   // X_S: the plumb line
         let r = frame.conjugate.rotate(f.v.position), v = frame.conjugate.rotate(f.v.velocity)
         let h = r.cross(v).normalized, meridian = (Vec3.unitX - pole * pole.x).normalized
         let node = -pole.cross(h).normalized

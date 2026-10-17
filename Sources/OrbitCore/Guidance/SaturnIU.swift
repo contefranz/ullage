@@ -274,6 +274,12 @@ public final class SaturnIU: FlightProgram {
         }
         for e in pending where e.at > now { next = min(next ?? (e.at - now), e.at - now) }
         if let c = cutoffAt, c > now { next = min(next ?? (c - now), c - now) }
+        // The next IGM cycle ends a step, so the cycles stay `cycle` s apart
+        // at any time warp (within the gate's slack, no step is needed).
+        if let last = lastCycle, let g = plan.guidance, let igm = guidance, !igm.highSpeedLoop {
+            let c = last + g.cycle - now
+            if c > 1e-4 { next = min(next ?? c, c) }
+        }
         return next
     }
 

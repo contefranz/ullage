@@ -145,7 +145,7 @@ enum AS506 {
     /// polynomial to within the figure's reading accuracy, about 1°: -20° a
     /// minute after first motion, -56° at two minutes and -67.5° at the
     /// arrest, against -20.6, -56.5 and -68.0°. Flown by this model, that
-    /// program leaves the S-IC 1.3° steeper and 1.8 km higher at OECO than
+    /// program leaves the S-IC 1.2° steeper and 1.7 km higher at OECO than
     /// AS-506 flew, even with the S-IC's thrust, flow and masses matching the
     /// FER (datasheet §8.5). The IU here therefore tilts 2.5 % more: a
     /// compensation for the model, not AS-506 data, fitted to the nearest
