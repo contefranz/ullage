@@ -69,7 +69,10 @@ The Saturn V opens paused at first motion with the F-1s at full thrust: P
 releases it, and the Instrument Unit takes over at liftoff: the
 tower-clearance yaw, the roll to the 72.058° flight azimuth, the pitch
 program, the engine cutoffs, every separation and ignition on Apollo 11's
-times, and the turn to the local horizontal after the S-IVB cutoff; the HUD's
+times, and the turn to the local horizontal after the S-IVB cutoff. The stages
+separate on their solid motors: the retros back each spent stage away, burning
+on with it, the ullage motors push the stack that stays, and the tower's
+jettison motor pitches the escape tower over and throws it clear; the HUD's
 IU row shows its time base and phase. Space does nothing until the S-IC has
 burned out. Flying by hand or selecting another autopilot mode takes the
 attitude away from the IU, which keeps sequencing the flight. Releasing the
@@ -78,7 +81,7 @@ program at its command rate limits: 1°/s until the S-IVB cutoff, 0.4°/s
 (0.6°/s in roll) after it. From 204 s the IU's iterative guidance mode (IGM)
 steers the S-II and S-IVB, commands the S-II's mixture-ratio shift and cuts the
 S-IVB off on velocity, into a 100 n mi (185 km) circular parking orbit at
-Apollo 11's inclination, about 3.5 s later than Apollo 11 did; the HUD's IU row
+Apollo 11's inclination, about 3.4 s later than Apollo 11 did; the HUD's IU row
 shows the IGM's phase. The stack flies through the air of 16 July 1969 at the
 Cape (its measured temperature, pressure, density and winds to 56 km) with the
 Saturn V's flight-evaluated axial force and its design normal force and centre

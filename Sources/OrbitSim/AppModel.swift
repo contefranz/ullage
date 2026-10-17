@@ -290,8 +290,21 @@ final class AppModel: ObservableObject {
         h.thrustAcceleration = v.thrustAcceleration
         h.deltaV = v.mainDeltaV
         h.mass = v.mass
-        h.tanks = v.tanks.enumerated().map {
-            TankInfo(id: "\($0.offset)", name: $0.element.name, fraction: $0.element.fraction, mass: $0.element.mass)
+        // One row per tank name: a set of solid motors has a grain per motor
+        // under the set's name.
+        var rows: [(name: String, mass: Double, capacity: Double)] = []
+        for t in v.tanks {
+            if let i = rows.firstIndex(where: { $0.name == t.name }) {
+                rows[i].mass += t.mass
+                rows[i].capacity += t.capacity
+            } else {
+                rows.append((t.name, t.mass, t.capacity))
+            }
+        }
+        h.tanks = rows.enumerated().map {
+            TankInfo(id: "\($0.offset)", name: $0.element.name,
+                     fraction: $0.element.capacity > 0 ? $0.element.mass / $0.element.capacity : 0,
+                     mass: $0.element.mass)
         }
         h.autopilot = v.autopilot?.rawValue
         h.program = v.flightProgram?.status

@@ -28,8 +28,9 @@ native macOS simulator. Each milestone should be flyable on its own.
   pitch programs, tilt arrest, flight-control gain and cant schedules, APS phase-plane logic,
   orbital attitude, and IGM for the S-II and S-IVB with the EMR shift and velocity cutoff)*
 - Interstage and LES jettison, ullage motors, engine-out
-  *(jettisons and the S-II ullage motors done; the S-IVB's ullage motors, the retros and
-  engine-out to do)*
+  *(jettisons, the S-II and S-IVB ullage motors, the S-IC and S-II retros and the LES
+  tower-jettison motor done, as solid motors that separate the stages and throw the tower
+  clear; engine-out to do)*
 - Aerodynamic normal force and moments for the launch stack
   *(done: axial force by the Saturn V flight-evaluation method, normal force and centre of
   pressure from the design data, their moments about the centre of mass, and the launch day's
