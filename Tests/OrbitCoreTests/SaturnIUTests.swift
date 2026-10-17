@@ -303,13 +303,18 @@ final class SaturnIUTests: XCTestCase {
     // from AS-506's. The
     // stack ends as S-IVB, IU, SLA, LM and CSM, with every spent part its
     // own vessel, the S-II on its low mixture ratio, and the APS ullage burn
-    // over.
+    // over. The IU's HUD line says "IGM done" through the coast after the
+    // IGM's cutoff.
     func testFlightSequenceFollowsTheApollo11Timeline() throws {
         let f = try launch()
         var ullage = 0.0, lastCommand: (q: Quat, at: Epoch)?, commandRate = Vec3.zero, pitchError: [Double] = []
-        var slew: Double?
+        var slew: Double?, t5Lines: [String] = []
         f.fly(to: 795) {
             if f.v.thrusters.contains(where: { $0.name.hasSuffix("ullage") && $0.level > 0 }) { ullage += 0.02 }
+            if f.iu.timeBases[.t5] != nil, let clock = f.iu.status.firstIndex(of: " ") {
+                let line = String(f.iu.status[f.iu.status.index(after: clock)...])
+                if t5Lines.last != line { t5Lines.append(line) }
+            }
             guard f.iu.log.contains(where: { $0.event == "orbital guidance: local horizontal" }),
                   let q = f.v.attitudeCommand?.attitude, let t5 = f.iu.timeBases[.t5] else { return }
             if slew == nil {
@@ -401,6 +406,8 @@ final class SaturnIUTests: XCTestCase {
         XCTAssertEqual(f.v.translationInput, .zero)
         XCTAssertEqual(f.v.autopilot, .attitudeHold)
         XCTAssertTrue(f.iu.status.hasPrefix("T5+"), f.iu.status)
+        XCTAssertEqual(t5Lines, ["S-IVB cutoff, IGM done", "APS ullage, IGM done",
+                                 "local horizontal, parking orbit, IGM done"])
 
         // Orbital guidance (GE504 §4.1.11): +x along the local horizontal in
         // the direction of motion, +z towards the Earth. The IU's command
@@ -615,7 +622,8 @@ final class SaturnIUTests: XCTestCase {
 
     // The S-IVB cut before the IGM's start (the S-II dropped by hand at
     // 163 s, which starts T4, and the S-IVB cut at 180 s): T5 drops the
-    // IGM's start with the earlier tables, so no IGM runs after the cutoff.
+    // IGM's start with the earlier tables, so no IGM runs after the cutoff,
+    // and the IU's line does not say "IGM done".
     func testSIVBCutoffBeforeTheIGMStartLeavesNoIGM() throws {
         let f = try launch()
         f.fly(to: 163)
@@ -628,6 +636,7 @@ final class SaturnIUTests: XCTestCase {
         XCTAssertFalse(f.iu.log.contains { $0.event.contains("IGM") }, "\(f.iu.log.map(\.event))")
         XCTAssertNil(f.iu.guidance)
         XCTAssertNil(f.iu.guidanceCommand)
+        XCTAssertFalse(f.iu.status.contains("IGM"), f.iu.status)
     }
 
     // From the S-IVB cutoff (T5) the LVDC limits its commanded angles to its
@@ -636,7 +645,8 @@ final class SaturnIUTests: XCTestCase {
     // pilot rolls the stack by hand in the coast before the turn to the local
     // horizontal; released, the command returns at 0.6°/s. (The S-II
     // dropped at 200 s and the S-IVB cut by hand at 240 s bring T5 forward,
-    // to save flying time.)
+    // to save flying time. The IGM steered the S-IVB but did not cut it off,
+    // so the IU's line does not say "IGM done".)
     func testCoastCommandRateFromTheSIVBCutoff() throws {
         let f = try launch()
         f.fly(to: 200)
@@ -661,6 +671,8 @@ final class SaturnIUTests: XCTestCase {
         XCTAssertTrue(f.iu.log.contains { $0.event == "attitude back to the IU" })
         XCTAssertEqual(worst, 0.6 * deg, accuracy: 1e-6 * deg)
         XCTAssertEqual(f.iu.chi.x, 0, accuracy: 1e-12)
+        XCTAssertTrue(f.iu.log.contains { $0.event == "IGM steering on the S-IVB" })
+        XCTAssertFalse(f.iu.status.contains("IGM"), f.iu.status)
     }
 
     // The pilot takes the attitude (kill rotation) at 40 s and hands it back
