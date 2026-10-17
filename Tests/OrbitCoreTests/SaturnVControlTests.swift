@@ -3,10 +3,13 @@ import XCTest
 
 /// Closed-loop attitude control of `VesselLibrary.saturnV()` by its gimbals
 /// and the S-IVB APS (design tests S3-S8, and S9-S13; TVC datasheet §7.4).
-/// There are no aerodynamic moments or IU yet, so no published control
-/// performance (FER deflections, attitude errors) can be a target: the
-/// external references are the SP-4029 roll program, the APS roles and the
-/// APS thrust. Checks that only guard the law's own behaviour say so.
+/// The pad tests fly the stack's aerodynamics (datasheet §11) through
+/// US-1976 with no wind and without the IU; they stay checks of the law's own
+/// behaviour, and `testEngineOutTrim` turns the aerodynamic model off for its
+/// thrust-only moment balance. Published control performance (FER
+/// deflections, attitude errors) is checked with the IU in SaturnIUTests; the
+/// external references here are the SP-4029 roll program, the APS roles and
+/// the APS thrust. Checks that only guard the law's own behaviour say so.
 final class SaturnVControlTests: XCTestCase {
     let deg = Double.pi / 180, lbf = 4.4482216152605
 

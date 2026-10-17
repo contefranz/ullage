@@ -81,8 +81,9 @@ S-IVB off on velocity, into a 100 n mi (185 km) circular parking orbit at
 Apollo 11's inclination, about 3.5 s later than Apollo 11 did; the HUD's IU row
 shows the IGM's phase. The stack flies through the air of 16 July 1969 at the
 Cape (its measured temperature, pressure, density and winds to 56 km) with the
-Saturn V's flight-evaluated axial force, normal force and centre of pressure:
-max Q comes at 34.9 kPa at 83.3 s, against Apollo 11's 35.2 kPa at 83.0 s.
+Saturn V's flight-evaluated axial force and its design normal force and centre
+of pressure: max Q comes at 34.9 kPa at 83.3 s, against Apollo 11's 35.2 kPa at
+83.0 s.
 The stack is aerodynamically unstable, and its gimballed engines hold it.
 
 ## How it works

@@ -62,6 +62,9 @@ public struct AerodynamicModel {
     /// Crossflow drag coefficient times its proportionality factor (η C_dc),
     /// applied beyond `linearAngle` on the vessel's planform area.
     public var crossflow: (coefficient: Double, linearAngle: Double)
+    /// A drag coefficient along the relative wind instead (`forebodyAxial`
+    /// on S): no lift and no moment, as for a body in free-molecular flow.
+    public var dragAlongWind: Bool
 
     public struct BaseFlow {
         /// Effective base area as a fraction of S.
@@ -85,7 +88,7 @@ public struct AerodynamicModel {
     public init(name: String, requiredParts: [String], referenceArea: Double, referenceDiameter: Double,
                 referenceStation: Double, forebodyAxial: LinearTable, base: BaseFlow? = nil,
                 normalForceSlope: LinearTable = LinearTable([(0, 0)]), centerOfPressure: LinearTable = LinearTable([(0, 0)]),
-                crossflow: (coefficient: Double, linearAngle: Double) = (0, 0)) {
+                crossflow: (coefficient: Double, linearAngle: Double) = (0, 0), dragAlongWind: Bool = false) {
         self.name = name
         self.requiredParts = requiredParts
         self.referenceArea = referenceArea
@@ -96,6 +99,7 @@ public struct AerodynamicModel {
         self.normalForceSlope = normalForceSlope
         self.centerOfPressure = centerOfPressure
         self.crossflow = crossflow
+        self.dragAlongWind = dragAlongWind
     }
 
     /// What the flow does to the vessel: force and torque in the body axes.
@@ -123,6 +127,10 @@ public struct AerodynamicModel {
         out.angleOfAttack = atan2(sinA, cosA)
         out.mach = mach
         let s = referenceArea
+        if dragAlongWind {
+            out.force = u * (-forebodyAxial(mach) * q * s / speed)
+            return out
+        }
         // Axial, positive aft when the air comes from ahead.
         var axial = forebodyAxial(mach) * q * s * cosA
         if let b = base {

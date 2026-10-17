@@ -629,8 +629,10 @@ enum AS506 {
     // pressure differential, which follows altitude rather than Mach. Normal
     // force and centre of pressure: the TM X-53517 design curves (1966) as
     // REF504 Figs 3-3 and 3-4 print them, which the 1968 wind-tunnel summary
-    // TM X-53770 confirms within its ±6 % and ±0.2 caliber bands. Figures
-    // were digitised from page images (M).
+    // TM X-53770 (Fig 22(a)) matches within its ±6 % and ±0.2 caliber design
+    // bands up to about M 5.5; at M 6-7.8 its fairing puts the centre of
+    // pressure 0.23-0.33 caliber further forward and C_Nα up to 6.6 % lower
+    // (q under about 2 kPa there). Figures were digitised from page images (M).
 
     /// Constant drag coefficient on the 33 ft parts, for a separated stage
     /// flying on its own (no data was sourced for those). Tests must not
@@ -656,11 +658,12 @@ enum AS506 {
     /// S-IC base pressure differential P_b - P∞ (Pa) against altitude (m),
     /// flown on AS-503, the first flight with the outboard cant: D5-15796-1
     /// Fig 2-7, altitude panel from 1 km (M; L at 6.5-10 km). Below 1 km the
-    /// base pressure follows range time (§2.3): about -260 Pa from liftoff,
-    /// -236 Pa by 10 s at about 100 m (time panel, M); from there to 1 km
-    /// the table interpolates (L).
+    /// base pressure follows range time (§2.3): about -260 Pa at liftoff and
+    /// -236 Pa by 10 s (time panel, M), placed at the model's altitudes of
+    /// the centre of mass then (33 m on the pad; 138 m after the 105 m
+    /// climb to 10 s, PFT); from there to 1 km the table interpolates (L).
     static let baseDifferential = LinearTable([
-        (0, -260), (100, -236), (1_000, -1_030), (1_500, -1_190), (2_000, -1_430), (3_000, -2_140),
+        (33, -260), (138, -236), (1_000, -1_030), (1_500, -1_190), (2_000, -1_430), (3_000, -2_140),
         (4_000, -2_910), (4_500, -3_190), (5_000, -3_470), (5_900, -3_600), (6_500, -3_510), (7_000, -3_350),
         (7_500, -3_100), (8_000, -2_400), (8_500, -1_800), (9_000, -1_100), (9_600, 0), (10_000, 600),
         (11_000, 1_780), (12_000, 2_490), (13_000, 3_180), (14_000, 3_620), (15_000, 3_920), (16_000, 4_080),
@@ -714,7 +717,8 @@ enum AS506 {
     ])
     static let sIIGimbalStation = 1_664.0                // in; REF504 Fig 3-1 (H; as the S-II CP origin, inferred)
     /// S-IVB stage flight: a constant free-molecular-flow drag coefficient on
-    /// 33.47 m², no lift (REF504 §3.1, from R-AERO-AD-66-54).
+    /// 33.47 m², along the relative wind, no lift (REF504 §3.1, from
+    /// R-AERO-AD-66-54).
     static let sIVBDragCoefficient = 2.8024              // REF504 §3.1 (H)
     static let sIVBDragArea = 33.47                      // m², REF504 §3.1 (H)
     /// Viscous crossflow beyond the linear range, for large angles of attack
@@ -746,7 +750,7 @@ enum AS506 {
             AerodynamicModel(
                 name: "S-IVB stage, free-molecular flow",
                 requiredParts: ["S-IVB"], referenceArea: sIVBDragArea, referenceDiameter: aeroReferenceDiameter,
-                referenceStation: 0, forebodyAxial: LinearTable([(0, sIVBDragCoefficient)])),
+                referenceStation: 0, forebodyAxial: LinearTable([(0, sIVBDragCoefficient)]), dragAlongWind: true),
         ]
     }
 

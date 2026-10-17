@@ -40,7 +40,7 @@ Read from `Sources/OrbitCore` as of M0, before the stack was built. Since then t
 - **Fixed part CoM.** A part's centre of mass (`offset`) does not move as its tanks drain, and tanks have no position. Tank stations in §4 are informational only.
 - **Drag area.** `dragArea` is the maximum over parts of πr²·Cd. The drag coefficient is constant, with no Mach dependence. *(Since §11 only separated stages fly this; the stack has its own aerodynamics.)*
 - **Staging.** `jettisonBottomPart` drops the part with the lowest x. Only the lowest part that has `.main` thrusters responds to the throttle. The LES is at the top, so it needs `separate(parts:)`.
-- **Spherical Earth.** R = 6,378,137 m, with the US-1976 atmosphere indexed by r − R. The real pad is at a geocentric radius of 6,373.355 km, so a pad placed on the sim sphere is 4.78 km "too high" in radius. Validate radii, not published altitudes (§5).
+- **Spherical Earth.** R = 6,378,137 m, with the US-1976 atmosphere indexed by r − R. The real pad is at a geocentric radius of 6,373.355 km, so a pad placed on the sim sphere is 4.78 km "too high" in radius. Validate radii, not published altitudes (§5). *(The Apollo 11 scenario now flies §11's launch-day sounding instead of US-1976.)*
 
 ---
 
@@ -436,7 +436,7 @@ Set each part's `offset.x` to its CoM in the vessel frame. Midpoints are accepta
 - Velocities are **space-fixed (inertial)**, which matches the ICRF state.
 - The "sim expectation" column comes from the §2/§3 definition.
 
-*Targets A and B are the pre-FER record; the model is now tested against the FER's event masses and accelerations (§9.4, §9.6). Target C still holds; its separation row's sim value is the recalibrated model's (§9.4).*
+*Targets A and B are the pre-FER record; the model is now tested against the FER's event masses and accelerations (§9.4, §9.6). Target C still holds; its separation row's sim value is the recalibrated model's with §11's aerodynamics. The explanations of the Mach 1, max Q and S-IC OECO rows predate §11: the tests now hold Mach 1 within 1 s, and max Q within 2 % and 1 s (§11.6).*
 
 **A. Vehicle definition (static; exact)**
 
@@ -474,7 +474,7 @@ Set each part's `offset.x` to its CoM in the vessel frame. Midpoints are accepta
 | max Q (83.0) | time; value | 83.0 s; 35,200 Pa | ±5 s; 28–36 kPa | US-1976 under-predicts by about 12%; sim Cd is a placeholder. |
 | S-IC CECO (135.2) | V_inertial; altitude | 1,979.0 m/s; 44.0 km (geodetic) | ±50 m/s; ±2.5 km | Pitch-program dependent. |
 | S-IC OECO (161.63) | V_inertial; r; γ_inertial | 2,764.1 m/s; 6,439.33 km; 19.11° | ±40 m/s; ±2.5 km; ±1.5° | Drag (placeholder Cd), pitch program, the model's low-altitude climb (§9.5). |
-| S-IC/S-II separation (162.30) | V_inertial | 2,773.9 m/s | sim 2,754.8 m/s; ±40 | The F-1 decay and the S-II ullage motors add 10.7 m/s from OECO (FER 9.8; §9.4). |
+| S-IC/S-II separation (162.30) | V_inertial | 2,773.9 m/s | sim 2,761.1 m/s; ±40 | The F-1 decay and the S-II ullage motors add 10.7 m/s from OECO (FER 9.8; §9.4). |
 | S-II CECO (460.62) | V_inertial; r; γ | 5,707.5 m/s; 6,552.65 km; 0.897° | ±50 m/s; ±3 km; ±0.5° | Guidance. |
 | S-II OECO (548.22) | V_inertial; r; γ | 6,916.2 m/s; 6,559.55 km; 0.619° | ±50 m/s; ±3 km; ±0.5° | Guidance; the published value is 22.8 m/s below the AS-506 nominal. |
 | insertion (709.33) | V_inertial; r; γ | 7,793.1 m/s; 6,563.05 km; 0.012° | ±3 m/s; ±1.5 km; ±0.05° | Guidance closes the loop. The table's altitude noise is about 0.05 n mi. |
@@ -501,7 +501,7 @@ Set each part's `offset.x` to its CoM in the vessel frame. Midpoints are accepta
 2. FER mass characteristics: the flight-sequence mass summary (masses at CECO, OECO, S-II ignition, jettisons, S-IVB ignition and cutoff), CG and inertias, and the event table (EMR shift, tilt arrest). *Read (§8, §9.1, §9.4): Tables 2-2, 20-1, 20-3, 20-5, 20-7, 20-9; CG and inertias (Table 20-10) not used yet.*
 3. As-flown liftoff mass, or the ignition-to-release consumption. The sim's −2.625 s ignition depends on the predicted 85,745 lb. *Resolved (§9.1): 2,899,008 kg at first motion and 39,307 kg of thrust buildup (FER Tables 20-1, 20-9); the sim starts at first motion.*
 4. MSFC-MAN-503 station diagram: datum, S-IVB separation plane, tank stations, gimbal planes, nozzle protrusions, fin span.
-5. Saturn V aerodynamics: CA(M) with its reference area, centre of pressure, CN_α.
+5. Saturn V aerodynamics: CA(M) with its reference area, centre of pressure, CN_α. *Resolved in §11.*
 6. Apollo 11 Mission Report mass properties: CM, SM, LM, SLA, LES as flown; SPS and RCS loads.
 7. F-1 thrust-vs-time (FER) to calibrate the optional flow ramp. J-2 flight Isp at each EMR.
 
@@ -528,7 +528,7 @@ Set each part's `offset.x` to its CoM in the vessel frame. Midpoints are accepta
 - All tank stations, part CoMs, gimbal heights, the S-IVB separation-plane height, the LM envelope, and Xa-based spacecraft heights.
 - Spacecraft breakdown (only the 49,734.6 kg total is H).
 - LES motor data, SPS/RCS/APS Isp, APS loads.
-- The placeholder Cd(M), and the max-Q value (atmosphere-dependent).
+- The placeholder Cd(M), superseded by §11.
 - F-1 outboard radius, and the cant ramp and axis (§7.5).
 - Solid-motor propellant masses.
 
@@ -1444,9 +1444,9 @@ Compiled on 2026-10-17 for the launch stack's aerodynamics. `Sources/OrbitCore/V
   - §2.3: the axial-force method and its statements (H).
   - Fig. 2-8: the forebody coefficient, AS-502/503 curve (the vehicle without base flow deflectors, as AS-506).
   - Fig. 2-7: the S-IC base pressure differential flown on AS-503, against altitude and, for the first seconds, against time.
-- **REF504** §3.1 and Figs. 3-1 to 3-4: the TM X-53517 design curves (1966) for C_A, C_Nα and the centre of pressure, of the S-IC and the S-II flight configurations. Also its S-IVB free-molecular drag (H).
+- **REF504** §3.1 and Figs. 3-1 to 3-4: the design curves for C_A, C_Nα and the centre of pressure. Those of the S-IC flight configuration come from TM X-53517 (1966), those of the S-II flight configuration from R-AERO-AD-66-14 (March 1966). Also its S-IVB free-molecular drag (H).
 - **TM X-53770:** C. E. Walker, *Results of Several Experimental Investigations of the Static Aerodynamic Characteristics for the Apollo/Saturn V Launch Vehicle* (21 August 1968; NTRS 19690009748).
-  - Wind-tunnel C_Nα and centre of pressure (Fig. 22(a)), which overlay the design curves within its ±6 % and ±0.2 caliber bands.
+  - Wind-tunnel C_Nα and centre of pressure (Fig. 22(a)). They overlay the design curves within its ±6 % and ±0.2 caliber bands up to about M 5.5. At M 6–7.8 they put the centre of pressure 0.23–0.33 caliber further forward and C_Nα up to 6.6 % lower; q is under about 2 kPa there.
   - Power-off axial coefficients (Fig. 28).
   - The reference: 396 in, moments about STA 100, the S-IC gimbal station (H).
 - **TM X-53587** (aborted vehicle, 1967): the power-on/off difference and the 1966 liftoff base-force formula, for comparison only.
@@ -1467,14 +1467,14 @@ Not found online: TM X-53517 itself; TM X-53599 (range-safety aerodynamics, with
 
 | item | model | source | conf |
 |---|---|---|---|
-| reference | D = 396 in (10.058 m), S = π D²/4 = 79.46 m²; centre of pressure in calibers forward of the stage gimbal station (STA 100 for the S-IC configuration, STA 1664 for the S-II) | TM X-53770, REF504 | H |
+| reference | D = 396 in (10.058 m), S = π D²/4 = 79.46 m²; centre of pressure in calibers forward of the stage gimbal station: STA 100 for the S-IC configuration (H), STA 1664 for the S-II (the S-II gimbal, inferred) | TM X-53770, REF504 | H; S-II origin L |
 | axial force, S-IC configuration | F_A = C_Af(M) q S + F_Ab. With the F-1s running, F_Ab = −0.798 (P_b − P∞) S, with P_b − P∞ against altitude; "base pressures … are more a function of altitude than Mach number" (D5 §2.3). With them off, F_Ab = C_Ab(M) q S. Both terms act along −x: the forebody term scales with cos α, the powered base term does not. | D5 Figs. 2-7 and 2-8; TM X-53770 Fig. 28 (power-off: a wind-tunnel model with base flow deflectors at a twentieth of flight Reynolds number, L for flight) | M |
-| base differential, below 1 km | −260 Pa from liftoff, −236 Pa by 10 s (about 100 m); then interpolated to −1,030 Pa at 1 km. D5 says the base pressure follows range time up to about 1 km. | D5 Fig. 2-7 time panel (M); interpolation (L) | M–L |
+| base differential, below 1 km | −260 Pa at liftoff (the CoM 33 m up on the pad), −236 Pa by 10 s (the CoM at about 138 m); then interpolated to −1,030 Pa at 1 km. D5 says the base pressure follows range time up to about 1 km. | D5 Fig. 2-7 time panel (M); interpolation (L) | M–L |
 | normal force | C_N = C_Nα(M) sin α \|cos α\|, at X_cp(M); plus η C_dc A_p (sin²α − sin²4°) q beyond 4° at the planform centroid of the parts' bounding cylinders (η C_dc = 0.8: a generic slender body, Jorgensen, NASA TR R-474). TM X-53770 finds C_N linear to about ±2–4°. | REF504 Figs. 3-3 and 3-4 (= TM X-53517); crossflow L | M; crossflow L |
 | moment | the normal force's moment about the centre of mass; the axial force acts on the axis. No damping derivative; roll is symmetric. | — | — |
 | configurations | the first model whose parts are all aboard: S-IC configuration (S-IC, S-II, S-IVB), then S-II configuration (S-II, S-IVB), then S-IVB. A jettisoned stage keeps the generic drag (`bodyDragCoefficient` 0.45 on its largest cross-section, along the airflow). | REF504 §3.1 | — |
 | S-II configuration | C_A 0.283 at M 5 falling to 0.227 at M 8 (held below M 5); C_Nα 0.0500 per degree; X_cp 2.858–3.402 calibers forward of STA 1664. REF504's curve is "with LES"; nothing was found for after the LET jettison (q under 0.1 kPa by then). | REF504 Figs. 3-2 to 3-4 | M |
-| S-IVB | C_D 2.8024 on 33.47 m², along −x, no lift ("about 0.2 pound" of drag in parking orbit) | REF504 §3.1 (H; from R-AERO-AD-66-54) | H |
+| S-IVB | C_D 2.8024 on 33.47 m², along the relative wind, no lift, no moment ("about 0.2 pound" of drag in parking orbit) | REF504 §3.1 (H; from R-AERO-AD-66-54) | H |
 | air | velocity relative to the rotating atmosphere and the wind; Mach from the local speed of sound; tables held beyond their ends (M 8) | — | — |
 
 **Stability.** The centre of pressure lies forward of the centre of mass except near M 0.9–1.0 (about 63–66 s on AS-506), where it is level with the CoM or up to 0.1 caliber aft of it. At liftoff it is 3.50 calibers forward of the gimbal, 0.75 caliber (7.5 m) ahead of REF504's centre of gravity (Fig. 3-15). The stack is therefore aerodynamically unstable, and the F-1 gimbals hold it. At max Q the aerodynamic moment is about 150 MN·m per radian of angle of attack, about 0.16° of outboard-engine deflection per degree to trim (control research notes, inferred).
@@ -1504,7 +1504,7 @@ Base differential P_b − P∞, AS-503 (D5 Fig. 2-7, M; L at 6.5–10 km): −1.
 | M 1.1–1.3 | 0.51–0.53 |
 | max Q | 0.40 |
 
-This agrees with MAN506's predicted AS-506 force: C_A of 0.40 at max Q, and a peak of 1.48 MN against 1.36 MN. The 1966 design curve that REF504 flew is 31–38 % higher (45–61 % the other way round) between M 0.7 and M 2.7. The design curve also folds a 56.5 kN liftoff base force into the low-Mach plateau, where the flight data give about 16.5 kN (inferred, research notes).
+This agrees with MAN506's predicted AS-506 force: C_A of 0.40 at max Q, and a peak of 1.48 MN against 1.36 MN. The 1966 design curve that REF504 flew is 45–61 % higher between M 0.7 and M 2.7 (the flight values are 31–38 % lower). REF504 also adds a separate 56.5 kN liftoff base force, zero after 4 s, on top of C_A q S; AS-503's measured base pressure gives about 16.5 kN (inferred, research notes).
 
 ### 11.3 Launch-day atmosphere (16 July 1969, 13:32 UT)
 
@@ -1524,15 +1524,15 @@ This agrees with MAN506's predicted AS-506 force: C_A of 0.40 at max Q, and a pe
 |---|---|
 | surface | 3.3 m/s from 175° (pad pole, 18.3 m) |
 | below 7 km | 3–9 m/s from 170–220°: a tail wind of 1–7 m/s and 3–6 m/s from the right |
-| high-q peak | 9.5 m/s from 296° at 11.3 km (Table A-4: 9.6 m/s from 297° at 11.40 km); W_x 7.1 m/s, W_z 6.7 m/s |
-| above 16 km | easterlies, rising to about 60 m/s at 50–56 km: head winds of 14–58 m/s |
+| high-q peak | 9.5 m/s from 296° at 11.3 km (Figs. A-1 and A-2; Table A-4: 9.6 m/s from 297° at 11.40 km). In the model W_x is 6.6 m/s and W_z 6.7 m/s, 9.4 m/s from 298°; the W_x peak of 7.1 m/s at 11.15–11.2 km falls between its levels. |
+| above 16 km | easterlies, rising to about 60 m/s at 50–56 km: head winds of 6–58 m/s (14–58 m/s from 20 km) |
 
 ### 11.4 Results against AS-506 (`testSICAscentMatchesApollo11`, the IU flight)
 
 | quantity | model (with pitchScale 1.025) | AS-506 | before §11 (US-1976, constant C_D) |
 |---|---|---|---|
-| Mach 1 | 66.7 s, 7.76 km | 66.3 s, 7.8 km (Table 4-1) | 65.5 s |
-| max Q | **34.9 kPa at 83.3 s**, 13.5 km | **35.2 kPa at 83.0 s**, 13.6 km | 32.1 kPa at 76.4 s |
+| Mach 1 | 66.7 s, 7.84 km above the pad | 66.3 s, 7.8 km (Table 4-1) | 65.5 s |
+| max Q | **34.9 kPa at 83.3 s**, 13.6 km above the pad | **35.2 kPa at 83.0 s**, 13.6 km | 32.1 kPa at 76.4 s |
 | q at 40, 60, 80, 90, 100, 120 s (kPa) | 8.55, 22.2, 34.2, 32.2, 23.4, 8.67 | 8.71, 22.9, 34.3, 32.4, 23.6, 8.7 (Fig. 4-4) | — |
 | peak axial force | 1.38 MN at 72 s | 1.36 MN at 75 s (D5's method on the PFT trajectory, inferred); 1.48 MN at 71–72 s (MAN506, predicted) | — |
 | climb above the pad at 10, 20, 40, 60, 80, 100 s (m) | 105, 473, 2,277, 6,039, 12,287, 21,259 | 105, 478, 2,305, 6,094, 12,345, 21,282 (PFT) | — |
@@ -1545,14 +1545,14 @@ This agrees with MAN506's predicted AS-506 force: C_A of 0.40 at max Q, and a pe
 - **Max Q** was 9 % low and 7 s early before, and Mach 1 0.8 s early. That came from the US-1976 atmosphere, up to 15 % thinner than the day's air at 12–20 km. Flying AS-506's own trajectory through US-1976 gives 32.3 kPa at 76–77 s (research notes, inferred), the model's old value.
 - **The climb** matches the PFT within 60 m and the speed within 1.4 %. The S-IC is now 11–14 m/s slow at CECO and OECO, against 16–19 m/s before.
 - **Angle of attack.**
-  - In the first 40 s the low-level winds (3–6 m/s against an airspeed under 140 m/s) give up to 9.5° at 10 s, 3.6° in yaw at 30 s and 2° at 40 s, while q is under 9 kPa.
-  - From 50 s it stays under about 1.6°, and near max Q it is about 0.5°.
+  - In the first 40 s the low-level winds (3–6 m/s against an airspeed under 140 m/s) give a total of 15° at 5 s and 10° at 10 s (9.5° in yaw), 3.6° in yaw at 30 s and 2° at 40 s, while q is under 9 kPa.
+  - It peaks at 1.8° at 53 s and stays under 1.3° from 60 s; near max Q it is about 0.5°.
   - AS-506's Q-ball reached 1.82° in pitch at 117.1 s and 1.42° in yaw at 73.0 s (FER Table 11-2).
 
 ### 11.5 Known deviations
 
 1. **The pitch program still needs its 2.5 % scale.** Unscaled, the S-IC ends 1.3° steep (OECO γ 20.37°) and 1.8 km high. Neither the aerodynamics nor the climb is the cause: the model's climb matches the PFT. What the scale compensates is not known (§8.5).
-2. **The S-IC remains 11–14 m/s slow** at CECO and OECO, and 1–1.4 % slow from 40 s. The S-IC's thrust and flow match the FER (§9). Candidates:
+2. **The S-IC remains 11–14 m/s slow** at CECO and OECO, and 0.7–1.3 % slow in Earth-fixed speed from 40 s. The S-IC's thrust and flow match the FER (§9). Candidates:
    - the design C_Nα and centre of pressure;
    - the forebody C_Af at flight Reynolds number, of which D5's curve is a prediction;
    - the controlled release;
@@ -1568,9 +1568,11 @@ This agrees with MAN506's predicted AS-506 force: C_A of 0.40 at max Q, and a pe
 |---|---|---|
 | `AerodynamicsTests.testTablesCarryTheirSources` | table values at their sources' printed or read points | D5, REF504 (M) |
 | `testAxialForceAlongTheAS506Trajectory` | the model's F_A at the PFT's (h, M, q) against D5's method: 207, 596, 1,362, 1,111 and 828 kN at 40, 60, 75, 83 and 90 s, within 1.5 %; base drag below 9.6 km and thrust above; the power-off base coefficient | D5 (M), PFT (H) |
-| `testNormalForceAndMoment` | C_Nα sin α cos α q S against the crossflow; the moment at the centre of pressure in the unstable sense; the viscous crossflow beyond 4° and broadside | REF504 (M) |
+| `testNormalForceAndMoment` | C_Nα sin α cos α q S against the crossflow, in pitch, in yaw and at 45° between them; the moment at the centre of pressure in the unstable sense; the viscous crossflow beyond 4° and broadside | REF504 (M) |
 | `testConfigurationsAndCentreOfPressure` | the configuration follows the parts aboard; a jettisoned S-IC flies the generic drag; X_cp at STA 100 + 3.50 calibers, 0.75 caliber ahead of the stack's CoM at liftoff | REF504 (M) |
 | `testLaunchDayAtmosphere` | surface p and T against Table A-1; q = 35.16 kPa at AS-506's max-Q state; 15 % above US-1976 there; the 11.3 km wind's speed and direction; the fade into US-1976 above 56 km | FER App. A, PRA-63 (H) |
+| `testSIVBDragAlongTheWind` | the S-IVB's drag lies along the relative wind at any attitude, with no moment | REF504 (H) |
+| `testSimulationAppliesTheLoads` | one integration step at 12 km, in pitch, in yaw and at 45°: the rate gained is I⁻¹ τ h and the Δv differs from the generic-drag run by the model's force, within 2 % | the model |
 | `SaturnIUTests.testSICAscentMatchesApollo11` | Mach 1 within 1 s; max Q within 2 % and 1 s; q every 10 s from 40 to 120 s within 5 % of Fig. 4-4; climb within 100 m and speed within 2 % of the PFT every 20 s; peak axial force 1.37 ± 0.08 MN at 73.5 ± 3 s; and the §8.4 states | FER, PFT (H), D5 |
 
 `testVerticalSICFlight` and `testEngineOutTrim` fly with the aerodynamic model off. Each is a thrust-only check: a symmetry check with no control, and a thrust moment balance. The tower-yaw test allows 0.1° in yaw, because the FCC holds the day's wind with a steady error.
