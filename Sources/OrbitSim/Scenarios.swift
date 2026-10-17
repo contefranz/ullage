@@ -35,7 +35,7 @@ struct Scenario: Identifiable {
     static let saturnVPad = Scenario(
         id: "as506-pad",
         name: "Saturn V (AS-506) on LC-39A",
-        summary: "Apollo 11 at first motion, 16 July 1969, 13:32:00.3 UTC, paused: P releases the hold-down arms. The IU flies the ascent: tower-clearance yaw, roll and pitch programs, staging. Guidance after the S-IC (IGM) is not modelled yet, so the S-IVB ends suborbital.",
+        summary: "Apollo 11 at first motion, 16 July 1969, 13:32:00.3 UTC, paused: P releases the hold-down arms. The IU flies the ascent: tower-clearance yaw, roll and pitch programs, staging, and iterative guidance (IGM) through the S-II and S-IVB burns to a 100 n mi parking orbit.",
         build: { system in
             let sim = Simulation(system: system, time: Epoch(utcYear: 1969, month: 7, day: 16, hour: 13, minute: 32,
                                                              second: 0.3))

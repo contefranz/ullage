@@ -24,9 +24,9 @@ native macOS simulator. Each milestone should be flyable on its own.
   command seam for the IU, S-IVB APS)*
 - IU flight program: roll/pitch program, tilt-arrest, iterative guidance mode (IGM);
   control-gain and outboard-cant schedules, APS phase-plane logic
-  *(part 1 done: AS-506's flight sequence on the LVDC time bases, tower-clearance yaw, roll and
+  *(done: AS-506's flight sequence on the LVDC time bases, tower-clearance yaw, roll and
   pitch programs, tilt arrest, flight-control gain and cant schedules, APS phase-plane logic,
-  orbital attitude; part 2, IGM for the S-II and S-IVB, to do)*
+  orbital attitude, and IGM for the S-II and S-IVB with the EMR shift and velocity cutoff)*
 - Interstage and LES jettison, ullage motors, engine-out
   *(jettisons and the S-II ullage motors done; the S-IVB's ullage motors, the retros and
   engine-out to do)*

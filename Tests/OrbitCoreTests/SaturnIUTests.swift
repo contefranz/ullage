@@ -2,8 +2,9 @@ import XCTest
 @testable import OrbitCore
 
 /// The Saturn V Instrument Unit's flight program on Apollo 11 (`SaturnIU.as506()`,
-/// M1 item 3, open loop; datasheet §8). External references: the Apollo 11
-/// timeline (SP-4029; datasheet §1.2), the SA-504 guidance equations (Boeing
+/// M1 item 3; datasheet §8 and §10). External references: the Apollo 11
+/// timeline (SP-4029; datasheet §1.2), AS-506's Flight Evaluation Report
+/// (MPR-SAT-FE-69-9, "FER"), the SA-504 guidance equations (Boeing
 /// D5-15706-4, "GE504") and the SA-503 flight manual (MSFC-MAN-503, "MAN503").
 final class SaturnIUTests: XCTestCase {
     let deg = Double.pi / 180
@@ -286,36 +287,54 @@ final class SaturnIUTests: XCTestCase {
     }
 
     // One flight, first motion to T5 + 87 s, against AS-506's sequence of
-    // events (FER Tables 2-1 and 2-2). Timed events are logged at their
+    // events (FER Tables 2-1, 2-2 and 10-4). Timed events are logged at their
     // scheduled time and act within a step (0.02 s); T2-T5 start when the IU
-    // sees the cutoff, one or two steps after it (the LVDC took 0.03-0.23 s).
-    // The propellant model puts the S-IC burnout at 161.64 s and the S-II's
-    // within the step before 548.24 s (its J-2s start at 164.04 s; from
-    // 164.00 they would run dry at 548.16 s), so the S-IVB lights at about
-    // 552.24 s. The stack ends as S-IVB, IU, SLA, LM and CSM, with every
-    // spent part its own vessel, the S-II on its low mixture ratio, and the
-    // APS ullage burn over. IGM is not modelled, so the S-IVB cuts off as
-    // long after T4 as on the flight (T4 + 151.10 s).
+    // sees the cutoff, one or two steps after it (the LVDC took 0.03-0.23 s);
+    // the IGM's own events come on its 1.7 s cycles, so within a cycle. The
+    // propellant model puts the S-IC burnout at 161.64 s and the S-II's within
+    // the step before 548.24 s (its J-2s start at 164.04 s; from 164.00 they
+    // would run dry at 548.16 s), so the S-IVB lights at about 552.24 s. The
+    // IGM commands the EMR shift on its cycle that holds AS-506's 494.83 s
+    // (its preset was fitted to that), the PU valve step following 2.8 s
+    // later, and cuts the S-IVB off on velocity about 5 s after AS-506 did,
+    // the model reaching the S-IVB slower (datasheet §10): the IGM's phase 3
+    // is timed from the model's own T4, and its terminal events and those
+    // after the cutoff from the model's own cutoff and T5, as the FER's are
+    // from AS-506's. The
+    // stack ends as S-IVB, IU, SLA, LM and CSM, with every spent part its
+    // own vessel, the S-II on its low mixture ratio, and the APS ullage burn
+    // over.
     func testFlightSequenceFollowsTheApollo11Timeline() throws {
         let f = try launch()
         var ullage = 0.0, lastCommand: (q: Quat, at: Epoch)?, commandRate = Vec3.zero, pitchError: [Double] = []
-        f.fly(to: 787) {
+        var slew: Double?
+        f.fly(to: 795) {
             if f.v.thrusters.contains(where: { $0.name.hasSuffix("ullage") && $0.level > 0 }) { ullage += 0.02 }
             guard f.iu.log.contains(where: { $0.event == "orbital guidance: local horizontal" }),
-                  let q = f.v.attitudeCommand?.attitude else { return }
+                  let q = f.v.attitudeCommand?.attitude, let t5 = f.iu.timeBases[.t5] else { return }
+            if slew == nil {
+                // From the attitude at the turn to the local horizontal's target.
+                let up = f.v.position.normalized
+                let x = (f.v.velocity - up * f.v.velocity.dot(up)).normalized
+                let target = Quat(matrix: Mat3(columns: x, (-up).cross(x), -up))
+                slew = rotationVector(f.v.attitude.conjugate * target).length
+            }
             if let last = lastCommand {
                 let d = rotationVector(last.q.conjugate * q) / (f.sim.time - last.at)
                 commandRate = Vec3(max(commandRate.x, abs(d.x)), max(commandRate.y, abs(d.y)),
                                    max(commandRate.z, abs(d.z)))
             }
             lastCommand = (q, f.sim.time)
-            for m in [721.0, 727.0] where abs(f.range() - m) < 0.01 {
+            for m in [21.4, 27.4] where abs(f.sim.time - t5 - m) < 0.01 {
                 pitchError.append(rotationVector(f.v.attitude.conjugate * q).y)
             }
         }
         // Range times from FER Table 2-2 (actual), or the time base plus the
         // FER's offset where the model's time base differs by a step.
-        let t3 = 161.63, t4 = 548.22, t5 = 699.34
+        let t3 = 161.63, t4 = 548.22, cycle = AS506.igmCycle
+        let cutoff = f.range(try XCTUnwrap(f.iu.log.first { $0.event == "S-IVB velocity cutoff (IGM)" }).time)
+        let t4Sensed = f.range(try XCTUnwrap(f.iu.timeBases[.t4]))
+        let t5 = f.range(try XCTUnwrap(f.iu.timeBases[.t5]))
         let expected: [(String, Double, Double)] = [
             ("T1: liftoff", 0.63, 1e-6),
             ("S-IC flight control gains", 0.63, 1e-6),
@@ -335,28 +354,39 @@ final class SaturnIUTests: XCTestCase {
             ("S-II high EMR select", 168.5, 0.1),                  // FER 168.5, T3 + 6.9
             ("S-II aft interstage jettison", 192.3, 0.1),          // FER 192.3
             ("launch escape tower jettison", 197.9, 0.1),          // FER 197.9
-            ("IGM phase 1 (not modelled: attitude held)", 204.1, 0.1),  // FER 204.1, T3 + 42.4
+            ("IGM phase 1", 204.07, 0.1),                          // FER Table 10-4, T3 + 42.4
             ("S-II flight control gains", t3 + 61.4, 0.1),         // SA-507 ICD switch point 3
             ("S-II flight control gains", t3 + 191.4, 0.1),        // switch point 4
             ("S-II centre engine cutoff", 460.6, 0.1),             // FER 460.6
-            ("EMR shift command (IGM phase 2 not modelled)", 494.8, 0.1),  // FER 494.8
-            ("S-II low EMR (PU valve step)", 497.6, 0.1),          // FER Table 6-2, 497.60
+            ("EMR shift command (IGM phase 2)", 494.83, cycle),    // FER Table 10-4: on the cycle (fitted)
+            ("S-II low EMR (PU valve step)", 497.6, cycle),        // FER Table 6-2, 497.60: 2.8 s later
             ("T4: S-II outboard engine cutoff sensed", 548.24, 0.1),  // FER Table 2-1
             ("S-II outboard engine cutoff", t4, 0.1),
             ("S-II/S-IVB separation", t4 + 0.8, 0.1),
+            ("IGM phase 3: steering frozen", t4Sensed + cycle / 2, cycle / 2 + 0.03),  // FER Table 10-4: T4's cycle
             ("S-IVB flight control law", 552.2, 0.1),
             ("S-IVB ignition", 552.2, 0.1),                        // FER 552.2
-            ("S-IVB cutoff (Apollo 11's burn time: IGM not modelled)", 699.34, 0.1),  // FER 699.34
-            ("T5: S-IVB cutoff sensed", t5, 0.1),                  // FER 699.57: 0.23 s sensing
-            ("APS ullage on", t5 + 0.3, 0.1),                      // FER 699.8
-            ("orbital guidance: local horizontal", t5 + 19.8, 0.1),  // FER 719.3
-            ("APS ullage off", t5 + 87.0, 0.1),                    // FER 786.5
+            ("IGM steering on the S-IVB", 555.57, cycle),          // FER Table 10-4, artificial tau start
+            ("terminal guidance", cutoff - 34.19, cycle),          // FER 665.15, 34.19 s before the cutoff
+            ("chi freeze: high-speed cutoff loop", cutoff - 7.70, cycle),  // FER 691.64, 7.70 s before
+            ("S-IVB velocity cutoff (IGM)", 699.34, 6),            // FER 699.34
+            ("T5: S-IVB cutoff sensed", cutoff, 0.03),             // the next step (FER: 0.23 s)
+            ("APS ullage on", t5 + 0.3, 0.1),                      // FER T5 + 0.3
+            ("orbital guidance: local horizontal", t5 + 19.8, 0.1),  // FER T5 + 19.8
+            ("APS ullage off", t5 + 87.0, 0.1),                    // FER T5 + 87.0
         ]
         let log = f.iu.log.filter { $0.event != "roll and pitch program" }
         XCTAssertEqual(log.map(\.event), expected.map(\.0))
         for (entry, (name, time, tolerance)) in zip(log, expected) {
             XCTAssertEqual(f.range(entry.time), time, accuracy: tolerance, name)
         }
+        func logged(_ event: String) throws -> Epoch { try XCTUnwrap(f.iu.log.first { $0.event == event }).time }
+        XCTAssertEqual(try logged("S-II low EMR (PU valve step)") - logged("EMR shift command (IGM phase 2)"),
+                       AS506.sIIMixtureRatioShiftDelay, accuracy: 1e-6)
+        // The IGM cycles every 1.7 s (GE504 Δt): phase 3 falls a whole number
+        // of cycles after the shift command.
+        let cycles = try (logged("IGM phase 3: steering frozen") - logged("EMR shift command (IGM phase 2)")) / cycle
+        XCTAssertEqual(cycles, cycles.rounded(), accuracy: 0.01)
         XCTAssertEqual(f.v.parts.map(\.name), ["S-IVB", "IU", "SLA", "LM", "CSM"])
         XCTAssertEqual(f.sim.vessels.map(\.name), ["Apollo 11", "Apollo 11 – S-IC", "Apollo 11 – S-IC/S-II interstage",
                                                   "Apollo 11 – LES", "Apollo 11 – S-II"])
@@ -374,15 +404,17 @@ final class SaturnIUTests: XCTestCase {
 
         // Orbital guidance (GE504 §4.1.11): +x along the local horizontal in
         // the direction of motion, +z towards the Earth. The IU's command
-        // slews there from the attitude held since the tilt arrest within the
-        // orbital rate limits, 0.4°/s in pitch and yaw and 0.6°/s in roll
-        // (Astrionics System Handbook Table 3.1-3), reaching them; the pitch
-        // error grows at about 0.35°/s from 721 to 727 s, as AS-506's did
-        // (0.33-0.37°/s, FER Figure 11-12 digitised: L-M). The model's slew is
-        // 54° against AS-506's 6°: without IGM the stack is still at the tilt
-        // arrest's attitude. The APS then holds the local horizontal within
-        // the dead band, offset by the switching line's 5 s times the orbital
-        // rate (0.07°/s: 0.33°), so within (1 + 0.33)° on each of two axes.
+        // slews there from the IGM's cutoff attitude within the orbital rate
+        // limits, 0.4°/s in pitch and yaw and 0.6°/s in roll (Astrionics
+        // System Handbook Table 3.1-3), reaching them; the pitch error grows
+        // at about 0.35°/s from T5 + 21.4 to T5 + 27.4 s, as AS-506's did from
+        // 721 to 727 s (0.33-0.37°/s, FER Figure 11-12 digitised: L-M). The
+        // slew is a few degrees, as AS-506's (about 6° in all). The APS then
+        // holds the local horizontal within the dead band, offset by the
+        // switching line's 5 s times the orbital rate (0.07°/s: 0.33°), so
+        // within (1 + 0.33)° on each of two axes.
+        XCTAssertGreaterThan(try XCTUnwrap(slew), 3 * deg)
+        XCTAssertLessThan(try XCTUnwrap(slew), 10 * deg)
         XCTAssertLessThan(commandRate.x, 0.6 * deg + 1e-9)
         XCTAssertLessThan(commandRate.y, 0.4 * deg + 1e-9)
         XCTAssertLessThan(commandRate.z, 0.4 * deg + 1e-9)
@@ -423,6 +455,120 @@ final class SaturnIUTests: XCTestCase {
         XCTAssertLessThan(angleBetween(f.v.attitude.rotate(.unitZ), -upNow), 1.9 * deg)
     }
 
+    // In the app, `Simulation.advance` cuts each frame into steps; at 10x
+    // warp a 1/60 s frame is eight 0.02 s steps and a remainder. The IU ends
+    // a step on the IGM's next cycle, so the cycles stay 1.7 s apart (GE504
+    // Δt) at any warp, as in fixed steps.
+    func testIGMCyclesStay1Point7SecondsApartAtTimeWarp() throws {
+        let f = try launch()
+        f.fly(to: 230)
+        var cycles: [Epoch] = [], last = f.iu.guidance?.totalTime
+        while f.range() < 250 {
+            // One frame, stepped as `advance` steps it.
+            var remaining = 10.0 / 60
+            while remaining > 1e-9 {
+                for w in f.sim.vessels { f.sim.prepareControls(w) }
+                if let t = f.iu.guidance?.totalTime, t != last {
+                    cycles.append(f.sim.time)
+                    last = t
+                }
+                let h = min(remaining, f.sim.maxStep())
+                f.sim.step(h)
+                remaining -= h
+            }
+        }
+        XCTAssertGreaterThanOrEqual(cycles.count, 11)
+        for (a, b) in zip(cycles, cycles.dropFirst()) { XCTAssertEqual(b - a, AS506.igmCycle, accuracy: 1e-4) }
+    }
+
+    // Iterative guidance on the model's Apollo 11 (datasheet §10), against
+    // AS-506's own (FER §10). Its commanded pitch follows AS-506's
+    // operational trajectory (FER Figure 10-4, OT, digitised: M) within 2°
+    // from IGM start to cutoff, and its yaw within 0.8° (the LVDC's own ran
+    // up to 0.5° off the OT; the model's runs 0.15-0.65° below it, datasheet
+    // §10.4). Its space-fixed X_S is the plumb line at the pad, as AS-506's
+    // (PACSS 13) was the geodetic vertical at 28.6084° (FER; GE504's sin φ_L
+    // 0.478814 gives 28.608°). At S-II OECO its state is AS-506's (FER Table
+    // 10-2, guidance) within the model's speed deficit; at the velocity cutoff it
+    // is the LVDC's (Table 10-2, first S-IVB ECO: 6,563,335 m, 7,791.43 m/s,
+    // γ -0.0015°); and 10 s later, at insertion, its orbit is the LVDC's
+    // (Table 10-5 and the Table 10-2 state: i 32.532°, descending node
+    // 123.102° from the launch meridian at guidance reference release,
+    // 186.0 x 185.2 km above the 6,378,165 m sphere, e 0.00006, 88.20 min).
+    func testIGMFliesApollo11ToItsParkingOrbit() throws {
+        let f = try launch()
+        let ot: [(t: Double, pitch: Double, yaw: Double)] = [
+            (212, -62.5, -0.08), (240, -65.1, 0.18), (300, -70.8, 0.36), (400, -81.6, 0.551), (450, -87.5, 0.590),
+            (500, -91.0, 0.44), (548, -96.5, 0.507), (580, -100.7, 0.60), (600, -103.4, 0.79), (650, -108.7, 0.767),
+            (680, -112.6, 0.806)]
+        var marks = ot, commands: [(pitch: Double, yaw: Double)] = []
+        var sIIOut: (r: Vec3, v: Vec3)?, cutoff: (t: Double, r: Vec3, v: Vec3, pitch: Double)?
+        var cutoffSpeed: Double?, coast: [(pitch: Double, yaw: Double)] = []
+        while cutoff.map({ f.range() < $0.t + 10 - 1e-9 }) ?? (f.range() < 760) {
+            // The IU acts at the start of a step: the cutoff state is the one before it.
+            let before = (t: f.range(), r: f.v.position, v: f.v.velocity)
+            if let g = f.iu.guidance, g.highSpeedLoop {
+                // In the high-speed loop, step as the app does: the step ends
+                // on the IU's predicted cutoff.
+                cutoffSpeed = g.terminalVelocity - g.presettings.cutoffVelocityBias
+                for w in f.sim.vessels { f.sim.prepareControls(w) }
+                f.sim.step(min(0.02, f.sim.maxStep()))
+            } else {
+                f.sim.tick()
+            }
+            if let m = marks.first, f.range() >= m.t - 1e-9, let c = f.iu.guidanceCommand {
+                marks.removeFirst()
+                commands.append(c)
+            }
+            if sIIOut == nil && f.iu.timeBases[.t4] != nil { sIIOut = (f.v.position, f.v.velocity) }
+            if f.iu.guidance?.stage == .coast, let c = f.iu.guidanceCommand { coast.append(c) }
+            if cutoff == nil && f.iu.log.last?.event == "S-IVB velocity cutoff (IGM)" {
+                cutoff = (before.t, before.r, before.v, f.iu.guidanceCommand?.pitch ?? .nan)
+            }
+        }
+        let c = try XCTUnwrap(cutoff), s2 = try XCTUnwrap(sIIOut)
+        // The steering is frozen through the S-II/S-IVB coast (GE504's GATE).
+        XCTAssertGreaterThan(coast.count, 100)
+        XCTAssertTrue(coast.allSatisfy { $0.pitch == coast[0].pitch && $0.yaw == coast[0].yaw })
+        XCTAssertEqual(commands.count, ot.count)
+        for (cmd, ref) in zip(commands, ot) {
+            XCTAssertEqual(cmd.pitch / deg, ref.pitch, accuracy: 2, "\(ref.t) s")
+            XCTAssertEqual(cmd.yaw / deg, ref.yaw, accuracy: 0.8, "\(ref.t) s")
+        }
+        XCTAssertEqual(c.pitch / deg, -112.4, accuracy: 2)   // OT at cutoff (LVDC -113.6)
+        func gamma(_ r: Vec3, _ v: Vec3) -> Double { asin(r.normalized.dot(v.normalized)) / deg }
+        // S-II OECO: AS-506's 6,559,961 m, 6,915.96 m/s, 0.614°. The model is
+        // about 23 m/s slower, the S-IC's deficit (datasheet §9.5) and more.
+        XCTAssertEqual(s2.r.length, 6_559_961, accuracy: 1_000)
+        XCTAssertEqual(s2.v.length, 6_915.96, accuracy: 30)
+        XCTAssertEqual(gamma(s2.r, s2.v), 0.614, accuracy: 0.15)
+        // Cutoff: on V_T - ΔV_B; the LVDC's radius and flight-path angle, and
+        // its speed to the two cutoff biases' difference (1.45 m/s here, 1.6
+        // on AS-506).
+        XCTAssertEqual(c.v.length, try XCTUnwrap(cutoffSpeed), accuracy: 0.01)
+        XCTAssertEqual(c.r.length, 6_563_335, accuracy: 50)
+        XCTAssertEqual(c.v.length, 7_791.43, accuracy: 0.25)
+        XCTAssertEqual(gamma(c.r, c.v), -0.0015, accuracy: 0.005)
+        // The orbit 10 s after the cutoff, in the IU's space-fixed frame.
+        let frame = try XCTUnwrap(f.iu.spaceFixed)
+        let pole = frame.conjugate.rotate(f.sim.snapshot.orientation(f.sim.system.earth).pole)
+        XCTAssertEqual(asin(pole.x) / deg, 28.6084, accuracy: 0.001)   // X_S: the plumb line
+        let r = frame.conjugate.rotate(f.v.position), v = frame.conjugate.rotate(f.v.velocity)
+        let h = r.cross(v).normalized, meridian = (Vec3.unitX - pole * pole.x).normalized
+        let node = -pole.cross(h).normalized
+        var nodeAngle = atan2(node.dot(pole.cross(meridian)), node.dot(meridian)) / deg
+        if nodeAngle < 0 { nodeAngle += 360 }
+        let el = f.v.elements(snapshot: f.sim.snapshot), sphere = 6_378_165.0
+        XCTAssertEqual(acos(h.dot(pole)) / deg, 32.532, accuracy: 0.003)
+        XCTAssertEqual(nodeAngle, 123.102, accuracy: 0.006)
+        // Insertion: AS-506's vents left the LVDC 0.22 m/s over circular
+        // speed (186.0 x 185.2 km); the model inserts at circular speed.
+        XCTAssertEqual((el.apoapsisRadius - sphere) / 1000, 186.0, accuracy: 1)
+        XCTAssertEqual((el.periapsisRadius - sphere) / 1000, 185.2, accuracy: 0.5)
+        XCTAssertLessThan(el.eccentricity, 2e-4)
+        XCTAssertEqual(el.period / 60, 88.20, accuracy: 0.02)
+    }
+
     // Before T3 the IU refuses Space: it would drop the S-IC full and
     // burning. From T3 a pilot's Space press does not upset the IU, which
     // stages by part: the aft interstage jettisoned by hand at 170 s, the
@@ -448,8 +594,9 @@ final class SaturnIUTests: XCTestCase {
 
     // The LVDC leaves a time base's table when the next one starts: the S-II
     // dropped by hand at 200 s (T3 + 38 s) starts T4 at once, and the S-II's
-    // pending events (IGM note, gain switches, centre engine cutoff, mixture
-    // ratio shift) never fire into the S-IVB, which keeps its own law.
+    // pending events (gain switches, centre engine cutoff) never fire into
+    // the S-IVB, which keeps its own law. The IGM still starts on its own
+    // timer (T3 + 42.4 s, GE504 Fig 4-1) and steers the S-IVB.
     func testEarlierTimeBaseEventsDropWhenTheNextStarts() throws {
         let f = try launch()
         f.fly(to: 200)
@@ -460,9 +607,27 @@ final class SaturnIUTests: XCTestCase {
         XCTAssertEqual(f.range(t4), 200, accuracy: 0.03)
         XCTAssertEqual(f.iu.log.filter { $0.time >= t4 }.map(\.event),
                        ["T4: S-II outboard engine cutoff sensed", "S-II outboard engine cutoff",
-                        "S-II/S-IVB separation (nothing to do: gone)", "S-IVB flight control law", "S-IVB ignition"])
+                        "S-II/S-IVB separation (nothing to do: gone)", "S-IVB flight control law", "S-IVB ignition",
+                        "IGM phase 1", "IGM phase 3: steering frozen", "IGM steering on the S-IVB"])
         XCTAssertNil(f.v.fccGains)
         XCTAssertEqual(f.v.mainThrottle, 1)
+    }
+
+    // The S-IVB cut before the IGM's start (the S-II dropped by hand at
+    // 163 s, which starts T4, and the S-IVB cut at 180 s): T5 drops the
+    // IGM's start with the earlier tables, so no IGM runs after the cutoff.
+    func testSIVBCutoffBeforeTheIGMStartLeavesNoIGM() throws {
+        let f = try launch()
+        f.fly(to: 163)
+        for _ in 0..<3 where f.v.parts.contains(where: { $0.name == "S-II" }) { f.sim.stage(f.v) }
+        f.fly(to: 180)
+        XCTAssertTrue(f.v.thrusters.contains { $0.name == "S-IVB engine" && $0.isDelivering })
+        f.v.mainThrottle = 0
+        f.fly(to: 230)
+        XCTAssertEqual(f.range(try XCTUnwrap(f.iu.timeBases[.t5])), 180, accuracy: 0.05)
+        XCTAssertFalse(f.iu.log.contains { $0.event.contains("IGM") }, "\(f.iu.log.map(\.event))")
+        XCTAssertNil(f.iu.guidance)
+        XCTAssertNil(f.iu.guidanceCommand)
     }
 
     // From the S-IVB cutoff (T5) the LVDC limits its commanded angles to its
@@ -470,12 +635,14 @@ final class SaturnIUTests: XCTestCase {
     // in pitch and yaw, 0.6°/s in roll), against 1°/s in powered flight. The
     // pilot rolls the stack by hand in the coast before the turn to the local
     // horizontal; released, the command returns at 0.6°/s. (The S-II
-    // dropped at 200 s brings T5 forward, to save flying time.)
+    // dropped at 200 s and the S-IVB cut by hand at 240 s bring T5 forward,
+    // to save flying time.)
     func testCoastCommandRateFromTheSIVBCutoff() throws {
         let f = try launch()
         f.fly(to: 200)
         for _ in 0..<3 where f.v.parts.contains(where: { $0.name == "S-II" }) { f.sim.stage(f.v) }
-        f.fly(to: 340)
+        f.fly(to: 240)
+        f.v.mainThrottle = 0
         while f.iu.timeBases[.t5] == nil && f.range() < 400 { f.sim.tick() }
         let t5 = f.range(try XCTUnwrap(f.iu.timeBases[.t5]))
         f.fly(to: t5 + 1)

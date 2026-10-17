@@ -31,8 +31,9 @@ public struct TiltProgram {
 }
 
 /// The Saturn V Instrument Unit's flight program (LVDC and flight control
-/// computer) for Apollo 11, open loop. It runs the flight sequence on the
-/// IU's time bases and flies the S-IC's attitude programs:
+/// computer) for Apollo 11: the S-IC's open-loop attitude programs, then
+/// iterative guidance (IGM) through the S-II and S-IVB. It runs the flight
+/// sequence on the IU's time bases:
 ///
 /// - T1 starts at liftoff. The tower-clearance yaw, then, once the vehicle
 ///   has risen clear of the tower, the roll program from the pad azimuth to
@@ -42,18 +43,19 @@ public struct TiltProgram {
 ///   S-IC flight-control gain switches.
 /// - T2 when the LVDC senses the centre engine's cutoff, which T1 commands.
 /// - T3 when it senses the S-IC outboard cutoff (LOX depletion): separation,
-///   S-II ignition, S-II gains, aft interstage and LET jettison, S-II centre
-///   cutoff and the mixture-ratio shift.
+///   S-II ignition, S-II gains, aft interstage and LET jettison, iterative
+///   guidance, S-II centre cutoff.
 /// - T4 when it senses the S-II cutoff (LOX depletion): separation and S-IVB
 ///   ignition, whose J-2 flies the vehicle's own `tvcGains` law.
 /// - T5 when it senses the S-IVB cutoff: APS ullage burn, then the local
 ///   horizontal in orbit, the command moving there within the orbital rate
 ///   limits.
 ///
-/// Iterative guidance (IGM) is not modelled yet: the attitude stays where the
-/// tilt was arrested through the S-II and S-IVB burns, and the S-IVB cuts off
-/// at the flight's time rather than on reaching orbit, which leaves the stack
-/// suborbital.
+/// From its start event to the S-IVB cutoff the attitude comes from the
+/// iterative guidance mode (`IterativeGuidance`), run on its own cycle with
+/// the vehicle's state in the space-fixed frame. It commands the S-II
+/// mixture-ratio shift, which sets off the plan's shift event, and cuts the
+/// S-IVB off on velocity: the step ends on the predicted cutoff.
 ///
 /// Each time base runs its own switch-selector events; when the next one
 /// starts, the earlier ones' pending events are dropped, as the LVDC moved to
@@ -86,6 +88,8 @@ public final class SaturnIU: FlightProgram {
         case startCant(String)
         case gains(FCCGains?)
         case ullage(Bool)
+        /// Start iterative guidance (IGM phase 1).
+        case iterativeGuidance
         case localHorizontal
         /// Nothing but the log entry.
         case note
@@ -136,6 +140,22 @@ public final class SaturnIU: FlightProgram {
         /// and the centre engine whose cutoff starts T2.
         public var stages: (first: String, second: String, third: String)
         public var centreEngine: String
+        /// Iterative guidance, from the `.iterativeGuidance` event to the S-IVB cutoff.
+        public var guidance: Guidance?
+    }
+
+    /// The IGM's presettings (μ is set from the vehicle's reference body),
+    /// its cycle (s), and the event its mixture-ratio-shift command sets off,
+    /// `shift.delay` s later.
+    public struct Guidance {
+        public var presettings: IGMPresettings
+        public var cycle: Double
+        public var shift: (delay: Double, name: String, action: Action)
+        public init(presettings: IGMPresettings, cycle: Double, shift: (delay: Double, name: String, action: Action)) {
+            self.presettings = presettings
+            self.cycle = cycle
+            self.shift = shift
+        }
     }
 
     public let plan: Plan
@@ -172,6 +192,19 @@ public final class SaturnIU: FlightProgram {
     private var pilotHasAttitude = false
     private var localHorizontal = false
     private var lastCommand: Quat?
+
+    /// The IGM while it guides, and its last command (pitch, yaw; rad).
+    public private(set) var guidance: IterativeGuidance?
+    public private(set) var guidanceCommand: (pitch: Double, yaw: Double)?
+    private var guidanceDone = false
+    private var lastCycle: Epoch?
+    /// ∫F/m dt since the last guidance cycle, and the S-II's characteristic
+    /// velocity (∫F/m dt from its ignition to its cutoff), m/s.
+    private var sensedSinceCycle = 0.0
+    public private(set) var characteristicVelocity = 0.0
+    private var cutoffAt: Epoch?
+    /// Events the IGM set off: (when, name, action).
+    private var pending: [(at: Epoch, name: String, action: Action)] = []
 
     public init(plan: Plan) {
         self.plan = plan
@@ -212,6 +245,7 @@ public final class SaturnIU: FlightProgram {
         }
         detectTimeBases(v, now: now)
         runDueEvents(v, sim, now: now)
+        runGuidance(v, sim, now: now)
         if let cant = cantStart { applyCant(v, part: cant.part, since: now - cant.at) }
         if ullageOn { v.translationInput.x = 1 }
         // Back from the pilot: restart the command from the attitude now.
@@ -238,6 +272,14 @@ public final class SaturnIU: FlightProgram {
             let dt = base + e.offset - now
             if dt > 0 { next = min(next ?? dt, dt) }
         }
+        for e in pending where e.at > now { next = min(next ?? (e.at - now), e.at - now) }
+        if let c = cutoffAt, c > now { next = min(next ?? (c - now), c - now) }
+        // The next IGM cycle ends a step, so the cycles stay `cycle` s apart
+        // at any time warp (within the gate's slack, no step is needed).
+        if let last = lastCycle, let g = plan.guidance, let igm = guidance, !igm.highSpeedLoop {
+            let c = last + g.cycle - now
+            if c > 1e-4 { next = min(next ?? c, c) }
+        }
         return next
     }
 
@@ -251,7 +293,12 @@ public final class SaturnIU: FlightProgram {
         // guidance reference release, before the Earth turned the pad on.
         let o = sim.snapshot.orientation(v.reference)
         let back = Quat(axis: o.angularVelocity, angle: -o.angularVelocity.length * plan.referenceToLiftoff)
-        let up = v.position.normalized
+        // X_S is the plumb line, opposite local gravity (GE504 Fig 1-1): the
+        // reference body's gravity and its rotation's centrifugal term, which
+        // on the Earth tilt it from the radial as the geodetic vertical is.
+        let plumb = v.reference.gravity(at: v.position, pole: o.pole)
+            - o.angularVelocity.cross(o.angularVelocity.cross(v.position))
+        let up = -plumb.normalized
         let east = o.pole.cross(up).normalized, north = up.cross(east)
         let downrange = north * cos(plan.flightAzimuth) + east * sin(plan.flightAzimuth)
         let x = back.rotate(up), z = back.rotate(downrange)
@@ -278,8 +325,20 @@ public final class SaturnIU: FlightProgram {
         func start(_ b: TimeBase, _ what: String) {
             timeBases[b] = now
             log.append((now, "\(b): \(what) sensed"))
-            // The LVDC leaves the earlier time bases' tables.
-            for (i, e) in plan.sequence.enumerated() where e.base < b { done.insert(i) }
+            // The LVDC leaves the earlier time bases' tables. The IGM start is
+            // the guidance equations' own timer (GE504 Fig 4-1), not a table
+            // entry: it stands until the S-IVB cutoff.
+            for (i, e) in plan.sequence.enumerated()
+            where e.base < b && (e.action != .iterativeGuidance || b == .t5) {
+                done.insert(i)
+            }
+            // The S-IVB cut off (by the IGM, the pilot, or out of propellant):
+            // no more IGM, whether or not it had started.
+            if b == .t5 {
+                guidance = nil
+                guidanceDone = true
+                cutoffAt = nil
+            }
         }
         if timeBases[.t2] == nil
             && v.thrusters.first(where: { $0.name == plan.centreEngine }).map({ !$0.isEnabled }) ?? true {
@@ -307,13 +366,23 @@ public final class SaturnIU: FlightProgram {
                 guard !done.contains(i), let base = timeBases[e.base], base + e.offset <= now + 1e-9 else { return nil }
                 return (i, base + e.offset)
             }
-            guard let (i, at) = due.min(by: { $0.1 < $1.1 }) else { return }
+            let next = due.min { $0.1 < $1.1 }
+            if let k = pending.indices.min(by: { pending[$0].at < pending[$1].at }), pending[k].at <= now + 1e-9,
+               next.map({ pending[k].at < $0.1 }) ?? true {
+                let e = pending.remove(at: k)
+                record(perform(e.action, at: e.at, v, sim) ? e.name : "\(e.name) (nothing to do: gone)", at: e.at, v, sim)
+                continue
+            }
+            guard let (i, at) = next else { return }
             done.insert(i)
             let e = plan.sequence[i]
-            let name = perform(e.action, at: at, v, sim) ? e.name : "\(e.name) (nothing to do: gone)"
-            log.append((at, name))
-            sim.log("\(v.name): \(name)")
+            record(perform(e.action, at: at, v, sim) ? e.name : "\(e.name) (nothing to do: gone)", at: at, v, sim)
         }
+    }
+
+    private func record(_ name: String, at: Epoch, _ v: Vessel, _ sim: Simulation) {
+        log.append((at, name))
+        sim.log("\(v.name): \(name)")
     }
 
     /// Carry out `action`; false when its part or engine is gone.
@@ -340,6 +409,15 @@ public final class SaturnIU: FlightProgram {
         case .ullage(let on):
             ullageOn = on
             if !on { v.translationInput.x = 0 }
+        case .iterativeGuidance:
+            guard let g = plan.guidance, let frame = spaceFixed, guidance == nil, !guidanceDone else { return false }
+            var p = g.presettings
+            p.mu = v.reference.gm
+            // The latitude of the space-fixed X_S: it places the Earth's axis.
+            let pole = sim.snapshot.orientation(v.reference).pole
+            let latitude = asin(max(-1, min(1, frame.rotate(.unitX).dot(pole))))
+            guidance = IterativeGuidance(presettings: p, launchLatitude: latitude, azimuth: plan.flightAzimuth)
+            lastCycle = nil
         case .localHorizontal:
             localHorizontal = true
         case .note:
@@ -374,6 +452,71 @@ public final class SaturnIU: FlightProgram {
                 e.gimbal[i].bias = atan(-out * tan(cant))
             }
         }
+    }
+
+    // MARK: Iterative guidance
+
+    /// The last step's thrust acceleration is what the accelerometers sensed:
+    /// it goes into the cycle's mean F/m and the S-II's characteristic
+    /// velocity. Every `cycle` s the IGM runs on the vehicle's state in the
+    /// space-fixed frame (gravity from the reference body's model). In its
+    /// high-speed loop the IU predicts the velocity cutoff from the speed's
+    /// rate, the simulation ends a step there, and the IU cuts the S-IVB off.
+    private func runGuidance(_ v: Vessel, _ sim: Simulation, now: Epoch) {
+        let dt = lastUpdate.map { max(0, now - $0) } ?? 0
+        let sensed = v.thrustAcceleration * dt
+        sensedSinceCycle += sensed
+        if secondStageLit && timeBases[.t4] == nil { characteristicVelocity += sensed }
+        guard var igm = guidance, let frame = spaceFixed, let g = plan.guidance else { return }
+        let pole = sim.snapshot.orientation(v.reference).pole
+        if igm.highSpeedLoop {
+            let u = v.velocity.normalized
+            let rate = v.attitude.rotate(.unitX).dot(u) * v.thrustAcceleration
+                + v.reference.gravity(at: v.position, pole: pole).dot(u)
+            let tgo = igm.cutoffTimeToGo(speed: v.velocity.length, rate: rate)
+            if tgo < 1e-3 {
+                v.mainThrottle = 0
+                record("S-IVB velocity cutoff (IGM)", at: now, v, sim)
+                cutoffAt = nil
+                guidance = nil
+                guidanceDone = true
+            } else {
+                cutoffAt = now + tgo
+            }
+            return
+        }
+        // A cycle every `cycle` s: the slack covers the epoch's rounding (a
+        // 0.02 s step adds 0.019999981 s in 1969), well inside a step.
+        if let last = lastCycle, now - last < g.cycle - 1e-4 { return }
+        let toS = frame.conjugate
+        let interval = lastCycle.map { now - $0 }
+        let fm = interval.map { $0 > 0 ? sensedSinceCycle / $0 : v.thrustAcceleration } ?? v.thrustAcceleration
+        let nav = IGMNavigation(position: toS.rotate(v.position), velocity: toS.rotate(v.velocity),
+                                gravity: toS.rotate(v.reference.gravity(at: v.position, pole: pole)),
+                                sensedAcceleration: fm, characteristicVelocity: characteristicVelocity,
+                                sIICutoff: timeBases[.t4] != nil, sIVBIgnition: thirdStageAtThrust(v))
+        let stage = igm.stage
+        let out = igm.cycle(nav, interval: interval)
+        guidance = igm
+        lastCycle = now
+        sensedSinceCycle = 0
+        if let p = out.pitch, let y = out.yaw { guidanceCommand = (p, y) }
+        if out.commandShift {
+            record("EMR shift command (IGM phase 2)", at: now, v, sim)
+            pending.append((now + g.shift.delay, g.shift.name, g.shift.action))
+        }
+        if igm.stage != stage && igm.stage == .coast { record("IGM phase 3: steering frozen", at: now, v, sim) }
+        if igm.stage != stage && igm.stage == .third { record("IGM steering on the S-IVB", at: now, v, sim) }
+        if out.beganTerminalGuidance { record("terminal guidance", at: now, v, sim) }
+        if out.enteredHighSpeedLoop { record("chi freeze: high-speed cutoff loop", at: now, v, sim) }
+    }
+
+    /// The S-IVB's J-2 delivers 90 % of its thrust: GE504's "S-IVB ignition".
+    private func thirdStageAtThrust(_ v: Vessel) -> Bool {
+        v.parts.first { $0.name == plan.stages.third }?.thrusters.contains {
+            $0.groups.contains(.main) && $0.thrust(ambientPressure: 0, seaLevelPressure: 0) >= 0.9 * $0.maxThrustVacuum
+                && $0.maxThrustVacuum > 0
+        } ?? false
     }
 
     // MARK: Attitude
@@ -420,10 +563,11 @@ public final class SaturnIU: FlightProgram {
             log.append((t1 + plan.tilt.arrest, "tilt arrest"))
             sim.log("\(v.name): tilt arrest")
         }
-        let yaw = t >= plan.towerYaw.start && t < plan.towerYaw.end ? plan.towerYaw.angle : 0
-        let roll = programStarted != nil ? 0 : initialRoll
-        // The program holds its value from the arrest on.
-        let pitch = programStarted != nil ? plan.tilt.pitch(at: t) : 0
+        var yaw = t >= plan.towerYaw.start && t < plan.towerYaw.end ? plan.towerYaw.angle : 0
+        var roll = programStarted != nil ? 0 : initialRoll
+        // The program holds its value from the arrest on, until the IGM's.
+        var pitch = programStarted != nil ? plan.tilt.pitch(at: t) : 0
+        if let c = guidanceCommand { (roll, pitch, yaw) = (0, c.pitch, c.yaw) }
         // From the S-IVB cutoff the LVDC uses its coast rate limits.
         let l = plan.commandRateLimit
         let limit = timeBases[.t5] != nil ? plan.coastRateLimit : Vec3(l, l, l)
@@ -445,7 +589,7 @@ public final class SaturnIU: FlightProgram {
         guard let (base, start) = timeBases.max(by: { $0.key < $1.key }) else { return "on the pad" }
         let t1 = timeBases[.t1].map { now - $0 } ?? 0
         let pilot = v.autopilot != .attitudeHold || !v.rotationInput.isZero
-        let held = pilot ? "" : ", attitude held (no IGM)"
+        let held = pilot ? "" : ", " + guidancePhase
         let phase: String
         switch base {
         case .t1, .t2:
@@ -463,12 +607,26 @@ public final class SaturnIU: FlightProgram {
         case .t5:
             if localHorizontal {
                 phase = "local horizontal, " + (Self.periapsisRadius(v) > v.reference.radius + 100_000
-                                                 ? "parking orbit" : "suborbital (no IGM)")
+                                                 ? "parking orbit" : "suborbital")
             } else {
                 phase = ullageOn ? "APS ullage" : "S-IVB cutoff"
             }
         }
         return String(format: "%@+%.0f %@%@", base.description, now - start, phase, pilot ? "  (attitude: pilot)" : "")
+    }
+
+    /// What the attitude follows in the S-II and S-IVB burns.
+    private var guidancePhase: String {
+        guard let igm = guidance else { return guidanceDone ? "IGM done" : "attitude held (pre-IGM)" }
+        if igm.highSpeedLoop { return "IGM chi freeze" }
+        switch igm.stage {
+        case .first: return "IGM phase 1"
+        case .second: return igm.artificialTau ? "IGM phase 2, artificial tau" : "IGM phase 2"
+        case .coast: return "IGM phase 3, steering frozen"
+        case .third:
+            return igm.terminalGuidance ? "IGM terminal guidance"
+                : igm.artificialTau ? "IGM phase 3, artificial tau" : "IGM phase 3"
+        }
     }
 
     /// Two-body periapsis radius about the vessel's reference body, m (0 for

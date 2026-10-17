@@ -145,7 +145,7 @@ enum AS506 {
     /// polynomial to within the figure's reading accuracy, about 1°: -20° a
     /// minute after first motion, -56° at two minutes and -67.5° at the
     /// arrest, against -20.6, -56.5 and -68.0°. Flown by this model, that
-    /// program leaves the S-IC 1.3° steeper and 1.8 km higher at OECO than
+    /// program leaves the S-IC 1.2° steeper and 1.7 km higher at OECO than
     /// AS-506 flew, even with the S-IC's thrust, flow and masses matching the
     /// FER (datasheet §8.5). The IU here therefore tilts 2.5 % more: a
     /// compensation for the model, not AS-506 data, fitted to the nearest
@@ -190,8 +190,8 @@ enum AS506 {
     static let sIIIgnitionTime = 2.4           // s from T3; FER (H)
     static let interstageJettisonTime = 30.7   // s from T3; FER (H)
     static let lesJettisonTime = 36.2          // s from T3; FER (H)
-    /// IGM phase 1 initiated (204.1 s range; FER Table 2-2). Not modelled yet:
-    /// the IU logs it and holds the attitude of the tilt arrest.
+    /// IGM phase 1 initiated (204.1 s range; FER Table 2-2): iterative
+    /// guidance from here to the S-IVB cutoff (see "Iterative guidance").
     static let igmStartTime = 42.4             // s from T3; FER (H)
     static let sIICenterCutoffTime = 299.0     // s from T3; FER (H)
     /// FER's T3 (S-IC OECO sensed), the base of the S-II's sequence.
@@ -201,21 +201,16 @@ enum AS506 {
     static let sIIUllageEndTime = 4.4          // s from T3; FER Table 2-2 (H)
     /// High EMR Select (S-II PU system activated): ESC + 5.5 s, 168.5 s.
     static let sIIHighMixtureRatioTime = 6.9   // s from T3; FER Table 2-2 and §6.5 (H)
-    /// The EMR shift command (IGM phase 2, artificial tau) and the PU valve
-    /// step that the model takes as the shift to low EMR. On AS-506 the IU
-    /// commanded it on reaching a preset characteristic velocity (FER §6.5,
-    /// §10.2.1); the model keeps the flight's times until IGM exists.
-    static let sIIMixtureRatioShiftCommandTime = sIIMixtureRatioShiftCommand - timeBase3   // s from T3
-    static let sIIMixtureRatioShiftTime = sIIMixtureRatioShift - timeBase3                 // s from T3
+    /// The PU valve step, the model's shift to low EMR, follows the IGM's
+    /// EMR shift command by as long as on AS-506 (494.8 to 497.60 s).
+    static let sIIMixtureRatioShiftDelay = sIIMixtureRatioShift - sIIMixtureRatioShiftCommand   // s
     /// From T4, S-II outboard cutoff sensed: separation command and S-IVB
-    /// ignition (STDV open, range 552.2; FER Table 2-2, H). The S-IVB velocity
-    /// cutoff command came at 699.34 s, T4 + 151.10 (T4 at 548.24, FER Table
-    /// 2-1), and the LVDC sensed it and started T5 0.23 s later (FER); until
-    /// IGM is modelled the IU cuts off that long after its own T4 and senses
-    /// it on the next step.
+    /// ignition (STDV open, range 552.2; FER Table 2-2, H). The IGM cuts the
+    /// S-IVB off on velocity: on AS-506 at 699.34 s, T4 + 151.10 (T4 at
+    /// 548.24, FER Table 2-1), sensed 0.23 s later (T5).
     static let sIISeparationTime = 0.8         // s from T4; FER (H)
     static let sIVBIgnitionTime = 4.0          // s from T4; FER (H)
-    static let sIVBCutoffTime = 699.34 - 548.24  // s from T4; FER Tables 2-1 and 2-2 (H)
+    static let sIVBCutoffTime = 699.34 - 548.24  // s from T4; FER Tables 2-1 and 2-2 (H), for reference
     /// From T5, S-IVB cutoff sensed: APS ullage engines on and off (No. 1;
     /// No. 2 follows 0.1 s later), and the manoeuvre to the local horizontal
     /// (FER Table 2-2, H). T2, T3 and T4 also start on the LVDC sensing a
@@ -223,6 +218,81 @@ enum AS506 {
     static let tb5UllageOn = 0.3               // s from T5; FER (H)
     static let tb5UllageOff = 87.0             // s from T5; FER (H)
     static let orbitalGuidanceStart = 19.8     // s from T5; FER "begin maneuver to local horizontal" (H)
+
+    // MARK: Iterative guidance (datasheet §10)
+    //
+    // The IGM's equations are SA-504's (GE504 §4); AS-506's own presettings
+    // were not found. The stage performance presets are therefore the
+    // model's own vehicle, as the LVDC's were the predicted vehicle's; the
+    // thresholds are SA-504's (GE504 Table 5-I, H for SA-504, M as a proxy)
+    // unless AS-506's flight shows its own (FER Tables 2-2 and 10-4, the
+    // "inferred" ones); the targets are AS-506's nominal parking orbit.
+
+    /// GE504's nominal IGM computation cycle (Table 5-I Δt).
+    static let igmCycle = 1.7                  // s; GE504 (H for SA-504)
+    /// τ2 at the EMR shift command and τ3 at S-IVB 90 % thrust: the model's
+    /// stack mass then over the flow of four low-EMR J-2s and of the S-IVB
+    /// J-2 (from the model's flight, rounded to 0.5 s).
+    static let igmTau2 = 347.5                 // s, model
+    static let igmTau3 = 773.5                 // s, model
+    /// T2 from the shift command to S-II OECO, Tc from S-II cutoff (T4) to
+    /// S-IVB 90 % thrust, and the first T3′ estimate: AS-506's (494.8 to
+    /// 548.22 s; 548.24 to 554.5 s; 554.5 to 699.34 s, rounded).
+    static let igmStage2Time = 53.4            // s, FER Table 2-2 (H), inferred preset
+    static let igmCoastTime = 6.3              // s, FER Table 2-2 and the model's start ramp (inferred)
+    static let igmStage3Time = 144.8           // s, FER Table 2-2 (inferred preset)
+    /// The S-II characteristic velocity (sensed velocity gained from engine
+    /// start) at which the IGM commands the EMR shift (T1 = 0): fitted so the
+    /// model commands it on the cycle at AS-506's 494.8 s. AS-506's own
+    /// preset is not known; its LVDC's sum ran about 92 m/s low through a
+    /// scaling error (FER §10.2.1), which the fit absorbs.
+    static let igmShiftVelocity = 3_906.0      // m/s, fitted (model)
+    /// Artificial tau after the EMR shift command and after S-IVB ignition:
+    /// AS-506 ran them for 9.33 s and 6.86 s (FER Table 10-4); with 1.7 s
+    /// cycles these durations fit both (SA-504: none after the shift, 25 s
+    /// after ignition).
+    static let igmArtificialTau = (stage2: 9.0, stage3: 6.0)   // s, FER Table 10-4 (inferred, L)
+    static let igmRangeAngleBias = 1.5         // ROV; GE504 Table 5-I
+    static let igmLead = 2.0                   // s, t; GE504 Table 5-I
+    /// Terminal guidance (the K terms dropped) from this total time-to-go:
+    /// AS-506's began 34.19 s before its cutoff (FER Table 10-4, "begin chi
+    /// bar steering"; SA-504's ε2 was 10 s).
+    static let igmTerminalGuidanceTime = 35.0  // s, FER Table 10-4 (inferred, L)
+    /// The high-speed cutoff loop and chi freeze from this total time-to-go
+    /// (ε4) with V + V_TC ≥ V_T: AS-506's froze 7.70 s before cutoff (FER
+    /// Table 10-4), consistent with SA-504's 8 s.
+    static let igmCutoffLoopTime = 8.0         // s, GE504 Table 5-I (H); FER consistent
+    static let igmCutoffLoopMargin = 300.0     // m/s, V_TC; GE504 Table 5-I
+    /// ΔV_B, the velocity the vehicle still gains after the cutoff command
+    /// (GE504: "thrust decay at shutdown and the expected post-cutoff vents";
+    /// SA-504's was 2.0275 m/s). AS-506's LVDC cut off at 7,791.43 m/s and
+    /// inserted at 7,793.28 m/s 10 s later, a 1.85 m/s gain (FER Table
+    /// 10-2). The model, which has no vents, gains 1.45 m/s: 1.40 from the
+    /// J-2's thrust decay and 0.05 from the APS ullage burn. That is its bias,
+    /// so it inserts at circular speed.
+    static let igmCutoffVelocityBias = 1.45    // m/s, the model's (FER Table 10-2: 1.85 on AS-506)
+    /// The target: a 100 n mi circular orbit above the 6,378,165 m sphere
+    /// (GE504's SA-504 R_T; AS-506's LVDC cut off 30 m below it, FER Table
+    /// 10-2), in AS-506's nominal plane (FER Tables 4-5 and 10-5: i and the
+    /// descending node from the launch meridian at guidance reference
+    /// release, eastwards).
+    static let igmTerminalRadius = 6_563_365.0 // m; GE504 Table 5-I; MAN506, TIS "100 n mi" (H)
+    static let igmInclination = 32.531         // deg; FER Table 4-5, nominal (H)
+    static let igmDescendingNode = 123.100     // deg; FER Table 4-5, nominal (H)
+    /// The presettings, with the exhaust velocities of the model's J-2
+    /// settings (thrust over flow) and μ of `gm`.
+    static func igmPresettings(gm: Double) -> IGMPresettings {
+        IGMPresettings(exhaustVelocity: (sIIJ2.thrustVacuum / sIIJ2.massFlow,
+                                         sIIJ2LowEMR.thrustVacuum / sIIJ2LowEMR.massFlow,
+                                         sIVBJ2Burn1.thrustVacuum / sIVBJ2Burn1.massFlow),
+                       tau2: igmTau2, tau3: igmTau3, stage2Time: igmStage2Time, coastTime: igmCoastTime,
+                       stage3Time: igmStage3Time, shiftVelocity: igmShiftVelocity,
+                       artificialTau: igmArtificialTau, rangeAngleBias: igmRangeAngleBias, lead: igmLead,
+                       terminalGuidanceTime: igmTerminalGuidanceTime, cutoffLoopTime: igmCutoffLoopTime,
+                       cutoffLoopVelocityMargin: igmCutoffLoopMargin, cutoffVelocityBias: igmCutoffVelocityBias,
+                       terminalRadius: igmTerminalRadius, terminalFlightPathAngle: 0,
+                       inclination: igmInclination * degree, descendingNode: igmDescendingNode * degree, mu: gm)
+    }
 
     // MARK: Masses
     //
