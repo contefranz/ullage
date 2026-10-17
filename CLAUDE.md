@@ -34,10 +34,12 @@ swift test                  # core test suite (must stay green)
 swift run -c release OrbitSim   # macOS only: launch the app
 ```
 
-On a Linux cloud machine without Swift, run `scripts/install-swift-linux.sh`
-first (it fetches a full Swift 6.0 toolchain from a GitHub release, since
-swift.org downloads may be blocked by the network allowlist), then
-`export PATH=/opt/swift/usr/bin:$PATH`.
+In Claude Code cloud sessions the SessionStart hook
+(`.claude/hooks/session-start.sh`) installs the toolchain, puts it on PATH
+and builds the tests. Elsewhere on Linux without Swift, run
+`scripts/install-swift-linux.sh` first (it fetches a full Swift 6.0 toolchain
+from a GitHub release, since swift.org downloads may be blocked by the network
+allowlist), then `export PATH=/opt/swift/usr/bin:$PATH`.
 
 ## What can be verified where
 
