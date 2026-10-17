@@ -17,7 +17,9 @@ struct HUDState: Equatable {
     var met = ""
     var warp = "1×"
     var paused = false
-    var warpLimited = false
+    /// The warp achieved since the last refresh when a frame fell short of
+    /// the set one; nil otherwise.
+    var effectiveWarp: String? = nil
     var reference = ""
     var cameraInfo = ""
 
@@ -68,7 +70,23 @@ final class AppModel: ObservableObject {
 
     private var missionStart = Epoch(tdbSecondsPastJ2000: 0)
     private var hudClock = 0.0
+    private var rateWindow = RateWindow()
     private static let warpSteps: [Double] = [0.1, 1, 10, 100, 1_000, 10_000, 100_000]
+    /// Wall-clock time a frame may spend stepping. A powered step (0.02 s)
+    /// costs about 0.5 ms in Debug and 0.05 ms in Release, so without it a
+    /// frame at high warp would take seconds.
+    private static let stepBudget = 0.04
+    /// Longest real interval one frame makes up for.
+    private static let maxFrameInterval = 0.1
+
+    /// Real and simulated seconds since the last HUD refresh at one warp,
+    /// and whether any frame fell short of it.
+    private struct RateWindow {
+        var warp = 1.0
+        var real = 0.0
+        var simulated = 0.0
+        var limited = false
+    }
 
     init() {
         do {
@@ -89,7 +107,10 @@ final class AppModel: ObservableObject {
         // Fresh body objects each time would be cleaner; the system is
         // stateless apart from its cache, so it is reused.
         let sim = s.build(system)
+        sim.stepBudget = Self.stepBudget
+        sim.maxRealInterval = Self.maxFrameInterval
         self.sim = sim
+        rateWindow = RateWindow(warp: sim.warp)
         scenario = s
         missionStart = sim.time
         if let focus = sim.focus {
@@ -105,10 +126,15 @@ final class AppModel: ObservableObject {
     func tick(dt: Double) {
         guard let sim else { return }
         handleKeys(sim: sim, dt: dt)
+        // Measure the achieved warp afresh after a pause or a change of warp.
+        if sim.paused || sim.warp != rateWindow.warp { rateWindow = RateWindow(warp: sim.warp) }
 
         let wasLanded = sim.focus?.landed != nil
         let frameStart = sim.time
         sim.advance(by: dt)
+        rateWindow.real += dt
+        rateWindow.simulated += sim.time - frameStart
+        rateWindow.limited = rateWindow.limited || sim.warpLimited
         // The mission clock starts at liftoff, logged at the start of the step
         // that left the ground: at time warp a frame holds many steps, and the
         // vehicle may even be down again by its end.
@@ -128,6 +154,7 @@ final class AppModel: ObservableObject {
         if hudClock > 0.1 {
             hudClock = 0
             refreshHUD()
+            rateWindow = RateWindow(warp: sim.warp)
         }
     }
 
@@ -231,7 +258,9 @@ final class AppModel: ObservableObject {
         h.met = Self.formatDuration(sim.time - missionStart)
         h.warp = sim.warp < 1 ? String(format: "%.1f×", sim.warp) : "\(Int(sim.warp))×"
         h.paused = sim.paused
-        h.warpLimited = sim.warpLimited
+        if rateWindow.limited, rateWindow.real > 0 {
+            h.effectiveWarp = Self.formatEffectiveWarp(rateWindow.simulated / rateWindow.real)
+        }
         h.reference = v.reference.name
         h.cameraInfo = "\(camera.targetName) · \(camera.frame.rawValue)"
 
@@ -278,6 +307,16 @@ final class AppModel: ObservableObject {
         guard let range = firing.flatMap({ $0.gimbal.map(\.range.upperBound) }).max() else { return nil }
         let worst = firing.flatMap { $0.gimbal.map { abs($0.angle) } }.max() ?? 0
         return String(format: "%.1f° / %.1f°", worst * 180 / .pi, range * 180 / .pi)
+    }
+
+    /// An achieved warp to two significant figures ("0.37×", "4.2×", "38×",
+    /// "380×"), so the HUD does not flicker with the frame time.
+    static func formatEffectiveWarp(_ w: Double) -> String {
+        guard w > 0 else { return "0×" }
+        let magnitude = floor(log10(w))
+        if magnitude < 1 { return String(format: "%.\(Int(1 - magnitude))f×", w) }
+        let unit = pow(10, magnitude - 1)
+        return "\(Int((w / unit).rounded() * unit))×"
     }
 
     static func formatDuration(_ seconds: Double) -> String {

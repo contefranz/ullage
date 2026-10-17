@@ -112,6 +112,11 @@ Some design notes:
   third-body perturbations from the Sun, Earth, Moon, Venus and Jupiter. Engine
   thrust varies with ambient pressure. The step size adapts to thrust,
   atmosphere, rotation rate and orbital period, so time warp stays accurate.
+- **Time warp.** A frame steps for at most 40 ms of wall-clock time and makes
+  up for at most 0.1 s of real time, so the app stays responsive when steps
+  are expensive (0.02 s steps in powered flight). The simulation drops what a
+  frame could not cover, and the HUD then shows the warp actually achieved,
+  e.g. `1000×  (limited: 38×)`.
 - **Earth orientation.** IAU 1976 precession plus GMST; nutation and polar
   motion are not yet modelled (errors below about 20 arcseconds).
 - **Vessel frame.** A vessel's origin follows its centre of mass as propellant

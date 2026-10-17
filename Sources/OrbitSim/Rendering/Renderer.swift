@@ -175,7 +175,9 @@ final class Renderer: NSObject, MTKViewDelegate {
 
     private func render(in view: MTKView) {
         let now = CACurrentMediaTime()
-        let dt = min(now - lastTime, 0.1)
+        // The real interval, uncapped: the simulation caps what it makes up
+        // for and reports the shortfall as limited warp.
+        let dt = now - lastTime
         lastTime = now
         guard let model else { return }
         model.tick(dt: dt)

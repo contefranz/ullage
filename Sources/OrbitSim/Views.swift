@@ -63,7 +63,7 @@ struct HUDView: View {
                     row(hud.vesselName, hud.status, bold: true)
                     row("UTC", hud.utc)
                     row("MET", hud.met)
-                    row("Warp", hud.warp + (hud.paused ? "  PAUSED" : "") + (hud.warpLimited ? "  (limited)" : ""))
+                    row("Warp", hud.warp + (hud.paused ? "  PAUSED" : "") + (hud.effectiveWarp.map { "  (limited: \($0))" } ?? ""))
                     row("Ref", hud.reference)
                     row("Cam", hud.cameraInfo)
                 }
