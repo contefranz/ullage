@@ -405,16 +405,19 @@ final class SaturnVControlTests: XCTestCase {
         XCTAssertEqual(settled[1], settled[0], accuracy: 1)
     }
 
-    // S11: released from a short manual tap (1.0 and 1.3 s in pitch, 1.0 s
+    // S11: released from a short manual tap (1.0 and 1.3 s in pitch, 0.1 s
     // in roll, at liftoff mass), the hold waits for the actuators to unwind
     // before it captures: on release they are still at full deflection and
     // speed the turn up for about a second. It settles past the release,
-    // within the law's swing (about 0.4 alpha: 1.8° in pitch, 12° in roll)
-    // of where the turn stops, the longer tap further, and no actuator
-    // reaches a stop after the capture. Self-consistency only.
+    // within the law's swing (about 0.4 alpha: 1.8° in pitch) of where the
+    // turn stops, the longer tap further, and no actuator reaches a stop
+    // after the capture. In roll, ten times more agile with the FER's roll
+    // inertia (datasheet §4), the hold captures during the turn and settles
+    // back near the capture, past the release but short of the turn's end.
+    // Self-consistency only.
     func testHoldAfterAShortTapSettlesPastTheRelease() throws {
         var finals: [Double] = []
-        for (pitch, tap) in [(true, 1.0), (true, 1.3), (false, 1.0)] {
+        for (pitch, tap) in [(true, 1.0), (true, 1.3), (false, 0.1)] {
             let (sim, v) = try freeSpace(.liftoff)
             v.autopilot = .attitudeHold
             sim.run(seconds: 1)
@@ -439,7 +442,7 @@ final class SaturnVControlTests: XCTestCase {
             }
             let peak = angle.max()!, final = angle.last!, label = "\(pitch ? "pitch" : "roll") \(tap) s"
             XCTAssertEqual(onStop, 0, label)
-            XCTAssertGreaterThan(final, 0.6 * peak, label)
+            XCTAssertGreaterThan(final, pitch ? 0.6 * peak : 0, label)
             XCTAssertLessThan(peak - final, (pitch ? 2.5 : 14) * deg, label)
             XCTAssertLessThan(rotationVector(v.attitude.conjugate * v.heldAttitude!).length, 0.01 * deg, label)
             finals.append(final)
@@ -489,7 +492,9 @@ final class SaturnVControlTests: XCTestCase {
     // (a 180° yaw, or a half turn about another axis across the nose) turns
     // the nose about the command's own axis, as for a command a hair short
     // of reversed: it arrives with the command's roll, so the APS has no
-    // roll to fly. Self-consistency only.
+    // roll to fly; the APS tanks off the axis couple the turn into roll
+    // gyroscopically, by 0.002°/s on the FER's roll inertia. Self-consistency
+    // only.
     func testSIVBBurnNoseReversalTurnsAboutTheCommandsAxis() throws {
         for axis in [Vec3.unitZ, Vec3(0, 0.5, 0.75.squareRoot())] {
             let (sim, v) = try freeSpace(.sIVBIgnition)
@@ -502,7 +507,7 @@ final class SaturnVControlTests: XCTestCase {
                 roll = max(roll, abs(v.angularVelocity.x))
             }
             XCTAssertEqual(aps, 0, "\(axis)")
-            XCTAssertLessThan(roll, 0.001 * deg, "\(axis)")
+            XCTAssertLessThan(roll, 0.005 * deg, "\(axis)")
         }
     }
 }

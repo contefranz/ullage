@@ -47,13 +47,17 @@ extension VesselLibrary {
             .frustum(from: local(p, bottom, y, z), length: top - bottom, baseRadius: r0, topRadius: r1, color: color)
         }
         /// A settled column holding `load` kg, whose full-load centroid is the
-        /// middle of `extent` (stations).
+        /// middle of `extent` (stations), less any `lines` (kg at a station on
+        /// the axis) below it, which it empties last.
         func tank(_ name: String, in p: VesselPart, load m: Double, unusable: Double = 0,
-                  extent: (aft: Double, forward: Double), density: Double) -> PropellantTank {
+                  extent: (aft: Double, forward: Double), density: Double,
+                  lines: (mass: Double, station: Double)? = nil) -> PropellantTank {
             let centroid = local(p, D.station((extent.aft + extent.forward) / 2))
+            let proper = m - (lines?.mass ?? 0)
             return PropellantTank(name: name, capacity: m, unusableMass: unusable,
-                                  geometry: .column(fullLoadCentroid: centroid, radius: p.radius, capacity: m,
-                                                    density: density))
+                                  geometry: .column(fullLoadCentroid: centroid, radius: p.radius, capacity: proper,
+                                                    density: density),
+                                  feedLines: lines.map { (mass: $0.mass, position: local(p, D.station($0.station))) })
         }
         /// Five engines on one bipropellant feed, gimballed at `gimbal`: engines
         /// 1-4 at `radius` on the diagonals under fins A-D, with `actuators`;
@@ -105,6 +109,22 @@ extension VesselLibrary {
         let s = 0.5.squareRoot()
         let diagonals = [(y: -s, z: s), (y: -s, z: -s), (y: s, z: -s), (y: s, z: s)]   // fins A-D
 
+        /// A stage's dry inertia from its roll, pitch and yaw values, with the
+        /// mean of pitch and yaw on both transverse axes: the model is
+        /// axisymmetric, and an unequal pair would couple them gyroscopically.
+        func inertia(_ i: (roll: Double, pitch: Double, yaw: Double)) -> Mat3 {
+            let transverse = (i.pitch + i.yaw) / 2
+            return .diagonal(Vec3(i.roll, transverse, transverse))
+        }
+        /// A thin uniform shell of mass `m`, a frustum from radius `r0` to
+        /// `r1` over `length`, about its axis and a transverse axis through
+        /// its centre.
+        func shell(_ m: Double, _ r0: Double, _ r1: Double, length l: Double) -> Mat3 {
+            let roll = m * (r0 * r0 + r1 * r1) / 2
+            let transverse = m * ((r0 * r0 + r1 * r1) / 4
+                + l * l * (r0 * r0 + 4 * r0 * r1 + r1 * r1) / (18 * (r0 + r1) * (r0 + r1)))
+            return .diagonal(Vec3(roll, transverse, transverse))
+        }
         /// Pitch-plane and yaw-plane actuators, parallel to the vehicle Y and Z
         /// axes. With the gimbal aft of the CoM a positive angle gives a positive
         /// pitch or yaw torque, the sign of the Saturn's δp and δy.
@@ -125,11 +145,12 @@ extension VesselLibrary {
                            - D.sICRetroPropellant + D.sICSIIInterstageSmall,
                        dryCenterOfMass: D.station(D.sICDryCoMStation),
                        dragCoefficient: D.bodyDragCoefficient, staging: .event(1))
+        sIC.dryInertia = inertia(D.sICDryInertia)
         sIC.separationSpeed = 0
         let sICLOX = tank("S-IC LOX", in: sIC, load: D.sICLOXAtFirstMotion, unusable: D.sICLOXAtCutoff,
-                          extent: D.sICLOXExtent, density: D.loxDensity)
+                          extent: D.sICLOXExtent, density: D.loxDensity, lines: D.sICLOXLines)
         let sICRP1 = tank("S-IC RP-1", in: sIC, load: D.sICRP1AtFirstMotion, extent: D.sICRP1Extent,
-                          density: D.rp1Density)
+                          density: D.rp1Density, lines: D.sICRP1Lines)
         sIC.tanks = [sICLOX, sICRP1]
         sIC.shapes = [frustum(sIC, D.station(D.f1GimbalStation), D.station(D.sICTop), body, body, white)]
         cluster(sIC, rating: D.f1, schedule: D.f1Schedule, transients: D.f1Transients,
@@ -152,6 +173,7 @@ extension VesselLibrary {
                               dryMass: D.sICSIIInterstageLarge, dragCoefficient: D.bodyDragCoefficient,
                               staging: .event(2))
         interstage.shapes = [frustum(interstage, D.station(D.sICTop), D.station(D.sIIAftSkirt), body, body, white)]
+        interstage.dryInertia = shell(interstage.dryMass, body, body, length: interstage.length)
         solids("S-II ullage", on: interstage, at: positions, x: D.station(D.sIIUllageMotorStation),
                radius: D.sIIUllageMotorRadius,
                thrust: D.sIIUllageMotorThrust * D.poundForce, burn: D.sIIUllageMotorBurnTime,
@@ -163,6 +185,7 @@ extension VesselLibrary {
         let sII = part("S-II", D.station(D.sIIAftSkirt), D.station(D.sIITop), radius: body,
                        dryMass: (D.sIIDry + D.sIIOther) * lb, dryCenterOfMass: D.station(D.sIIDryCoMStation),
                        dragCoefficient: D.bodyDragCoefficient, staging: .event(4))
+        sII.dryInertia = inertia(D.sIIDryInertia)
         let sIILOX = tank("S-II LOX", in: sII, load: D.sIILOXLoad * lb, unusable: D.sIILOXAtCutoff,
                           extent: D.sIILOXExtent, density: D.loxDensity)
         let sIILH2 = tank("S-II LH2", in: sII, load: D.sIILH2Load * lb, extent: D.sIILH2Extent,
@@ -183,6 +206,7 @@ extension VesselLibrary {
                                  dragCoefficient: D.bodyDragCoefficient, staging: .event(4))
         aftInterstage.shapes = [frustum(aftInterstage, D.station(D.sIITop), D.station(D.sIVBAftSkirt), body, upper,
                                         white)]
+        aftInterstage.dryInertia = shell(aftInterstage.dryMass, body, upper, length: aftInterstage.length)
         sII.separationSpeed = 0
         aftInterstage.separationSpeed = 0
         solids("S-II retro", on: aftInterstage, at: diagonals, x: D.station(D.sIIRetroStation), radius: body,
@@ -197,6 +221,7 @@ extension VesselLibrary {
                         dryMass: (D.sIVBDry + D.sIVBOther - 2 * (D.apsOxidizerLoad + D.apsFuelLoad)) * lb
                             - D.sIVBUllageMotorPropellant - D.sIVBUllageMotorCases - D.sIVBAftFrame,
                         dryCenterOfMass: D.station(D.sIVBDryCoMStation), staging: .fixed)
+        sIVB.dryInertia = inertia(D.sIVBDryInertia)
         let sIVBLOX = tank("S-IVB LOX", in: sIVB, load: D.sIVBLOXLoad * lb, unusable: D.sIVBLOXUnusable * lb,
                            extent: D.sIVBLOXExtent, density: D.loxDensity)
         let sIVBLH2 = tank("S-IVB LH2", in: sIVB, load: D.sIVBLH2Load * lb, unusable: D.sIVBLH2Unusable * lb,
@@ -236,6 +261,7 @@ extension VesselLibrary {
 
         let iu = part("IU", D.station(D.sIVBTop), D.station(D.iuTop), radius: upper, dryMass: D.iu * lb,
                       dryCenterOfMass: D.station(D.iuCoMStation), staging: .fixed)
+        iu.dryInertia = inertia(D.iuInertia)
         iu.shapes = [frustum(iu, D.station(D.sIVBTop), D.station(D.iuTop), upper, upper, grey)]
 
         let sla = part("SLA", D.station(D.iuTop), D.apolloStation(D.slaTop), radius: upper, dryMass: D.sla,

@@ -182,6 +182,11 @@ enum AS506 {
     /// roll values found (L for AS-506). The S-IVB's single J-2 cannot roll:
     /// its APS does.
     static let sICRollGains = (a0: 0.245, a1: 0.15)    // D5-15481-1 (L)
+    /// The S-IC roll attitude term's filter, 2.35/(s + 2.35) (D5-15481-1
+    /// §3.5). With the FER's roll inertia (datasheet §4), ten times less than
+    /// the liquid-filled model's, the roll loop runs near 3 rad/s, above this
+    /// corner, so the lag shapes its response.
+    static let sICRollFilter = 2.35                    // rad/s, D5-15481-1 §3.5 (L)
     static let sIIRollGains = (a0: 0.25, a1: 0.20)     // D5-15481-1 (L)
     /// S-IC centre engine cutoff, commanded by the IU at T1 + 134.56 s (range
     /// 135.20, FER Table 2-2 and §5.1, H); the LVDC senses it and starts T2.
@@ -344,6 +349,19 @@ enum AS506 {
     /// GOX 3,611 kg (Table 20-1). It is the tank's unusable mass, so LOX
     /// depletion ends the burn, as the low-level sensors did.
     static let sICLOXAtCutoff = 18_041.0 + 3_611.0   // kg, FER Tables 5-2 and 20-1 (H)
+    /// Propellant below the S-IC's tanks, in the suction ducts and engines, at
+    /// OECO (Table 20-1), which the model keeps there to the end: of the
+    /// 18,041 kg of LOX then, 1,280 kg were in the tank; of the 13,954 kg of
+    /// RP-1, 8,008 kg. At release the LOX ducts held 21,868 kg; the model's
+    /// tank holds the 5,107 kg drawn from them by OECO. The five LOX ducts run
+    /// from the tank's bottom (STA 772) through the fuel tank to the engines
+    /// (MAN-504 §4), taken to STA 100: 16,761 of their 21,868 kg fill them to
+    /// STA 615, so their middle is STA 358 (L; the engines' share ignored).
+    /// The RP-1 below its tank (STA 225) is mostly in the engines' manifolds
+    /// and tubes, taken at the gimbal plane (L). Both on the axis, where the
+    /// outboard engines' share would add some roll inertia.
+    static let sICLOXLines = (mass: 16_761.0, station: 358.0)   // kg, FER Table 20-1 (H); STA (L)
+    static let sICRP1Lines = (mass: 5_946.0, station: 100.0)    // kg, FER Table 20-1 (H); STA (L)
     /// RP-1 aboard at OECO. Not set in the model, whose residual is an output
     /// (the mixture-ratio scale is fitted to it).
     static let sICRP1AtCutoff = 13_954.0         // kg, FER Table 5-2 (H)
@@ -737,6 +755,15 @@ enum AS506 {
     static let sIISIVBInterstageCoMStation = 2_595.9 // STA, FER Table 20-10 (H)
     static let sIVBDryCoMStation = 2_856.7           // STA, FER Table 20-10 (H)
     static let iuCoMStation = 3_244.7                // STA, FER Table 20-10 (H)
+    /// Dry inertias about those CGs, kg m² (roll, pitch, yaw), from the same
+    /// rows: the engines and shells make them stiffer than solid cylinders
+    /// would (the S-IC's roll by half). The interstages, whose FER rows add
+    /// the ring, the motors and their propellant, are thin shells in the
+    /// builder, which those rows bear out within 8 %.
+    static let sICDryInertia = (roll: 2.591e6, pitch: 16.578e6, yaw: 16.496e6)   // FER Table 20-10 (H)
+    static let sIIDryInertia = (roll: 0.597e6, pitch: 1.997e6, yaw: 2.009e6)     // FER Table 20-10 (H)
+    static let sIVBDryInertia = (roll: 0.081e6, pitch: 0.296e6, yaw: 0.296e6)    // FER Table 20-10 (H)
+    static let iuInertia = (roll: 0.019e6, pitch: 0.010e6, yaw: 0.009e6)         // FER Table 20-10 (H)
 
     // Propellant extents, STA (aft and forward dome apexes, or the common
     // bulkhead's rim for the S-II LH2). The model puts each load's centroid at

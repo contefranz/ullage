@@ -79,6 +79,9 @@ public final class Vessel: Identifiable {
     /// while the FCC law flies them.
     var referenceAttitude: Quat?
     var referenceRate = Vec3.zero
+    /// The FCC's roll attitude lag: the error it last read and its output
+    /// (rad). Nil while the law runs without it.
+    var fccRollFilter: (input: Double, output: Double)?
     /// Phase-plane pulses in progress on the group axes: direction (-1, 0,
     /// +1 per axis) and the minimum on-time still to run, s.
     var groupPulse = (direction: Vec3.zero, remaining: Vec3.zero)

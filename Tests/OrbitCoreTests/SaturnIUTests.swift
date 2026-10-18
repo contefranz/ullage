@@ -115,10 +115,13 @@ final class SaturnIUTests: XCTestCase {
     // when the stack has risen 137 m (GE504 §4.1.2; the 13 s backup is not
     // needed). The roll takes Position I from the 90° pad azimuth to the
     // 72.058° flight azimuth (SP-4029, H) at 1.00°/s. With the S-IC roll
-    // gains (0.245 and 0.15 s, Boeing D5-15481-1 Table 3-IV: L) the start
-    // overshoots: AS-506 peaked at a 0.92° roll error and a 1.38°/s roll rate
-    // (FER Table 11-2), the model at 1.18° and 1.39°/s (2 and 3 s after the
-    // start, against 0.6 and 1.2 s: its roll loop is slower than AS-506's).
+    // gains (0.245 and 0.15 s, Boeing D5-15481-1 Table 3-IV: L) and their
+    // attitude lag, 2.35/(s + 2.35) (§3.5), the start overshoots: AS-506
+    // peaked at a 0.92° roll error and a 1.38°/s roll rate (FER Table 11-2),
+    // the model at 0.82° and 1.25°/s, 1.3 and 2.0 s after the start against
+    // 0.6 and 1.2 s. (Without the propellant in its roll inertia, as FER
+    // Table 20-10, the loop is ten times stiffer; with the propellant in it
+    // and no lag, it peaked at 1.18° and 1.39°/s, 2 and 3 s after the start.)
     // Later in the ramp the law tracks it (a1/a0) x 1°/s =
     // 0.61° behind, and the stack settles on the flight azimuth. No commanded
     // angle ever moves faster than 1°/s.
@@ -166,7 +169,7 @@ final class SaturnIUTests: XCTestCase {
         XCTAssertLessThan(started, AS506.programStartBackup)
         // Roll: the start's peaks, lag and rate late in the ramp, then
         // Position I on the flight azimuth.
-        XCTAssertEqual(peakRollRate, 1.38, accuracy: 0.1)
+        XCTAssertEqual(peakRollRate, 1.38, accuracy: 0.15)
         XCTAssertEqual(peakRollError, 0.92, accuracy: 0.35)
         XCTAssertFalse(rollLag.isEmpty)
         XCTAssertEqual(rollLag.reduce(0, +) / Double(rollLag.count), 0.15 / 0.245, accuracy: 0.03)
@@ -303,9 +306,9 @@ final class SaturnIUTests: XCTestCase {
     // (a0 0.9, a1 0.69 s; TN D-5869 Table 3): a 0.5° pitch command step is a
     // second-order response with wn = sqrt(a0 c) and zeta = a1 c / (2 wn),
     // c = 4 F L / Iyy from the model's own geometry, in vacuum (datasheet
-    // §8.6: c 0.973 s^-2, wn 0.936 rad/s, zeta 0.359, a 30 % overshoot at
-    // 3.6 s; 0.887 s^-2 before §4's tank stations and dry CGs, which put the
-    // CoM 0.60 m higher and Iyy 6.9 % lower, within 0.5 % of FER Table
+    // §8.6: c 0.962 s^-2, wn 0.930 rad/s, zeta 0.357, a 30 % overshoot at
+    // 3.6 s; 0.887 s^-2 before §4's tank stations, dry CGs and inertias and
+    // the S-IC's feed lines, which put Iyy within 0.1 % of FER Table
     // 20-10's). Mass properties frozen; self-consistency of law, gains and
     // model.
     func testFlightControlStepResponse() throws {
@@ -334,8 +337,8 @@ final class SaturnIUTests: XCTestCase {
         let peak = pitch.max { $0.1 < $1.1 }!
         XCTAssertEqual(peak.0, Double.pi / wd, accuracy: 0.1 * Double.pi / wd)
         XCTAssertEqual(peak.1 / step - 1, exp(-zeta * Double.pi / (1 - zeta * zeta).squareRoot()), accuracy: 0.05)
-        XCTAssertEqual(c, 0.973, accuracy: 0.005)
-        XCTAssertEqual(wn, 0.936, accuracy: 0.005)
+        XCTAssertEqual(c, 0.962, accuracy: 0.005)
+        XCTAssertEqual(wn, 0.930, accuracy: 0.005)
     }
 
     // One flight, first motion to T5 + 87 s, against AS-506's sequence of
@@ -491,12 +494,13 @@ final class SaturnIUTests: XCTestCase {
         XCTAssertLessThan(angleBetween(f.v.attitude.rotate(.unitZ), -up), 1.9 * deg)
         XCTAssertLessThan(before - aps.reduce(0) { $0 + $1.mass }, 5)
 
-        // A hand-back in orbit: the pilot rolls the stack by hand for 10 s
-        // (the hold stays selected). On release the command restarts from
+        // A hand-back in orbit: the pilot rolls the stack by hand for 3.5 s
+        // (the hold stays selected; with the FER's roll inertia the APS rolls
+        // it 1.3°/s² there). On release the command restarts from
         // the attitude and returns to the local horizontal within the
         // orbital rate limits.
         f.v.rotationInput = RotationCommand(roll: 1, pitch: 0, yaw: 0)
-        for _ in 0..<500 { f.sim.tick() }
+        for _ in 0..<175 { f.sim.tick() }
         let off = rotationVector(f.v.attitude.conjugate * f.v.attitudeCommand!.attitude).length
         f.v.rotationInput = RotationCommand()
         f.sim.tick()
@@ -713,7 +717,7 @@ final class SaturnIUTests: XCTestCase {
         let t5 = f.range(try XCTUnwrap(f.iu.timeBases[.t5]))
         f.fly(to: t5 + 1)
         f.v.rotationInput = RotationCommand(roll: 1, pitch: 0, yaw: 0)
-        f.fly(to: t5 + 5)
+        f.fly(to: t5 + 3)
         f.v.rotationInput = RotationCommand()
         let off = abs(try XCTUnwrap(f.iu.eulerAngles(of: f.v.attitude)).x - f.iu.chi.x)
         f.sim.tick()   // the hand-back: the command restarts from the attitude
@@ -857,7 +861,7 @@ final class SaturnIUTests: XCTestCase {
     // step where an axis reaches the switching line. Holding in free space
     // (no orbital-period cap on the step) after the slew above, with the
     // app's 1/60 s frames, the APS works as little at 10,000x as at 1x
-    // (under 1 kg/h; 47 kg/h at 10,000x with steps up to 60 s), and the
+    // (about 3 kg/h; 47 kg/h at 10,000x with steps up to 60 s), and the
     // error stays inside the dead band plus one pulse.
     func testAPSHoldAtTimeWarp() throws {
         var perHour: [Double] = [], worst: [Double] = []
@@ -882,9 +886,12 @@ final class SaturnIUTests: XCTestCase {
             perHour.append((before - aps.reduce(0) { $0 + $1.mass }) * 3600 / (sim.time - start))
             worst.append(error)
         }
-        XCTAssertLessThan(perHour[0], 1.5)
-        // At 1x the 900 s hold fires only two or three pulses (16 g each at
-        // the minimum on-time), so the rates can agree only to about a pulse.
+        // With the FER's roll inertia (datasheet §4) each minimum pulse rolls
+        // the stack four times faster than with the liquid's in it, so the
+        // hold fires about 45 pulses in 900 s at 1x (16 g each at the minimum
+        // on-time): 2.9 kg/h, against the 51 kg AS-506's APS used in its
+        // 2.6 h of orbit, turns included (FER Table 20-9).
+        XCTAssertLessThan(perHour[0], 4)
         XCTAssertEqual(perHour[1], perHour[0], accuracy: 0.5 * perHour[0])
         for e in worst { XCTAssertLessThan(e, 1.1 * deg) }
     }

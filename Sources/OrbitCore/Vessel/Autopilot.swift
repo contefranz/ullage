@@ -23,8 +23,9 @@ public enum AttitudeAutopilot: String, CaseIterable, Codable {
     /// without saturating (`Vessel.holdCanCapture`); it steers to either
     /// attitude only from then. The captured attitude lies short of where the
     /// turn stops by up to the law's swing, about 0.4 alpha rad with the
-    /// default gains (alpha the gimbal angular acceleration: 1.8° in pitch
-    /// and 12° in roll at liftoff). Under the FCC law it captures at once.
+    /// default gains (alpha the gimbal angular acceleration: 1.8° in pitch at
+    /// liftoff; roll, with the propellant left out of its inertia, is ten
+    /// times more agile). Under the FCC law it captures at once.
     /// With a flight program writing `attitudeCommand` (the Saturn's IU),
     /// selecting it hands the attitude back to the program.
     case attitudeHold = "Hold Att"
@@ -84,7 +85,9 @@ public struct TVCGains: Equatable {
 /// term and no feed-forward of the command's rate, so a ramp is tracked a1/a0
 /// times its rate behind. Beta is each engine's deflection: per actuator in
 /// pitch and yaw, tangential in roll. The IU switches the gains by flight
-/// phase; roll has its own pair, the pitch and yaw one unless given.
+/// phase; roll has its own pair, the pitch and yaw one unless given, and may
+/// pass its attitude term through a first-order lag, rollFilter / (s +
+/// rollFilter).
 public struct FCCGains: Equatable {
     /// Attitude gain in pitch and yaw, deg of deflection per deg of error.
     public var a0: Double
@@ -93,11 +96,14 @@ public struct FCCGains: Equatable {
     /// The same two gains in roll.
     public var rollA0: Double
     public var rollA1: Double
-    public init(a0: Double, a1: Double, rollA0: Double? = nil, rollA1: Double? = nil) {
+    /// Corner of the roll attitude term's lag, rad/s; nil for none.
+    public var rollFilter: Double?
+    public init(a0: Double, a1: Double, rollA0: Double? = nil, rollA1: Double? = nil, rollFilter: Double? = nil) {
         self.a0 = a0
         self.a1 = a1
         self.rollA0 = rollA0 ?? a0
         self.rollA1 = rollA1 ?? a1
+        self.rollFilter = rollFilter
     }
 }
 
@@ -158,6 +164,7 @@ extension Vessel {
 
         // The FCC law flies the gimbals when the IU commands the hold.
         let fcc = mode == .attitudeHold && attitudeCommand != nil && anyGimbal ? fccGains : nil
+        if fcc?.rollFilter == nil { fccRollFilter = nil }
 
         // Gains of the gimbal law (below).
         let g = tvcGains
@@ -249,7 +256,16 @@ extension Vessel {
             func law(_ a0: Double, _ a1: Double, _ ek: Double, _ wk: Double, _ pk: Double) -> Double {
                 pk > 0 ? max(-1, min(1, (a0 * ek - a1 * wk) / pk)) : 0
             }
-            if byGimbal.roll { command.roll = law(fcc.rollA0, fcc.rollA1, e.x, w.x, per.x) }
+            if byGimbal.roll {
+                // The roll attitude term through its lag, which starts from
+                // the error and advances with the step (`advanceControlState`).
+                var roll = e.x
+                if fcc.rollFilter != nil {
+                    roll = fccRollFilter?.output ?? e.x
+                    fccRollFilter = (input: e.x, output: roll)
+                }
+                command.roll = law(fcc.rollA0, fcc.rollA1, roll, w.x, per.x)
+            }
             if byGimbal.pitch { command.pitch = law(fcc.a0, fcc.a1, e.y, w.y, per.y) }
             if byGimbal.yaw { command.yaw = law(fcc.a0, fcc.a1, e.z, w.z, per.z) }
             return command
@@ -396,6 +412,9 @@ extension Vessel {
         groupPulse.remaining = Vec3(max(0, r.x - dt), max(0, r.y - dt), max(0, r.z - dt))
         if let r = referenceAttitude, referenceRate != .zero {
             referenceAttitude = (Quat(axis: referenceRate, angle: referenceRate.length * dt) * r).normalized
+        }
+        if let f = fccRollFilter, let corner = fccGains?.rollFilter {
+            fccRollFilter?.output = f.output + (f.input - f.output) * (1 - exp(-corner * dt))
         }
     }
 

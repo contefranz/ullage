@@ -461,11 +461,31 @@ The S-IC/S-II interstage keeps its middle: the FER's total, with the ring and th
 
 ("Before" is with PR #7's gimbal stations, which do not move the CG.) Known deviations:
 
-- **S-IC, 10–18 in high.** The FER puts 21,868 kg of LOX and 5,983 kg of RP-1 below the tanks at release (Table 20-1), in the suction ducts and engines, and 16,761 kg and 5,946 kg there at OECO. The model keeps them in its tank columns. With the ullage above each liquid, that is about 17 of the 18 in at release.
-- **S-IVB stack, 8–10% stiff in pitch.** Its CG is right, but its mass is spread too far. The S-IVB's dry mass is not the cause: as a solid cylinder over its part it is less stiff than the FER's 0.296e6 kg m². More likely, the LOX sits at its extent's middle, about 15 in below the hemisphere's own centroid, and the spacecraft parts (L) sit high: FER Table 20-10 puts the spacecraft at STA 3608.6 (48,626 kg), the model at 3621.5 (49,735 kg with the LES). The two errors cancel in the CG but not in the inertia.
-- **Roll inertia, not tested.** The model's is about ten times the FER's (3.53e7 against 3.70e6 kg m² at release), most likely because Table 20-10 leaves out the liquid propellant, which does not turn with the tanks in roll.
+- **S-IC, 10–18 in high.** The FER puts 21,868 kg of LOX and 5,983 kg of RP-1 below the tanks at release (Table 20-1), in the suction ducts and engines, and 16,761 kg and 5,946 kg there at OECO. The model keeps them in its tank columns. With the ullage above each liquid, that is about 17 of the 18 in at release. *2026-10-18: the S-IC's feed lines (below) put its CG within 2 in at OECO and separation; release stays 13 in high, from the ullage.*
+- **S-IVB stack, 8–11% stiff in pitch** (with the FER's dry inertias, below). Its CG is right, but its mass is spread too far. The S-IVB's dry mass is not the cause: as a solid cylinder over its part it is less stiff than the FER's 0.296e6 kg m². More likely, the LOX sits at its extent's middle, about 15 in below the hemisphere's own centroid, and the spacecraft parts (L) sit high: FER Table 20-10 puts the spacecraft at STA 3608.6 (48,626 kg), the model at 3621.5 (49,735 kg with the LES). The two errors cancel in the CG but not in the inertia.
+- **Roll inertia, not tested.** ~~The model's is about ten times the FER's (3.53e7 against 3.70e6 kg m² at release), most likely because Table 20-10 leaves out the liquid propellant, which does not turn with the tanks in roll.~~ *Resolved on 2026-10-18 (below).*
 
 The CG and inertia change the control figures (§7.2): the lever arms at S-II and S-IVB ignition are now 13.7 and 9.9 m, against 13.6 and 9.9 m from the FER's CGs and the published gimbal stations.
+
+**Roll inertia, dry inertias and feed lines (2026-10-18).**
+
+- **Liquid in roll.** A liquid column now adds no roll inertia about its own axis (`PropellantTank.ownInertia`): an axisymmetric liquid does not spin up with its tank on control time scales, and Table 20-10 leaves it out. The stages' dry roll inertias, 3.575e6 kg m², add up to the vehicle's 3.703e6 at release, and to 0.984e6 against 0.985e6 at S-II start. Pitch and yaw keep the liquid, as Table 20-10's pitch inertias do.
+- **Dry inertias.** The S-IC, S-II, S-IVB and IU take Table 20-10's dry roll, pitch and yaw inertias (H), with the mean of pitch and yaw on both transverse axes: the model is axisymmetric, and the pairs differ by at most 0.6% (the IU's by 10%, from rounding). The solid cylinders used before gave the S-IC 35% too little roll inertia, as its outboard F-1s sit 4.6 m off the axis. The two interstages are thin shells, which the FER's interstage totals (with the ring, the motors and the retros) bear out within 8%.
+- **S-IC feed lines.** Table 20-1 has 16,761 kg of LOX and 5,946 kg of RP-1 below the tanks at OECO, in the suction ducts and engines. The tanks now hold that mass in feed lines (`PropellantTank.feedLines`), which the engines empty last: the LOX at STA 358, the middle of the five ducts from the tank's bottom (772) to the engines (taken at 100) filled with that mass, and the RP-1 at the gimbal plane, mostly in the engines (both L, on the axis). Tank masses, depletion and residuals are unchanged.
+
+| event | FER CG | CG, model − FER (in) | FER roll (kg m²) | roll, now (before) | FER pitch (kg m²) | pitch, now |
+|---|---|---|---|---|---|---|
+| holddown release | 1192.0 | +12.8 | 3.703e6 | −2.6% (+852%) | 9.143e8 | +0.1% |
+| S-IC OECO | 1828.9 | −0.0 | 3.689e6 | −2.2% (+146%) | 4.405e8 | +1.9% |
+| S-IC separation | 1835.1 | −1.3 | 3.686e6 | −2.1% | 4.357e8 | +2.3% |
+| S-II start command | 2199.0 | +4.8 | 0.985e6 | −0.5% (+603%) | 1.355e8 | +2.4% |
+| S-II cutoff | 2795.8 | −2.4 | 0.871e6 | −0.1% (+56%) | 4.493e7 | +4.1% |
+| S-IVB ignition | 3036.4 | +0.3 | 0.198e6 | +2.1% (+284%) | 1.341e7 | +10.9% |
+| S-IVB cutoff | 3072.7 | +4.7 | 0.197e6 | +2.4% (+199%) | 1.259e7 | +8.6% |
+
+The 13 in left at release is the ullage: the model centres each liquid on its tank's middle, while the LOX and RP-1 fill their tanks from the bottom (MAN-504's 345,000 and 216,000 gal against the loads' 1,272 and 771 m³). The roll left over at release (−2.6%) is about what the outboard engines' share of the feed lines would add off the axis.
+
+**Effect on control.** The S-IC's roll effectiveness goes from about 4.1 to 40 s⁻². With REF504's roll gains alone, that loop would run at 3.1 rad/s with ζ 0.96, past critical damping, where before it ran at 1.0 rad/s with ζ 0.31. D5-15481-1's S-IC roll attitude lag, 2.35/(s + 2.35) (§3.5), now sits below the loop's frequency and is modelled (`FCCGains.rollFilter`, set by the IU with the S-IC gains). The roll program then peaks at a 0.82° roll error and 1.25°/s, 1.3 and 2.0 s after the start. AS-506 peaked at 0.92° and 1.38°/s, 0.6 and 1.2 s after the start (FER Table 11-2). The model with the liquid in its roll inertia peaked at 1.18° and 1.39°/s, 2 and 3 s after the start. The S-II's roll (0.25 / 0.20 s, no lag) runs at 1.7 rad/s with ζ 0.67. On the S-IVB, each minimum APS pulse rolls the stack about four times faster than before, so the coast hold costs 2.9 kg/h at 1x, against the 51 kg AS-506's APS used in its 2.6 h of orbit, turns included (FER Table 20-9). Tests that hand-rolled the stack or tapped roll at liftoff now use shorter inputs (§8.8).
 
 - S-IC RP-1: cylinder 10.6 → 17.3; dome apexes 8.1 and 19.8.
 - S-IC intertank: about 17.3 → 23.8.
@@ -729,7 +749,7 @@ Each axis is a rate-limited position servo: |δ̇| ≤ the rate above, |δ| ≤ 
 | sii_gains | 0–60 s: 1.12 / 1.9 s; 60–190 s: 0.65 / 1.1 s; 190 s–cutoff: 0.44 / 0.74 s | (a0, a1) | TN5869 Table 3 "Second Stage Propulsion Period" (page image, §8) | H (reading), L (AS-506) | The IU switches them at T3 + 61.4 and T3 + 191.4 s (SA-507 ICD, §8). |
 | sivb_gains_burn1 | a0 0.81, a1 0.97 s | | TN5869 Table 3 (page image, footnote "Throughout S-IVB first burn and to 260 seconds of second burn"); REF504 Table 3-IV (0–600 s, §8) | L | The page image settles the stage assignment that the garbled text extract left open. It still conflicts with TN5869's third-stage control frequency of 0.2–0.5 Hz (see the check below), so the IU leaves the S-IVB J-2 on the vehicle's own law (§8.6). |
 | sivb_gains_burn2 | 0–260 s: a0 0.81, a1 0.97 s (the burn-1 pair); 260 s–cutoff: a0 0.81, a1 0.70 s | | TN5869 Table 3 (page image) | L | M2 only. An earlier text extract read 0.70 / 0.81 for the first 260 s. |
-| roll_gains | S-IC (both bands): a0 0.245, a1 0.15 s; S-II (all three bands): a0 0.25, a1 0.20 s; S-IVB "not simulated" | (a0, a1) | Boeing D5-15481-1, *Saturn V AS-504 Launch Vehicle Reference Trajectory* Vol. I (1967), Table 3-IV (§8) | L (AS-504 1967 values) | The only roll gains found. Its §3.5 adds an S-IC roll attitude-gain filter 2.35/(s + 2.35) (not modelled). Flown by the model, they reproduce AS-506's peak roll rate in the roll program (§8.6). |
+| roll_gains | S-IC (both bands): a0 0.245, a1 0.15 s; S-II (all three bands): a0 0.25, a1 0.20 s; S-IVB "not simulated" | (a0, a1) | Boeing D5-15481-1, *Saturn V AS-504 Launch Vehicle Reference Trajectory* Vol. I (1967), Table 3-IV (§8) | L (AS-504 1967 values) | The only roll gains found. Its §3.5 adds an S-IC roll attitude-gain filter 2.35/(s + 2.35), modelled since 2026-10-18. Flown by the model with the FER's roll inertia and that lag, they peak at 0.82° and 1.25°/s in the roll program, against AS-506's 0.92° and 1.38°/s (§4, §8.6). |
 | lvdc_minor_loop | 0.04 s (25 Hz) | about 25 times per second; 40 ms interrupt | TN5869; Wikipedia LVDC | M-H | Attitude-error update rate. The FCC itself is analogue, so rates are continuous. |
 | bending_mode_1 | ≈ 6.3 rad/s | ≈ 1 Hz | EL | L | Context only. |
 
@@ -740,30 +760,33 @@ Each axis is a rate-limited position servo: |δ̇| ≤ the rate above, |δ| ≤ 
 
 | point (t) | c (s⁻²) | gains | f_n (Hz) | ζ | lag (s) | α at full deflection (°/s²) |
 |---|---|---|---|---|---|---|
-| S-IC release (0.30) | 0.973 | 0.9 / 0.69 | 0.149 | 0.36 | 0.77 | 4.9 |
-| S-IC max Q (83.0) | 1.186 | 0.9 / 0.69 | 0.164 | 0.40 | 0.77 | 5.9 |
-| S-IC 105, band 1 → 2 | 1.354 | 0.9 → 0.45 | 0.176 → 0.124 | 0.42 → 0.38 | 0.77 → 0.98 | 6.8 |
-| S-IC 130, band 2 → 3 | 1.757 | 0.45 → 0.32 | 0.142 → 0.119 | 0.43 → 0.35 | 0.98 → 0.94 | 8.8 |
-| S-IC OECO (161.6) | 3.180 | 0.32 / 0.30 | 0.161 | 0.47 | 0.94 | 15.9 |
-| S-II ignition (164.0) | 0.409 | 1.12 / 1.9 | 0.108 | 0.57 | 1.70 | 2.9 |
-| S-II +60 s, band 2 | 0.470 | 0.65 / 1.1 | 0.088 | 0.47 | 1.69 | 3.3 |
-| S-II CECO (460.6) | 1.145 | 0.44 / 0.74 | 0.113 | 0.60 | 1.68 | 8.0 |
-| S-II OECO (548.2) | 1.916 | 0.44 / 0.74 | 0.146 | 0.77 | 1.68 | 13.4 |
-| S-IVB ignition (552.2) | 0.608 | 0.81 / 0.97 | 0.112 | 0.42 | 1.20 | 4.2 |
-| S-IVB cutoff (699.3) | 0.730 | 0.81 / 0.97 | 0.122 | 0.46 | 1.20 | 5.1 |
+| S-IC release (0.30) | 0.962 | 0.9 / 0.69 | 0.148 | 0.36 | 0.77 | 4.8 |
+| S-IC max Q (83.0) | 1.169 | 0.9 / 0.69 | 0.163 | 0.39 | 0.77 | 5.8 |
+| S-IC 105, band 1 → 2 | 1.332 | 0.9 → 0.45 | 0.174 → 0.123 | 0.42 → 0.38 | 0.77 → 0.98 | 6.6 |
+| S-IC 130, band 2 → 3 | 1.721 | 0.45 → 0.32 | 0.140 → 0.118 | 0.43 → 0.35 | 0.98 → 0.94 | 8.6 |
+| S-IC OECO (161.6) | 3.071 | 0.32 / 0.30 | 0.158 | 0.46 | 0.94 | 15.3 |
+| S-II ignition (164.0) | 0.406 | 1.12 / 1.9 | 0.107 | 0.57 | 1.70 | 2.8 |
+| S-II +60 s, band 2 | 0.467 | 0.65 / 1.1 | 0.088 | 0.47 | 1.69 | 3.3 |
+| S-II CECO (460.6) | 1.134 | 0.44 / 0.74 | 0.112 | 0.59 | 1.68 | 7.9 |
+| S-II OECO (548.2) | 1.884 | 0.44 / 0.74 | 0.145 | 0.77 | 1.68 | 13.2 |
+| S-IVB ignition (552.2) | 0.603 | 0.81 / 0.97 | 0.111 | 0.42 | 1.20 | 4.2 |
+| S-IVB cutoff (699.3) | 0.724 | 0.81 / 0.97 | 0.122 | 0.46 | 1.20 | 5.1 |
 
-Recomputed on 2026-10-17 from the FER-calibrated model (§9) with the published gimbal stations and §4's tank stations and dry CGs, flown through the propellant model alone, with each gimballed engine's vacuum thrust (the S-II's high-EMR rating at ignition, its low-EMR 768 kN per engine at OECO). The 2026-10-16 probe gave c 0.784 / 1.086 / 1.270 / 1.690 / 3.369 on the S-IC, 0.366 / 0.427 / 1.188 / 2.675 on the S-II and 0.636 / 0.770 on the S-IVB.
+Recomputed on 2026-10-18 from the FER-calibrated model (§9) with the published gimbal stations and §4's tank stations, dry CGs, dry inertias and S-IC feed lines, flown through the propellant model alone, with each gimballed engine's vacuum thrust (the S-II's high-EMR rating at ignition, its low-EMR 768 kN per engine at OECO). The 2026-10-16 probe gave c 0.784 / 1.086 / 1.270 / 1.690 / 3.369 on the S-IC, 0.366 / 0.427 / 1.188 / 2.675 on the S-II and 0.636 / 0.770 on the S-IVB.
+
+Roll, with β tangential on the outboard engines' radius and the liquid left out of the roll inertia (§4): the S-IC's c is 40.2 s⁻² throughout (ωn 3.14 rad/s, ζ 0.96 with 0.245 / 0.15 s and no lag; the IU adds D5-15481-1's 2.35/(s + 2.35) lag, §8.6); the S-II's 11.2 s⁻² at ignition and 9.4 s⁻² at OECO (ωn 1.67 and 1.53 rad/s, ζ 0.67 and 0.61 with 0.25 / 0.20 s).
 
 Sim inputs used for the table, against FER Table 20-10:
 
 | quantity | sim | FER Table 20-10 (actual) |
 |---|---|---|
-| Iyy (kg m²) | 9.094e8 at release, 4.364e8 at S-IC OECO, 1.378e8 at S-II ignition, 4.601e7 at S-II OECO, 1.475e7 at S-IVB ignition, 1.355e7 at cutoff | 9.143e8, 4.405e8, 1.355e8, 4.493e7, 1.341e7, 1.259e7 |
-| CoM height (m) | 33.66 at release, 49.66 at S-IC OECO, 58.90 at S-II ignition, 73.88 at S-II OECO, 80.05 at S-IVB ignition, 81.08 at cutoff | 33.20, 49.38, 58.78, 73.93, 80.05, 80.97 |
+| Iyy (kg m²) | 9.156e8 at release, 4.489e8 at S-IC OECO, 1.387e8 at S-II ignition, 4.678e7 at S-II OECO, 1.487e7 at S-IVB ignition, 1.368e7 at cutoff | 9.143e8, 4.405e8, 1.355e8, 4.493e7, 1.341e7, 1.259e7 |
+| Ixx (kg m²) | 3.608e6 on the S-IC, 9.80e5 at S-II ignition, 8.70e5 at S-II OECO, 2.02e5 on the S-IVB | 3.703e6 to 3.686e6, 0.985e6, 0.871e6, 0.198e6 to 0.197e6 |
+| CoM height (m) | 33.52 at release, 49.37 at S-IC OECO, 58.90 at S-II ignition, 73.87 at S-II OECO, 80.05 at S-IVB ignition, 81.08 at cutoff | 33.20, 49.38, 58.78, 73.93, 80.05, 80.97 |
 
 Findings:
 
-1. **S-IC.** TN5869's schedule keeps the sim between 0.12 and 0.18 Hz, consistent with TN5869's "≈ 0.15 Hz" first-stage frequency. The steps at 105 s and 130 s are what hold it there. This supports the TN5869 gains, the sim inertia and the 5.461 m gimbal plane together (L-M).
+1. **S-IC.** TN5869's schedule keeps the sim between 0.12 and 0.17 Hz, consistent with TN5869's "≈ 0.15 Hz" first-stage frequency. The steps at 105 s and 130 s are what hold it there. This supports the TN5869 gains, the sim inertia and the 5.461 m gimbal plane together (L-M).
 2. **S-IVB.** The 0.81/0.97 pair gives 0.11–0.12 Hz. Reaching 0.2 Hz would need a0 ≈ 2.2–2.6, and 0.5 Hz would need a0 ≈ 13–16. Either the pair is not the S-IVB burn-1 gain, or TN5869's 0.2–0.5 Hz covers TLI, where c rises as the stage empties. Unresolved (§7.5).
 3. **Rate demand.** At these frequencies, actuator rates in response to 1° errors are below 1°/s, far from the 5–8°/s limits. Rate limits matter only for staging transients and engine-out.
 
@@ -916,7 +939,7 @@ Every published control-performance figure (FER maximum deflections, attitude er
 | per-axis clamp | F-1 ±0.08727 rad (outboard only); J-2 ±0.12217 rad (S-II outboard, S-IVB); centre engines never move | exact | §7.1 data (F-1 L, J-2 M) |
 | rate limit | 5°/s F-1; 8°/s S-II; 8°/s S-IVB placeholder | per step | data L / M-L / placeholder |
 | decoupling | unit βp, βy or βr gives torque only about its axis | off-axis below 1e-6 of on-axis | mixing geometry |
-| torque per deflection | τy = 4·F·L·sin β (S-IC, S-II), F·L·sin β (S-IVB), with the sim's own F, L and I. Sim α at full deflection: 4.9 / 2.9 / 4.2 °/s² at release / S-II ignition / S-IVB ignition | 0.5% against the formula | formula only: the gimbal stations are H since §4's update, but the sim's CoM and inertia are not, so never compare with a published inertia |
+| torque per deflection | τy = 4·F·L·sin β (S-IC, S-II), F·L·sin β (S-IVB), with the sim's own F, L and I. Sim α at full deflection: 4.8 / 2.8 / 4.2 °/s² at release / S-II ignition / S-IVB ignition | 0.5% against the formula | formula only, with the sim's own mass properties: since §4's updates its CG, roll and pitch inertia follow FER Table 20-10's within 13 in, 3% and 11%, which the timeline test checks |
 | cant geometry | after the ramp, each outboard thrust line is 2.000° inward (radial), the net lateral force and torque are 0, axial thrust is × 0.99939, and the start is at 20.6 s | 1e-6; start ± one step | cant axis definition (L); ramp shape is a placeholder, so test only the end state |
 | null holds | S-II engines at 0 until 162.30; S-IVB J-2 at 0 until 552.20 | exact | EH (M) |
 
@@ -924,8 +947,8 @@ Every published control-performance figure (FER maximum deflections, attitude er
 
 | target | published | sim expectation | tolerance | depends on |
 |---|---|---|---|---|
-| S-IC rigid-body control frequency | ≈ 0.15 Hz (TN5869) | 0.149 Hz at release, 0.164 at max Q, 0.12–0.18 across bands (§7.2's table) | 0.10–0.20 Hz | TN5869 gains (L), sim L and I (L). Aero would lower it near max Q, so the band applies only to the no-aero sim. |
-| step response, S-IC at about 5 s | — | ωn 0.84 rad/s, ζ 0.32: first peak 3.95 s, overshoot 35% for a 0.5° attitude-command step (as implemented at liftoff mass, §8.6: ωn 0.936 rad/s, ζ 0.36, 30% at 3.6 s) | ±10% on time; ±5 points on overshoot | self-consistency of law, gains and mass properties. Keep the step at or below 0.5°: the command jumps by a0 × step (0.45°), so the 5°/s rate limit binds for under 0.1 s and the position limit never. |
+| S-IC rigid-body control frequency | ≈ 0.15 Hz (TN5869) | 0.148 Hz at release, 0.163 at max Q, 0.12–0.17 across bands (§7.2's table) | 0.10–0.20 Hz | TN5869 gains (L), sim L and I (L). Aero would lower it near max Q, so the band applies only to the no-aero sim. |
+| step response, S-IC at about 5 s | — | ωn 0.84 rad/s, ζ 0.32: first peak 3.95 s, overshoot 35% for a 0.5° attitude-command step (as implemented at liftoff mass, §8.6: ωn 0.930 rad/s, ζ 0.36, 30% at 3.6 s) | ±10% on time; ±5 points on overshoot | self-consistency of law, gains and mass properties. Keep the step at or below 0.5°: the command jumps by a0 × step (0.45°), so the 5°/s rate limit binds for under 0.1 s and the position limit never. |
 | ramp-tracking lag | — | (a1/a0) × rate: 0.77° at 1°/s (S-IC band 1), 1.70° (S-II band 1), 1.20° (S-IVB) | ±0.05° once settled | self-consistency. It holds exactly only with no disturbance torques, which is the case in the sim. |
 | kick damping | — | a 0.29°/s pitch and yaw kick after liftoff decays to below 0.015°/s within about 3 envelope time constants: 1/(ζωn) = 3.7 s, so about 11 s (3.0 s and about 9 s with the liftoff mass properties of §4's 2026-10-17 update) | factor 1.5 | same; replaces the stand-in test `testKillRotationDampsAKickWithTheStandIns` |
 | deflection in nominal no-wind flight | FER values unusable | below 1° except during command-rate changes and staging | sanity | no aero or misalignment, so any large deflection is a bug |
@@ -1028,7 +1051,7 @@ Every published control-performance figure (FER maximum deflections, attitude er
 - Every gain (TN5869 S-IC M as a reading but L for AS-506; S-II and S-IVB L); the roll gains (D5-15481-1, L); switch times.
 - F-1 gimbal limit (±5°, L) and rate (L); S-II rate (M-L); the S-IVB rate placeholder; any actuator dynamics.
 - Cant ramp rate and axis definition. The 2° angle and 20.6 s start (M) may be used only for the end state and the start time.
-- Absolute torques, control frequencies and angular accelerations. The J-2 gimbal stations are H since §4's 2026-10-17 update, but the sim's CoM and inertias are not: test formulas against the sim's own mass properties, not published inertias.
+- Absolute torques, control frequencies and angular accelerations beyond the sim's own mass properties. Since §4's 2026-10-17 and 2026-10-18 updates the J-2 gimbal stations are H and the CG, roll and pitch inertia follow FER Table 20-10 (within 13 in, 3% and 11%); test formulas against the sim's own values.
 - APS module positions, radius, height, nozzle directions and cant. APS Isp (both values). APS switching-line K and minimum on-time. Per-module loads (equal split assumed) and the AS-507 proxy totals.
 - APS pre-restart ullage duration; the slingshot burn duration (lead only).
 - EDS pitch/yaw overrate thresholds, except as a loose sanity bound.
@@ -1168,7 +1191,7 @@ Only the OECO flight-path angle was fitted; everything else in the table is a ch
 
 ### 8.6 Flight control and APS logic as implemented
 
-- **FCC law** (§7.2): β = a0·e − a1·ω on each gimbal-flown axis, in the IU's hold, with TN5869's gain schedule on the S-IC and S-II switched at the IU's switch points (§8.3), and REF504's roll pair (S-IC 0.245 / 0.15 s, S-II 0.25 / 0.20 s; L). β is each engine's deflection: per actuator in pitch and yaw, tangential in roll (§7.2: if REF504's roll β is per actuator, a diagonal engine deflects √2 times it). REF504's filters (S-IC pitch and yaw attitude gain 0.4(s + 0.095)/(s + 0.038), S-IC roll 2.35/(s + 2.35)) are not modelled. Checks: in the roll program the model peaks at a 1.18° roll error and 1.39°/s roll rate, against AS-506's 0.92° and 1.38°/s (FER Table 11-2); with the pitch pair in roll (the earlier placeholder) the rate peaked at 1.03°/s. The peaks come 2 and 3 s after the program start, against AS-506's 0.6 and 1.2 s, so the model's roll loop is slower than AS-506's. Late in the ramp the law tracks it 0.60° behind (a1/a0 = 0.61°) at 1.00°/s, and Position I settles on 72.058°. A 0.5° pitch step at liftoff mass in vacuum (c = 0.973 s⁻², so ωn = 0.936 rad/s and ζ = 0.359; 0.887, 0.893 and 0.343 before §4's tank stations and dry CGs) overshoots 30% at 3.6 s, as §7.4 B's formulas predict.
+- **FCC law** (§7.2): β = a0·e − a1·ω on each gimbal-flown axis, in the IU's hold, with TN5869's gain schedule on the S-IC and S-II switched at the IU's switch points (§8.3), and REF504's roll pair (S-IC 0.245 / 0.15 s, S-II 0.25 / 0.20 s; L). β is each engine's deflection: per actuator in pitch and yaw, tangential in roll (§7.2: if REF504's roll β is per actuator, a diagonal engine deflects √2 times it). Of REF504's filters, the S-IC roll attitude lag 2.35/(s + 2.35) is modelled (since 2026-10-18, with the FER's roll inertia, §4); the S-IC pitch and yaw attitude gain 0.4(s + 0.095)/(s + 0.038) is not. Checks: in the roll program the model peaks at a 0.82° roll error and 1.25°/s roll rate, 1.3 and 2.0 s after the program start, against AS-506's 0.92° and 1.38°/s at 0.6 and 1.2 s (FER Table 11-2). With the liquid in the roll inertia and no lag it peaked at 1.18° and 1.39°/s, 2 and 3 s after the start; with the pitch pair in roll (the earlier placeholder) the rate peaked at 1.03°/s. Late in the ramp the law tracks it 0.60° behind (a1/a0 = 0.61°) at 1.00°/s, and Position I settles on 72.058°. A 0.5° pitch step at liftoff mass in vacuum (c = 0.962 s⁻², so ωn = 0.930 rad/s and ζ = 0.357; 0.887, 0.893 and 0.343 before §4's tank stations, dry CGs and inertias and feed lines) overshoots 30% at 3.6 s, as §7.4 B's formulas predict.
 - **Pilot hand-back**: manual input or another autopilot mode takes the attitude from the IU, which keeps sequencing. When the hold flies again (input released, or key 8 after another mode), the IU restarts its command from the vehicle's attitude and returns to its program within its command rate limits: 1°/s per angle until the S-IVB cutoff, ASH's coast limits (below) from T5 on. 13° off the program at 60 s, the stack turns back at 1.3°/s at most, where the FCC law on the whole error swung it at up to 7.7°/s near max Q.
 - **S-IVB burn**: the vehicle's own self-tuned gimbal law (`tvcGains`) flies the J-2, because TN5869's S-IVB pair contradicts its stated control frequency (§7.5).
 - **APS phase plane** (§7.2): ±1° dead band; error clipped at 2.5° in pitch and yaw and 3.5° in roll; switching line e − 5 s × ω (placeholder slope); 0.06 s minimum on-time; full-thrust pulses, no hysteresis. It flies the APS in every autopilot mode except kill rotation, and in the IU's hold; in the pointing modes, which set no roll attitude, roll keeps M0's rate damping (proportional levels, as in kill rotation). The law decides once a step, so the simulation ends a coasting step where an axis is predicted to reach its switching line, and a pulse step where the minimum on-time ends: the law then works the same at any frame rate and time warp. Measured: manoeuvres at 0.30°/s in pitch and 0.51°/s in roll; pulses of exactly 0.06 s with the app's 1/60 s frames; holding in free space after a slew, well under 1 kg/h at both 1× and 10,000× (0.13 and 0.18 kg/h in `testAPSHoldAtTimeWarp`; 47 kg/h at 10,000× with coast steps of up to 60 s). The rate is set by the roll rate the slew leaves, which a 0.2 % change in roll inertia moved: with the pre-FER spacecraft masses it was 0.91 and 0.87 kg/h, 14 roll pulses in the 900 s at 1× against 2 now; on the light S-IVB after TLI, Prograde uses 0.2 kg of APS propellant an hour, where M0's law emptied both modules (298 kg) within the hour.
@@ -1197,7 +1220,7 @@ The propulsion and mass model of §1–§3 was calibrated without the FER. These
 |---|---|---|
 | `testOnThePad` | geocentric pad, nose up, Position I east, IU idle until liftoff; Space refused | §1.6, §7.1 (M) |
 | `testPitchPolynomialTranscription` | GE504 segments join, start near 0, rates under 1°/s, −66.59° at 153 s; unscaled within 2° of MAN506 Fig. 2-2; the IU's = 1.025 × SA-504 to 159.37 s | GE504 (H for SA-504), MAN506 (figure reading) |
-| `testTowerYawAndRollProgram` | yaw to 1.25° at ≤ 1°/s and away from the tower; start at 137 m; roll peaks 1.38 ± 0.1°/s and 0.92 ± 0.35° (FER Table 11-2); lag a1/a0 = 0.61° late in the ramp; Position I on 72.058° | GE504, FER (H), REF504 (roll gains L) |
+| `testTowerYawAndRollProgram` | yaw to 1.25° at ≤ 1°/s and away from the tower; start at 137 m; roll peaks 1.38 ± 0.15°/s and 0.92 ± 0.35° (FER Table 11-2; the model 1.25°/s and 0.82°); lag a1/a0 = 0.61° late in the ramp; Position I on 72.058° | GE504, FER (H), REF504 (roll gains L) |
 | `testSICAscentMatchesApollo11` | the §8.4 table, except the fitted angle (±0.2°); Mach 1, max Q, the q history, the climb and Earth-fixed speed against the PFT and the peak axial force (§11.6); thrust acceleration within 1 % of FER Figure 4-3 at 10.3, 147.4, 152.3 and 158.8 s, where drag is under 0.3 % of thrust | FER Table 4-1/4-2 (H), Figure 4-3 (M), PFT (H); `pitchScale` (fitted) |
 | `testOutboardCantSchedule` | cant from T1 + 20.0 s to 2° radial | FER (H), EL (M) |
 | `testFlightControlStepResponse` | ωn and overshoot of the FCC law | TN5869 (L), model mass properties |
@@ -1213,13 +1236,15 @@ The propulsion and mass model of §1–§3 was calibrated without the FER. These
 | `testAPSDampsRollInThePointingModes` | a 0.15°/s roll in Prograde dies out (under the phase plane's 0.2°/s threshold) | — |
 | `testStepsEndOnFlightProgramEvents` | the simulation ends a step on a program's event at any warp, flying or on the pad | — |
 
+Since the FER's roll inertia (§4, 2026-10-18) the stack rolls four to ten times more readily, so the tests that moved it by hand use shorter inputs for the same rates: a 2 s hand roll (was 4 s) in `testCoastCommandRateFromTheSIVBCutoff`, a 3.5 s one (was 10 s) for the hand-back in `testFlightSequenceFollowsTheApollo11Timeline`, and a 0.1 s roll tap (was 1.0 s) at liftoff in `SaturnVControlTests.testHoldAfterAShortTapSettlesPastTheRelease`. The APS hold at time warp allows 4 kg/h (was 1.5; 2.9 at 1x), and in the S-IVB nose reversal the APS tanks' gyroscopic coupling into roll allows 0.005°/s (was 0.001; 0.002 now).
+
 ### 8.9 Remaining gaps (IU)
 
 1. AS-506's own pre-IGM presettings (pitch polynomial, t_AR, start test): its July 1969 Operational Trajectory or the SA-506 Flight Sequence Program ICD (40M33626B).
 2. PFT Table B-II/B-III: the S-IC time history, to check the whole ascent rather than two points (the tables are scanned and must be read from the page images).
 3. *Resolved in §10:* IGM, with presettings from the model's vehicle and AS-506's flight (AS-506's own presettings are still missing, §10.7).
 4. *Resolved in §10:* the S-II EMR shift by characteristic velocity.
-5. AS-506's roll gains and the definition of the roll β (per actuator or tangential, §7.2), and the FCC filters (REF504 §3.5). The model's roll loop peaks 2–3 s after the program start where AS-506's peaked within 1.2 s (§8.6), which points at the roll authority, the roll inertia or the gains.
+5. AS-506's roll gains and the definition of the roll β (per actuator or tangential, §7.2), and the FCC filters (REF504 §3.5). The model's roll loop peaks 2–3 s after the program start where AS-506's peaked within 1.2 s (§8.6), which points at the roll authority, the roll inertia or the gains. *2026-10-18: the roll inertia was ten times too large (§4); with the FER's and the §3.5 lag, the peaks come 1.3 and 2.0 s after the start.*
 6. GE504 Table 4-II's pre-IGM engine-out tilt freeze (B11, B12, B21, B22) for an S-IC engine out in the pitch program.
 
 **Values tests must not depend on**: `pitchScale` beyond the OECO angle it was fitted to; the cant ramp rate; every gain (§7.5), beyond the roll-program peaks checked against the FER; APS K and minimum on-time; the program-start time (§8.5).
