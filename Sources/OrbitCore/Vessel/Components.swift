@@ -141,6 +141,18 @@ public struct EngineRating: Equatable {
     /// Exit area implied by the two Isp values, m^2.
     public var impliedExitArea: Double { thrustVacuum * (1 - ispSeaLevel / ispVacuum) / standardAtmosphere }
 
+    /// This rating moved a fraction `u` of the way to `other`: vacuum thrust,
+    /// mass flow, mixture ratio and nozzle exit area each linearly (the
+    /// pressure loss with the area), under `other`'s name.
+    public func blended(to other: EngineRating, _ u: Double) -> EngineRating {
+        func lerp(_ a: Double, _ b: Double) -> Double { a + (b - a) * u }
+        let f = lerp(thrustVacuum, other.thrustVacuum), mdot = lerp(massFlow, other.massFlow)
+        let area = lerp(impliedExitArea, other.impliedExitArea), isp = f / (mdot * standardGravity)
+        let ratio = mixtureRatio.flatMap { a in other.mixtureRatio.map { lerp(a, $0) } } ?? other.mixtureRatio
+        return EngineRating(name: other.name, thrustVacuum: f, ispVacuum: isp,
+                            ispSeaLevel: isp * (1 - standardAtmosphere * area / f), mixtureRatio: ratio)
+    }
+
     /// This rating with its vacuum thrust and mass flow scaled, and its
     /// mixture ratio replaced if given, on the same nozzle: the exit area,
     /// and so the pressure loss p A_e, stay the same.
@@ -256,8 +268,14 @@ public final class Thruster {
     /// was inactive during S-IC and S-II flight).
     public var activeStageOnly = false
     /// Current operating setting; assigning it changes thrust, flow and the
-    /// propellant split from the next step.
-    public var rating: EngineRating { didSet { checkMixtureRatio() } }
+    /// propellant split from the next step (`setRating(_:ramp:)` can move
+    /// them there over a ramp; an assignment ends a ramp in progress).
+    public var rating: EngineRating {
+        didSet {
+            ratingRamp = nil
+            checkMixtureRatio()
+        }
+    }
     public var feed: PropellantFeed? { didSet { checkMixtureRatio() } }
     public var groups: Set<ThrusterGroup>
     /// Levels the engine can run at; any positive command is clamped into it.
@@ -294,6 +312,9 @@ public final class Thruster {
     private var lastOutput: (fraction: Double, rating: EngineRating)?
     /// Seconds since the engine stopped, while its shutdown ramp runs.
     private var shutdownElapsed: Double?
+    /// A change of rating in progress (`setRating(_:ramp:)`): from `from` to
+    /// `rating` over `duration` s, `elapsed` s in.
+    private var ratingRamp: (from: EngineRating, duration: Double, elapsed: Double)?
     /// Length of the last step the engine was commanded or ramping in: the
     /// ramps are sampled at the middle of the coming step, assuming it is as
     /// long. Zero after a coast, so a long coast step does not move the
@@ -349,14 +370,48 @@ public final class Thruster {
         }
     }
 
-    /// The rating now: `rating` with the schedule applied at the burn clock.
+    /// The rating now: `rating` (along a ramp to it, the ramp's) with the
+    /// schedule applied at the burn clock.
     public var currentRating: EngineRating { rating(atBurnTime: burnTime) }
 
-    /// `rating` with the schedule applied at burn time `t`.
+    /// `rating`, or along a ramp to it the present cell's, with the schedule
+    /// applied at burn time `t`.
     public func rating(atBurnTime t: Double) -> EngineRating {
-        guard let s = schedule else { return rating }
+        let base = rampedRating
+        guard let s = schedule else { return base }
         let v = s.values(at: t)
-        return rating.scaled(thrust: v.thrust, flow: v.flow, mixtureRatio: v.mixtureRatio)
+        return base.scaled(thrust: v.thrust, flow: v.flow, mixtureRatio: v.mixtureRatio)
+    }
+
+    /// The longest cell of a rating ramp, s.
+    public static let rampCell = 0.02
+
+    /// The equal cells a ramp of `duration` s runs in: as few as keep each
+    /// within `rampCell`.
+    public static func rampCells(_ duration: Double) -> Int {
+        max(1, Int((duration / rampCell - 1e-9).rounded(.up)))
+    }
+
+    /// Change the rating to `r`: at once (`ramp` 0, as assigning `rating`
+    /// does), or over `ramp` s, vacuum thrust, mass flow, mixture ratio and
+    /// nozzle exit area moving linearly from the rating in effect now. The
+    /// ramp runs in `rampCells(ramp)` equal cells from the step that starts
+    /// it, each at the value of its middle: a flight program that ends steps
+    /// on the cells' ends (`SaturnIU` does) gets the ramp's exact impulse and
+    /// propellant, however the steps divide the cells.
+    public func setRating(_ r: EngineRating, ramp: Double = 0) {
+        let from = rampedRating
+        rating = r
+        if ramp > 0 { ratingRamp = (from, ramp, 0) }
+    }
+
+    /// `rating`, or along a ramp to it the rating of the ramp's present cell.
+    private var rampedRating: EngineRating {
+        guard let r = ratingRamp else { return rating }
+        let n = Self.rampCells(r.duration), cell = r.duration / Double(n)
+        // A step starts on a cell's end to within the epoch's rounding.
+        let k = min(n - 1, Int(((r.elapsed + 1e-6) / cell).rounded(.down)))
+        return r.from.blended(to: rating, (Double(k) + 0.5) / Double(n))
     }
 
     public var maxThrustVacuum: Double { currentRating.thrustVacuum }
@@ -418,6 +473,13 @@ public final class Thruster {
     /// Move the burn clock and the ramps on by `dt`, after the step has used
     /// this step's output. Call once per step.
     func advanceTransients(dt: Double) {
+        defer {
+            // A rating ramp runs whether or not the engine fires.
+            if let r = ratingRamp {
+                let e = r.elapsed + dt
+                ratingRamp = e >= r.duration - 1e-6 ? nil : (r.from, r.duration, e)
+            }
+        }
         if isCommanded {
             lastOutput = output
             shutdownElapsed = nil
