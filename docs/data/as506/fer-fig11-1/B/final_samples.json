@@ -1,0 +1,273 @@
+{
+ "samples": [
+  {
+   "t": 15.0,
+   "attitude_deg": -1.3,
+   "command_deg": null,
+   "error_deg": 0.169,
+   "rate_deg_s": -0.197,
+   "engine_deg": 0.03
+  },
+  {
+   "t": 20.0,
+   "attitude_deg": -1.8,
+   "command_deg": null,
+   "error_deg": 0.084,
+   "rate_deg_s": -0.113,
+   "engine_deg": -0.061
+  },
+  {
+   "t": 25.0,
+   "attitude_deg": -2.3,
+   "command_deg": null,
+   "error_deg": 0.162,
+   "rate_deg_s": -0.287,
+   "engine_deg": -0.083
+  },
+  {
+   "t": 30.0,
+   "attitude_deg": -4.0,
+   "command_deg": null,
+   "error_deg": 0.285,
+   "rate_deg_s": -0.342,
+   "engine_deg": -0.065
+  },
+  {
+   "t": 35.0,
+   "attitude_deg": -5.8,
+   "command_deg": null,
+   "error_deg": 0.347,
+   "rate_deg_s": -0.472,
+   "engine_deg": -0.11
+  },
+  {
+   "t": 40.0,
+   "attitude_deg": -8.2,
+   "command_deg": null,
+   "error_deg": 0.464,
+   "rate_deg_s": -0.501,
+   "engine_deg": -0.048
+  },
+  {
+   "t": 45.0,
+   "attitude_deg": -11.1,
+   "command_deg": null,
+   "error_deg": 0.493,
+   "rate_deg_s": -0.607,
+   "engine_deg": -0.073
+  },
+  {
+   "t": 50.0,
+   "attitude_deg": -14.3,
+   "command_deg": null,
+   "error_deg": 0.624,
+   "rate_deg_s": -0.671,
+   "engine_deg": -0.054
+  },
+  {
+   "t": 55.0,
+   "attitude_deg": -17.5,
+   "command_deg": null,
+   "error_deg": 0.467,
+   "rate_deg_s": -0.74,
+   "engine_deg": -0.119
+  },
+  {
+   "t": 60.0,
+   "attitude_deg": -21.0,
+   "command_deg": null,
+   "error_deg": 0.654,
+   "rate_deg_s": -0.694,
+   "engine_deg": -0.058
+  },
+  {
+   "t": 65.0,
+   "attitude_deg": -24.6,
+   "command_deg": null,
+   "error_deg": 0.729,
+   "rate_deg_s": -0.619,
+   "engine_deg": 0.05
+  },
+  {
+   "t": 70.0,
+   "attitude_deg": -28.3,
+   "command_deg": null,
+   "error_deg": 0.453,
+   "rate_deg_s": -0.8,
+   "engine_deg": -0.076
+  },
+  {
+   "t": 75.0,
+   "attitude_deg": -32.0,
+   "command_deg": null,
+   "error_deg": 0.556,
+   "rate_deg_s": -0.695,
+   "engine_deg": -0.029
+  },
+  {
+   "t": 80.0,
+   "attitude_deg": -35.3,
+   "command_deg": null,
+   "error_deg": 0.266,
+   "rate_deg_s": -0.62,
+   "engine_deg": -0.093
+  },
+  {
+   "t": 85.0,
+   "attitude_deg": -39.2,
+   "command_deg": null,
+   "error_deg": 0.358,
+   "rate_deg_s": -0.744,
+   "engine_deg": -0.115
+  },
+  {
+   "t": 90.0,
+   "attitude_deg": -41.6,
+   "command_deg": null,
+   "error_deg": 0.724,
+   "rate_deg_s": -0.552,
+   "engine_deg": 0.19
+  },
+  {
+   "t": 95.0,
+   "attitude_deg": -44.7,
+   "command_deg": null,
+   "error_deg": 0.548,
+   "rate_deg_s": -0.647,
+   "engine_deg": 0.039
+  },
+  {
+   "t": 100.0,
+   "attitude_deg": -47.7,
+   "command_deg": null,
+   "error_deg": 0.445,
+   "rate_deg_s": -0.613,
+   "engine_deg": 0.048
+  },
+  {
+   "t": 105.0,
+   "attitude_deg": -50.5,
+   "command_deg": null,
+   "error_deg": 0.132,
+   "rate_deg_s": -0.548,
+   "engine_deg": -0.076
+  },
+  {
+   "t": 110.0,
+   "attitude_deg": -53.4,
+   "command_deg": null,
+   "error_deg": -0.125,
+   "rate_deg_s": -0.534,
+   "engine_deg": -0.093
+  },
+  {
+   "t": 115.0,
+   "attitude_deg": -54.9,
+   "command_deg": null,
+   "error_deg": 0.568,
+   "rate_deg_s": -0.208,
+   "engine_deg": 0.169
+  },
+  {
+   "t": 120.0,
+   "attitude_deg": -56.8,
+   "command_deg": null,
+   "error_deg": 0.59,
+   "rate_deg_s": -0.586,
+   "engine_deg": 0.015
+  },
+  {
+   "t": 125.0,
+   "attitude_deg": -59.7,
+   "command_deg": null,
+   "error_deg": -0.356,
+   "rate_deg_s": -0.508,
+   "engine_deg": -0.206
+  },
+  {
+   "t": 130.0,
+   "attitude_deg": -61.0,
+   "command_deg": null,
+   "error_deg": -0.222,
+   "rate_deg_s": -0.312,
+   "engine_deg": -0.112
+  },
+  {
+   "t": 135.0,
+   "attitude_deg": -63.1,
+   "command_deg": null,
+   "error_deg": -0.461,
+   "rate_deg_s": -0.428,
+   "engine_deg": -0.169
+  },
+  {
+   "t": 140.0,
+   "attitude_deg": -64.1,
+   "command_deg": null,
+   "error_deg": -0.05,
+   "rate_deg_s": -0.245,
+   "engine_deg": -0.067
+  },
+  {
+   "t": 145.0,
+   "attitude_deg": -65.6,
+   "command_deg": null,
+   "error_deg": -0.136,
+   "rate_deg_s": -0.298,
+   "engine_deg": -0.122
+  },
+  {
+   "t": 150.0,
+   "attitude_deg": -66.5,
+   "command_deg": null,
+   "error_deg": -0.059,
+   "rate_deg_s": -0.246,
+   "engine_deg": -0.099
+  },
+  {
+   "t": 155.0,
+   "attitude_deg": -68.1,
+   "command_deg": null,
+   "error_deg": -0.02,
+   "rate_deg_s": -0.277,
+   "engine_deg": -0.109
+  },
+  {
+   "t": 160.0,
+   "attitude_deg": -69.1,
+   "command_deg": null,
+   "error_deg": -0.103,
+   "rate_deg_s": -0.228,
+   "engine_deg": -0.107
+  }
+ ],
+ "override_notes": [
+  "p4 t=20: steep stroke along 20 s gridline; centreline crossing from row runs (DP trace gave -0.045)",
+  "p3 t=55: two strokes form a small loop at the local minimum; loop centre (DP trace gave -0.726)",
+  "p3 t=60: DP followed the simulated stroke; measured stroke read by hand (DP trace gave -0.719)",
+  "p3 t=70: measured stroke is the near-vertical rising branch of the -0.97 spike, along the 70 s gridline; +-0.1 (DP trace gave -0.721)",
+  "p3 t=80: measured stroke rises along the 80 s gridline from -0.67 to -0.57; midpoint, +-0.05 (DP trace gave -0.694)",
+  "p1 t=90: DP run merged with arrow head; interpolated from +-0.4 s columns (DP trace gave -41.009)",
+  "p4 t=90: steep stroke along 90 s gridline; read by hand at 8x (DP trace gave 0.226)",
+  "p2 t=110: steep crossing on 110 s gridline; read by hand at 8x (DP trace gave -0.139)",
+  "p3 t=110: steep crossing on 110 s gridline; read by hand at 8x (DP trace gave -0.514)",
+  "p2 t=120: steep stroke runs along the 120 s gridline; centreline crossing read by hand at 8x (DP trace gave 0.695)",
+  "p4 t=120: steep stroke along 120 s gridline; read by hand at 8x (DP trace gave 0.054)",
+  "p2 t=130: steep crossing on 130 s gridline; read by hand at 8x (DP trace gave -0.187)",
+  "p2 t=140: measured/simulated strokes merge at 140 s gridline; read by hand (DP trace gave -0.077)",
+  "p3 t=140: steep crossing on 140 s gridline; read by hand at 8x (DP trace gave -0.229)"
+ ],
+ "lowconf": {
+  "p1@15": "curve merges with the top border",
+  "p3@15": "steep",
+  "p3@65": "steep flank of 63 s spike",
+  "p3@75": "steep flank",
+  "p3@85": "bottom of narrow V",
+  "p2@65": "steep flank near 65.3 s peak",
+  "p2@115": "steep",
+  "p2@125": "steep",
+  "p2@135": "steep",
+  "p4@115": "steep",
+  "p4@15": "steep"
+ }
+}

@@ -1,0 +1,294 @@
+{
+ "source": "Saturn V Launch Vehicle Flight Evaluation Report AS-506 (MPR-SAT-FE-69-9), Figure 11-1 \"Pitch Plane Dynamics During S-IC Burn\", PDF page 159 (printed page 11-3)",
+ "pdf_page": 159,
+ "units": "t: s (range time); attitude_deg, command_deg, error_deg, engine_deg: deg; rate_deg_s: deg/s (as printed; nothing converted)",
+ "curve": "flight = solid MEASURED stroke in every panel; command_deg null (actual and commanded attitude are one stroke in panel 1)",
+ "panel1_axis": "Printed labels 0 (top border), -40 (middle line), -60 (bottom border) are inconsistent; read as 0..-80 deg at 20 deg/div, as both digitisers did (their reasons in fig111-A.json / fig111-B.json axis_reading_for_panel1). All attitude values are conditional on this reading.",
+ "merge_rule": "mean of A and B for every field except the two disagreements, which were re-digitised; attitude means rounded to 0.01 deg, other means to 0.001",
+ "adjudication": [
+  {
+   "t": 15,
+   "field": "attitude_deg",
+   "A": -0.4,
+   "B": -1.3,
+   "final": -0.7,
+   "unc": 0.2,
+   "reading": "400 dpi render: stroke centre 4.3 px below the top-border centreline at 0.1595 deg/px = -0.69 (threshold 80/128/176: -0.63/-0.69/-0.77); native 300 ppi scan: 3.4 px at 0.2124 deg/px = -0.71",
+   "verdict": "A closer (0.3 deg high); B 0.6 deg low"
+  },
+  {
+   "t": 20,
+   "field": "attitude_deg",
+   "A": -1.1,
+   "B": -1.8,
+   "final": -1.4,
+   "unc": 0.2,
+   "reading": "400 dpi render: 8.8 px at 0.1590 deg/px = -1.40 (thresholds: -1.33/-1.40/-1.48; including the columns next to the 20 s gridline -1.44); native 300 ppi scan: -1.40 (-1.45 with the near-gridline columns)",
+   "verdict": "neither; A 0.3 deg high, B 0.4 deg low"
+  }
+ ],
+ "adjudication_method": "PDF page 159 rendered at 400 dpi with pdftoppm (gray), rotated 90 deg. Gridlines fitted locally over 0-45 s: vertical 10/20/30 s lines (x = a + b*y, rms 0.3-0.45 px), the top border from its top edge (the stroke lies below it; rms 0.56 px) plus its bare thickness (8 px, measured at 22-38 s where the stroke has separated), the -20 deg line from its centre (rms 0.38 px); 125.4 px per 20 deg. The global top-border fits of A and B differ from this local one by <1 px, so calibration is not the cause. At 15-21 s the stroke overlaps the border, so its centre was taken as its bottom edge minus half the stroke width (8.0 px at 400 dpi, 5.95 px native, measured where it first separates at 22-26 s), averaged by a local linear fit over +-15 px. Repeated on the native 300 ppi CCITT scan with its own fits. Check of the method: the same reading before pitch-over (5-12 s) gives -0.25..-0.45 deg, matching the panel-2 error there (-0.2..-0.3 deg). Cross-check: integrating B's panel-3 pitch-rate trace gives 15->25 s -1.87 and 20->30 s -2.52 deg; anchored on the clean 25 and 30 s readings (A/B/adjudicator -2.3..-2.6, -4.0..-4.1) that implies about -0.6 at 15 s and -1.5 at 20 s.",
+ "why_A_B_differed": "B: its gridline-erase step removed the border rows, and with them the upper part of the stroke merged into the border; its DP then sampled the 3-4 px sliver left below (samples_dp.json: thick 3 at 15 s, 4 at 20 s, against a 6 px stroke at 300 dpi), so the sample sits 1.5-3 px (0.35-0.65 deg) below the stroke centre. At 20 s the 1-bit scan also has eroded columns either side of the gridline where only the lower 4-5 px of the stroke survive, which a sliver centre also reads low. A: its DP trace follows the border run itself from 13.6 to 21.2 s (flag rB, y = border centre, about -0.15 deg), and its panel-1 sampler uses only separated curve runs, so it had no traced data at 15 and 20 s; the values are hand entries in its final.py without a recorded method and sit about 0.3 deg too shallow (towards the border). Neither mis-fitted a gridline and neither followed the simulated curve (panel 1 has none).",
+ "accuracy_deg": "Adjudicated points +-0.2 deg (stroke-width assumption +-1 px, threshold +-0.07 deg, border-centre fit +-0.5 px). Other samples: see accuracy_deg in fig111-A.json and fig111-B.json.",
+ "extremes": "Panel-2 extremes are not merged here; see error_extremes in fig111-A.json and panel2_extremes in fig111-B.json.",
+ "work_dir": "/tmp/claude-0/-home-user-ullage/1c835ba6-4d0a-5d42-96bb-a9ff7c081ab9/scratchpad/data2/fig111-adj",
+ "samples": [
+  {
+   "t": 15.0,
+   "attitude_deg": -0.7,
+   "command_deg": null,
+   "error_deg": 0.17,
+   "rate_deg_s": -0.199,
+   "engine_deg": 0.03,
+   "flags": "attitude_deg adjudicated (A -0.4, B -1.3); B: p1 curve merges with the top border; p3 steep; p4 steep"
+  },
+  {
+   "t": 20.0,
+   "attitude_deg": -1.4,
+   "command_deg": null,
+   "error_deg": 0.072,
+   "rate_deg_s": -0.116,
+   "engine_deg": -0.056,
+   "flags": "attitude_deg adjudicated (A -1.1, B -1.8); B: p4 hand-read"
+  },
+  {
+   "t": 25.0,
+   "attitude_deg": -2.45,
+   "command_deg": null,
+   "error_deg": 0.161,
+   "rate_deg_s": -0.288,
+   "engine_deg": -0.082
+  },
+  {
+   "t": 30.0,
+   "attitude_deg": -4.05,
+   "command_deg": null,
+   "error_deg": 0.287,
+   "rate_deg_s": -0.346,
+   "engine_deg": -0.062
+  },
+  {
+   "t": 35.0,
+   "attitude_deg": -5.9,
+   "command_deg": null,
+   "error_deg": 0.348,
+   "rate_deg_s": -0.471,
+   "engine_deg": -0.11
+  },
+  {
+   "t": 40.0,
+   "attitude_deg": -8.3,
+   "command_deg": null,
+   "error_deg": 0.457,
+   "rate_deg_s": -0.5,
+   "engine_deg": -0.049
+  },
+  {
+   "t": 45.0,
+   "attitude_deg": -11.15,
+   "command_deg": null,
+   "error_deg": 0.491,
+   "rate_deg_s": -0.609,
+   "engine_deg": -0.072
+  },
+  {
+   "t": 50.0,
+   "attitude_deg": -14.25,
+   "command_deg": null,
+   "error_deg": 0.607,
+   "rate_deg_s": -0.671,
+   "engine_deg": -0.052
+  },
+  {
+   "t": 55.0,
+   "attitude_deg": -17.6,
+   "command_deg": null,
+   "error_deg": 0.469,
+   "rate_deg_s": -0.75,
+   "engine_deg": -0.119,
+   "flags": "B: p3 hand-read; p3 noisy max-Q region: +-0.05..0.1 deg/s"
+  },
+  {
+   "t": 60.0,
+   "attitude_deg": -20.9,
+   "command_deg": null,
+   "error_deg": 0.632,
+   "rate_deg_s": -0.697,
+   "engine_deg": -0.049,
+   "flags": "B: p3 hand-read; p3 noisy max-Q region: +-0.05..0.1 deg/s"
+  },
+  {
+   "t": 65.0,
+   "attitude_deg": -24.55,
+   "command_deg": null,
+   "error_deg": 0.73,
+   "rate_deg_s": -0.625,
+   "engine_deg": 0.05,
+   "flags": "B: p3 steep flank of 63 s spike; p2 steep flank near 65.3 s peak; p3 noisy max-Q region: +-0.05..0.1 deg/s"
+  },
+  {
+   "t": 70.0,
+   "attitude_deg": -28.3,
+   "command_deg": null,
+   "error_deg": 0.447,
+   "rate_deg_s": -0.825,
+   "engine_deg": -0.083,
+   "flags": "B: p3 hand-read; p3 noisy max-Q region: +-0.05..0.1 deg/s"
+  },
+  {
+   "t": 75.0,
+   "attitude_deg": -31.9,
+   "command_deg": null,
+   "error_deg": 0.558,
+   "rate_deg_s": -0.698,
+   "engine_deg": -0.029,
+   "flags": "B: p3 steep flank; p3 noisy max-Q region: +-0.05..0.1 deg/s"
+  },
+  {
+   "t": 80.0,
+   "attitude_deg": -35.45,
+   "command_deg": null,
+   "error_deg": 0.268,
+   "rate_deg_s": -0.61,
+   "engine_deg": -0.106,
+   "flags": "B: p3 hand-read; p3 noisy max-Q region: +-0.05..0.1 deg/s"
+  },
+  {
+   "t": 85.0,
+   "attitude_deg": -39.1,
+   "command_deg": null,
+   "error_deg": 0.359,
+   "rate_deg_s": -0.742,
+   "engine_deg": -0.117,
+   "flags": "B: p3 bottom of narrow V; p3 noisy max-Q region: +-0.05..0.1 deg/s"
+  },
+  {
+   "t": 90.0,
+   "attitude_deg": -41.6,
+   "command_deg": null,
+   "error_deg": 0.732,
+   "rate_deg_s": -0.556,
+   "engine_deg": 0.185,
+   "flags": "B: p1 hand-read; p4 hand-read; p3 noisy max-Q region: +-0.05..0.1 deg/s"
+  },
+  {
+   "t": 95.0,
+   "attitude_deg": -44.75,
+   "command_deg": null,
+   "error_deg": 0.549,
+   "rate_deg_s": -0.649,
+   "engine_deg": 0.04
+  },
+  {
+   "t": 100.0,
+   "attitude_deg": -47.65,
+   "command_deg": null,
+   "error_deg": 0.438,
+   "rate_deg_s": -0.601,
+   "engine_deg": 0.039
+  },
+  {
+   "t": 105.0,
+   "attitude_deg": -50.4,
+   "command_deg": null,
+   "error_deg": 0.131,
+   "rate_deg_s": -0.549,
+   "engine_deg": -0.078
+  },
+  {
+   "t": 110.0,
+   "attitude_deg": -53.2,
+   "command_deg": null,
+   "error_deg": -0.117,
+   "rate_deg_s": -0.537,
+   "engine_deg": -0.102,
+   "flags": "B: p2 hand-read; p3 hand-read"
+  },
+  {
+   "t": 115.0,
+   "attitude_deg": -54.8,
+   "command_deg": null,
+   "error_deg": 0.569,
+   "rate_deg_s": -0.209,
+   "engine_deg": 0.17,
+   "flags": "B: p2 steep; p4 steep"
+  },
+  {
+   "t": 120.0,
+   "attitude_deg": -56.75,
+   "command_deg": null,
+   "error_deg": 0.575,
+   "rate_deg_s": -0.583,
+   "engine_deg": 0.018,
+   "flags": "B: p2 hand-read; p4 hand-read"
+  },
+  {
+   "t": 125.0,
+   "attitude_deg": -59.55,
+   "command_deg": null,
+   "error_deg": -0.358,
+   "rate_deg_s": -0.509,
+   "engine_deg": -0.208,
+   "flags": "B: p2 steep"
+  },
+  {
+   "t": 130.0,
+   "attitude_deg": -60.95,
+   "command_deg": null,
+   "error_deg": -0.221,
+   "rate_deg_s": -0.321,
+   "engine_deg": -0.106,
+   "flags": "B: p2 hand-read"
+  },
+  {
+   "t": 135.0,
+   "attitude_deg": -63.0,
+   "command_deg": null,
+   "error_deg": -0.461,
+   "rate_deg_s": -0.429,
+   "engine_deg": -0.17,
+   "flags": "B: p2 steep"
+  },
+  {
+   "t": 140.0,
+   "attitude_deg": -64.1,
+   "command_deg": null,
+   "error_deg": -0.055,
+   "rate_deg_s": -0.247,
+   "engine_deg": -0.069,
+   "flags": "B: p2 hand-read; p3 hand-read"
+  },
+  {
+   "t": 145.0,
+   "attitude_deg": -65.55,
+   "command_deg": null,
+   "error_deg": -0.138,
+   "rate_deg_s": -0.299,
+   "engine_deg": -0.121
+  },
+  {
+   "t": 150.0,
+   "attitude_deg": -66.6,
+   "command_deg": null,
+   "error_deg": -0.059,
+   "rate_deg_s": -0.248,
+   "engine_deg": -0.1
+  },
+  {
+   "t": 155.0,
+   "attitude_deg": -67.95,
+   "command_deg": null,
+   "error_deg": -0.02,
+   "rate_deg_s": -0.279,
+   "engine_deg": -0.11
+  },
+  {
+   "t": 160.0,
+   "attitude_deg": -69.05,
+   "command_deg": null,
+   "error_deg": -0.111,
+   "rate_deg_s": -0.229,
+   "engine_deg": -0.104
+  }
+ ]
+}
