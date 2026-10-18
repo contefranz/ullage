@@ -29,7 +29,9 @@ final class MassPropertiesTests: XCTestCase {
         }
     }
 
-    // A7: a settled column fills from its aft end.
+    // A7: a settled column fills from its aft end. It has a solid
+    // cylinder's inertia in pitch and yaw but none in roll: the walls do not
+    // spin the liquid up (FER Table 20-10 counts none, datasheet §13).
     func testSettledColumnCentroidAndInertia() {
         let geometry = TankGeometry.settledColumn(aftEnd: Vec3(2, 0.5, 0), length: 10, radius: 1)
         for (mass, height) in [(1_000.0, 10.0), (500, 5), (0, 0)] {
@@ -37,7 +39,7 @@ final class MassPropertiesTests: XCTestCase {
             XCTAssertEqual(t.centroid!.x, 2 + height / 2, accuracy: 1e-12)
             XCTAssertEqual(t.centroid!.y, 0.5, accuracy: 1e-12)
             let i = t.ownInertia
-            XCTAssertEqual(i[0, 0], 0.5 * mass, accuracy: 1e-12)
+            XCTAssertEqual(i[0, 0], 0)
             XCTAssertEqual(i[1, 1], mass * (3 + height * height) / 12, accuracy: 1e-12)
             XCTAssertEqual(i[2, 2], i[1, 1])
             XCTAssertEqual(i[0, 1], 0)

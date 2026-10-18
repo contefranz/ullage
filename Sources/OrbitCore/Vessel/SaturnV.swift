@@ -38,6 +38,24 @@ extension VesselLibrary {
                               radius: radius, dragCoefficient: dragCoefficient,
                               dryCenterOfMass: Vec3((dryCenterOfMass ?? mid) - mid, 0, 0), staging: staging)
         }
+        /// Dry CoM (construction x) and inertia about it of a part whose dry
+        /// mass `total` is a FER Table 20-10 row plus point items (kg,
+        /// construction x, radius of a symmetric set; a negative mass removes
+        /// an item the row includes that the model carries elsewhere, e.g. as
+        /// propellant). What remains of `total` is put at the row's CG.
+        func dryProperties(_ row: D.MassRow, _ items: [(mass: Double, x: Double, radius: Double)] = [],
+                           total: Double) -> (com: Double, inertia: Mat3) {
+            let x0 = D.station(row.station)
+            let all = items + [(total - row.mass - items.reduce(0) { $0 + $1.mass }, x0, 0)]
+            let com = (row.mass * x0 + all.reduce(0) { $0 + $1.mass * $1.x }) / total
+            var i = Vec3(row.roll, row.pitch + row.mass * (x0 - com) * (x0 - com),
+                         row.yaw + row.mass * (x0 - com) * (x0 - com))
+            for item in all {
+                let d = item.x - com, r2 = item.radius * item.radius
+                i = i + Vec3(item.mass * r2, item.mass * (d * d + r2 / 2), item.mass * (d * d + r2 / 2))
+            }
+            return (com, .diagonal(i))
+        }
         /// Part-frame point of construction coordinates (x, y, z).
         func local(_ p: VesselPart, _ x: Double, _ y: Double = 0, _ z: Double = 0) -> Vec3 {
             Vec3(x - p.offset.x, y, z)
@@ -46,11 +64,11 @@ extension VesselLibrary {
                      _ color: (Double, Double, Double), y: Double = 0, z: Double = 0) -> VisualShape {
             .frustum(from: local(p, bottom, y, z), length: top - bottom, baseRadius: r0, topRadius: r1, color: color)
         }
-        /// A settled column holding `load` kg, whose full-load centroid is the
-        /// middle of `extent` (m above the base).
+        /// A settled column holding `load` kg, whose full-load centroid is at
+        /// `centroid` (STA, in).
         func tank(_ name: String, in p: VesselPart, load m: Double, unusable: Double = 0,
-                  extent: (aft: Double, forward: Double), density: Double) -> PropellantTank {
-            let centroid = local(p, D.height((extent.aft + extent.forward) / 2))
+                  centroid station: Double, density: Double) -> PropellantTank {
+            let centroid = local(p, D.station(station))
             return PropellantTank(name: name, capacity: m, unusableMass: unusable,
                                   geometry: .column(fullLoadCentroid: centroid, radius: p.radius, capacity: m,
                                                     density: density))
@@ -120,15 +138,19 @@ extension VesselLibrary {
         // below LOX. Its dry mass is the FER stage less its tanks and retro
         // grains, with the small interstage ring that leaves with it. The
         // retros, not springs, separate it.
-        let sIC = part("S-IC", D.station(D.baseStation), D.station(D.sICTop), radius: body,
-                       dryMass: D.sICAtFirstMotion - D.sICLOXAtFirstMotion - D.sICRP1AtFirstMotion
-                           - D.sICRetroPropellant + D.sICSIIInterstageSmall,
-                       dryCenterOfMass: D.height(D.sICDryCoMHeight),
-                       dragCoefficient: D.bodyDragCoefficient, staging: .event(1))
+        // Its CG and inertia are the FER's dry stage with the ring at its
+        // middle, at the body radius.
+        let sICDry = D.sICAtFirstMotion - D.sICLOXAtFirstMotion - D.sICRP1AtFirstMotion - D.sICRetroPropellant
+            + D.sICSIIInterstageSmall
+        let ring = (mass: D.sICSIIInterstageSmall, x: D.station((D.sICTop + D.sICSIISeparationPlane) / 2), radius: body)
+        let sICMass = dryProperties(D.sICStageDry, [ring], total: sICDry)
+        let sIC = part("S-IC", D.station(D.baseStation), D.station(D.sICTop), radius: body, dryMass: sICDry,
+                       dryCenterOfMass: sICMass.com, dragCoefficient: D.bodyDragCoefficient, staging: .event(1))
+        sIC.dryInertia = sICMass.inertia
         sIC.separationSpeed = 0
         let sICLOX = tank("S-IC LOX", in: sIC, load: D.sICLOXAtFirstMotion, unusable: D.sICLOXAtCutoff,
-                          extent: D.sICLOXExtent, density: D.loxDensity)
-        let sICRP1 = tank("S-IC RP-1", in: sIC, load: D.sICRP1AtFirstMotion, extent: D.sICRP1Extent,
+                          centroid: D.sICLOXCentroid, density: D.loxDensity)
+        let sICRP1 = tank("S-IC RP-1", in: sIC, load: D.sICRP1AtFirstMotion, centroid: D.sICRP1Centroid,
                           density: D.rp1Density)
         sIC.tanks = [sICLOX, sICRP1]
         sIC.shapes = [frustum(sIC, D.station(D.f1GimbalStation), D.station(D.sICTop), body, body, white)]
@@ -148,9 +170,16 @@ extension VesselLibrary {
 
         // The large interstage, with the four S-II ullage motors: lit by the
         // IU's ullage command, or at the S-IC's separation if not yet lit.
+        // The FER's interstage less the ring and the ullage motors' grains,
+        // which the model carries in the S-IC and as propellant.
+        let interstageMass = dryProperties(D.sICSIIInterstageTotal, [
+            (-ring.mass, ring.x, ring.radius),
+            (-D.sIIUllageMotorPropellant, D.station(D.sIIUllageMotorStation), D.sIIUllageMotorRadius)],
+            total: D.sICSIIInterstageLarge)
         let interstage = part("S-IC/S-II interstage", D.station(D.sICTop), D.station(D.sIIAftSkirt), radius: body,
-                              dryMass: D.sICSIIInterstageLarge, dragCoefficient: D.bodyDragCoefficient,
-                              staging: .event(2))
+                              dryMass: D.sICSIIInterstageLarge, dryCenterOfMass: interstageMass.com,
+                              dragCoefficient: D.bodyDragCoefficient, staging: .event(2))
+        interstage.dryInertia = interstageMass.inertia
         interstage.shapes = [frustum(interstage, D.station(D.sICTop), D.station(D.sIIAftSkirt), body, body, white)]
         solids("S-II ullage", on: interstage, at: positions, x: D.station(D.sIIUllageMotorStation),
                radius: D.sIIUllageMotorRadius,
@@ -160,26 +189,36 @@ extension VesselLibrary {
 
         // S-II: LOX aft, LH2 forward over a common bulkhead. Its J-2s hang
         // into the interstage below.
+        let sIIMass = dryProperties(D.sIIStageDry, total: (D.sIIDry + D.sIIOther) * lb)
         let sII = part("S-II", D.station(D.sIIAftSkirt), D.station(D.sIITop), radius: body,
-                       dryMass: (D.sIIDry + D.sIIOther) * lb, dragCoefficient: D.bodyDragCoefficient,
-                       staging: .event(4))
+                       dryMass: (D.sIIDry + D.sIIOther) * lb, dryCenterOfMass: sIIMass.com,
+                       dragCoefficient: D.bodyDragCoefficient, staging: .event(4))
+        sII.dryInertia = sIIMass.inertia
         let sIILOX = tank("S-II LOX", in: sII, load: D.sIILOXLoad * lb, unusable: D.sIILOXAtCutoff,
-                          extent: D.sIILOXExtent, density: D.loxDensity)
-        let sIILH2 = tank("S-II LH2", in: sII, load: D.sIILH2Load * lb, extent: D.sIILH2Extent,
+                          centroid: D.sIILOXCentroid, density: D.loxDensity)
+        let sIILH2 = tank("S-II LH2", in: sII, load: D.sIILH2Load * lb, centroid: D.sIILH2Centroid,
                           density: D.lh2Density)
         sII.tanks = [sIILOX, sIILH2]
         sII.shapes = [frustum(sII, D.station(D.sIIAftSkirt), D.station(D.sIITop), body, body, white)]
         // The J-2s start at PU null; the IU steps them to high and low EMR.
         cluster(sII, rating: D.sIIJ2Start, transients: D.sIIJ2Transients,
-                gimbal: D.height(D.sIIJ2GimbalHeight), exit: D.height(D.sIIJ2ExitHeight),
+                gimbal: D.station(D.sIIJ2GimbalStation), exit: D.station(D.sIIJ2ExitStation),
                 radius: D.sIIOutboardCircle / 2 * D.foot, exitArea: D.j2ExitArea, oxidizer: sIILOX, fuel: sIILH2,
                 actuators: actuators(range: D.sIIJ2GimbalRange, rate: D.sIIJ2GimbalRate))
 
         // The aft interstage leaves with the S-II, with the S-IVB's aft frame
         // and detonation package; its four retros, not springs, separate them.
+        // The FER's interstage less its retros' grains, with the S-IVB's aft
+        // frame (FER: in the S-IVB's dry stage) at the separation plane.
+        let aftFrame = (mass: D.sIVBAftFrame, x: D.station(D.sIVBAftSkirt), radius: 0.0)
+        let aftInterstageMass = dryProperties(D.sIISIVBInterstageTotal, [
+            (-D.sIIRetroPropellant, D.station(D.sIIRetroStation), body), aftFrame],
+            total: D.sIISIVBInterstageDry + D.sIVBAftFrame)
         let aftInterstage = part("S-II/S-IVB interstage", D.station(D.sIITop), D.station(D.sIVBAftSkirt),
                                  radius: body, dryMass: D.sIISIVBInterstageDry + D.sIVBAftFrame,
+                                 dryCenterOfMass: aftInterstageMass.com,
                                  dragCoefficient: D.bodyDragCoefficient, staging: .event(4))
+        aftInterstage.dryInertia = aftInterstageMass.inertia
         aftInterstage.shapes = [frustum(aftInterstage, D.station(D.sIITop), D.station(D.sIVBAftSkirt), body, upper,
                                         white)]
         sII.separationSpeed = 0
@@ -192,17 +231,24 @@ extension VesselLibrary {
         // APS propellant, booked in `sIVBOther`, moves to the APS tanks; the
         // ullage motors (grains and cases) and the aft frame move to their
         // own parts.
-        let sIVB = part("S-IVB", D.station(D.sIVBAftSkirt), D.station(D.sIVBTop), radius: upper,
-                        dryMass: (D.sIVBDry + D.sIVBOther - 2 * (D.apsOxidizerLoad + D.apsFuelLoad)) * lb
-                            - D.sIVBUllageMotorPropellant - D.sIVBUllageMotorCases - D.sIVBAftFrame,
-                        staging: .fixed)
+        // The FER's dry stage less the aft frame and the ullage motors'
+        // cases, which leave with their own parts.
+        let sIVBDry = (D.sIVBDry + D.sIVBOther - 2 * (D.apsOxidizerLoad + D.apsFuelLoad)) * lb
+            - D.sIVBUllageMotorPropellant - D.sIVBUllageMotorCases - D.sIVBAftFrame
+        let sIVBMass = dryProperties(D.sIVBStageDry, [
+            (-aftFrame.mass, aftFrame.x, 0),
+            (-D.sIVBUllageMotorCases, D.height(D.sIVBUllageMotorHeight), D.sIVBUllageMotorRadius)],
+            total: sIVBDry)
+        let sIVB = part("S-IVB", D.station(D.sIVBAftSkirt), D.station(D.sIVBTop), radius: upper, dryMass: sIVBDry,
+                        dryCenterOfMass: sIVBMass.com, staging: .fixed)
+        sIVB.dryInertia = sIVBMass.inertia
         let sIVBLOX = tank("S-IVB LOX", in: sIVB, load: D.sIVBLOXLoad * lb, unusable: D.sIVBLOXUnusable * lb,
-                           extent: D.sIVBLOXExtent, density: D.loxDensity)
+                           centroid: D.sIVBLOXCentroid, density: D.loxDensity)
         let sIVBLH2 = tank("S-IVB LH2", in: sIVB, load: D.sIVBLH2Load * lb, unusable: D.sIVBLH2Unusable * lb,
-                           extent: D.sIVBLH2Extent, density: D.lh2Density)
+                           centroid: D.sIVBLH2Centroid, density: D.lh2Density)
         sIVB.tanks = [sIVBLOX, sIVBLH2]
         let j2ExitRadius = (D.j2ExitArea / Double.pi).squareRoot()
-        let j2 = Thruster(name: "S-IVB engine", position: local(sIVB, D.height(D.sIVBJ2GimbalHeight)),
+        let j2 = Thruster(name: "S-IVB engine", position: local(sIVB, D.station(D.sIVBJ2GimbalStation)),
                           direction: .unitX, rating: D.sIVBJ2Burn1,
                           feed: .bipropellant(oxidizer: sIVBLOX, fuel: sIVBLH2), groups: [.main],
                           throttleRange: 1...1,
@@ -210,11 +256,11 @@ extension VesselLibrary {
         j2.transients = D.sIVBJ2Transients
         sIVB.thrusters.append(j2)
         sIVB.shapes = [frustum(sIVB, D.station(D.sIVBAftSkirt), D.station(D.sIVBTop), upper, upper, white),
-                       frustum(sIVB, D.height(D.sIVBJ2ExitHeight), D.height(D.sIVBJ2GimbalHeight), j2ExitRadius,
+                       frustum(sIVB, D.station(D.sIVBJ2ExitStation), D.station(D.sIVBJ2GimbalStation), j2ExitRadius,
                                0.3 * j2ExitRadius, dark)]
         // APS groups follow the sign of each engine's torque about a point on
         // the axis 8 m ahead of the modules, near the CoM of the S-IVB stack
-        // (h 80.9 at ignition, 82.0 at insertion).
+        // (h 80.1 at ignition, 81.1 at insertion).
         for (module, side) in [("I", 1.0), ("III", -1.0)] {
             addAPSModule(to: sIVB, name: "APS \(module)",
                          at: local(sIVB, D.height(D.apsModuleHeight), 0, side * D.apsModuleRadius),
@@ -233,8 +279,10 @@ extension VesselLibrary {
                propellant: D.sIVBUllageMotorPropellant, cant: D.sIVBUllageMotorCant, forward: true,
                trigger: .event(4))
 
+        let iuMass = dryProperties(D.instrumentUnit, total: D.iu * lb)
         let iu = part("IU", D.station(D.sIVBTop), D.station(D.iuTop), radius: upper, dryMass: D.iu * lb,
-                      staging: .fixed)
+                      dryCenterOfMass: iuMass.com, staging: .fixed)
+        iu.dryInertia = iuMass.inertia
         iu.shapes = [frustum(iu, D.station(D.sIVBTop), D.station(D.iuTop), upper, upper, grey)]
 
         let sla = part("SLA", D.station(D.iuTop), D.apolloStation(D.slaTop), radius: upper, dryMass: D.sla,
@@ -243,7 +291,7 @@ extension VesselLibrary {
 
         // Inside the SLA, so it has no shapes.
         let lm = part("LM", D.height(D.lmBottomHeight), D.height(D.lmTopHeight), radius: D.lmRadius,
-                      dryMass: D.lm, staging: .fixed)
+                      dryMass: D.lm, dryCenterOfMass: D.station(D.lmCenterOfMass), staging: .fixed)
 
         // CSM as one part (M2 splits it). No CSM CG was found: the SM and CM
         // each sit at their own mid-station.
