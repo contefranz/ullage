@@ -314,8 +314,9 @@ final class SaturnIUTests: XCTestCase {
     // (a0 0.9, a1 0.69 s; TN D-5869 Table 3): a 0.5° pitch command step is a
     // second-order response with wn = sqrt(a0 c) and zeta = a1 c / (2 wn),
     // c = 4 F L / Iyy from the model's own geometry, in vacuum (datasheet
-    // §8.6: c 0.955 s^-2, wn 0.927 rad/s, zeta 0.355, a 30 % overshoot at
-    // 3.6 s, with FER Table 20-10's pitch inertia; 0.887 s^-2 before it).
+    // §8.6: c 0.947 s^-2, wn 0.923 rad/s, zeta 0.354, a 30 % overshoot at
+    // 3.6 s, with FER Table 20-10's pitch inertia and the S-IC's feed lines;
+    // 0.955 s^-2 without the lines, 0.887 s^-2 before the table).
     // Mass properties frozen; self-consistency of law, gains and model.
     func testFlightControlStepResponse() throws {
         let sim = try Simulation.forTests(perturbations: false)
@@ -343,8 +344,8 @@ final class SaturnIUTests: XCTestCase {
         let peak = pitch.max { $0.1 < $1.1 }!
         XCTAssertEqual(peak.0, Double.pi / wd, accuracy: 0.1 * Double.pi / wd)
         XCTAssertEqual(peak.1 / step - 1, exp(-zeta * Double.pi / (1 - zeta * zeta).squareRoot()), accuracy: 0.05)
-        XCTAssertEqual(c, 0.955, accuracy: 0.005)
-        XCTAssertEqual(wn, 0.927, accuracy: 0.005)
+        XCTAssertEqual(c, 0.947, accuracy: 0.005)
+        XCTAssertEqual(wn, 0.923, accuracy: 0.005)
     }
 
     // The FCC's shaping filters (Boeing D5-15481-1 §3.5: the S-IC roll

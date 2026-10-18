@@ -36,38 +36,66 @@ public final class PropellantTank {
     /// lines and sumps). It stays in the tank and counts in mass and CoM.
     public var unusableMass: Double
     public var geometry: TankGeometry
+    /// Propellant below the tank proper, in its feed lines and engines, at
+    /// `position` (part frame), part of `capacity`. The engines empty the tank
+    /// proper first, so the lines stay full until the rest is gone; the
+    /// geometry describes the tank proper alone, holding `capacity` less
+    /// `mass`. Nil for none.
+    public var feedLines: (mass: Double, position: Vec3)?
 
     public init(name: String, capacity: Double, mass: Double? = nil, unusableMass: Double = 0,
-                geometry: TankGeometry = .lumped) {
+                geometry: TankGeometry = .lumped, feedLines: (mass: Double, position: Vec3)? = nil) {
         self.name = name
         self.capacity = capacity
         self.mass = mass ?? capacity
         self.unusableMass = unusableMass
         self.geometry = geometry
+        self.feedLines = feedLines
     }
 
     public var fraction: Double { capacity > 0 ? mass / capacity : 0 }
     public var usableMass: Double { max(0, mass - unusableMass) }
 
-    /// Centre of the propellant in the part frame, or nil for a lumped tank.
-    public var centroid: Vec3? {
+    /// Mass in the feed lines: all of them until the tank proper is empty.
+    public var lineMass: Double { min(mass, feedLines?.mass ?? 0) }
+    /// Fill of the tank proper, which holds `capacity` less the lines.
+    var properFraction: Double {
+        let proper = capacity - (feedLines?.mass ?? 0)
+        return proper > 0 ? (mass - lineMass) / proper : 0
+    }
+    /// Centre of the propellant in the tank proper, part frame.
+    var properCentroid: Vec3? {
         switch geometry {
         case .lumped: return nil
         case .point(let p): return p
-        case let .settledColumn(aftEnd, length, _): return aftEnd + Vec3.unitX * (length * fraction / 2)
+        case let .settledColumn(aftEnd, length, _): return aftEnd + Vec3.unitX * (length * properFraction / 2)
         }
     }
 
-    /// Inertia of the propellant about its own centroid: a column has a
-    /// solid cylinder's in pitch and yaw but none in roll, since the tank's
-    /// walls do not spin a liquid up about its axis (FER Table 20-10 counts
-    /// none: AS-506's roll inertia at liftoff is its dry structure's). Zero
-    /// for point and lumped tanks.
+    /// Centre of the propellant in the part frame, feed lines included, or
+    /// nil for a lumped tank.
+    public var centroid: Vec3? {
+        guard let c = properCentroid else { return nil }
+        guard let lines = feedLines, mass > 0 else { return c }
+        return (c * (mass - lineMass) + lines.position * lineMass) / mass
+    }
+
+    /// Inertia of the propellant about its centroid: a column has a solid
+    /// cylinder's in pitch and yaw but none in roll, since the tank's walls do
+    /// not spin a liquid up about its axis (FER Table 20-10 counts none:
+    /// AS-506's roll inertia at liftoff is its dry structure's). Feed lines,
+    /// like an off-axis column, add their parallel-axis terms: their liquid
+    /// moves with the vehicle. Zero for point and lumped tanks without lines.
     var ownInertia: Mat3 {
-        guard case let .settledColumn(_, length, r) = geometry else { return .zero }
-        let h = length * fraction, m = mass
-        let iyy = m * (3 * r * r + h * h) / 12
-        return .diagonal(Vec3(0, iyy, iyy))
+        var i = Mat3.zero
+        let proper = mass - lineMass
+        if case let .settledColumn(_, length, r) = geometry {
+            let h = length * properFraction
+            let iyy = proper * (3 * r * r + h * h) / 12
+            i = .diagonal(Vec3(0, iyy, iyy))
+        }
+        guard let lines = feedLines, let c = centroid, let pc = properCentroid else { return i }
+        return i + .parallelAxis(mass: proper, offset: pc - c) + .parallelAxis(mass: lineMass, offset: lines.position - c)
     }
 }
 
