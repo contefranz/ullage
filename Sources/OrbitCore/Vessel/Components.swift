@@ -263,15 +263,20 @@ public final class Thruster {
     /// Levels the engine can run at; any positive command is clamped into it.
     /// `1...1` is an on/off engine (F-1, J-2).
     public var throttleRange: ClosedRange<Double>
-    /// False keeps the engine shut down whatever the controls command.
+    /// False keeps the engine shut down whatever the controls command: a
+    /// flight program's cutoff, which setting it true again undoes.
     public var isEnabled = true
+    /// True once the engine has failed (`fail()`): latched, and distinct from
+    /// `isEnabled`, so a flight program can tell a failure from its own cutoff.
+    public private(set) var isFailed = false
     /// Commanded level 0...1 (set by controls each step).
     public var level: Double = 0
     /// A solid motor: once lit (`ignite()`, or staging through `trigger`) it
     /// burns its grain to the end at full output and nothing stops or relights
     /// it; levels, groups and `isEnabled` do nothing after ignition, and a
-    /// motor not enabled when lit is a dud. It needs a single feed, and no
-    /// shutdown transient (its tank has nothing below empty to tail off on).
+    /// motor not enabled, or failed, when lit is a dud. It needs a single
+    /// feed, and no shutdown transient (its tank has nothing below empty to
+    /// tail off on).
     public var isSolid = false
     /// When staging lights this solid; nil: only `ignite()` does.
     public var trigger: SolidTrigger?
@@ -363,19 +368,28 @@ public final class Thruster {
     /// True while every tank of the feed holds usable propellant.
     public var hasPropellant: Bool { feed.map { $0.tanks.allSatisfy { $0.usableMass > 0 } } ?? false }
 
-    /// True while the controls command thrust: enabled, lit and fed, and not
-    /// still decaying from a cutoff (a new command waits for the decay to
+    /// Enabled and not failed: the controls can run the engine.
+    public var isAvailable: Bool { isEnabled && !isFailed }
+
+    /// True while the controls command thrust: available, lit and fed, and
+    /// not still decaying from a cutoff (a new command waits for the decay to
     /// end). Start and shutdown ramps aside, this is when the engine
     /// delivers thrust. A solid is commanded from ignition to burnout.
     public var isCommanded: Bool {
-        (isSolid ? isIgnited : isEnabled && level > 0) && hasPropellant && shutdownElapsed == nil
+        (isSolid ? isIgnited : isAvailable && level > 0) && hasPropellant && shutdownElapsed == nil
     }
 
+    /// Fail the engine now. A liquid engine stops as on a cutoff: it is no
+    /// longer commanded, and its shutdown ramp starts with the next step;
+    /// unlike a cutoff, nothing restarts it. A solid not yet lit becomes a
+    /// dud; one already lit burns on, as nothing stops a lit solid.
+    public func fail() { isFailed = true }
+
     /// Light a solid motor; false (and nothing happens) for a liquid engine,
-    /// a dud (`isEnabled` false), an empty grain or one already lit.
+    /// a dud (`isEnabled` false, or failed), an empty grain or one already lit.
     @discardableResult
     public func ignite() -> Bool {
-        guard isSolid, isEnabled, !isIgnited, hasPropellant else { return false }
+        guard isSolid, isAvailable, !isIgnited, hasPropellant else { return false }
         precondition(tank != nil && (transients?.shutdown ?? 0) == 0,
                      "\(name): a solid motor needs a single feed and no shutdown ramp")
         isIgnited = true
@@ -418,9 +432,9 @@ public final class Thruster {
             lastStep = 0
             return
         }
-        // A cutoff commanded before this step started the ramp with it; an
-        // engine that ran out of propellant during it ran to its end.
-        let ranOut = shutdownElapsed == nil && (isSolid ? isIgnited : isEnabled && level > 0)
+        // A cutoff commanded (or a failure) before this step started the ramp
+        // with it; an engine that ran out of propellant during it ran to its end.
+        let ranOut = shutdownElapsed == nil && (isSolid ? isIgnited : isAvailable && level > 0)
         let e = shutdownElapsed.map { $0 + dt } ?? (ranOut ? 0 : dt)
         if e >= tr.shutdown {
             lastOutput = nil
