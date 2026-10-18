@@ -88,6 +88,8 @@ public final class SaturnIU: FlightProgram {
         case startCant(String)
         case gains(FCCGains?)
         case ullage(Bool)
+        /// Light the solid motors whose names start with the given prefix.
+        case ignite(String)
         /// Start iterative guidance (IGM phase 1).
         case iterativeGuidance
         case localHorizontal
@@ -411,6 +413,10 @@ public final class SaturnIU: FlightProgram {
         case .ullage(let on):
             ullageOn = on
             if !on { v.translationInput.x = 0 }
+        case .ignite(let prefix):
+            let motors = v.thrusters.filter { $0.isSolid && $0.name.hasPrefix(prefix) }
+            guard !motors.isEmpty else { return false }
+            for m in motors { m.ignite() }
         case .iterativeGuidance:
             guard let g = plan.guidance, let frame = spaceFixed, guidance == nil, !guidanceDone else { return false }
             var p = g.presettings

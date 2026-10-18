@@ -138,9 +138,11 @@ final class SaturnVFlightTests: XCTestCase {
         XCTAssertLessThan(angleBetween(v.attitude.rotate(.unitX), nose), 0.3 * deg)
     }
 
-    // C4 (A12 on the real stack): four Space presses separate the S-IC, the
-    // interstage, the LES, then the S-II with the aft interstage. Nothing
-    // moves, mass and momentum are conserved, and only the LES separates ahead.
+    // C4 (A12 on the real stack): five Space presses separate the S-IC, the
+    // interstage, the LES, the S-II with the aft interstage, then the S-IVB
+    // ullage motors' cases. Nothing moves (the retros and ullage motors the
+    // presses light have not burned yet), mass and momentum are conserved,
+    // and only the LES separates ahead.
     func testSpaceKeyStagingSequence() throws {
         let sim = try Simulation.forTests(perturbations: false)
         let v = VesselLibrary.saturnV()
@@ -164,19 +166,21 @@ final class SaturnVFlightTests: XCTestCase {
             }
             XCTAssertNil(sim.stage(spent))
         }
-        XCTAssertEqual(separated, [["S-IC"], ["S-IC/S-II interstage"], ["LES"], ["S-II", "S-II/S-IVB interstage"]])
+        XCTAssertEqual(separated, [["S-IC"], ["S-IC/S-II interstage"], ["LES"], ["S-II", "S-II/S-IVB interstage"],
+                                   ["S-IVB ullage rockets"]])
         XCTAssertEqual(v.parts.map(\.name), ["S-IVB", "IU", "SLA", "LM", "CSM"])
-        XCTAssertEqual(sim.vessels.count, 5)
+        XCTAssertEqual(sim.vessels.count, 6)
         XCTAssertEqual(sim.vessels.reduce(0) { $0 + $1.mass }, m, accuracy: 1e-6)
         let after = sim.vessels.reduce(Vec3.zero) { $0 + $1.velocity * $1.mass }
         XCTAssertLessThan((after - momentum).length, momentum.length * 1e-12)
-        guard ahead.count == 4 else { return XCTFail("expected 4 separations") }
+        guard ahead.count == 5 else { return XCTFail("expected 5 separations") }
         XCTAssertGreaterThan(ahead[2], 0)
-        for i in [0, 1, 3] { XCTAssertLessThan(ahead[i], 0) }
+        for i in [0, 1, 3, 4] { XCTAssertLessThan(ahead[i], 0) }
         // Bookkeeping: S-IVB 262,613 and IU 4,275 lb (SP-4029 Ground Ignition
-        // Weights) and the spacecraft after LET jettison, 45,693 kg (FER Table
-        // 20-9).
-        XCTAssertEqual(v.mass, (262_613 + 4_275) * lb + 45_693, accuracy: 1e-6)
+        // Weights) less the S-IVB's ullage motors and aft frame, which left
+        // with their parts (53 + 61 + 23 kg, FER Table 20-9), and the
+        // spacecraft after LET jettison, 45,693 kg (FER Table 20-9).
+        XCTAssertEqual(v.mass, (262_613 + 4_275) * lb - 53 - 61 - 23 + 45_693, accuracy: 1e-6)
     }
 
     // C5: gimbal authority at each stage's full thrust (vacuum), from the

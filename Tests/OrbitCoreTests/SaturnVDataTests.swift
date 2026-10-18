@@ -20,12 +20,69 @@ final class SaturnVDataTests: XCTestCase {
     func testNamesFeedsAndStagingRules() {
         let v = VesselLibrary.saturnV()
         XCTAssertEqual(v.parts.map(\.name), ["S-IC", "S-IC/S-II interstage", "S-II", "S-II/S-IVB interstage",
-                                             "S-IVB", "IU", "SLA", "LM", "CSM", "LES"])
+                                             "S-IVB", "S-IVB ullage rockets", "IU", "SLA", "LM", "CSM", "LES"])
         XCTAssertEqual(v.parts.map(\.staging), [.event(1), .event(2), .event(4), .event(4),
-                                                .fixed, .fixed, .fixed, .fixed, .fixed, .event(3)])
-        XCTAssertEqual(v.tanks.map(\.name), ["S-IC LOX", "S-IC RP-1", "S-II ullage", "S-II LOX", "S-II LH2",
-                                             "S-IVB LOX", "S-IVB LH2",
-                                             "APS I N2O4", "APS I MMH", "APS III N2O4", "APS III MMH"])
+                                                .fixed, .event(5), .fixed, .fixed, .fixed, .fixed, .event(3)])
+        // Each solid motor has its own grain, named after its set.
+        func times(_ name: String, _ n: Int) -> [String] { Array(repeating: name, count: n) }
+        var expected: [String] = ["S-IC LOX", "S-IC RP-1"]
+        expected += times("S-IC retro", 8)
+        expected += times("S-II ullage", 4)
+        expected += ["S-II LOX", "S-II LH2"]
+        expected += times("S-II retro", 4)
+        expected += ["S-IVB LOX", "S-IVB LH2", "APS I N2O4", "APS I MMH", "APS III N2O4", "APS III MMH"]
+        expected += times("S-IVB ullage", 2)
+        expected += ["Tower jettison"]
+        XCTAssertEqual(v.tanks.map(\.name), expected)
+        // The solids: retros fire with their own stage's separation, ullage
+        // motors with the separation below them; no controls reach them, and
+        // each set's forces add to a pure axial thrust (no side force, no
+        // torque about the vehicle axis or the CoM's line).
+        for (set, count, trigger, forward) in [("S-IC retro", 8, SolidTrigger.ownSeparation, false),
+                                               ("S-II ullage", 4, .event(1), true),
+                                               ("S-II retro", 4, .ownSeparation, false),
+                                               ("S-IVB ullage", 2, .event(4), true)] {
+            let motors = v.thrusters.filter { $0.name.hasPrefix(set + " motor") }
+            XCTAssertEqual(motors.count, count, set)
+            var force = Vec3.zero, torque = Vec3.zero
+            for m in motors {
+                XCTAssertEqual(motors.filter { $0.tank === m.tank }.count, 1, "\(m.name) has its own grain")
+                XCTAssertTrue(m.isSolid, m.name)
+                XCTAssertEqual(m.trigger, trigger, m.name)
+                XCTAssertTrue(m.groups.isEmpty, m.name)
+                XCTAssertEqual(m.direction.x > 0, forward, m.name)
+                force += m.direction
+                torque += m.position.cross(m.direction)
+            }
+            XCTAssertEqual(force.y, 0, accuracy: 1e-12, set)
+            XCTAssertEqual(force.z, 0, accuracy: 1e-12, set)
+            XCTAssertEqual(torque.length, 0, accuracy: 1e-9 * Double(count), set)
+        }
+        // Motors, not springs, separate the S-IC, the S-II with the aft
+        // interstage, and the LES; the interstage and the ullage cases keep
+        // the 1 m/s placeholder.
+        for p in v.parts {
+            XCTAssertEqual(p.separationSpeed, ["S-IC", "S-II", "S-II/S-IVB interstage", "LES"].contains(p.name) ? 0 : 1,
+                           p.name)
+        }
+        // The tower-jettison motor: lit by the LES's separation, its thrust
+        // 3.784° off the axis towards Position III (-z), crossing the axis
+        // (TN D-6295, AOH 2.9.5.7.4; MSFC-MAN-506 Fig 7-15) 98.8 in ahead of
+        // the whole LES's CG (Xa 1395.9 and 1297.1), about which the LES's
+        // inertia is the Mission Reports' (datasheet §12).
+        let lesPart = try! XCTUnwrap(v.parts.first { $0.name == "LES" })
+        let tjm = try! XCTUnwrap(lesPart.thrusters.first { $0.name == "Tower jettison motor" })
+        XCTAssertEqual(tjm.position.x - lesPart.centerOfMass.x, 98.8 * AS506.inch, accuracy: 1e-9)
+        XCTAssertEqual(lesPart.localInertia.r0.x, 1_100, accuracy: 1e-6)
+        XCTAssertEqual(lesPart.localInertia.r1.y, 37_500, accuracy: 1e-6)
+        XCTAssertEqual(lesPart.localInertia.r2.z, 37_500, accuracy: 1e-6)
+        XCTAssertTrue(tjm.isSolid)
+        XCTAssertEqual(tjm.trigger, .ownSeparation)
+        XCTAssertEqual(acos(tjm.direction.x) / AS506.degree, 3.784, accuracy: 1e-9)
+        XCTAssertLessThan(tjm.direction.z, 0)
+        XCTAssertEqual(tjm.direction.y, 0)
+        XCTAssertEqual(tjm.position.y, 0)
+        XCTAssertEqual(tjm.position.z, 0)
         for t in v.tanks { XCTAssertLessThanOrEqual(t.name.count, 14, t.name) }
         let names = v.thrusters.map(\.name)
         XCTAssertEqual(Set(names).count, names.count)
@@ -132,8 +189,11 @@ final class SaturnVDataTests: XCTestCase {
         XCTAssertEqual(v.tanks[0].mass, 1_468_594 + 235, accuracy: 1e-6)
         XCTAssertEqual(v.tanks[1].mass, 637_830, accuracy: 1e-6)
         XCTAssertEqual(pounds([part(v, "S-II")]), 1_058_140, accuracy: 1e-6)
-        XCTAssertEqual(pounds([part(v, "S-II/S-IVB interstage")]), 8_076, accuracy: 1e-6)
-        XCTAssertEqual(pounds([part(v, "S-IVB")]), 262_613, accuracy: 1e-6)
+        // The S-IVB's aft frame and detonation package (23 kg) are booked with
+        // the aft interstage, which they leave with, and its ullage motors
+        // (53 kg of grain, 61 kg of cases) on a part of their own.
+        XCTAssertEqual(pounds(["S-IVB", "S-IVB ullage rockets"].map { part(v, $0) }) + AS506.sIVBAftFrame / lb,
+                       262_613, accuracy: 1e-6)
         XCTAssertEqual(pounds([part(v, "IU")]), 4_275, accuracy: 1e-6)
         // Independent, FER items against SP-4029 rows: the S-IC/S-II
         // interstage, 11,477 lb, is the ring, the large interstage and its
@@ -141,6 +201,9 @@ final class SaturnVDataTests: XCTestCase {
         // spacecraft, 109,646 lb, is the LES, CSM, LM and SLA (4,042 + 28,806
         // + 15,095 + 1,166 + 626 kg, Tables 20-7 and 20-9).
         XCTAssertEqual(pounds([part(v, "S-IC/S-II interstage")]) + 614 / lb, 11_477, accuracy: 1)
+        // The aft interstage, 8,076 lb, is its structure and the S-II retros'
+        // propellant (3,180 + 484 kg, Table 20-9): 1.7 lb more.
+        XCTAssertEqual(pounds([part(v, "S-II/S-IVB interstage")]) - AS506.sIVBAftFrame / lb, 8_076, accuracy: 2)
         XCTAssertEqual(pounds(["SLA", "LM", "CSM", "LES"].map { part(v, $0) }), 109_646, accuracy: 1)
     }
 
@@ -427,6 +490,8 @@ final class SaturnVDataTests: XCTestCase {
         let t3 = AS506.timeBase3
         func engine(_ name: String) -> Thruster { v.thrusters.first { $0.name == name }! }
         func tank(_ name: String) -> PropellantTank { v.tanks.first { $0.name == name }! }
+        /// Propellant left in a set of solid motors (a grain each).
+        func grains(_ name: String) -> Double { v.tanks.filter { $0.name == name }.reduce(0) { $0 + $1.mass } }
         func mains() -> [Thruster] { v.activeStage!.thrusters.filter { $0.groups.contains(.main) } }
         func set(_ engines: [Thruster], _ level: Double) { for e in engines { e.level = level } }
         /// Range time `end`, or until a lit main engine runs dry (returns true).
@@ -443,7 +508,8 @@ final class SaturnVDataTests: XCTestCase {
         }
         // The S-IC's propellant is the FER's, but the model's upper stages
         // carry 120-360 kg that AS-506 had lost by these events (frost,
-        // venting before ignition, the S-IVB's ullage motors), so 0.2 %.
+        // venting before ignition), so 0.2 %; the S-IVB about 90-110 kg (its
+        // 91 kg of frost and 23 kg of fuel-lead loss), so 0.1 %.
         func mass(_ kg: Double, _ label: String, within tolerance: Double = 2e-3) {
             XCTAssertEqual(v.mass, kg, accuracy: kg * tolerance, label)
         }
@@ -462,8 +528,7 @@ final class SaturnVDataTests: XCTestCase {
         // Thrust decay; the S-II ullage motors from T3 + 0.5 s; separation.
         set(mains(), 0)
         XCTAssertFalse(burn(to: t3 + AS506.sIIUllageIgnitionTime))
-        let ullage = v.thrusters.filter { $0.name.hasPrefix("S-II ullage") }
-        set(ullage, 1)
+        for m in v.thrusters where m.name.hasPrefix("S-II ullage") { XCTAssertTrue(m.ignite()) }
         XCTAssertFalse(burn(to: AS506.sICSeparation))
         mass(823_625, "S-IC/S-II separation", within: 1e-3)
         XCTAssertEqual(v.jettisonNextStage()?.parts.map(\.name), ["S-IC"])
@@ -474,11 +539,10 @@ final class SaturnVDataTests: XCTestCase {
         // at the PU valve step, and LOX depletion.
         XCTAssertFalse(burn(to: AS506.sIIIgnition))
         mass(658_363, "S-II engine start")
-        XCTAssertEqual(tank("S-II ullage").mass, 309, accuracy: 5)
+        XCTAssertEqual(grains("S-II ullage"), 309, accuracy: 5)
         set(mains(), 1)
         XCTAssertFalse(burn(to: t3 + AS506.sIIUllageEndTime))
-        XCTAssertEqual(tank("S-II ullage").mass, 0, accuracy: 1e-9)
-        set(ullage, 0)
+        XCTAssertEqual(grains("S-II ullage"), 0, accuracy: 1e-9)
         XCTAssertFalse(burn(to: 166.2))
         mass(657_459, "S-II mainstage")
         XCTAssertFalse(burn(to: t3 + AS506.sIIHighMixtureRatioTime))
@@ -502,25 +566,34 @@ final class SaturnVDataTests: XCTestCase {
         mass(213_888, "S-II OECO")
         XCTAssertEqual(acceleration, 14.3, accuracy: 14.3 * 0.01)   // Figure 4-3
 
-        // Thrust decay to separation at 549.0 s; S-IVB burn 1 from 552.20 s
-        // (STDV open) to the guidance cutoff at 699.34 s, and its decay.
+        // Thrust decay; the S-IVB ullage motors from 548.9 s, separation at
+        // 549.0 s; S-IVB burn 1 from 552.20 s (STDV open) to the guidance
+        // cutoff at 699.34 s, with the ullage cases jettisoned at 561.0 s, and
+        // its decay. AS-506's ullage motors had 10 kg left at STDV open and
+        // 1 kg at mainstage (Table 20-9).
         set(mains(), 0)
+        XCTAssertFalse(burn(to: 548.9))
+        for m in v.thrusters where m.name.hasPrefix("S-IVB ullage") { XCTAssertTrue(m.ignite()) }
         XCTAssertFalse(burn(to: AS506.sIISeparation))
         mass(213_757, "S-II/S-IVB separation")
         XCTAssertEqual(v.jettisonNextStage()?.parts.map(\.name), ["S-II", "S-II/S-IVB interstage"])
         XCTAssertFalse(burn(to: AS506.sIVBIgnition))
-        mass(166_571, "S-IVB ignition")
+        mass(166_571, "S-IVB ignition", within: 1e-3)
+        XCTAssertEqual(grains("S-IVB ullage"), 10, accuracy: 3)
         set(mains(), 1)
         XCTAssertFalse(burn(to: 554.70))
-        mass(166_396, "S-IVB mainstage")
+        mass(166_396, "S-IVB mainstage", within: 1e-3)
+        XCTAssertEqual(grains("S-IVB ullage"), 0, accuracy: 1)
+        XCTAssertFalse(burn(to: 561.0))
+        XCTAssertEqual(v.jettisonNextStage()?.mass ?? 0, AS506.sIVBUllageMotorCases, accuracy: 1e-9)
         XCTAssertFalse(burn(to: 699.34))
-        mass(135_182, "S-IVB cutoff")
+        mass(135_182, "S-IVB cutoff", within: 1e-3)
         // Figure 4-3 (M) rather than Table 4-1's 6.73 m/s^2, which is more
         // than the S-IVB's thrust (FER Figure 7-2) over the tabulated mass.
         XCTAssertEqual(acceleration, 6.69, accuracy: 6.69 * 5e-3)
         set(mains(), 0)
         XCTAssertFalse(burn(to: 699.54))
-        mass(135_102, "S-IVB end of thrust decay", within: 2.5e-3)
+        mass(135_102, "S-IVB end of thrust decay", within: 1e-3)
         XCTAssertEqual(v.parts.map(\.name), ["S-IVB", "IU", "SLA", "LM", "CSM"])
     }
 }

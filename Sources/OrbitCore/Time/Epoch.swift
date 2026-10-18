@@ -3,8 +3,9 @@ import Foundation
 /// A point in time, stored as TDB seconds past J2000 (2000-01-01 12:00 TDB).
 ///
 /// TDB is the time argument of the JPL ephemerides. UTC is converted via
-/// TAI-UTC (leap seconds) and TT = TAI + 32.184 s; TDB is taken equal to TT
-/// (the periodic difference is below 2 ms). UT1 is approximated by UTC.
+/// TAI-UTC (leap seconds, and before 1972 the official rubber-second
+/// expressions) and TT = TAI + 32.184 s; TDB is taken equal to TT (the
+/// periodic difference is below 2 ms). UT1 is approximated by UTC.
 public struct Epoch: Comparable, Hashable, Codable, CustomStringConvertible {
     public var tdb: Double
 
@@ -37,12 +38,18 @@ public struct Epoch: Comparable, Hashable, Codable, CustomStringConvertible {
         tdb = (jd - Epoch.j2000JD) * Epoch.secondsPerDay + tt
     }
 
-    /// UTC Julian date (approximate inverse of the leap-second offset).
+    /// UTC Julian date. The expression in force is the last one switched to,
+    /// in TAI, at or before this instant (within 1e-9 day, so that rounding
+    /// does not land a step's own label in the gap before it). A label the
+    /// clock showed twice (it was set back by a step or a leap second) reads
+    /// as shown the second time; `init(julianDateUTC:)` takes it as the first.
     public var julianDateUTC: Double {
-        var jd = julianDateTDB
-        for _ in 0..<2 {
-            jd = julianDateTDB - (Epoch.taiMinusUTC(julianDateUTC: jd) + 32.184) / Epoch.secondsPerDay
+        let tai = julianDateTDB - 32.184 / Epoch.secondsPerDay
+        guard let s = Epoch.offsets.last(where: { tai >= $0.switchTAI - 1e-9 }) else {
+            return tai - Epoch.offsets[0].seconds(Epoch.offsets[0].start) / Epoch.secondsPerDay
         }
+        var jd = tai
+        for _ in 0..<2 { jd = tai - s.seconds(jd) / Epoch.secondsPerDay }
         return jd
     }
 
@@ -104,16 +111,52 @@ public struct Epoch: Comparable, Hashable, Codable, CustomStringConvertible {
         (2456109.5, 35), (2457204.5, 36), (2457754.5, 37),
     ]
 
-    /// TAI-UTC. Before 1972 UTC used "rubber seconds"; the official piecewise
-    /// formula is replaced by a linear fit that stays within ~0.2 s over 1961-1972.
-    public static func taiMinusUTC(julianDateUTC jd: Double) -> Double {
-        if jd < leapSeconds[0].0 {
-            let jd1961 = 2437300.5, jd1972 = 2441317.5
-            let t = max(0, (jd - jd1961) / (jd1972 - jd1961))
-            return 1.42 + t * (9.89 - 1.42)
+    /// One expression of TAI-UTC: from the UTC Julian date `start`, offset +
+    /// (MJD - mjd0) × rate seconds, with MJD the UTC modified Julian date.
+    private struct Offset {
+        let start: Double, offset: Double, mjd0: Double, rate: Double
+        /// The TAI Julian date from which the expression gives the clock's
+        /// reading. Set forward, the clock jumps to `start` when it is reached
+        /// by this expression; set back, it returns to the labels before
+        /// `start` when the previous expression reaches `start`.
+        var switchTAI = 0.0
+
+        init(start: Double, offset: Double, mjd0: Double = 0, rate: Double = 0) {
+            self.start = start; self.offset = offset; self.mjd0 = mjd0; self.rate = rate
         }
-        var value = 10.0
-        for (start, v) in leapSeconds where jd >= start { value = v }
-        return value
+
+        func seconds(_ jdUTC: Double) -> Double { offset + (jdUTC - 2400000.5 - mjd0) * rate }
+    }
+
+    /// TAI-UTC from 1960 (USNO tai-utc.dat, the table of SOFA/ERFA `dat`).
+    /// Before 1972 UTC ran at a rate offset from the SI second ("rubber
+    /// seconds") with steps of 0.05-0.1 s; since then the rate is 0 and the
+    /// steps are leap seconds.
+    private static let offsets: [Offset] = {
+        let rubber: [(year: Int, month: Int, offset: Double, mjd0: Double, rate: Double)] = [
+            (1960, 1, 1.4178180, 37300, 0.0012960), (1961, 1, 1.4228180, 37300, 0.0012960),
+            (1961, 8, 1.3728180, 37300, 0.0012960), (1962, 1, 1.8458580, 37665, 0.0011232),
+            (1963, 11, 1.9458580, 37665, 0.0011232), (1964, 1, 3.2401300, 38761, 0.0012960),
+            (1964, 4, 3.3401300, 38761, 0.0012960), (1964, 9, 3.4401300, 38761, 0.0012960),
+            (1965, 1, 3.5401300, 38761, 0.0012960), (1965, 3, 3.6401300, 38761, 0.0012960),
+            (1965, 7, 3.7401300, 38761, 0.0012960), (1965, 9, 3.8401300, 38761, 0.0012960),
+            (1966, 1, 4.3131700, 39126, 0.0025920), (1968, 2, 4.2131700, 39126, 0.0025920),
+        ]
+        var all = rubber.map {
+            Offset(start: julianDay(year: $0.year, month: $0.month, day: 1), offset: $0.offset, mjd0: $0.mjd0, rate: $0.rate)
+        } + leapSeconds.map { Offset(start: $0.0, offset: $0.1) }
+        for i in all.indices {
+            let s = all[i], own = s.seconds(s.start)
+            let previous = i > 0 ? all[i - 1].seconds(s.start) : own
+            all[i].switchTAI = s.start + min(own, previous) / Epoch.secondsPerDay
+        }
+        return all
+    }()
+
+    /// TAI-UTC (s) at a UTC Julian date. Before 1960, when there was no UTC,
+    /// the value at 1960-01-01 is held.
+    public static func taiMinusUTC(julianDateUTC jd: Double) -> Double {
+        guard let s = offsets.last(where: { jd >= $0.start }) else { return offsets[0].seconds(offsets[0].start) }
+        return s.seconds(jd)
     }
 }

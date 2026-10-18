@@ -126,7 +126,7 @@ public final class Simulation {
     func maxStep(for v: Vessel) -> Double {
         var h = 60.0
         if v.landed != nil {
-            h = v.thrusters.contains(where: { $0.isEnabled && $0.level > 0 }) ? 0.02 : 10
+            h = v.thrusters.contains(where: { $0.isCommanded || ($0.isEnabled && $0.level > 0) }) ? 0.02 : 10
         } else {
             // Commanded engines too: a start delay delivers nothing yet.
             let thrusting = v.thrusters.contains { $0.isCommanded || $0.isDelivering }
@@ -149,7 +149,20 @@ public final class Simulation {
         let pulse = v.groupPulse.remaining
         for r in [pulse.x, pulse.y, pulse.z] where r > 1e-9 { h = min(h, r) }
         if let next = v.flightProgram?.timeToNextEvent(at: time), next > 0 { h = min(h, next) }
-        return max(h, 1e-3)
+        h = max(h, 1e-3)
+        // And where a lit solid's grain runs out, at the flow of every lit
+        // solid it feeds, even within the 1 ms floor: its impulse then does
+        // not depend on the step.
+        var grains: [ObjectIdentifier: (tank: PropellantTank, flow: Double)] = [:]
+        for t in v.thrusters where t.isSolid && t.isCommanded {
+            guard let tank = t.tank else { continue }
+            grains[ObjectIdentifier(tank), default: (tank, 0)].flow += t.currentRating.massFlow
+        }
+        for g in grains.values where g.flow > 0 {
+            let r = g.tank.usableMass / g.flow
+            if r > 0 { h = min(h, max(r, 1e-9)) }
+        }
+        return h
     }
 
     /// This step's levels and gimbal commands. A flight program sets the

@@ -416,11 +416,13 @@ final class SaturnIUTests: XCTestCase {
             ("S-II low EMR (PU valve step)", 497.6, cycle),        // FER Table 6-2, 497.60: 2.8 s later
             ("T4: S-II outboard engine cutoff sensed", 548.24, 0.1),  // FER Table 2-1
             ("S-II outboard engine cutoff", t4, 0.1),
+            ("S-IVB ullage motor ignition", t4 + 0.7, 0.1),        // FER 548.9
             ("S-II/S-IVB separation", t4 + 0.8, 0.1),
             ("IGM phase 3: steering frozen", t4Sensed + cycle / 2, cycle / 2 + 0.03),  // FER Table 10-4: T4's cycle
             ("S-IVB flight control law", 552.2, 0.1),
             ("S-IVB ignition", 552.2, 0.1),                        // FER 552.2
             ("IGM steering on the S-IVB", 555.57, cycle),          // FER Table 10-4, artificial tau start
+            ("S-IVB ullage case jettison", t4 + 12.8, 0.1),        // FER 561.0
             ("terminal guidance", cutoff - 34.19, cycle),          // FER 665.15, 34.19 s before the cutoff
             ("chi freeze: high-speed cutoff loop", cutoff - 7.70, cycle),  // FER 691.64, 7.70 s before
             ("S-IVB velocity cutoff (IGM)", 699.34, 6),            // FER 699.34
@@ -443,7 +445,8 @@ final class SaturnIUTests: XCTestCase {
         XCTAssertEqual(cycles, cycles.rounded(), accuracy: 0.01)
         XCTAssertEqual(f.v.parts.map(\.name), ["S-IVB", "IU", "SLA", "LM", "CSM"])
         XCTAssertEqual(f.sim.vessels.map(\.name), ["Apollo 11", "Apollo 11 – S-IC", "Apollo 11 – S-IC/S-II interstage",
-                                                  "Apollo 11 – LES", "Apollo 11 – S-II"])
+                                                  "Apollo 11 – LES", "Apollo 11 – S-II",
+                                                  "Apollo 11 – S-IVB ullage rockets"])
         let sII = f.sim.vessels[4].parts[0]
         XCTAssertEqual(sII.thrusters.filter { $0.groups.contains(.main) }.map(\.rating.name),
                        Array(repeating: "J-2 S-II low EMR", count: 5))
@@ -663,8 +666,9 @@ final class SaturnIUTests: XCTestCase {
         XCTAssertEqual(f.range(t4), 200, accuracy: 0.03)
         XCTAssertEqual(f.iu.log.filter { $0.time >= t4 }.map(\.event),
                        ["T4: S-II outboard engine cutoff sensed", "S-II outboard engine cutoff",
-                        "S-II/S-IVB separation (nothing to do: gone)", "S-IVB flight control law", "S-IVB ignition",
-                        "IGM phase 1", "IGM phase 3: steering frozen", "IGM steering on the S-IVB"])
+                        "S-IVB ullage motor ignition", "S-II/S-IVB separation (nothing to do: gone)",
+                        "S-IVB flight control law", "S-IVB ignition", "IGM phase 1", "IGM phase 3: steering frozen",
+                        "IGM steering on the S-IVB", "S-IVB ullage case jettison"])
         XCTAssertNil(f.v.fccGains)
         XCTAssertEqual(f.v.mainThrottle, 1)
     }

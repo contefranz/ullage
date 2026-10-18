@@ -186,6 +186,15 @@ public struct EngineTransients: Equatable {
     }
 }
 
+/// When staging lights a solid motor (`Thruster.trigger`).
+public enum SolidTrigger: Equatable {
+    /// When its own part separates: a retro motor on the stage that leaves.
+    case ownSeparation
+    /// When staging event `n` separates, on the vessel that stays: an ullage
+    /// motor on the stage that starts next.
+    case event(Int)
+}
+
 /// Tanks an engine draws from.
 public enum PropellantFeed {
     case single(PropellantTank)
@@ -227,6 +236,16 @@ public final class Thruster {
     public var isEnabled = true
     /// Commanded level 0...1 (set by controls each step).
     public var level: Double = 0
+    /// A solid motor: once lit (`ignite()`, or staging through `trigger`) it
+    /// burns its grain to the end at full output and nothing stops or relights
+    /// it; levels, groups and `isEnabled` do nothing after ignition, and a
+    /// motor not enabled when lit is a dud. It needs a single feed, and no
+    /// shutdown transient (its tank has nothing below empty to tail off on).
+    public var isSolid = false
+    /// When staging lights this solid; nil: only `ignite()` does.
+    public var trigger: SolidTrigger?
+    /// True once a solid has been lit, burnt out or not.
+    public private(set) var isIgnited = false
     /// Change of performance over the burn; nil keeps `rating` throughout.
     public var schedule: PerformanceSchedule?
     /// Start and shutdown ramps; nil switches thrust on and off within a step.
@@ -316,14 +335,27 @@ public final class Thruster {
     /// True while the controls command thrust: enabled, lit and fed, and not
     /// still decaying from a cutoff (a new command waits for the decay to
     /// end). Start and shutdown ramps aside, this is when the engine
-    /// delivers thrust.
-    public var isCommanded: Bool { isEnabled && level > 0 && hasPropellant && shutdownElapsed == nil }
+    /// delivers thrust. A solid is commanded from ignition to burnout.
+    public var isCommanded: Bool {
+        (isSolid ? isIgnited : isEnabled && level > 0) && hasPropellant && shutdownElapsed == nil
+    }
+
+    /// Light a solid motor; false (and nothing happens) for a liquid engine,
+    /// a dud (`isEnabled` false), an empty grain or one already lit.
+    @discardableResult
+    public func ignite() -> Bool {
+        guard isSolid, isEnabled, !isIgnited, hasPropellant else { return false }
+        precondition(tank != nil && (transients?.shutdown ?? 0) == 0,
+                     "\(name): a solid motor needs a single feed and no shutdown ramp")
+        isIgnited = true
+        return true
+    }
 
     /// Fraction of full output (level and transients) and the rating it
     /// applies to, this step; nil when the engine delivers nothing.
     var output: (fraction: Double, rating: EngineRating)? {
         if isCommanded {
-            var f = level
+            var f = isSolid ? 1 : level
             if let tr = transients, tr.startDelay + tr.startRise > 0 {
                 let t = burnTime + lastStep / 2 - tr.startDelay
                 f *= t <= 0 ? 0 : tr.startRise > 0 ? min(1, t / tr.startRise) : 1
@@ -357,7 +389,7 @@ public final class Thruster {
         }
         // A cutoff commanded before this step started the ramp with it; an
         // engine that ran out of propellant during it ran to its end.
-        let ranOut = shutdownElapsed == nil && isEnabled && level > 0
+        let ranOut = shutdownElapsed == nil && (isSolid ? isIgnited : isEnabled && level > 0)
         let e = shutdownElapsed.map { $0 + dt } ?? (ranOut ? 0 : dt)
         if e >= tr.shutdown {
             lastOutput = nil
@@ -406,6 +438,9 @@ public final class Thruster {
         switch feed {
         case .single(let t):
             t.mass = max(floor(t), t.mass - m)
+            // A solid's last step ends at burnout: rounding must not leave a
+            // sliver of grain to burn on into the next step.
+            if isSolid, t.mass - floor(t) < 1e-9 * m { t.mass = floor(t) }
         case let .bipropellant(o, f):
             let ratio = r.mixtureRatio ?? 0
             let ox = m * ratio / (1 + ratio), fu = m / (1 + ratio)
@@ -468,6 +503,9 @@ public final class VesselPart {
     /// Dry inertia about `dryCenterOfMass`; nil uses a solid bounding cylinder.
     public var dryInertia: Mat3?
     public var staging: StagingRule
+    /// Relative speed (m/s) springs or ordnance give the parts of its staging
+    /// event as they separate; 0 when solid motors do the work.
+    public var separationSpeed = 1.0
 
     public init(name: String, dryMass: Double, offset: Vec3 = .zero, length: Double, radius: Double,
                 dragCoefficient: Double = 0.5, tanks: [PropellantTank] = [], thrusters: [Thruster] = [],
