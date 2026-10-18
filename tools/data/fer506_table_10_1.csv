@@ -1,0 +1,28 @@
+# AS-506 Flight Evaluation Report, MPR-SAT-FE-69-9 (lvfea-AS506-Apollo11.pdf),
+# Table 10-1 "Inertial Platform Velocity Comparisons" (document page 10-5, PDF
+# page 147 of https://www.ibiblio.org/apollo/Documents/lvfea-AS506-Apollo11.pdf,
+# sha256 84b23ee1f3e8e76db20e4e6c1a5bc8b83cd9bc09950c43c43330bce753c3a9c7).
+#
+# The ST-124M-3 platform's velocities (m/s) at the boost events, in PACSS 12:
+# altitude (X_m), crossrange (Y_m), downrange (Z_m), accumulated from guidance
+# reference release. Sources: guidance (LVDC telemetry), postflight (the
+# observed postflight trajectory) and operational (the preflight operational
+# trajectory). The ft/s columns are printed in the table and are kept as a
+# check on the m/s ones. The second-burn rows (from Time Base 6) are not
+# transcribed.
+#
+# Read from the page image and checked cell by cell by a second reader; the
+# PDF's text layer and the ft/s columns agree with every value.
+event,source,x_ms,y_ms,z_ms,x_fts,y_fts,z_fts
+S-IC OECO,guidance,2585.13,1.50,2254.84,8481.40,4.92,7397.77
+S-IC OECO,postflight,2583.28,2.71,2255.10,8475.33,8.89,7398.62
+S-IC OECO,operational,2600.23,-5.34,2239.23,8530.94,-17.52,7346.56
+S-II OECO,guidance,3430.03,-3.50,6759.48,11253.38,-11.48,22176.77
+S-II OECO,postflight,3430.60,-0.96,6759.88,11255.25,-3.15,22178.08
+S-II OECO,operational,3432.73,-1.10,6784.83,11262.24,-3.61,22259.94
+First S-IVB ECO,guidance,3190.55,1.50,7607.13,10467.68,4.92,24957.78
+First S-IVB ECO,postflight,3192.07,3.23,7607.67,10472.67,10.60,24959.55
+First S-IVB ECO,operational,3187.05,1.17,7606.29,10456.20,3.84,24955.02
+Parking Orbit Insertion,guidance,3189.85,1.50,7608.85,10465.39,4.92,24963.42
+Parking Orbit Insertion,postflight,3191.42,3.29,7609.49,10470.54,10.79,24965.52
+Parking Orbit Insertion,operational,3186.42,1.18,7607.85,10454.13,3.87,24960.14
