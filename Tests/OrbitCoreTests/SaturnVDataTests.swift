@@ -158,12 +158,12 @@ final class SaturnVDataTests: XCTestCase {
         for t in aps where !t.name.hasSuffix("ullage") {
             XCTAssertEqual(t.position.z, t.name.hasPrefix("APS I ") ? 3.5 : -3.5, accuracy: 1e-12, t.name)
         }
-        // APS loads: FER-507's 405 lb N2O4 and 252 lb MMH at liftoff (AS-507
-        // as a proxy), split equally between the modules (transcription). The
-        // feed mixture ratio is the load ratio, so both tanks empty together.
-        for t in aps { XCTAssertEqual(t.rating.mixtureRatio!, 405.0 / 252, accuracy: 1e-12, t.name) }
+        // APS loads: AS-506's 203 lb N2O4 and 126 lb MMH in each module (FER
+        // Table 7-5, transcription). The feed mixture ratio is the load ratio,
+        // so both tanks empty together.
+        for t in aps { XCTAssertEqual(t.rating.mixtureRatio!, 203.0 / 126, accuracy: 1e-12, t.name) }
         for m in ["I", "III"] {
-            XCTAssertEqual(part(v, "S-IVB").tanks.first { $0.name == "APS \(m) N2O4" }!.capacity, 202.5 * lb,
+            XCTAssertEqual(part(v, "S-IVB").tanks.first { $0.name == "APS \(m) N2O4" }!.capacity, 203 * lb,
                            accuracy: 1e-9)
             XCTAssertEqual(part(v, "S-IVB").tanks.first { $0.name == "APS \(m) MMH" }!.capacity, 126 * lb,
                            accuracy: 1e-9)

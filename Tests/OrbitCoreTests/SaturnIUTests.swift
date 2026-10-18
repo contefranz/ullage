@@ -115,10 +115,21 @@ final class SaturnIUTests: XCTestCase {
     // when the stack has risen 137 m (GE504 §4.1.2; the 13 s backup is not
     // needed). The roll takes Position I from the 90° pad azimuth to the
     // 72.058° flight azimuth (SP-4029, H) at 1.00°/s. With the S-IC roll
-    // gains (0.245 and 0.15 s, Boeing D5-15481-1 Table 3-IV: L) the start
-    // overshoots: AS-506 peaked at a 0.92° roll error and a 1.38°/s roll rate
-    // (FER Table 11-2), the model at 1.18° and 1.39°/s (2 and 3 s after the
-    // start, against 0.6 and 1.2 s: its roll loop is slower than AS-506's).
+    // gains (0.245 and 0.15 s, Boeing D5-15481-1 Table 3-IV: L) and its roll
+    // attitude-gain filter 2.35/(s + 2.35) (§3.5: L) the start overshoots:
+    // AS-506 peaked at a 0.92° roll error and a 1.38°/s roll rate (FER Table
+    // 11-2, 0.6 and 1.2 s after its logged 13.2 s start), the model at 0.81°
+    // and 1.24°/s, 1.3 and 2.0 s after its start. Without the filter the
+    // loop on FER Table 20-10's roll inertia is near critically damped (zeta
+    // 0.90): the error peaks at 0.59° (the steady lag) and the rate at
+    // 1.00°/s, which both checks below reject; the 1.39°/s it gave before
+    // came from a roll inertia 9.5 times too large (zeta 0.29). The model's
+    // start is still more damped than AS-506's, a known deviation (datasheet
+    // §13.4): FER Figure 11-3 dips to about 0.56°/s 2 s after the peak, the
+    // model to 0.94°/s, and AS-506's rate carries an oscillation of
+    // ±0.10-0.15°/s at about 0.25 Hz through the whole ramp, which neither
+    // MSFC's post-flight simulation in the same figure nor this rigid-body
+    // model has. The rate is checked against AS-506's 1.38°/s within 0.2°/s.
     // Later in the ramp the law tracks it (a1/a0) x 1°/s =
     // 0.61° behind, and the stack settles on the flight azimuth. No commanded
     // angle ever moves faster than 1°/s.
@@ -166,8 +177,8 @@ final class SaturnIUTests: XCTestCase {
         XCTAssertLessThan(started, AS506.programStartBackup)
         // Roll: the start's peaks, lag and rate late in the ramp, then
         // Position I on the flight azimuth.
-        XCTAssertEqual(peakRollRate, 1.38, accuracy: 0.1)
-        XCTAssertEqual(peakRollError, 0.92, accuracy: 0.35)
+        XCTAssertEqual(peakRollRate, 1.38, accuracy: 0.2)
+        XCTAssertEqual(peakRollError, 0.92, accuracy: 0.2)
         XCTAssertFalse(rollLag.isEmpty)
         XCTAssertEqual(rollLag.reduce(0, +) / Double(rollLag.count), 0.15 / 0.245, accuracy: 0.03)
         for lag in rollLag { XCTAssertEqual(lag, 0.15 / 0.245, accuracy: 0.08) }
@@ -303,8 +314,9 @@ final class SaturnIUTests: XCTestCase {
     // (a0 0.9, a1 0.69 s; TN D-5869 Table 3): a 0.5° pitch command step is a
     // second-order response with wn = sqrt(a0 c) and zeta = a1 c / (2 wn),
     // c = 4 F L / Iyy from the model's own geometry, in vacuum (datasheet
-    // §8.6: c 0.887 s^-2, wn 0.893 rad/s, zeta 0.343, a 32 % overshoot at
-    // 3.7 s). Mass properties frozen; self-consistency of law, gains and model.
+    // §8.6: c 0.955 s^-2, wn 0.927 rad/s, zeta 0.355, a 30 % overshoot at
+    // 3.6 s, with FER Table 20-10's pitch inertia; 0.887 s^-2 before it).
+    // Mass properties frozen; self-consistency of law, gains and model.
     func testFlightControlStepResponse() throws {
         let sim = try Simulation.forTests(perturbations: false)
         let v = VesselLibrary.saturnV()
@@ -331,8 +343,100 @@ final class SaturnIUTests: XCTestCase {
         let peak = pitch.max { $0.1 < $1.1 }!
         XCTAssertEqual(peak.0, Double.pi / wd, accuracy: 0.1 * Double.pi / wd)
         XCTAssertEqual(peak.1 / step - 1, exp(-zeta * Double.pi / (1 - zeta * zeta).squareRoot()), accuracy: 0.05)
-        XCTAssertEqual(c, 0.887, accuracy: 0.005)
-        XCTAssertEqual(wn, 0.893, accuracy: 0.005)
+        XCTAssertEqual(c, 0.955, accuracy: 0.005)
+        XCTAssertEqual(wn, 0.927, accuracy: 0.005)
+    }
+
+    // The FCC's shaping filters (Boeing D5-15481-1 §3.5: the S-IC roll
+    // attitude-gain filter 2.35/(s + 2.35), and the S-IC pitch and yaw lag
+    // network 0.4(s + 0.095)/(s + 0.038), which the model does not fly) are
+    // stepped exactly for an input linear between samples: a ramp through
+    // the roll filter and a step through the lag network land on their
+    // closed forms at any step, 1 s ones included. Static gain 1 in both.
+    // Flown by the law, the roll filter gives the same 0.5° roll-step
+    // response at 0.01, 0.02 and 1/60 s steps, and makes it overshoot (the
+    // unfiltered roll loop at full S-IC thrust is near critically damped).
+    func testFCCFiltersAreExactAtAnyStep() throws {
+        let roll = AS506.sICRollAttitudeFilter, lag = FCCFilter(gain: 0.4, zero: 0.095, pole: 0.038)
+        XCTAssertEqual(roll.staticGain, 1, accuracy: 1e-15)
+        XCTAssertEqual(lag.staticGain, 1, accuracy: 1e-15)
+        for h in [0.01, 0.02, 1.0 / 60, 0.5, 1] {
+            var x = 0.0, t = 0.0
+            while t < 3 - 1e-9 {
+                x = roll.advance(x, from: t, to: t + h, dt: h)
+                t += h
+            }
+            XCTAssertEqual(roll.output(t, state: x), t - (1 - exp(-2.35 * t)) / 2.35, accuracy: 1e-12, "ramp, h \(h)")
+            var y = 0.0, s = 0.0
+            XCTAssertEqual(lag.output(1, state: y), 0.4, accuracy: 1e-15)   // the step's first instant
+            while s < 30 - 1e-9 {
+                y = lag.advance(y, from: 1, to: 1, dt: h)
+                s += h
+            }
+            XCTAssertEqual(lag.output(1, state: y), 1 - 0.6 * exp(-0.038 * s), accuracy: 1e-12, "step, h \(h)")
+        }
+
+        func rollStep(_ filter: FCCFilter?, dt: Double) throws -> (t: Double, overshoot: Double) {
+            let sim = try Simulation.forTests(perturbations: false)
+            let v = VesselLibrary.saturnV()
+            sim.add(v)
+            sim.placeInFreeSpace(v)
+            v.mainThrottle = 1
+            v.autopilot = .attitudeHold
+            v.fccGains = FCCGains(a0: 0.9, a1: 0.69, rollA0: AS506.sICRollGains.a0, rollA1: AS506.sICRollGains.a1,
+                                  rollAttitudeFilter: filter)
+            let q0 = v.attitude, step = 0.5 * deg
+            v.attitudeCommand = AttitudeCommand(attitude: q0 * Quat(axis: .unitX, angle: step))
+            let full = v.tanks.map(\.mass)
+            v.applyThrottles()
+            var t = 0.0, peak = (t: 0.0, angle: 0.0)
+            while t < 6 - 1e-9 {
+                sim.tick(dt)
+                t += dt
+                for (tank, m) in zip(v.tanks, full) { tank.mass = m }
+                v.recenter()
+                let angle = rotationVector(q0.conjugate * v.attitude).x
+                if angle > peak.angle { peak = (t, angle) }
+            }
+            return (peak.t, peak.angle / step - 1)
+        }
+        let unfiltered = try rollStep(nil, dt: 0.02)
+        XCTAssertLessThan(unfiltered.overshoot, 0.02)
+        let reference = try rollStep(roll, dt: 0.02)
+        XCTAssertGreaterThan(reference.overshoot, 0.15)
+        for dt in [0.01, 1.0 / 60] {
+            let r = try rollStep(roll, dt: dt)
+            XCTAssertEqual(r.overshoot, reference.overshoot, accuracy: 0.01, "dt \(dt)")
+            XCTAssertEqual(r.t, reference.t, accuracy: 0.05, "dt \(dt)")
+        }
+    }
+
+    // The FCC filters' state: a filter starts at rest when the law first
+    // flies it (its output 0 for the 2.35/(s + 2.35) lag), carries on across
+    // a gain switch that keeps it (the S-IC's at T1 + 105 and 130 s), and is
+    // dropped when the gains have none (the S-II's) or the attitude reference
+    // is reset (a hand-back, a mode change); it then starts at rest again.
+    func testFCCFilterStateAcrossGainSwitches() {
+        let v = VesselLibrary.saturnV()
+        let roll = AS506.sICRollAttitudeFilter, e = Vec3(0.01, 0.002, -0.003)
+        let band1 = FCCGains(a0: 0.9, a1: 0.69, rollA0: 0.245, rollA1: 0.15, rollAttitudeFilter: roll)
+        let band2 = FCCGains(a0: 0.45, a1: 0.438, rollA0: 0.245, rollA1: 0.15, rollAttitudeFilter: roll)
+        let sII = FCCGains(a0: 0.81, a1: 0.97, rollA0: 0.25, rollA1: 0.20)
+        func shaped(_ g: FCCGains, after dt: Double) -> Vec3 {
+            v.fccFilter?.elapsed = dt
+            return v.shapedAttitudeError(e, g)
+        }
+        XCTAssertEqual(shaped(band1, after: 0).x, 0, "at rest")
+        XCTAssertEqual(shaped(band1, after: 1).x, 0.01 * (1 - exp(-2.35)), accuracy: 1e-15)
+        let y = shaped(band2, after: 1)
+        XCTAssertEqual(y.x, 0.01 * (1 - exp(-4.7)), accuracy: 1e-15, "carried across the switch")
+        XCTAssertEqual(y.y, e.y, "pitch unfiltered")
+        XCTAssertEqual(y.z, e.z, "yaw unfiltered")
+        XCTAssertEqual(shaped(sII, after: 1), e, "no filter in the S-II's gains")
+        XCTAssertNil(v.fccFilter)
+        XCTAssertEqual(shaped(band1, after: 1).x, 0, "at rest again")
+        v.resetAttitudeReference()
+        XCTAssertNil(v.fccFilter)
     }
 
     // One flight, first motion to T5 + 87 s, against AS-506's sequence of
@@ -488,12 +592,15 @@ final class SaturnIUTests: XCTestCase {
         XCTAssertLessThan(angleBetween(f.v.attitude.rotate(.unitZ), -up), 1.9 * deg)
         XCTAssertLessThan(before - aps.reduce(0) { $0 + $1.mass }, 5)
 
-        // A hand-back in orbit: the pilot rolls the stack by hand for 10 s
+        // A hand-back in orbit: the pilot rolls the stack by hand for 5 s
         // (the hold stays selected). On release the command restarts from
         // the attitude and returns to the local horizontal within the
-        // orbital rate limits.
+        // orbital rate limits. The two roll engines (4,577 N m) turn the
+        // stack's FER roll inertia (2.01e5 kg m²) at 1.31°/s², so 5 s leave
+        // 6.5°/s, and the APS stops the roll about 33° off (α t²); it then
+        // rolls back at its 0.5°/s clip-limited rate, inside the 100 s below.
         f.v.rotationInput = RotationCommand(roll: 1, pitch: 0, yaw: 0)
-        for _ in 0..<500 { f.sim.tick() }
+        for _ in 0..<250 { f.sim.tick() }
         let off = rotationVector(f.v.attitude.conjugate * f.v.attitudeCommand!.attitude).length
         f.v.rotationInput = RotationCommand()
         f.sim.tick()
@@ -695,8 +802,12 @@ final class SaturnIUTests: XCTestCase {
     // From the S-IVB cutoff (T5) the LVDC limits its commanded angles to its
     // coast rates (Astrionics System Handbook Table 3.1-3, "Coast": 0.4°/s
     // in pitch and yaw, 0.6°/s in roll), against 1°/s in powered flight. The
-    // pilot rolls the stack by hand in the coast before the turn to the local
-    // horizontal; released, the command returns at 0.6°/s. (The S-II
+    // pilot rolls the stack by hand for 3 s in the coast before the turn to
+    // the local horizontal (T5 + 19.8 s); released, the command returns at
+    // 0.6°/s. The two roll engines turn the stack's FER roll inertia
+    // (2.01e5 kg m²) at 1.30°/s², so 3 s roll it 5.9° (6.8° off the command
+    // with the error it had), which the command undoes in 11 s, before the
+    // turn. (The S-II
     // dropped at 200 s and the S-IVB cut by hand at 240 s bring T5 forward,
     // to save flying time. The IGM steered the S-IVB but did not cut it off,
     // so the IU's line does not say "IGM done".)
@@ -710,7 +821,7 @@ final class SaturnIUTests: XCTestCase {
         let t5 = f.range(try XCTUnwrap(f.iu.timeBases[.t5]))
         f.fly(to: t5 + 1)
         f.v.rotationInput = RotationCommand(roll: 1, pitch: 0, yaw: 0)
-        f.fly(to: t5 + 5)
+        f.fly(to: t5 + 4)
         f.v.rotationInput = RotationCommand()
         let off = abs(try XCTUnwrap(f.iu.eulerAngles(of: f.v.attitude)).x - f.iu.chi.x)
         f.sim.tick()   // the hand-back: the command restarts from the attitude
@@ -752,6 +863,43 @@ final class SaturnIUTests: XCTestCase {
         XCTAssertEqual(f.iu.chi.x, 0, accuracy: 1e-12)
         XCTAssertEqual(f.iu.chi.z, 0, accuracy: 1e-12)
         XCTAssertEqual(angles.y, f.iu.chi.y, accuracy: 1 * deg)
+    }
+
+    // A full roll input for 0.6 or 1 s at 40 or 60 s, then the hand-back. On
+    // FER Table 20-10's roll inertia the tap leaves the stack spinning at
+    // 45-120°/s. Restarting the command from the attitude while it still
+    // spins would let the FCC law swing it back past 180°, where the attitude
+    // error wraps into pitch and yaw, the gimbals saturate there and the
+    // allocation leaves no roll torque: without what follows, the 0.6 s taps
+    // end 27-34° off their command, and other taps tumbled the stack near
+    // max Q. The IU instead keeps restarting its command from the attitude
+    // until the body rate is under twice the command limit, so only the rate
+    // term flies: the spin stops within a few seconds, the nose stays within
+    // 2° of an untouched flight's, and the vehicle then tracks its command.
+    func testRollTapHandBackInTheSICBurn() throws {
+        let reference = try launch()
+        var nose: [Int: Vec3] = [:]
+        reference.fly(to: 85) { nose[Int((reference.range() * 50).rounded())] = reference.v.attitude.rotate(.unitX) }
+        for (start, tap) in [(40.0, 0.6), (40, 1.0), (60, 0.6), (60, 1.0)] {
+            let f = try launch()
+            f.fly(to: start)
+            f.v.rotationInput = RotationCommand(roll: 1, pitch: 0, yaw: 0)
+            f.fly(to: start + tap)
+            f.v.rotationInput = RotationCommand()
+            var worstNose = 0.0, damped: Double?
+            f.fly(to: start + 25) {
+                if let n = nose[Int((f.range() * 50).rounded())] {
+                    worstNose = max(worstNose, angleBetween(f.v.attitude.rotate(.unitX), n))
+                }
+                if damped == nil && f.v.angularVelocity.length < 1 * deg { damped = f.range() - start - tap }
+            }
+            let run = "tap of \(tap) s at \(start) s"
+            XCTAssertTrue(f.iu.log.contains { $0.event == "attitude back to the IU" }, run)
+            XCTAssertLessThan(try XCTUnwrap(damped), 6, run)
+            XCTAssertLessThan(worstNose, 2 * deg, run)
+            let error = rotationVector(f.v.attitude.conjugate * f.v.attitudeCommand!.attitude).length
+            XCTAssertLessThan(error, 1.5 * deg, run)
+        }
     }
 
     // An IU attached to a stack already flying (here coasting in orbit) takes
@@ -796,7 +944,8 @@ final class SaturnIUTests: XCTestCase {
 
     // The APS phase-plane logic (TVC datasheet §7.2: dead band ±1°, error
     // limits 2.5° pitch/yaw and 3.5° roll, EH 8.30: M; switching line slope
-    // 5 s and 0.06 s minimum on-time, placeholders): a hold command 20° away
+    // 5 s, Astrionics System Handbook Figures 3.4-5 and 3.4-6: M, "typical";
+    // 0.06 s minimum on-time, derived): a hold command 20° away
     // in pitch and 30° in roll slews at (limit - dead band) / 5 s, 0.30°/s in
     // pitch and 0.50°/s in roll (plus at most one pulse's increment), every
     // pulse lasts at least the minimum on-time, and each axis settles inside
@@ -831,7 +980,7 @@ final class SaturnIUTests: XCTestCase {
 
     // The fix for the APS drain in the pointing modes: on the light S-IVB
     // after TLI, Prograde under M0's law (no dead band, fractional levels)
-    // would empty both modules (298 kg, the FER-507 load) within the hour,
+    // would empty both modules (298.5 kg, AS-506's load: FER Table 7-5) within the hour,
     // while the phase-plane logic uses under 1 kg an hour and keeps the nose
     // within the dead band of the velocity.
     func testAPSDoesNotDrainHoldingPrograde() throws {
@@ -853,15 +1002,39 @@ final class SaturnIUTests: XCTestCase {
     // The phase plane decides once a step, so the simulation ends a coasting
     // step where an axis reaches the switching line. Holding in free space
     // (no orbital-period cap on the step) after the slew above, with the
-    // app's 1/60 s frames, the APS works as little at 10,000x as at 1x
-    // (under 1 kg/h; 47 kg/h at 10,000x with steps up to 60 s), and the
-    // error stays inside the dead band plus one pulse.
+    // app's 1/60 s frames, at 1x and at 10,000x over 1,000 s (at 10,000x six
+    // frames end exactly there) and over 7,333 s at 10,000x, the error stays
+    // inside the dead band plus one pulse. With nothing to disturb it the
+    // hold is a minimum-impulse limit cycle in roll: a pulse of the two roll
+    // engines changes the roll rate by Δω = 4,577 N m × 0.06 s / 2.01e5 kg m²
+    // (the stack's roll inertia, FER Table 20-10: no liquid spins with the
+    // tanks) = 0.078°/s, so the rate
+    // alternates between some a and Δω - a across the dead band, one pulse
+    // per crossing of 2 δ - K Δω = 1.61°; at worst (a = Δω / 2) 87 pulses of
+    // 33 g an hour, 2.85 kg/h. Each run stays within that and a few pitch or
+    // yaw pulses (2.66-2.82 kg/h), and under AS-506's 4.71 kg/h holding the
+    // local horizontal in its parking orbit, disturbances and all (FER Table
+    // 7-5: 11.11 kg from the end of the first ullage burn, 786.5 s, Table
+    // 2-2, to T6, 9,278.24 s, Table 2-1). The runs are not
+    // compared pulse for pulse: the switching-line prediction leaves out the
+    // error's kinematic drift (-ω × e / 2), so at 10,000x a crossing can come
+    // a coasting step late, and the pulse timing then drifts by up to a pulse
+    // (datasheet §13.4 item 8); with a roll inertia 0.04 % larger the 1x and
+    // 10,000x runs already part within the 1,000 s. The long run is a guard
+    // against draining.
     func testAPSHoldAtTimeWarp() throws {
-        var perHour: [Double] = [], worst: [Double] = []
-        for (warp, seconds) in [(1.0, 900.0), (10_000, 7200)] {
+        var perHour: [Double] = [], worst: [Double] = [], limitCycle = 0.0, pulse = 0.0
+        // App frames of 1/60 s: 60,000 at 1x and 6 at 10,000x make 1,000 s;
+        // 44 at 10,000x make 7,333 s.
+        for (warp, frames) in [(1.0, 60_000), (10_000, 6), (10_000, 44)] {
             let sim = try Simulation.forTests(perturbations: false)
             let v = sIVBInOrbit(sim)
             sim.placeInFreeSpace(v)
+            let law = try XCTUnwrap(v.phasePlane)
+            let dw = v.rotationAuthority().x * law.minimumOnTime / v.inertia[0, 0]
+            let flow = try XCTUnwrap(v.thrusters.first { $0.name.hasSuffix("roll/yaw +t") }).rating.massFlow
+            pulse = 2 * flow * law.minimumOnTime
+            limitCycle = 3600 * dw / (2 * (2 * law.deadband - law.rateGain * dw)) * pulse
             v.autopilot = .attitudeHold
             sim.tick()
             v.attitudeCommand = AttitudeCommand(attitude: v.attitude * Quat(axis: .unitY, angle: 20 * deg)
@@ -871,18 +1044,21 @@ final class SaturnIUTests: XCTestCase {
             let start = sim.time
             var error = 0.0
             sim.warp = warp
-            while sim.time - start < seconds {
+            for _ in 0..<frames {
                 sim.advance(by: 1.0 / 60)
                 let e = rotationVector(v.attitude.conjugate * v.attitudeCommand!.attitude)
                 error = max(error, abs(e.x), abs(e.y), abs(e.z))
             }
-            perHour.append((before - aps.reduce(0) { $0 + $1.mass }) * 3600 / (sim.time - start))
+            let seconds = sim.time - start
+            XCTAssertEqual(seconds, Double(frames) * warp / 60, accuracy: 1e-3)
+            perHour.append((before - aps.reduce(0) { $0 + $1.mass }) * 3600 / seconds)
             worst.append(error)
         }
-        XCTAssertLessThan(perHour[0], 1.5)
-        // At 1x the 900 s hold fires only two or three pulses (16 g each at
-        // the minimum on-time), so the rates can agree only to about a pulse.
-        XCTAssertEqual(perHour[1], perHour[0], accuracy: 0.5 * perHour[0])
+        let as506 = 11.11 / (9_278.24 - 786.5) * 3600
+        for rate in perHour {
+            XCTAssertLessThan(rate, limitCycle + 3 * pulse * 3600 / 1_000)
+            XCTAssertLessThan(rate, as506)
+        }
         for e in worst { XCTAssertLessThan(e, 1.1 * deg) }
     }
 

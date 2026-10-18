@@ -23,8 +23,9 @@ public enum AttitudeAutopilot: String, CaseIterable, Codable {
     /// without saturating (`Vessel.holdCanCapture`); it steers to either
     /// attitude only from then. The captured attitude lies short of where the
     /// turn stops by up to the law's swing, about 0.4 alpha rad with the
-    /// default gains (alpha the gimbal angular acceleration: 1.8° in pitch
-    /// and 12° in roll at liftoff). Under the FCC law it captures at once.
+    /// default gains (alpha the gimbal angular acceleration: 1.9° in pitch
+    /// and 114° in roll at liftoff mass in vacuum). Under the FCC law it
+    /// captures at once.
     /// With a flight program writing `attitudeCommand` (the Saturn's IU),
     /// selecting it hands the attitude back to the program.
     case attitudeHold = "Hold Att"
@@ -93,12 +94,68 @@ public struct FCCGains: Equatable {
     /// The same two gains in roll.
     public var rollA0: Double
     public var rollA1: Double
-    public init(a0: Double, a1: Double, rollA0: Double? = nil, rollA1: Double? = nil) {
+    /// Shaping of the attitude error ahead of a0 in pitch and yaw, and ahead
+    /// of the roll a0 (nil: none, a gain of 1). The rate term is not shaped.
+    public var attitudeFilter: FCCFilter?
+    public var rollAttitudeFilter: FCCFilter?
+    public init(a0: Double, a1: Double, rollA0: Double? = nil, rollA1: Double? = nil,
+                attitudeFilter: FCCFilter? = nil, rollAttitudeFilter: FCCFilter? = nil) {
         self.a0 = a0
         self.a1 = a1
         self.rollA0 = rollA0 ?? a0
         self.rollA1 = rollA1 ?? a1
+        self.attitudeFilter = attitudeFilter
+        self.rollAttitudeFilter = rollAttitudeFilter
     }
+}
+
+/// A first-order section of the flight control computer's signal shaping,
+/// H(s) = (b1 s + b0) / (s + p): an RC network on an analogue signal (the
+/// attitude error, rad). Written y = b1 u + x with x' = -p x + (b0 - b1 p) u,
+/// and stepped exactly for an input that moves linearly between the samples
+/// the law takes once a step, so it responds the same at any step.
+public struct FCCFilter: Equatable {
+    public let b1: Double
+    public let b0: Double
+    /// Pole, 1/s (> 0).
+    public let p: Double
+    public init(b1: Double = 0, b0: Double, p: Double) {
+        precondition(p > 0, "FCC filter pole must be positive")
+        self.b1 = b1
+        self.b0 = b0
+        self.p = p
+    }
+    /// k (s + z) / (s + p).
+    public init(gain k: Double, zero z: Double, pole p: Double) {
+        self.init(b1: k, b0: k * z, p: p)
+    }
+    /// k / (s + p).
+    public init(gain k: Double, pole p: Double) {
+        self.init(b1: 0, b0: k, p: p)
+    }
+    /// Gain at zero frequency, b0 / p.
+    public var staticGain: Double { b0 / p }
+    /// Output for input `u` with state `x`.
+    func output(_ u: Double, state x: Double) -> Double { b1 * u + x }
+    /// State `h` s on from `x`, the input moving linearly from `u0` to `u1`.
+    func advance(_ x: Double, from u0: Double, to u1: Double, dt h: Double) -> Double {
+        guard h > 0 else { return x }
+        let a = p * h, k = b0 - b1 * p
+        // phi1 = (1 - e^-a) / a and phi2 = (a - 1 + e^-a) / a^2, by series where they cancel.
+        let phi1 = a < 1e-4 ? 1 - a / 2 + a * a / 6 : -expm1(-a) / a
+        let phi2 = a < 1e-4 ? 0.5 - a / 6 + a * a / 24 : (a + expm1(-a)) / (a * a)
+        return exp(-a) * x + k * h * (u0 * phi1 + (u1 - u0) * phi2)
+    }
+}
+
+/// The FCC filters' state on each axis (roll, pitch, yaw): the attitude error
+/// they last took, the time since, and the filters they belong to.
+struct FCCFilterState {
+    var roll: FCCFilter?
+    var pitchYaw: FCCFilter?
+    var input: Vec3
+    var state: Vec3
+    var elapsed = 0.0
 }
 
 /// On/off phase-plane control of the rotation groups, the S-IVB APS logic
@@ -150,14 +207,15 @@ extension Vessel {
         let alpha = Vec3(authority.x / max(inertia[0, 0], 1e-6),
                          authority.y / max(inertia[1, 1], 1e-6),
                          authority.z / max(inertia[2, 2], 1e-6))
+        // The FCC law flies the gimbals when the IU commands the hold; its
+        // filters start afresh when it next flies.
+        let fcc = mode == .attitudeHold && attitudeCommand != nil && anyGimbal ? fccGains : nil
+        if fcc == nil { fccFilter = nil }
         guard alpha.x > 0 || alpha.y > 0 || alpha.z > 0 else {
             referenceAttitude = nil
             referenceRate = .zero
             return RotationCommand()
         }
-
-        // The FCC law flies the gimbals when the IU commands the hold.
-        let fcc = mode == .attitudeHold && attitudeCommand != nil && anyGimbal ? fccGains : nil
 
         // Gains of the gimbal law (below).
         let g = tvcGains
@@ -244,7 +302,7 @@ extension Vessel {
         if let fcc, let goal = attitudeCommand?.attitude {
             referenceAttitude = nil
             referenceRate = .zero
-            let e = rotationVector(attitude.conjugate * goal), w = angularVelocity
+            let e = shapedAttitudeError(rotationVector(attitude.conjugate * goal), fcc), w = angularVelocity
             let per = control.deflectionPerCommand
             func law(_ a0: Double, _ a1: Double, _ ek: Double, _ wk: Double, _ pk: Double) -> Double {
                 pk > 0 ? max(-1, min(1, (a0 * ek - a1 * wk) / pk)) : 0
@@ -311,6 +369,31 @@ extension Vessel {
         if byGimbal.pitch { command.pitch = law(e.y, wReference.y, w.y, alpha.y) }
         if byGimbal.yaw { command.yaw = law(e.z, wReference.z, w.z, alpha.z) }
         return command
+    }
+
+    /// The attitude error `e` (body axes, rad) through the FCC's attitude
+    /// filters of `g`, axis by axis (unfiltered where it has none). The
+    /// filters carry on across gain switches that keep them. When the law
+    /// starts flying, or the filters change, they start at rest: the error
+    /// of the moment reaches them as a step (under the IU it is near zero
+    /// then: at liftoff, and on a hand-back, which restarts the command from
+    /// the attitude).
+    func shapedAttitudeError(_ e: Vec3, _ g: FCCGains) -> Vec3 {
+        guard g.attitudeFilter != nil || g.rollAttitudeFilter != nil else {
+            fccFilter = nil
+            return e
+        }
+        let filters = [g.rollAttitudeFilter, g.attitudeFilter, g.attitudeFilter]
+        let u = [e.x, e.y, e.z]
+        var x = [0.0, 0.0, 0.0]
+        if let s = fccFilter, s.roll == g.rollAttitudeFilter, s.pitchYaw == g.attitudeFilter {
+            let u0 = [s.input.x, s.input.y, s.input.z], x0 = [s.state.x, s.state.y, s.state.z]
+            for k in 0..<3 { x[k] = filters[k]?.advance(x0[k], from: u0[k], to: u[k], dt: s.elapsed) ?? 0 }
+        }
+        fccFilter = FCCFilterState(roll: g.rollAttitudeFilter, pitchYaw: g.attitudeFilter, input: e,
+                                   state: Vec3(x[0], x[1], x[2]))
+        let y = (0..<3).map { filters[$0]?.output(u[$0], state: x[$0]) ?? u[$0] }
+        return Vec3(y[0], y[1], y[2])
     }
 
     /// The phase-plane law on the `flown` axes with authority (`alpha` > 0),
@@ -392,6 +475,7 @@ extension Vessel {
     /// this step's commands held.
     func advanceControlState(dt: Double) {
         advanceActuators(dt: dt)
+        fccFilter?.elapsed += dt
         let r = groupPulse.remaining
         groupPulse.remaining = Vec3(max(0, r.x - dt), max(0, r.y - dt), max(0, r.z - dt))
         if let r = referenceAttitude, referenceRate != .zero {
@@ -405,5 +489,6 @@ extension Vessel {
         heldAttitude = nil
         referenceAttitude = nil
         referenceRate = .zero
+        fccFilter = nil
     }
 }

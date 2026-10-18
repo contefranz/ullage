@@ -409,9 +409,13 @@ final class SaturnVControlTests: XCTestCase {
     // in roll, at liftoff mass), the hold waits for the actuators to unwind
     // before it captures: on release they are still at full deflection and
     // speed the turn up for about a second. It settles past the release,
-    // within the law's swing (about 0.4 alpha: 1.8° in pitch, 12° in roll)
-    // of where the turn stops, the longer tap further, and no actuator
-    // reaches a stop after the capture. Self-consistency only.
+    // within the law's swing (about 0.4 alpha, alpha the gimbals' angular
+    // acceleration: 1.9° in pitch, 114° in roll, where the model's roll
+    // inertia, 3.62e6 kg m² against FER Table 20-10's 3.70e6, gives alpha
+    // 4.95 rad/s²) of where the turn stops, the longer tap further, and no
+    // actuator reaches a stop after the capture. The roll tap turns the
+    // stack 1.6 times round, so the angle is unwrapped. Self-consistency
+    // only.
     func testHoldAfterAShortTapSettlesPastTheRelease() throws {
         var finals: [Double] = []
         for (pitch, tap) in [(true, 1.0), (true, 1.3), (false, 1.0)] {
@@ -423,6 +427,8 @@ final class SaturnVControlTests: XCTestCase {
                 for (tank, m) in zip(v.tanks, full) { tank.mass = m }
                 v.recenter()
             }
+            let control = v.controlAllocation(), inertia = v.inertia
+            let alpha = pitch ? control.authority.y / inertia[1, 1] : control.authority.x / inertia[0, 0]
             v.rotationInput = pitch ? RotationCommand(pitch: 1) : RotationCommand(roll: 1)
             sim.run(seconds: tap, afterEach: freeze)
             v.rotationInput = RotationCommand()
@@ -431,7 +437,9 @@ final class SaturnVControlTests: XCTestCase {
             sim.run(seconds: 20) {
                 freeze()
                 let r = rotationVector(released.conjugate * v.attitude)
-                angle.append(pitch ? r.y : r.x)
+                var a = pitch ? r.y : r.x
+                if let last = angle.last { a += 2 * .pi * ((last - a) / (2 * .pi)).rounded() }
+                angle.append(a)
                 if v.heldAttitude != nil
                     && v.thrusters.contains(where: { $0.gimbal.contains { abs($0.angle) >= $0.range.upperBound } }) {
                     onStop += 1
@@ -440,7 +448,7 @@ final class SaturnVControlTests: XCTestCase {
             let peak = angle.max()!, final = angle.last!, label = "\(pitch ? "pitch" : "roll") \(tap) s"
             XCTAssertEqual(onStop, 0, label)
             XCTAssertGreaterThan(final, 0.6 * peak, label)
-            XCTAssertLessThan(peak - final, (pitch ? 2.5 : 14) * deg, label)
+            XCTAssertLessThan(peak - final, 0.48 * alpha, label)
             XCTAssertLessThan(rotationVector(v.attitude.conjugate * v.heldAttitude!).length, 0.01 * deg, label)
             finals.append(final)
         }
@@ -470,14 +478,18 @@ final class SaturnVControlTests: XCTestCase {
             let kd = 2 * gains.dampingRatio * min(gains.naturalFrequency, 3 / control.slewTime)
             v.angularVelocity = Vec3(roll * alpha.x, pitchYaw * alpha.y, pitchYaw * alpha.z) * (1 / kd)
             v.autopilot = .attitudeHold
-            var onStop = 0, swing = 0.0
+            var onStop = 0, swing = 0.0, last: Double?
             sim.run(seconds: 10) {
                 freeze()
                 guard let held = v.heldAttitude else { return }
                 if v.thrusters.contains(where: { $0.gimbal.contains { abs($0.angle) >= $0.range.upperBound } }) {
                     onStop += 1
                 }
-                swing = max(swing, abs(rotationVector(held.conjugate * v.attitude).x))
+                // Unwrapped: a swing past half a turn must not read as a small one.
+                var a = rotationVector(held.conjugate * v.attitude).x
+                if let last { a += 2 * .pi * ((last - a) / (2 * .pi)).rounded() }
+                last = a
+                swing = max(swing, abs(a))
             }
             XCTAssertNotNil(v.heldAttitude, "\(roll)")
             XCTAssertEqual(onStop, 0, "\(roll)")
@@ -488,8 +500,16 @@ final class SaturnVControlTests: XCTestCase {
     // S13: in the S-IVB burn, a hold command with the nose exactly reversed
     // (a 180° yaw, or a half turn about another axis across the nose) turns
     // the nose about the command's own axis, as for a command a hair short
-    // of reversed: it arrives with the command's roll, so the APS has no
-    // roll to fly. Self-consistency only.
+    // of reversed: it arrives with the command's roll, so in its first 5 s
+    // the APS has no roll to fly. The one roll there is the free body's own
+    // (Euler's equations): Ixx dwx/dt = (Iyy - Izz) wy wz, with pitch and
+    // yaw inertias 4.66e3 kg m² apart (as encoded: the APS propellant at
+    // Positions I and III, 2 x 149 kg at 3.5 m, and the IU's FER pitch and
+    // yaw, one unit apart in the table's last digit) and a roll inertia of
+    // 2.0e5 kg m² (FER Table 20-10): 0.003°/s after the 5 s about
+    // (0, 0.5, 0.87), against 0.08°/s for one APS minimum pulse. (Over the
+    // whole reversal, about 98 s, it grows to about 0.04°/s, and the APS
+    // trims it from about 59 s.) Self-consistency only.
     func testSIVBBurnNoseReversalTurnsAboutTheCommandsAxis() throws {
         for axis in [Vec3.unitZ, Vec3(0, 0.5, 0.75.squareRoot())] {
             let (sim, v) = try freeSpace(.sIVBIgnition)
@@ -502,7 +522,7 @@ final class SaturnVControlTests: XCTestCase {
                 roll = max(roll, abs(v.angularVelocity.x))
             }
             XCTAssertEqual(aps, 0, "\(axis)")
-            XCTAssertLessThan(roll, 0.001 * deg, "\(axis)")
+            XCTAssertLessThan(roll, 0.005 * deg, "\(axis)")
         }
     }
 }

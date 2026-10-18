@@ -192,6 +192,8 @@ public final class SaturnIU: FlightProgram {
     private var secondStageLit = false
     private var thirdStageLit = false
     private var pilotHasAttitude = false
+    /// After a hand-back under the FCC law, until the vehicle's turn is damped.
+    private var settlingAfterHandBack = false
     private var localHorizontal = false
     private var lastCommand: Quat?
 
@@ -253,11 +255,22 @@ public final class SaturnIU: FlightProgram {
         if let cant = cantStart { applyCant(v, part: cant.part, since: now - cant.at) }
         if ullageOn { v.translationInput.x = 1 }
         // Back from the pilot: restart the command from the attitude now.
+        // Under the FCC law it keeps restarting it while the vehicle still
+        // turns faster than twice the command rate limit, so the law first
+        // only damps what the pilot left: a command restarted from a fast
+        // spin falls behind the attitude, and its error wraps past half a
+        // turn into pitch and yaw (a 1 s roll tap in the S-IC burn leaves
+        // about 120°/s with FER Table 20-10's roll inertia).
         let pilot = v.autopilot != .attitudeHold || !v.rotationInput.isZero
-        if pilotHasAttitude && !pilot, let angles = eulerAngles(of: v.attitude) {
+        if pilotHasAttitude && !pilot {
+            settlingAfterHandBack = true
+            log.append((now, "attitude back to the IU"))
+        }
+        if pilot { settlingAfterHandBack = false }
+        if settlingAfterHandBack, let angles = eulerAngles(of: v.attitude) {
             chi = angles
             lastCommand = v.attitude
-            log.append((now, "attitude back to the IU"))
+            settlingAfterHandBack = v.fccGains != nil && v.angularVelocity.length > 2 * plan.commandRateLimit
         }
         pilotHasAttitude = pilot
         commandAttitude(v, sim, now: now)

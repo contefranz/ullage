@@ -58,13 +58,16 @@ public final class PropellantTank {
         }
     }
 
-    /// Inertia of the propellant about its own centroid (a solid cylinder for
-    /// a column; zero for point and lumped tanks).
+    /// Inertia of the propellant about its own centroid: a column has a
+    /// solid cylinder's in pitch and yaw but none in roll, since the tank's
+    /// walls do not spin a liquid up about its axis (FER Table 20-10 counts
+    /// none: AS-506's roll inertia at liftoff is its dry structure's). Zero
+    /// for point and lumped tanks.
     var ownInertia: Mat3 {
         guard case let .settledColumn(_, length, r) = geometry else { return .zero }
         let h = length * fraction, m = mass
         let iyy = m * (3 * r * r + h * h) / 12
-        return .diagonal(Vec3(0.5 * m * r * r, iyy, iyy))
+        return .diagonal(Vec3(0, iyy, iyy))
     }
 }
 

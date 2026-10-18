@@ -36,9 +36,10 @@ enum AS506 {
     /// construction frame of `VesselLibrary.saturnV` is the station frame in metres.
     static func station(_ sta: Double) -> Double { sta * inch }
 
-    /// Apollo spacecraft stations convert as STA = Xa + 2756 in. Derived from
-    /// SLA base Xa 502 = IU top STA 3258, both recalled (L).
-    static let apolloStationOffset = 2_756.0
+    /// Apollo spacecraft stations convert as STA = Xa + 2756.56 in: the SLA
+    /// base, Xa 502, is the IU top, STA 3258.56 (AS-501 FER Fig. B-1; AOH
+    /// Fig. 1-1), H.
+    static let apolloStationOffset = 2_756.56
     static func apolloStation(_ xa: Double) -> Double { station(xa + apolloStationOffset) }
 
     /// Station of the F-1 nozzle-exit plane, the vehicle base: derived from the
@@ -63,9 +64,12 @@ enum AS506 {
     static let sICCenterCutoff = 135.20        // SP-4029 Apollo 11 Timeline and Ascent Phase (H)
     static let sICOutboardCutoff = 161.63      // SP-4029 Apollo 11 Summary; Mission Report (H). LOX depletion
     static let sICSeparation = 162.30          // SP-4029 Apollo 11 Ascent Phase (H)
-    /// S-II engine start (solenoid activation, STDV open; the start command
-    /// was at 163.04 s). The J-2s' start transient (`sIIJ2Transients`) gives
-    /// nothing for 1.09 s and full thrust from mainstage, 166.2 s (FER Table 2-2).
+    /// S-II engine start sequence command (FER Table 2-2); Table 20-10's
+    /// "2nd flight stage at start sequence command" event.
+    static let sIIStartCommand = 163.04        // FER Table 2-2 (H)
+    /// S-II engine start (solenoid activation, STDV open), after the start
+    /// command `sIIStartCommand`. The J-2s' start transient (`sIIJ2Transients`)
+    /// gives nothing for 1.09 s and full thrust from mainstage, 166.2 s (FER Table 2-2).
     static let sIIIgnition = 164.00            // SP-4029 Propellant Usage and Ascent Phase durations; FER Table 2-2 (H)
     static let interstageJettison = 192.3      // SP-4029 Apollo 11 Timeline (H)
     static let lesJettison = 197.9             // SP-4029 Apollo 11 Timeline; Apollo Flight Journal (M-H)
@@ -141,10 +145,12 @@ enum AS506 {
     /// Tilt arrest, s from T1: AS-506's at range 160.0 s (FER Table 2-2, T2 +
     /// 24.7 s; predicted T2 + 25.5). SA-504's preset was 153.0 s (GE504).
     static let tiltArrest = 160.0 - liftoff    // FER (H for the time, to a computation cycle)
-    /// AS-506's commanded pitch (MAN506 Figure 2-2) follows SA-504's
+    /// AS-506's commanded pitch (MAN506 Figure 2-2) seemed to follow SA-504's
     /// polynomial to within the figure's reading accuracy, about 1°: -20° a
     /// minute after first motion, -56° at two minutes and -67.5° at the
-    /// arrest, against -20.6, -56.5 and -68.0°. Flown by this model, that
+    /// arrest, against -20.6, -56.5 and -68.0°. AS-506's own command,
+    /// reconstructed from its postflight trajectory and FER Figure 11-1, was
+    /// not a scaled SA-504 polynomial (datasheet §14.1). Flown by this model, that
     /// program leaves the S-IC 1.3° steeper and 1.8 km higher at OECO than
     /// AS-506 flew, even with the S-IC's thrust, flow and masses matching the
     /// FER and with its sourced aerodynamics (datasheet §8.5, §11.5). The IU
@@ -180,6 +186,27 @@ enum AS506 {
     /// its APS does.
     static let sICRollGains = (a0: 0.245, a1: 0.15)    // D5-15481-1 (L)
     static let sIIRollGains = (a0: 0.25, a1: 0.20)     // D5-15481-1 (L)
+    /// The S-IC roll attitude-gain filter 2.35/(s + 2.35): the flight control
+    /// computer's shaping of the roll attitude error ahead of a0 (beta = a0 F
+    /// e + a1 w), a 0.43 s lag with static gain 1, so a steady error is held
+    /// as before. D5-15481-1 §3.5 (pp. 3-5, 3-6, read from the page images),
+    /// from the SA-503 flight control design release (Boeing FCD-H-027,
+    /// 1966): L for AS-506. It pairs with the roll gains above, which are the
+    /// same document's. With FER Table 20-10's roll inertia the roll loop on
+    /// them is near critically damped without it (zeta 0.90 at the roll
+    /// program's start); with it the start overshoots, 1.24°/s, and the end
+    /// undershoots, -0.24°/s, as FER Figure 11-3's post-flight simulation
+    /// does (-0.28°/s; datasheet §8.6). REF504's other filters are 1 (the
+    /// rate channels, the S-II), except the S-IC's pitch and yaw
+    /// attitude-gain filter 0.4(s + 0.095)/(s + 0.038), which the model does
+    /// not fly: it belongs to REF504's pitch and yaw gains, not to TN
+    /// D-5869's that the model flies, and REF504's gains with it move the
+    /// S-IC pitch error from 20 to 100 s away from FER Figure 11-1 (rms 0.151°
+    /// against 0.084° unfiltered); with the model's gains it moves it away
+    /// too (0.123° against 0.091°), and its effect on the tower-clearance yaw
+    /// is mixed (closer in peak size and return rate, later in its peak, 9.1
+    /// against AS-506's 6.9 s, FER Figure 11-2). An open choice (datasheet §8.9).
+    static let sICRollAttitudeFilter = FCCFilter(gain: 2.35, pole: 2.35)   // D5-15481-1 §3.5 (L)
     /// S-IC centre engine cutoff, commanded by the IU at T1 + 134.56 s (range
     /// 135.20, FER Table 2-2 and §5.1, H); the LVDC senses it and starts T2.
     static let sICCenterCutoffTime = 134.56    // s from T1; FER (H)
@@ -379,8 +406,8 @@ enum AS506 {
     /// S-IVB stage: structure, aft skirt, J-2 (dry); aft interstage and IU excluded.
     static let sIVBDry = 24_852.0                // SP-4029 Ground Ignition Weights (H)
     /// Not itemised. It holds the APS propellant, which the builder moves into
-    /// the APS tanks (2 x (`apsOxidizerLoad` + `apsFuelLoad`) = 657 lb); the
-    /// other 999 lb are helium, the TX-280 ullage motors (53 kg of grain and
+    /// the APS tanks (2 x (`apsOxidizerLoad` + `apsFuelLoad`) = 658 lb); the
+    /// other 998 lb are helium, the TX-280 ullage motors (53 kg of grain and
     /// 61 kg of cases, which the builder moves to their own part), the aft
     /// frame that leaves with the S-II (23 kg) and the rest (datasheet §7.3, §12).
     static let sIVBOther = 1_656.0               // SP-4029 Ground Ignition Weights (H)
@@ -663,13 +690,18 @@ enum AS506 {
     // mostly recalled from the Saturn V Flight Manual MSFC-MAN-503 and the
     // Saturn V News Reference: low confidence unless marked.
 
-    static let sICTop = 1_541.0                      // STA, S-IC/S-II separation plane (M-L)
+    static let sICTop = 1_541.0                      // STA, S-IC forward skirt top (M-L)
+    /// The S-IC/S-II separation plane: the small interstage ring between it
+    /// and the S-IC top leaves with the S-IC (the model's S-IC part ends at
+    /// the S-IC top and carries the ring's mass).
+    static let sICSIISeparationPlane = 1_564.0       // STA, FER-501 §12.2.3 (M)
     static let sIIAftSkirt = 1_760.0                 // STA, second plane: interstage top (L)
     static let sIITop = 2_519.0                      // STA, S-II forward skirt top (L-M)
-    /// S-II/S-IVB separation plane, recalled (L); an alternative reading puts it near STA 2646.
-    static let sIVBAftSkirt = 2_746.5                // STA (L)
-    static let sIVBTop = 3_222.0                     // STA, S-IVB/IU (L-M)
-    static let iuTop = 3_258.0                       // STA, IU/SLA = Xa 502 (M-L)
+    /// S-II/S-IVB separation plane, the S-IVB aft skirt's bottom (MSFC-MAN-506
+    /// Fig. 5-19: "S-II/S-IVB separation plane, station no. 2746.5").
+    static let sIVBAftSkirt = 2_746.5                // STA, AS-501 FER Fig. B-1, D5-15481-1 Fig. 3-1 (H)
+    static let sIVBTop = 3_222.56                    // STA, S-IVB/IU, AS-501 FER Fig. B-1, D5-15481-1 Fig. 3-1 (H)
+    static let iuTop = 3_258.56                      // STA, IU/SLA = Xa 502, same sources (H)
     static let slaTop = 838.0                        // Xa, SLA top = SM aft bulkhead (L)
     static let smTop = 1_010.0                       // Xa, SM/CM (L)
     static let cmApex = 1_137.0                      // Xa (L)
@@ -685,35 +717,69 @@ enum AS506 {
     /// F-1 gimbal plane, the aft end of the S-IC thrust structure.
     static let f1GimbalStation = 100.0               // STA, Project Apollo Coordinate System Standards (M)
     static let f1OutboardRadius = 182.0              // in, fan wiki only (L); the bells sit under the fairings
-    static let sIIJ2GimbalHeight = 48.4              // m, estimate ±1 m (L)
-    static let sIIJ2ExitHeight = 45.0                // m, estimate ±1 m (L)
+    /// The S-II J-2s' gimbal plane is S-II station XB 100 (XB 196 = STA 1760);
+    /// their exits hang 16 in below the S-IC/S-II separation plane, STA 1564
+    /// (FER-501 §12.2.3), 116 in below the gimbals as on the S-IVB.
+    static let sIIJ2GimbalStation = 1_664.0          // STA, D5-15481-1 Fig. 3-1 "GIMBAL STA 1664.000" (H)
+    static let sIIJ2ExitStation = 1_548.0            // STA (M)
     static let sIIOutboardCircle = 17.5              // ft, diameter of the outboard J-2 circle, enginehistory.org (M)
-    /// About 1 m below the S-IVB part's own aft end (`sIVBAftSkirt`, h 72.68),
-    /// as is the LOX extent's aft apex (72.5): the estimates disagree within
-    /// their ±1 m, and the alternative separation plane (STA ≈ 2646, h 70.15)
-    /// would resolve it. Still unresolved: the J-2's lever arm runs from this
-    /// point, and ±1 m changes its pitch and yaw authority by about ±11 %.
-    static let sIVBJ2GimbalHeight = 71.7             // m, estimate ±1 m (L)
-    static let sIVBJ2ExitHeight = 68.3               // m, estimate ±1 m (L)
+    /// The S-IVB J-2's gimbal is S-IVB station 100, 100.65 in below the
+    /// S-II/S-IVB separation plane (the aft skirt's bottom, STA 2746.5): the
+    /// engine hangs inside the aft interstage. Its exit is where the bell
+    /// had to travel 217 in to clear that plane (FER-501 §12.4.3).
+    static let sIVBJ2GimbalStation = 2_645.85        // STA, D5-15481-1 Fig. 3-1 "GIMBAL STA 2645.853", AS-501 FER Fig. B-1 (H)
+    static let sIVBJ2ExitStation = 2_529.5           // STA (M)
 
     /// LM stowed in the SLA: stowed geometry was not found.
     static let lmBottomHeight = 85.9                 // m, estimate (L)
     static let lmTopHeight = 90.9                    // m, estimate (L): clears the SPS exit at ≈ 91.08
     static let lmRadius = 2.1                        // m, estimate (L)
+    /// The LM's CG in the SLA: FER Table 20-10's predicted "CSM separated"
+    /// (33,093 kg at STA 3101.6) less its predicted "spacecraft separated"
+    /// (17,980 kg at STA 2898.2) leaves exactly the FER's predicted LM,
+    /// 15,113 kg, at STA 3343.6. The actual rows leave 15,436 kg at 3330.8:
+    /// they also carry 341 kg the S-IVB lost (venting, APS) between the two
+    /// events, which put back at the S-IVB gives 3343.6 again. (The same table's
+    /// "CSM docked" less "CSM separated" is the CSM, 28,806 kg, the model's
+    /// mass.)
+    static let lmCenterOfMass = 3_343.6              // STA, derived from FER Table 20-10 (M)
 
-    /// Dry CoM of the S-IC (the engines dominate it). No other dry CG was found.
-    static let sICDryCoMHeight = 14.0                // m, estimate (L)
+    // MARK: Mass characteristics (FER Table 20-10, datasheet §13)
 
-    // Propellant extents, m above the base (aft and forward dome apexes, or
-    // the common-bulkhead rim for the S-II LH2): estimates from the loads and
-    // diameters with assumed domes, ±1.5 m (L). The model puts each load's
-    // centroid at the middle of its extent.
-    static let sICRP1Extent = (aft: 8.1, forward: 19.8)
-    static let sICLOXExtent = (aft: 21.3, forward: 40.5)
-    static let sIILOXExtent = (aft: 47.9, forward: 54.2)
-    static let sIILH2Extent = (aft: 51.1, forward: 66.7)
-    static let sIVBLOXExtent = (aft: 72.5, forward: 76.5)
-    static let sIVBLH2Extent = (aft: 76.5, forward: 84.0)
+    /// A row of FER Table 20-10, "Mass Characteristics Comparison" (actual):
+    /// mass (kg), longitudinal CG (STA, in), and the roll, pitch and yaw
+    /// moments of inertia about that CG (kg m²). Read twice independently,
+    /// every cell agreeing (H).
+    struct MassRow {
+        let mass: Double, station: Double, roll: Double, pitch: Double, yaw: Double
+    }
+    static let sICStageDry = MassRow(mass: 130_422, station: 368.8, roll: 2.591e6, pitch: 16.578e6, yaw: 16.496e6)
+    /// With the small ring and the S-II ullage motors.
+    static let sICSIIInterstageTotal = MassRow(mass: 5_255, station: 1_638.8, roll: 0.134e6, pitch: 0.080e6,
+                                               yaw: 0.081e6)
+    static let sIIStageDry = MassRow(mass: 36_158, station: 1_892.3, roll: 0.597e6, pitch: 1.997e6, yaw: 2.009e6)
+    /// With the S-II retros.
+    static let sIISIVBInterstageTotal = MassRow(mass: 3_650, station: 2_595.9, roll: 0.065e6, pitch: 0.043e6,
+                                                yaw: 0.044e6)
+    /// With the S-IVB's aft frame and its ullage motors' cases.
+    static let sIVBStageDry = MassRow(mass: 11_273, station: 2_856.7, roll: 0.081e6, pitch: 0.296e6, yaw: 0.296e6)
+    static let instrumentUnit = MassRow(mass: 1_940, station: 3_244.7, roll: 0.019e6, pitch: 0.010e6, yaw: 0.009e6)
+
+    // Where each tank holds its load at first motion: the liquid's centroid
+    // (STA, in), the ullage gas on top, from the tanks' geometry (datasheet
+    // §13): AS-501 FER Fig. B-1 (stations), MSFC-MAN-506 (S-IC tank heights,
+    // S-IVB volumes and ullages), the S-II technicians' manual (bulkheads,
+    // a/b 1.5), TN D-3968 (S-IVB domes and common bulkhead, R 130 in). The
+    // model's column keeps that centroid when full and drains towards its
+    // aft end. The S-IC's include the propellant below the tanks, in the
+    // suction lines and engines (FER Table 20-1 at holddown: 21,868 kg of
+    // LOX and 5,983 kg of RP-1 of the 1,468,594 and 637,830 kg).
+    static let sICLOXCentroid = 1_130.2          // the tank's 1,139.9 (ullage ~4.7 %, L) and the lines' at ~486 (L)
+    static let sICRP1Centroid = 470.6            // the tank's 473.1 (aft Y-ring and ullage inferred, L) and the lines' at ~212 (L)
+    static let sIILOXCentroid = 1_836.2          // ellipsoid 1716-1980, ullage 10-12 % (L)
+    static let sIILH2Centroid = 2_196.0          // 1848-2519 over the common bulkhead, ullage 2.6-5.2 % (L)
+    static let sIVBLOXCentroid = 2_788.05        // lens 2702-2880, ullage 108 of 2,830 ft³ (M)
+    static let sIVBLH2Centroid = 3_007.97        // 2791-3230.56, ullage 300 of 10,400 ft³ (M)
 
     // Nominal liquid densities, kg/m^3 (they only set the column heights).
     static let loxDensity = 1_141.0
@@ -966,24 +1032,30 @@ enum AS506 {
     /// One SE-7-1 ullage engine per module, thrust along +x.
     static let apsUllageThrust = 72.0                // lbf, "operated at" (70 nominal), APS-TN; NASM (H)
     static let apsUllageIsp = 290.0                  // s, PLACEHOLDER (not found)
-    /// Per module: the AS-507 loads at liftoff (AS-506 not found) split
-    /// equally between the modules. They leave `sIVBOther`, so the S-IVB part
-    /// total is unchanged.
-    static let apsOxidizerLoad = 202.5               // lb N2O4, FER-507 405 lb / 2 (M as a proxy; split L)
-    static let apsFuelLoad = 126.0                   // lb MMH, FER-507 252 lb / 2 (M as a proxy; split L)
-    /// Feed mixture ratio: the load ratio, 1.607, so both tanks empty together
+    /// Per module: AS-506's loads (FER Table 7-5, read from the page image;
+    /// AS-507 loaded 405 and 252 lb in all). They leave `sIVBOther`, so the
+    /// S-IVB part total is unchanged.
+    static let apsOxidizerLoad = 203.0               // lb N2O4, FER Table 7-5 (H)
+    static let apsFuelLoad = 126.0                   // lb MMH, FER Table 7-5 (H)
+    /// Feed mixture ratio: the load ratio, 1.611, so both tanks empty together
     /// (the engines' operating ratio was not found).
-    static let apsMixtureRatio = apsOxidizerLoad / apsFuelLoad   // derived (M): FER-507 load ratio 405 / 252 lb = 1.607
+    static let apsMixtureRatio = apsOxidizerLoad / apsFuelLoad   // derived (M): 203 / 126 lb = 1.611
 
     /// APS control logic (datasheet §7.2): an attitude dead band on each
     /// axis, error limits that bound the manoeuvre rate, a rate term and a
     /// minimum pulse.
-    static let apsDeadband = 1.0                     // deg each axis (2° effective band), EH 8.30; ASTP SA-210 (M)
-    static let apsErrorLimitPitchYaw = 2.5           // deg, EH 8.30 (M)
-    static let apsErrorLimitRoll = 3.5               // deg, EH 8.30 (M)
-    /// Switching line e - K w: PLACEHOLDER (not found). With the limits it
-    /// gives manoeuvre rates of about 0.3°/s in pitch and yaw, 0.5°/s in roll.
-    static let apsRateGain = 5.0                     // s, PLACEHOLDER
+    static let apsDeadband = 1.0                     // deg each axis (2° effective band), EH 8.30; ASTP SA-210; MAN503 p. 6-22 (M)
+    static let apsErrorLimitPitchYaw = 2.5           // deg, EH 8.30; MAN503 p. 6-22 (M)
+    static let apsErrorLimitRoll = 3.5               // deg, EH 8.30; MAN503 p. 6-22 (M)
+    /// Switching line e - K w: the Astrionics System Handbook's typical S-IVB
+    /// APS dead bands (MSFC IV-4-401-1 §3.4, Figures 3.4-5 roll and 3.4-6
+    /// coast, p. 3.4-6) cross ±1° at zero rate and ±0.2°/s at zero error, so
+    /// K = 1° / 0.2°/s; Figure 3.4-5's roll lines level off beyond the 3.5°
+    /// clip, at 0.52 and 0.92°/s. "Typical", not AS-506's own (M). With the
+    /// limits it gives manoeuvre rates of 0.3°/s in pitch and yaw, 0.5°/s in
+    /// roll. Not modelled: Figure 3.4-6's intermittent-firing band (pulses
+    /// from the dead band line out to 1.6° on e - K w, full thrust beyond).
+    static let apsRateGain = 5.0                     // s, ASH Figures 3.4-5 and 3.4-6 (M)
     /// Minimum on-time at full thrust: the 7.5 lbf s minimum impulse bit
     /// (APS-TN, M-H) is 51 ms at 147 lbf; three 0.02 s steps give 39.2 N s.
     static let apsMinimumOnTime = 0.06               // s, derived

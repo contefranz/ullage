@@ -9,12 +9,14 @@ extension SaturnIU {
         typealias D = AS506
         let deg = D.degree
         let tilt = tilt ?? D.tiltProgram
-        func gains(_ g: (start: Double, a0: Double, a1: Double), roll: (a0: Double, a1: Double)) -> Action {
-            .gains(FCCGains(a0: g.a0, a1: g.a1, rollA0: roll.a0, rollA1: roll.a1))
+        func gains(_ g: (start: Double, a0: Double, a1: Double), roll: (a0: Double, a1: Double),
+                   rollFilter: FCCFilter? = nil) -> Action {
+            .gains(FCCGains(a0: g.a0, a1: g.a1, rollA0: roll.a0, rollA1: roll.a1, rollAttitudeFilter: rollFilter))
         }
 
         var sequence: [Event] = [
-            Event(.t1, 0, "S-IC flight control gains", gains(D.sICGains[0], roll: D.sICRollGains)),
+            Event(.t1, 0, "S-IC flight control gains",
+                  gains(D.sICGains[0], roll: D.sICRollGains, rollFilter: D.sICRollAttitudeFilter)),
             Event(.t1, D.cantOn, "S-IC outboard engine cant", .startCant("S-IC")),
             Event(.t1, D.sICCenterCutoffTime, "S-IC centre engine cutoff", .engineCutoff("S-IC engine 5")),
             Event(.t3, 0, "S-IC outboard engine cutoff", .mainThrottle(0)),
@@ -39,7 +41,8 @@ extension SaturnIU {
             Event(.t5, D.tb5UllageOff, "APS ullage off", .ullage(false)),
         ]
         for g in D.sICGains.dropFirst() {
-            sequence.append(Event(.t1, g.start, "S-IC flight control gains", gains(g, roll: D.sICRollGains)))
+            sequence.append(Event(.t1, g.start, "S-IC flight control gains",
+                                  gains(g, roll: D.sICRollGains, rollFilter: D.sICRollAttitudeFilter)))
         }
         for g in D.sIIGains.dropFirst() {
             sequence.append(Event(.t3, g.start, "S-II flight control gains", gains(g, roll: D.sIIRollGains)))
