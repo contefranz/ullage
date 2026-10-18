@@ -65,13 +65,19 @@ extension VesselLibrary {
             .frustum(from: local(p, bottom, y, z), length: top - bottom, baseRadius: r0, topRadius: r1, color: color)
         }
         /// A settled column holding `load` kg, whose full-load centroid is at
-        /// `centroid` (STA, in).
+        /// `centroid` (STA, in). Any `lines` (kg at a station on the axis) are
+        /// part of the load, below the tank proper, which the engines empty
+        /// first: the column holds the rest, about the centroid that keeps the
+        /// whole load's.
         func tank(_ name: String, in p: VesselPart, load m: Double, unusable: Double = 0,
-                  centroid station: Double, density: Double) -> PropellantTank {
-            let centroid = local(p, D.station(station))
+                  centroid station: Double, density: Double,
+                  lines: (mass: Double, station: Double)? = nil) -> PropellantTank {
+            let inLines = lines?.mass ?? 0, proper = m - inLines
+            let properStation = (m * station - inLines * (lines?.station ?? 0)) / proper
             return PropellantTank(name: name, capacity: m, unusableMass: unusable,
-                                  geometry: .column(fullLoadCentroid: centroid, radius: p.radius, capacity: m,
-                                                    density: density))
+                                  geometry: .column(fullLoadCentroid: local(p, D.station(properStation)),
+                                                    radius: p.radius, capacity: proper, density: density),
+                                  feedLines: lines.map { (mass: $0.mass, position: local(p, D.station($0.station))) })
         }
         /// Five engines on one bipropellant feed, gimballed at `gimbal`: engines
         /// 1-4 at `radius` on the diagonals under fins A-D, with `actuators`;
@@ -149,9 +155,9 @@ extension VesselLibrary {
         sIC.dryInertia = sICMass.inertia
         sIC.separationSpeed = 0
         let sICLOX = tank("S-IC LOX", in: sIC, load: D.sICLOXAtFirstMotion, unusable: D.sICLOXAtCutoff,
-                          centroid: D.sICLOXCentroid, density: D.loxDensity)
+                          centroid: D.sICLOXCentroid, density: D.loxDensity, lines: D.sICLOXLines)
         let sICRP1 = tank("S-IC RP-1", in: sIC, load: D.sICRP1AtFirstMotion, centroid: D.sICRP1Centroid,
-                          density: D.rp1Density)
+                          density: D.rp1Density, lines: D.sICRP1Lines)
         sIC.tanks = [sICLOX, sICRP1]
         sIC.shapes = [frustum(sIC, D.station(D.f1GimbalStation), D.station(D.sICTop), body, body, white)]
         cluster(sIC, rating: D.f1, schedule: D.f1Schedule, transients: D.f1Transients,

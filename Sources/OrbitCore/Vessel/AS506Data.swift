@@ -19,6 +19,10 @@ import Foundation
 ///   Coordinate System Standards (CSS); Coates and Donald, SA-501 S-IVB APS
 ///   flight anomalies, NTRS 19690016846 (APS-TN); AS-507 Flight Evaluation
 ///   Report (FER-507); AS-201 flight results; National Air and Space Museum.
+/// - Stations, corroborating (datasheet §13): Boeing's Saturn V/Apollo flight
+///   configuration diagram (MSFC, 1 March 1967; NASA image 9253429);
+///   MSFC-MAN-504 Figs 4-1, 5-1 and 6-1 and §6; MSFC-MAN-506 Fig 5-19; the
+///   J-2 drawing in the Saturn V News Reference's fact sheet.
 ///
 /// Confidence as graded by the datasheet: (H) high, (M) medium, (L) low.
 /// "Derived" is arithmetic on published values, "estimate" is the datasheet's
@@ -688,15 +692,16 @@ enum AS506 {
     //
     // Stations (in) and heights (m above the base) from the M1 datasheet's §4,
     // mostly recalled from the Saturn V Flight Manual MSFC-MAN-503 and the
-    // Saturn V News Reference: low confidence unless marked.
+    // Saturn V News Reference, unless marked; the interfaces from the S-IC
+    // top to the IU and the J-2 gimbals are sourced (§13).
 
-    static let sICTop = 1_541.0                      // STA, S-IC forward skirt top (M-L)
+    static let sICTop = 1_541.0                      // STA, S-IC forward skirt top; NASA image 9253429, MSFC-MAN-504 Fig 5-1 (H)
     /// The S-IC/S-II separation plane: the small interstage ring between it
     /// and the S-IC top leaves with the S-IC (the model's S-IC part ends at
     /// the S-IC top and carries the ring's mass).
     static let sICSIISeparationPlane = 1_564.0       // STA, FER-501 §12.2.3 (M)
-    static let sIIAftSkirt = 1_760.0                 // STA, second plane: interstage top (L)
-    static let sIITop = 2_519.0                      // STA, S-II forward skirt top (L-M)
+    static let sIIAftSkirt = 1_760.0                 // STA, second plane: interstage top; MSFC-MAN-506 Fig 5-19, NASA image 9253429 (H)
+    static let sIITop = 2_519.0                      // STA, S-II forward skirt top; NASA image 9253429, MSFC-MAN-504 Fig 5-1 (H)
     /// S-II/S-IVB separation plane, the S-IVB aft skirt's bottom (MSFC-MAN-506
     /// Fig. 5-19: "S-II/S-IVB separation plane, station no. 2746.5").
     static let sIVBAftSkirt = 2_746.5                // STA, AS-501 FER Fig. B-1, D5-15481-1 Fig. 3-1 (H)
@@ -776,6 +781,16 @@ enum AS506 {
     // LOX and 5,983 kg of RP-1 of the 1,468,594 and 637,830 kg).
     static let sICLOXCentroid = 1_130.2          // the tank's 1,139.9 (ullage ~4.7 %, L) and the lines' at ~486 (L)
     static let sICRP1Centroid = 470.6            // the tank's 473.1 (aft Y-ring and ullage inferred, L) and the lines' at ~212 (L)
+    /// The part of each S-IC load in its suction lines and engines that stays
+    /// there to OECO, held below the tank proper, which the engines empty
+    /// first (`PropellantTank.feedLines`): of the 21,868 kg of LOX and 5,983
+    /// kg of RP-1 below the tanks at holddown, 16,761 and 5,946 kg at OECO
+    /// (FER Table 20-1). The LOX lines' whole contents at about STA 486 run
+    /// from the tank's bottom (772) down to about 200; drained from the top,
+    /// the 16,761 kg left fill them to 638, whose middle is 419 (L). The RP-1
+    /// barely drains (L). The whole loads' centroids above are unchanged.
+    static let sICLOXLines = (mass: 16_761.0, station: 419.2)   // kg, FER Table 20-1 (H); STA (L)
+    static let sICRP1Lines = (mass: 5_946.0, station: 212.0)    // kg, FER Table 20-1 (H); STA (L)
     static let sIILOXCentroid = 1_836.2          // ellipsoid 1716-1980, ullage 10-12 % (L)
     static let sIILH2Centroid = 2_196.0          // 1848-2519 over the common bulkhead, ullage 2.6-5.2 % (L)
     static let sIVBLOXCentroid = 2_788.05        // lens 2702-2880, ullage 108 of 2,830 ft³ (M)
@@ -881,7 +896,7 @@ enum AS506 {
         (4.0, 2.858), (4.5, 2.858), (5.0, 2.864), (5.25, 2.917), (5.5, 3.025), (5.75, 3.175), (6.0, 3.299),
         (6.25, 3.364), (6.5, 3.385), (6.75, 3.396), (7.0, 3.401), (7.5, 3.402), (8.0, 3.397),
     ])
-    static let sIIGimbalStation = 1_664.0                // in; REF504 Fig 3-1 (H; as the S-II CP origin, inferred)
+    static let sIIGimbalStation = 1_664.0                // in; REF504 Fig 3-1 (H): the S-II gimbal plane (sIIJ2GimbalStation)
     /// S-IVB stage flight: a constant free-molecular-flow drag coefficient on
     /// 33.47 m², along the relative wind, no lift (REF504 §3.1, from
     /// R-AERO-AD-66-54).
