@@ -18,7 +18,9 @@ native macOS simulator. Each milestone should be flyable on its own.
 
 - Saturn V stack: S-IC, S-II, S-IVB, IU, CSM, LES; real masses, F-1/J-2 performance
   *(done: AS-506 at first motion, calibrated to its Flight Evaluation Report: the F-1s'
-  flow history, the S-II's three mixture-ratio settings, start and shutdown transients)*
+  flow history, the S-II's three mixture-ratio settings, start and shutdown transients; its
+  mass distribution sourced, the vehicle's CG and roll and pitch inertias checked against the
+  report's mass characteristics at its 12 ascent events)*
 - Engine gimballing and thrust vector control
   *(done: gimballed outboard F-1s and J-2s and the S-IVB J-2, attitude hold with a
   command seam for the IU, S-IVB APS)*
@@ -35,6 +37,11 @@ native macOS simulator. Each milestone should be flyable on its own.
   *(done: axial force by the Saturn V flight-evaluation method, normal force and centre of
   pressure from the design data, their moments about the centre of mass, and the launch day's
   measured atmosphere and winds)*
+- Ascent residuals against AS-506's postflight trajectory
+  *(diagnosed: the fitted pitch scale, the S-IC's speed deficit and the late S-IVB cutoff are
+  placed by stage; to do: AS-506's pitch program in place of the scale, the S-II's
+  mixture-ratio transition and the stages' thrust-to-mass items, after the WGS-84 pad)*
+- WGS-84 Earth ellipsoid: the geodetic pad, altitude and surface contact
 - Nutation in Earth orientation; IAU 2006 precession
 - Real launch scenario (Apollo 11, 16 July 1969, 13:32:00 UTC, LC-39A)
 
