@@ -33,7 +33,6 @@ final class NominalFlight {
     let sim: Simulation
     let stack: Vessel
     let iu: SaturnIU
-    let start: Epoch
     private(set) var samples: [Sample] = []
 
     private init() {
@@ -41,7 +40,6 @@ final class NominalFlight {
         stack = VesselLibrary.apollo11OnPad(in: sim)
         stack.mainThrottle = 1
         iu = stack.flightProgram as! SaturnIU
-        start = sim.time
         record()
         var lastSparse = 0.0
         while range() < Self.end {
@@ -56,9 +54,9 @@ final class NominalFlight {
     }
 
     /// Range time now, s.
-    func range() -> Double { sim.time - start + AS506.firstMotion }
+    func range() -> Double { sim.time - AS506.rangeZero }
     /// Range time of an epoch (an IU log entry).
-    func range(_ e: Epoch) -> Double { e - start + AS506.firstMotion }
+    func range(_ e: Epoch) -> Double { e - AS506.rangeZero }
 
     private func record() {
         var states: [String: State] = [:]

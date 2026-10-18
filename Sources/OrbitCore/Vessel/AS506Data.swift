@@ -52,16 +52,28 @@ enum AS506 {
     /// Construction x (m) of a datasheet height `h` (m above the base).
     static func height(_ h: Double) -> Double { h + station(baseStation) }
 
-    // MARK: Launch site
+    // MARK: Launch site (datasheet §15)
 
-    /// LC-39A at its geocentric latitude, where the datasheet puts the pad on
-    /// the spherical sim Earth so that the Earth-rotation speed and the
-    /// inclination for a given azimuth match (the geodetic 28.608° gives about
-    /// 0.13° more inclination at 72°). Its parking-orbit targets assume this pad.
-    static let padLatitude = 28.4470               // deg, geocentric; SP-4029 Ascent Phase (H)
+    /// LC-39A: AS-506's launch-site latitude, geodetic, as its space-fixed
+    /// frame's vertical was (FER §10: PACSS 13; GE504's sin φ_L 0.478814),
+    /// on the WGS-84 Earth.
+    static let padLatitude = 28.6084               // deg, geodetic; FER; GE504 (H)
+    /// The same pad as SP-4029 gives it, geocentric: kept to check the two
+    /// against each other on the ellipsoid (they agree to 0.0001°).
+    static let padGeocentricLatitude = 28.4470     // deg, geocentric; SP-4029 Ascent Phase (H)
     static let padLongitude = -80.6041             // deg; SP-4029 Ascent Phase (H)
+    /// The vehicle base's height above the ellipsoid: the postflight
+    /// trajectory's 59 m at first motion (PFT Table B-III) less the model's
+    /// 33 m from the base to the centre of mass, taken above WGS 84. The
+    /// PFT's altitudes are over the Fischer ellipsoid, 30 m higher here; read
+    /// so, the base is at 56 m and the centre of mass at the PFT's radius,
+    /// 6,373,355 m, which moves the cutoffs by about 1 m/s (datasheet §15).
+    static let padElevation = 26.0                 // m, derived (M)
 
     // MARK: Timeline (range time, s, from 1969-07-16 13:32:00 UTC)
+
+    /// Range zero, 1969-07-16 13:32:00 UTC: range time 0 (SP-4029 Apollo 11 Timeline, H).
+    static let rangeZero = Epoch(utcYear: 1969, month: 7, day: 16, hour: 13, minute: 32)
 
     /// Hold-down release. Simulation time 0 of `saturnV()` is this instant.
     static let firstMotion = 0.30              // SP-4029 Apollo 11 Timeline; Boeing D5-15560-6 (H)

@@ -31,8 +31,11 @@ public final class CelestialBody: Identifiable, CustomStringConvertible {
     public let id: Int              // NAIF id
     public let name: String
     public let gm: Double           // m^3/s^2
-    public let radius: Double       // mean / equatorial radius, m
+    public let radius: Double       // mean / equatorial radius, m; J2's reference radius
     public var j2: Double           // unnormalised zonal harmonic (var so tests can switch it off)
+    /// The surface: altitude, latitude and the vertical are geodetic on it.
+    /// A sphere of `radius` unless given.
+    public let figure: Ellipsoid
     public let rotation: RotationModel
     public let atmosphere: Atmosphere?
     /// Sphere-of-influence radius (m) used to choose a vessel's reference body.
@@ -40,9 +43,10 @@ public final class CelestialBody: Identifiable, CustomStringConvertible {
     /// Parent body for the SOI hierarchy (nil for the Sun).
     public weak var parent: CelestialBody?
 
-    public init(id: Int, name: String, gm: Double, radius: Double, j2: Double = 0,
+    public init(id: Int, name: String, gm: Double, radius: Double, j2: Double = 0, figure: Ellipsoid? = nil,
                 rotation: RotationModel, atmosphere: Atmosphere? = nil, soiRadius: Double) {
         self.id = id; self.name = name; self.gm = gm; self.radius = radius; self.j2 = j2
+        self.figure = figure ?? .sphere(radius)
         self.rotation = rotation; self.atmosphere = atmosphere; self.soiRadius = soiRadius
     }
 
@@ -62,6 +66,20 @@ public final class CelestialBody: Identifiable, CustomStringConvertible {
             a += (r * (1 - 5 * zc * zc / r2) + pole * (2 * zc)) * k
         }
         return a
+    }
+
+    // MARK: Surface
+
+    /// Geodetic latitude, longitude (rad) and height (m) on `figure` of a
+    /// point at `r` (ICRF, relative to the body centre), the body oriented as `o`.
+    public func geodetic(_ r: Vec3, orientation o: BodyOrientation) -> (latitude: Double, longitude: Double,
+                                                                        height: Double) {
+        figure.geodetic(o.toBody(r))
+    }
+
+    /// The local vertical through `r` (ICRF): the figure's outward normal.
+    public func vertical(at r: Vec3, orientation o: BodyOrientation) -> Vec3 {
+        o.toInertial(figure.normal(at: o.toBody(r)))
     }
 }
 
