@@ -243,12 +243,27 @@ public final class Vessel: Identifiable {
 
     /// Separate every part of staging event `n` as one new vessel, whatever
     /// events are still pending below it (a flight program staging by
-    /// identity); nil if no part carries it or nothing would remain.
+    /// identity); nil if no part carries it or nothing would remain. The
+    /// separation lights the solids it triggers (`Thruster.trigger`) first:
+    /// the leaving parts' retros burn on with them, and the ullage motors of
+    /// the stack that stays burn on with it. Springs add the parts'
+    /// `separationSpeed`.
     @discardableResult
     public func jettison(event n: Int) -> Vessel? {
         let group = parts.filter { $0.staging == .event(n) }
-        guard let lowest = group.min(by: { $0.offset.x < $1.offset.x }) else { return nil }
-        return separate(parts: group, name: "\(name) – \(lowest.name)", separationSpeed: 1.0)
+        guard let lowest = group.min(by: { $0.offset.x < $1.offset.x }), group.count < parts.count else { return nil }
+        for p in parts {
+            let leaving = p.staging == .event(n)
+            for t in p.thrusters {
+                switch t.trigger {
+                case .ownSeparation?: if leaving { t.ignite() }
+                case .event(let e)?: if e == n && !leaving { t.ignite() }
+                case nil: break
+                }
+            }
+        }
+        return separate(parts: group, name: "\(name) – \(lowest.name)",
+                        separationSpeed: group.map(\.separationSpeed).max() ?? 0)
     }
 
     /// Lowest part with main engines, enabled or not: the stage the main

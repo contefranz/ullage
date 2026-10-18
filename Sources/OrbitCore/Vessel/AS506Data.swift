@@ -211,6 +211,11 @@ enum AS506 {
     /// 548.24, FER Table 2-1), sensed 0.23 s later (T5).
     static let sIISeparationTime = 0.8         // s from T4; FER (H)
     static let sIVBIgnitionTime = 4.0          // s from T4; FER (H)
+    /// S-IVB ullage (TX-280) motors lit 0.1 s before the separation command
+    /// (548.9 s), and their cases jettisoned (561.0 s): FER Table 2-2 items
+    /// 45 and 52.
+    static let sIVBUllageIgnitionTime = 0.7    // s from T4; FER (H)
+    static let sIVBUllageJettisonTime = 12.8   // s from T4; FER (H)
     static let sIVBCutoffTime = 699.34 - 548.24  // s from T4; FER Tables 2-1 and 2-2 (H), for reference
     /// From T5, S-IVB cutoff sensed: APS ullage engines on and off (No. 1;
     /// No. 2 follows 0.1 s later), and the manoeuvre to the local horizontal
@@ -233,7 +238,9 @@ enum AS506 {
     static let igmCycle = 1.7                  // s; GE504 (H for SA-504)
     /// τ2 at the EMR shift command and τ3 at S-IVB 90 % thrust: the model's
     /// stack mass then over the flow of four low-EMR J-2s and of the S-IVB
-    /// J-2 (from the model's flight, rounded to 0.5 s).
+    /// J-2 (from the model's flight before the solid motors, rounded to
+    /// 0.5 s; τ3 would now be 773.1 s, and the IGM measures it once the
+    /// S-IVB thrusts).
     static let igmTau2 = 347.5                 // s, model
     static let igmTau3 = 773.5                 // s, model
     /// T2 from the shift command to S-II OECO, Tc from S-II cutoff (T4) to
@@ -365,15 +372,17 @@ enum AS506 {
     static let sIILH2AtCutoff = 2_572.0 + 123.0 + (735.0 - 77.0)    // kg, FER Table 20-3 (H)
 
     /// S-II/S-IVB (aft) interstage with the 4 S-II retro motors (cases and
-    /// propellant; booking not stated). It leaves with the S-II.
+    /// propellant). It leaves with the S-II. The model uses the FER's split,
+    /// `sIISIVBInterstageDry` and `sIIRetroPropellant` (3,180 + 484 kg).
     static let sIISIVBInterstage = 8_076.0       // SP-4029 Ground Ignition Weights (H)
 
     /// S-IVB stage: structure, aft skirt, J-2 (dry); aft interstage and IU excluded.
     static let sIVBDry = 24_852.0                // SP-4029 Ground Ignition Weights (H)
     /// Not itemised. It holds the APS propellant, which the builder moves into
     /// the APS tanks (2 x (`apsOxidizerLoad` + `apsFuelLoad`) = 657 lb); the
-    /// other 999 lb are helium, the TX-280 ullage-motor propellant (117.4 lb),
-    /// motor cases and the rest (datasheet §7.3).
+    /// other 999 lb are helium, the TX-280 ullage motors (53 kg of grain and
+    /// 61 kg of cases, which the builder moves to their own part), the aft
+    /// frame that leaves with the S-II (23 kg) and the rest (datasheet §7.3, §12).
     static let sIVBOther = 1_656.0               // SP-4029 Ground Ignition Weights (H)
     static let sIVBLOXLoad = 192_497.0           // SP-4029 Ground Ignition Weights (H)
     static let sIVBLH2Load = 43_608.0            // SP-4029 Ground Ignition Weights (H)
@@ -550,6 +559,97 @@ enum AS506 {
     /// burned 33 kg by separation and 300 kg by S-II ignition (Table 20-9).
     static let sIIUllageMotorThrust = 23_000.0       // lbf, MSFC-MAN-506 (M)
     static let sIIUllageMotorBurnTime = 3.75         // s, MSFC-MAN-506 (M)
+    /// 90° apart at Positions I-IV, nozzles just above STA 1564 (23 in above
+    /// the model's S-IC/S-II plane, `sICTop`), canted 10° outward
+    /// (MSFC-MAN-506 §5): the motors' middle about STA 1608.
+    static let sIIUllageMotorCant = 10.0             // deg, MSFC-MAN-506 (H)
+    static let sIIUllageMotorStation = 1_608.0       // STA, MSFC-MAN-506 Fig 5-19 (M)
+    static let sIIUllageMotorRadius = 5.24           // m, in fairings outside the 198 in skin (L)
+
+    // MARK: Retro and S-IVB ullage motors (datasheet §12)
+    //
+    // Solids at a constant effective thrust for an effective burn time, so
+    // Isp_eff = F t / (m g0) on the FER's propellant. Every set fires in
+    // symmetric pairs, each nozzle canted outward (the force inward), so
+    // they add no side force or torque. The retros fire with their stage's
+    // separation and burn on with the spent stage; the ullage motors push
+    // the stack that stays. The LES tower-jettison motor fires with the
+    // tower's separation, its thrust tilted off the axis to throw it clear.
+
+    /// S-IC retros: eight TE-M-424s in pairs in the four engine fairings
+    /// (one towards each adjacent Position), 7.5° from the axis. Nominal at
+    /// 60°F per the AS-501 FER (87,000 lbf for 0.640 s, F t_b 247.7 kN s;
+    /// its nominal effective impulse is 246.9 kN s; AS-501 flew 0.637 s).
+    /// MSFC-MAN-506's 75,800 lbf for 0.541 s is a minimum at 120°F and
+    /// implies an Isp_eff of 145 s on the 128 kg grain.
+    static let sICRetroThrust = 386_995.0            // N each, AS-501 FER Table 12-2 (H as spec)
+    static let sICRetroBurnTime = 0.640              // s, AS-501 FER Table 12-2 (H as spec)
+    static let sICRetroPropellant = 1_027.0          // kg, eight motors, AS-506 FER Table 20-1 (H)
+    static let sICRetroCant = 7.5                    // deg, MSFC-MAN-506 §4 (H)
+    /// AS-501's thrust (FER-501 Figure 12-1, timed from the separation
+    /// signal) is about nil to 0.09 s, 75 % at 0.15-0.17 s and full by about
+    /// 0.18 s; the stages separated physically 0.15 s after the signal
+    /// (D5-15796-1 Table 5-I); AS-505's 75 % came within 0.05-0.15 s
+    /// (T3 + 0.8 against the T3 + 0.7 command, FER-505 Table 2-2).
+    static let sICRetroStart = EngineTransients(startDelay: 0.09, startRise: 0.08)   // FER-501 Fig 12-1 (M)
+    /// In the fairings, against the skin, side by side about each fin
+    /// (about 2.5° either side); the station is inferred from the fairing's
+    /// taper, nozzles at its forward end (STA 260-300).
+    static let sICRetroStation = 230.0               // STA (L)
+    static let sICRetroRadius = 5.25                 // m (L)
+    static let sICRetroPairOffset = 2.5              // deg about each fin diagonal (L)
+    /// S-II retros: four TE-M-29s, 90° apart in the aft end of the S-II/S-IVB
+    /// interstage (STA 2519-2633), nozzles 9.5° from the axis, in fairings
+    /// on the fin diagonals as D5-15481-1 Figure 3-1 draws them (L).
+    static let sIIRetroThrust = 34_810.0             // lbf each, MSFC-MAN-506 Fig 1-3 (H)
+    static let sIIRetroBurnTime = 1.52               // s, MSFC-MAN-506 Fig 1-3 (H)
+    static let sIIRetroPropellant = 484.0            // kg, four motors, AS-506 FER Table 20-9 (H)
+    static let sIIRetroCant = 9.5                    // deg, MSFC-MAN-506 §5 (H)
+    /// Lit 0.04 s after the separation command (AS-501: 520.57 against
+    /// 520.53 s), full within about 0.025 s (FER-501 Figure 12-9).
+    static let sIIRetroStart = EngineTransients(startDelay: 0.04, startRise: 0.025)   // FER-501 Table 12-1 (H), Fig 12-9 (M)
+    static let sIIRetroStation = 2_576.0             // STA, middle of 2519-2633, MSFC-MAN-506 §5 (M)
+    /// The S-II/S-IVB interstage without its retros' propellant, and the
+    /// S-IVB aft frame and detonation package that leave with it.
+    static let sIISIVBInterstageDry = 3_180.0        // kg, AS-506 FER Table 20-9 (H)
+    static let sIVBAftFrame = 22.0 + 1.0             // kg, AS-506 FER Table 20-9 (H)
+    /// S-IVB ullage motors: two TX-280s in fairings on the aft skirt, at the
+    /// Fin II-III and IV-I diagonals, lit at 548.9 s; their cases and
+    /// fairings are jettisoned at 561.0 s. AS-506 burned 43 kg of the 53 kg
+    /// by STDV open (552.2 s) and all but 1 kg by mainstage (FER Table 20-9).
+    static let sIVBUllageMotorThrust = 3_390.0       // lbf each, MSFC-MAN-506 Fig 1-3 (H)
+    static let sIVBUllageMotorBurnTime = 3.87        // s, MSFC-MAN-506 (H)
+    static let sIVBUllageMotorPropellant = 53.0      // kg, two motors, AS-506 FER Tables 20-5, 20-9 (H)
+    static let sIVBUllageMotorCases = 61.0           // kg, with fairings, AS-506 FER Table 20-9 (H)
+    /// "Canted outward ... to reduce effects of exhaust impingement, and to
+    /// reduce the resulting moment if one rocket fails" (MSFC-MAN-506 §6);
+    /// 35° on the Saturn IB's S-IVB-200 (Data Summary Handbook), taken here.
+    static let sIVBUllageMotorCant = 35.0            // deg, S-IVB Data Summary Handbook p 98 (M, proxy)
+    static let sIVBUllageMotorHeight = 73.4          // m, on the aft skirt, STA 2746.5-2832 (L)
+    static let sIVBUllageMotorRadius = 3.45          // m, outside the 130 in skin (L)
+
+    /// LES tower-jettison motor: lit with the tower's separation (frangible
+    /// nuts and motor on the same circuit; no spring, and no other motor or
+    /// the canards in a normal jettison: AOH 2.9.4.8.4). TN D-6295 (70°F,
+    /// sea level, about vacuum for its flush scarfed nozzles): 31,660 lbf
+    /// over the web burn, 36,734 lbf s in all, so 1.160 s at that thrust;
+    /// 205.2 lb of grain; lit 0.046 s after the firing current and at 90 %
+    /// by 0.111 s (taken as a linear rise to full over the 0.065 s). Its two
+    /// nozzles' resultant leans 3.784° towards +Z_A, Position III (-z;
+    /// MSFC-MAN-506 Fig 7-15), crossing the axis at Xa 1395.9, which pitches
+    /// the tower over and throws it clear.
+    static let towerJettisonThrust = 31_660.0        // lbf, TN D-6295 Table VIII(b) (H)
+    static let towerJettisonBurnTime = 36_734.0 / 31_660.0   // s, total impulse over thrust, TN D-6295 (H)
+    static let towerJettisonPropellant = 205.2 * pound   // kg, TN D-6295 Table X (H)
+    static let towerJettisonStart = EngineTransients(startDelay: 0.046, startRise: 0.065)   // TN D-6295 Table VIII(b) (H)
+    static let towerJettisonTilt = 3.784             // deg towards -z, TN D-6295 p 19, AOH 2.9.5.7.4 (H; sign M)
+    static let towerJettisonThrustPoint = 1_395.9    // Xa, where the thrust line crosses the axis, TN D-6295 Table X (M)
+    static let towerJettisonGrainPoint = 1_408.5     // Xa, the motor's middle (L)
+    /// The whole LES's CG and inertia (with the BPC and the TJM's grain),
+    /// from the Apollo 11 and 12 Mission Reports' mass tables (lift-off less
+    /// orbit), M.
+    static let lesCenterOfMass = 1_297.1             // Xa (M)
+    static let lesInertia = (roll: 1_100.0, pitch: 37_500.0)   // kg m², about its CG (M)
     /// Outboard J-2s only, pitch-plane and yaw-plane actuators like the F-1's.
     static let sIIJ2GimbalRange = 7.0                // deg per actuator, EH 8.20 (M)
     static let sIIJ2GimbalRate = 8.0                 // deg/s, EH 8.20 (M-L)

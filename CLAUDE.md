@@ -7,8 +7,9 @@ milestones; M0 (physics core + Metal viewer) is done, M1 (Saturn V to parking
 orbit) is in progress: the AS-506 stack (propulsion and masses calibrated to its
 Flight Evaluation Report, datasheet §9), its gimballing/TVC, the IU flight
 program with iterative guidance to the parking orbit (datasheet §8, §10) and
-its aerodynamics with the launch day's atmosphere (datasheet §11) are done; the
-remaining M1 items are in docs/ROADMAP.md.
+its aerodynamics with the launch day's atmosphere (datasheet §11) and its retro,
+ullage and tower-jettison solid motors (§12) are done; the remaining M1 items are in
+docs/ROADMAP.md.
 
 ## Rules
 
