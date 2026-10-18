@@ -14,6 +14,8 @@ struct PlanetUniforms {
     var baseColor: SIMD4<Float>
     var atmosphere: SIMD4<Float>
     var options: SIMD4<Float>
+    var origin: SIMD4<Float>
+    var figure: SIMD4<Float>
 }
 
 struct MeshVertex {

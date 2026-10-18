@@ -13,15 +13,21 @@ using namespace metal;
 
 // ---------------------------------------------------------------- planets ---
 
+// The planet is an ellipsoid of revolution about its body z axis (radii a,
+// a, b). In body axes stretched by s = a/b along z it is the sphere of
+// radius a, and a ray stays a ray with the same parameter t: the
+// intersection is a sphere's, in those "figure" coordinates.
 struct PlanetUniforms {
     float4x4 viewToWorld;     // rotation only
     float4x4 worldToBody;     // rotation only
-    float4 centerRadius;      // xyz: planet centre relative to camera (world), w: radius (m)
-    float4 params;            // x: camera altitude (m), y: tan(fovX/2), z: tan(fovY/2), w: near plane (m)
+    float4 centerRadius;      // xyz: planet centre relative to camera (world), w: equatorial radius a (m)
+    float4 params;            // x: camera height above the surface (m), y: tan(fovX/2), z: tan(fovY/2), w: near plane (m)
     float4 sunDir;            // xyz: unit vector planet -> Sun (world), w: 1 if this body is the Sun
     float4 baseColor;         // rgb: base albedo (linear), w: 1 if a texture is bound
     float4 atmosphere;        // rgb: sky colour (linear), w: visual scale height (m), 0 = none
     float4 options;           // x: draw lat/lon grid, y: ambient light
+    float4 origin;            // xyz: camera relative to the centre in figure coordinates, w: |xyz|^2 - a^2 (CPU, double)
+    float4 figure;            // x: s = a/b
 };
 
 struct FullscreenOut {
@@ -59,12 +65,17 @@ fragment DepthColorOut planet_fragment(FullscreenOut in [[stage_in]],
                                        sampler smp [[sampler(0)]]) {
     float3 dView = normalize(float3(in.ndc.x * u.params.y, in.ndc.y * u.params.z, -1.0));
     float3 d = (u.viewToWorld * float4(dView, 0.0)).xyz;
-    float3 oc = -u.centerRadius.xyz;            // camera relative to planet centre
+    float3 oc = -u.centerRadius.xyz;            // camera relative to planet centre (world)
     float R = u.centerRadius.w;
     float alt = u.params.x;
-    float b = dot(oc, d);
-    float c = alt * (alt + 2.0 * R);            // |oc|^2 - R^2, from the precise CPU altitude
-    float disc = b * b - c;
+    float s = u.figure.x;
+    // The ray in figure coordinates: |ro + t df|^2 = R^2.
+    float3 ro = u.origin.xyz;
+    float3 df = (u.worldToBody * float4(d, 0.0)).xyz * float3(1.0, 1.0, s);
+    float A = dot(df, df);
+    float b = dot(ro, df);
+    float c = u.origin.w;                       // |o|^2 - R^2, from the precise CPU position
+    float disc = b * b - A * c;
     bool hit = disc >= 0.0 && (b < 0.0 || c < 0.0);
 
     float3 sun = u.sunDir.xyz;
@@ -73,32 +84,34 @@ fragment DepthColorOut planet_fragment(FullscreenOut in [[stage_in]],
 
     if (!hit) {
         if (H <= 0.0) { discard_fragment(); }
-        // Altitude of the ray's closest approach to the centre (stable form).
-        float hca = b >= 0.0 ? alt : (-disc) / (sqrt(max(R * R - disc, 0.0)) + R);
+        // Height of the ray's closest approach to the figure (stable form).
+        float hca = b >= 0.0 ? alt : (-disc / A) / (sqrt(max(R * R - disc / A, 0.0)) + R);
         float density = exp(-max(hca, 0.0) / H);
         if (density < 1e-3) { discard_fragment(); }
-        float3 q = normalize(oc + d * max(-b, 0.0));
+        float tca = max(-b / A, 0.0);
+        float3 q = normalize(oc + d * tca);
         float day = smoothstep(-0.25, 0.25, dot(q, sun));
         float a = clamp(density * 1.2, 0.0, 1.0) * day;
         // Premultiplied output; at most 85% opaque so the Sun still shows through.
         o.color = float4(u.atmosphere.rgb * a, 0.85 * a);
         // Depth of the ray's closest approach, so the sky covers bodies drawn
         // earlier (bodies are drawn farthest first).
-        float tca = max(-b, R);
-        o.depth = clamp(u.params.w / (tca * -dView.z), 0.0, 1.0);
+        o.depth = clamp(u.params.w / (max(tca, R) * -dView.z), 0.0, 1.0);
         return o;
     }
 
     float t = c / (-b + sqrt(disc));             // near intersection, stable near the surface
-    if (c < 0.0) { t = -b + sqrt(disc); }        // camera inside the sphere (should not happen)
-    float3 p = oc + d * t;                       // hit point relative to centre
-    float3 n = normalize(p);
+    if (c < 0.0) { t = (-b + sqrt(disc)) / A; }  // camera inside the figure (should not happen)
+    float3 p = ro + df * t;                      // hit point, figure coordinates
+    // The normal: the gradient of x^2 + y^2 + (z s)^2 in body axes; its
+    // latitude is the geodetic one, as the maps are drawn.
+    float3 nb = normalize(float3(p.xy, p.z * s));
+    float3 n = (transpose(u.worldToBody) * float4(nb, 0.0)).xyz;
 
     float3 color;
     if (u.sunDir.w > 0.5) {
         color = u.baseColor.rgb * 4.0;
     } else {
-        float3 nb = normalize((u.worldToBody * float4(n, 0.0)).xyz);
         float lat = asin(clamp(nb.z, -1.0, 1.0));
         float lon = atan2(nb.y, nb.x);
         float3 albedo = u.baseColor.rgb;

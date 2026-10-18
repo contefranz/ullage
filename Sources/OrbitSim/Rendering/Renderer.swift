@@ -231,18 +231,29 @@ final class Renderer: NSObject, MTKViewDelegate {
                 continue
             }
             let toSun = (sunPos - snap.position(body)).normalized
-            let altitude = dist - body.radius
-            let worldToBody = snap.orientation(body).icrfToBody
+            // The camera in figure coordinates (body axes stretched along z
+            // by a/b, where the figure is the sphere of radius a) and |o|^2 -
+            // a^2, both in double: in float the latter would lose the
+            // camera's height near the surface.
+            let orientation = snap.orientation(body), figure = body.figure
+            let a = figure.equatorialRadius, stretch = a / figure.polarRadius
+            let cameraBody = orientation.toBody(-rel)
+            let origin = Vec3(cameraBody.x, cameraBody.y, cameraBody.z * stretch)
+            let c = (origin.length - a) * (origin.length + a)
+            let altitude = figure.geodetic(cameraBody).height
+            let worldToBody = orientation.icrfToBody
             let texture = textures[body.id]
             var u = PlanetUniforms(
                 viewToWorld: simd_float4x4(rotation: cam.worldToView.transposed),
                 worldToBody: simd_float4x4(rotation: worldToBody),
-                centerRadius: SIMD4(rel, Float(body.radius)),
+                centerRadius: SIMD4(rel, Float(a)),
                 params: SIMD4(Float(altitude), Float(tanY) * aspect, Float(tanY), near),
                 sunDir: SIMD4(toSun, body === sim.system.sun ? 1 : 0),
                 baseColor: SIMD4(style.color.x, style.color.y, style.color.z, texture == nil ? 0 : 1),
                 atmosphere: SIMD4(style.sky.x, style.sky.y, style.sky.z, style.scaleHeight),
-                options: SIMD4(texture == nil ? 1 : 0, 0.015, 0, 0))
+                options: SIMD4(texture == nil ? 1 : 0, 0.015, 0, 0),
+                origin: SIMD4(origin, Float(c)),
+                figure: SIMD4(Float(stretch), 0, 0, 0))
             enc.setFragmentBytes(&u, length: MemoryLayout<PlanetUniforms>.stride, index: 0)
             enc.setFragmentTexture(texture ?? fallbackTexture, index: 0)
             enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)

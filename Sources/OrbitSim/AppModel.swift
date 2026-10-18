@@ -264,10 +264,14 @@ final class AppModel: ObservableObject {
         h.reference = v.reference.name
         h.cameraInfo = "\(camera.targetName) · \(camera.frame.rawValue)"
 
+        // Geodetic altitude, latitude and longitude (the reference body's
+        // figure, WGS 84 on the Earth), and the altitude's rate: the speed
+        // along the normal. The apsides below stay radii less a.
         h.altitude = v.altitude
         h.orbitalSpeed = v.velocity.length
         h.surfaceSpeed = v.surfaceVelocity(snapshot: snap).length   // over the ground; airspeed has the wind
-        h.verticalSpeed = v.velocity.dot(v.position.normalized)
+        h.verticalSpeed = v.velocity.dot(v.reference.vertical(at: v.position,
+                                                                orientation: snap.orientation(v.reference)))
         h.mach = v.mach
         h.dynamicPressure = v.dynamicPressure
         let ll = v.latitudeLongitude(snapshot: snap)
