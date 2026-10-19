@@ -78,6 +78,11 @@ struct VesselMesh {
                     }
                 }
             }
+        case .revolution:
+            // The core's tessellation, until the renderer has its own lathe.
+            for v in shape.triangles(offset: offset) {
+                verts.append(MeshVertex(position: SIMD4(v.position, 1), normal: SIMD4(v.normal, 0), color: color))
+            }
         }
     }
 }

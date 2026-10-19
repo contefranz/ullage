@@ -15,6 +15,7 @@ var targets: [Target] = [
         name: "OrbitCore",
         resources: [
             .copy("Resources/ephem.bin"),
+            .copy("Resources/landmask.bin"),
             .copy("Resources/stars.bin"),
             .copy("Resources/ut1.txt"),
         ]

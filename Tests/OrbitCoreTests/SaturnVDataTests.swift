@@ -286,8 +286,7 @@ final class SaturnVDataTests: XCTestCase {
             for e in engines {
                 XCTAssertEqual(station(p, e.position.x), gimbal, accuracy: 1e-6, e.name)
                 let bells = p.shapes.filter { s in
-                    guard case .frustum(let r0, _) = s.kind else { return false }
-                    return r0 < p.radius && s.origin.y == e.position.y && s.origin.z == e.position.z
+                    s.thruster == e.name && s.origin.y == e.position.y && s.origin.z == e.position.z
                 }
                 XCTAssertEqual(bells.count, 1, e.name)
                 for b in bells {
