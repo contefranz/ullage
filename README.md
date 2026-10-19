@@ -64,6 +64,11 @@ grid. For real imagery, put equirectangular maps (8192×4096 or smaller) in
 | [ ] | Switch vessel |
 | M / H | Toggle orbit line / help |
 
+Keys are bound by their place on the keyboard (labelled above as on a US
+layout), so they sit in the same place on any layout. Keys pressed with Shift
+do not fly the vessel: they are kept for the MFDs to come, left Shift for the
+left one and right Shift for the right one.
+
 Scenarios are in the **Scenario** menu: the test rocket on LC-39A on
 16 July 1969; Apollo 11's Saturn V (AS-506) on the same pad at first motion;
 the same stack with Apollo 13's S-II centre engine out, and with S-IC engine 1
@@ -125,8 +130,10 @@ Sources/OrbitCore      Pure Swift + Foundation (builds on Linux too)
                        launch-stack aerodynamics
   Guidance/            Flight programs: the Saturn V Instrument Unit (time bases, programs, sequence)
   Simulation/          RK4 rigid-body integration, time warp, landing, SOI switching
+Sources/OrbitInstruments  Pure Swift + Foundation: physical keys and the keyboard state
 Sources/OrbitSim       macOS app: SwiftUI shell, Metal renderer, input, HUD
 Tests/OrbitCoreTests   Validation against JPL/SPICE reference values and physics checks
+Tests/OrbitInstrumentsTests  Key codes and the keyboard state
 tools/                 Scripts that build the bundled data files
 ```
 
