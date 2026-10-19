@@ -1,0 +1,54 @@
+# AS-506 Flight Evaluation Report, MPR-SAT-FE-69-9, Table 4-2 "Comparison of
+# Cutoff Events" (document page 4-8, PDF page 58 of
+# https://www.ibiblio.org/apollo/Documents/lvfea-AS506-Apollo11.pdf,
+# sha256 84b23ee1f3e8e76db20e4e6c1a5bc8b83cd9bc09950c43c43330bce753c3a9c7).
+#
+# Actual and nominal values at the boost cutoffs, metric units as printed (the
+# table's English-unit rows are left out; they confirm the S-II OECO
+# space-fixed velocity, whose units digit is faint and broken on the page and
+# lost in the text layer: 6,916.1 m/s, from 22,690.6 ft/s and act-nom -22.8).
+# Read from the page image and checked cell by cell by a second reader. Altitudes
+# are above the Fischer ellipsoid, surface range along it; velocities and
+# angles are space-fixed (heading east of north). The second-burn cutoff is not
+# transcribed.
+event,parameter,unit,actual,nominal,act_minus_nom
+S-IC CECO,range time,s,135.2,135.3,-0.1
+S-IC CECO,altitude,km,44.0,44.6,-0.6
+S-IC CECO,surface range,km,46.4,46.3,0.1
+S-IC CECO,space-fixed velocity,m/s,1979.0,1989.8,-10.8
+S-IC CECO,flight path angle,deg,22.957,23.406,-0.449
+S-IC CECO,heading angle,deg,76.315,76.132,0.183
+S-IC CECO,cross range,km,0.2,0.0,0.2
+S-IC CECO,cross range velocity,m/s,5.4,-0.2,5.6
+S-IC OECO,range time,s,161.6,161.1,0.5
+S-IC OECO,altitude,km,66.1,66.7,-0.6
+S-IC OECO,surface range,km,93.6,92.2,1.4
+S-IC OECO,space-fixed velocity,m/s,2764.1,2755.6,8.5
+S-IC OECO,flight path angle,deg,19.114,19.635,-0.521
+S-IC OECO,heading angle,deg,75.439,75.269,0.170
+S-IC OECO,cross range,km,0.5,0.0,0.5
+S-IC OECO,cross range velocity,m/s,12.6,4.3,8.3
+S-II CECO,range time,s,460.6,460.1,0.5
+S-II CECO,altitude,km,180.2,181.1,-0.9
+S-II CECO,surface range,km,1114.3,1112.5,1.8
+S-II CECO,space-fixed velocity,m/s,5707.5,5724.0,-16.5
+S-II CECO,flight path angle,deg,0.897,0.772,0.125
+S-II CECO,heading angle,deg,79.646,79.658,-0.012
+S-II CECO,cross range,km,15.0,13.6,1.4
+S-II CECO,cross range velocity,m/s,111.9,114.5,-2.6
+S-II OECO,range time,s,548.2,551.7,-3.5
+S-II OECO,altitude,km,187.3,188.0,-0.7
+S-II OECO,surface range,km,1617.0,1640.8,-23.8
+S-II OECO,space-fixed velocity,m/s,6916.1,6938.9,-22.8
+S-II OECO,flight path angle,deg,0.608,0.661,-0.053
+S-II OECO,heading angle,deg,82.389,82.529,-0.140
+S-II OECO,cross range,km,27.4,26.8,0.6
+S-II OECO,cross range velocity,m/s,174.1,176.9,-2.8
+S-IVB 1st guidance cutoff,range time,s,699.3,699.5,-0.2
+S-IVB 1st guidance cutoff,altitude,km,191.1,191.3,-0.2
+S-IVB 1st guidance cutoff,surface range,km,2634.0,2635.7,-1.7
+S-IVB 1st guidance cutoff,space-fixed velocity,m/s,7791.2,7791.4,-0.2
+S-IVB 1st guidance cutoff,flight path angle,deg,0.015,-0.002,0.017
+S-IVB 1st guidance cutoff,heading angle,deg,88.416,88.419,-0.003
+S-IVB 1st guidance cutoff,cross range,km,60.9,59.8,1.1
+S-IVB 1st guidance cutoff,cross range velocity,m/s,274.3,273.3,1.0
