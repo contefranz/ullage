@@ -221,18 +221,21 @@ final class AscentResidualTests: XCTestCase {
         XCTAssertEqual(step(P.sIIMixtureRatio.map { ($0.time, $0.ratio) }, 4.9), 498, accuracy: 1.5)
     }
 
-    // AS-506's pitch program fitted in GE504's form (tools/fit_as506_pitch.py)
-    // against its reconstructed command, chi_thr less Figure 11-1's error, on
-    // 5 s boxcars from the program start to the arrest, but for those over
-    // the centre engine cutoff's transient (134-138 s): rms 0.057°, maximum
-    // 0.147°; the segments join exactly, the command holds -68.90° at the
-    // arrest and never turns faster than the LVDC's 1°/s. Like §14.1's
-    // reconstruction it lies further downrange than SA-504's from 40 to 158 s,
-    // by 0.8-1.8° (§14.1: 0.6-1.5°), and is no scale of it: 1.12 times
-    // SA-504's at 40 s, 1.01 at 158 s. PR 12's own C0 fit (docs/data/as506/
-    // e1-reference, which leaves the hold free) is within 0.06° rms of it.
+    // The pitch program the IU flies, AS-506's fitted in GE504's form
+    // (tools/fit_as506_pitch.py), against its reconstructed command, chi_thr
+    // less Figure 11-1's error, on 5 s boxcars from the program start to the
+    // arrest, but for those over the centre engine cutoff's transient
+    // (134-138 s): rms 0.057°, maximum 0.147°; the segments join exactly,
+    // the command holds -68.90° at the arrest and never turns faster than
+    // the LVDC's 1°/s. Like §14.1's reconstruction it lies further downrange
+    // than SA-504's from 40 to 158 s, by 0.8-1.8° (§14.1: 0.6-1.5°), and is
+    // no scale of it: 1.12 times SA-504's at 40 s, 1.01 at 158 s. PR 12's
+    // own C0 fit (docs/data/as506/e1-reference, which leaves the hold free)
+    // is within 0.06° rms of it.
     func testFittedPitchProgramAgainstTheReconstruction() {
-        let fit = P.fittedTiltProgram, sa504 = AS506.tiltProgram
+        let fit = AS506.tiltProgram
+        let sa504 = TiltProgram(boundaries: AS506.pitchSegmentBoundaries, coefficients: AS506.sa504PitchCoefficients,
+                                arrest: AS506.tiltArrest)
         let t1 = AS506.liftoff
         var residuals: [Double] = []
         for k in 16...157 where k + 3 <= 134 || k - 2 >= 138 {
@@ -248,20 +251,19 @@ final class AscentResidualTests: XCTestCase {
         for j in AS506.pitchSegmentBoundaries {
             XCTAssertEqual(fit.pitch(at: j - 1e-9) / deg, fit.pitch(at: j) / deg, accuracy: 1e-6)
         }
-        XCTAssertEqual(fit.pitch(at: AS506.tiltArrest) / deg, P.heldPitch, accuracy: 1e-9)
-        XCTAssertEqual(fit.pitch(at: 200) / deg, P.heldPitch, accuracy: 1e-9)
+        XCTAssertEqual(fit.pitch(at: AS506.tiltArrest) / deg, AS506.heldPitch, accuracy: 1e-9)
+        XCTAssertEqual(fit.pitch(at: 200) / deg, AS506.heldPitch, accuracy: 1e-9)
         let rates = stride(from: 12.6, to: AS506.tiltArrest - 0.01, by: 0.01).map {
             (fit.pitch(at: $0 + 0.01) - fit.pitch(at: $0)) / 0.01 / deg
         }
         XCTAssertLessThan(rates.map(abs).max()!, 0.75)
-        let scaled = sa504.coefficients[0][0] / AS506.pitchCoefficients[0][0]   // the IU's 1.025
         for t in stride(from: 40.0, through: 158, by: 2) {
-            let sa = sa504.pitch(at: t - t1) / scaled / deg, as506 = fit.pitch(at: t - t1) / deg
+            let sa = sa504.pitch(at: t - t1) / deg, as506 = fit.pitch(at: t - t1) / deg
             XCTAssertGreaterThan(sa - as506, 0.75, "\(t) s")
             XCTAssertLessThan(sa - as506, 1.8, "\(t) s")
         }
-        XCTAssertEqual(fit.pitch(at: 40 - t1) / (sa504.pitch(at: 40 - t1) / scaled), 1.12, accuracy: 0.01)
-        XCTAssertEqual(fit.pitch(at: 158 - t1) / (sa504.pitch(at: 158 - t1) / scaled), 1.01, accuracy: 0.01)
+        XCTAssertEqual(fit.pitch(at: 40 - t1) / sa504.pitch(at: 40 - t1), 1.12, accuracy: 0.01)
+        XCTAssertEqual(fit.pitch(at: 158 - t1) / sa504.pitch(at: 158 - t1), 1.01, accuracy: 0.01)
     }
 
     // The fixtures in AS506PostflightData.swift are tools/data's
@@ -389,9 +391,17 @@ final class AscentResidualTests: XCTestCase {
     func testModelResidualsAgainstThePFT() throws {
         let m = try ModelTrajectory(NominalFlight.shared)
         print("ascent residuals, model - AS-506 (PFT Table B-II), default flight:")
+        printEvents(NominalFlight.shared)
         printStates(m, at: [P.Event.sICCenterCutoff, .sICCutoff, .sIICutoff, .sIVBCutoff].map(\.time))
         printSensedVelocity(m, windows: [("S-IC", P.firstMotion, 161.63), ("S-II", 161.63, 548.22),
                                          ("S-IVB", 548.22, 699.33)])
+        // The S-IC by datasheet §14.2's windows.
+        var windows = "  S-IC integral of |a_ng| by window, model - AS-506 (m/s):"
+        for (a, b) in [(P.firstMotion, 1), (1, 20), (20, 60), (60, 100), (100, 135.2), (135.2, 140), (140, 161.63)] {
+            windows += String(format: " %g-%g %+.2f", a, b,
+                              m.sensedVelocity(from: a, to: b).integral - P.sensedVelocity(from: a, to: b).integral)
+        }
+        print(windows)
         // chi_thr, 5 s boxcars [k - 2, k + 3], by window (datasheet §14.1's)
         print("  thrust pitch (5 s boxcars), model - AS-506, deg: window mean (rms)")
         for (a, b) in [(15, 40), (40, 85), (85, 112), (112, 122), (122, 159)] {
@@ -414,6 +424,26 @@ final class AscentResidualTests: XCTestCase {
         }
         print(line)
         XCTAssertGreaterThan(m.times.count, 1000)
+    }
+
+    // The S-IC's sensed velocity against AS-506's (PFT Table B-II, H), the
+    // integral of |a_ng| by datasheet §14.2's windows, in the default flight.
+    // The F-1's thrust level is fitted to the whole burn's integral with the
+    // 661 kg of frost and purge gas AS-506 had shed by CECO taken off
+    // (`AS506.sICThrustScale`), so the model, which does not shed them yet,
+    // is about 1.3 m/s short over the burn; the windows are not fitted: the
+    // thrust's shape is FER Figure 5-3's and the mass the FER's tanks'.
+    // Provisional tolerances: the residual closure's re-baseline (datasheet
+    // §17) sets them.
+    func testSICSensedVelocityAgainstThePFT() throws {
+        let m = try ModelTrajectory(NominalFlight.shared)
+        let total = m.sensedVelocity(from: P.firstMotion, to: 161.63).integral
+            - P.sensedVelocity(from: P.firstMotion, to: 161.63).integral
+        XCTAssertEqual(total, -1.3, accuracy: 1)
+        for (a, b) in [(1.0, 20.0), (20, 60), (60, 100), (100, 135.2), (135.2, 140), (140, 161.63)] {
+            let d = m.sensedVelocity(from: a, to: b).integral - P.sensedVelocity(from: a, to: b).integral
+            XCTAssertEqual(d, 0, accuracy: 2, "\(a)-\(b) s")
+        }
     }
 
     // The S-II and the S-IVB, each from AS-506's state: the stack flown
@@ -452,21 +482,6 @@ final class AscentResidualTests: XCTestCase {
         } else {
             print("  S-IVB from T4: no velocity cutoff")
         }
-    }
-
-    // AS-506's fitted pitch program flown by the model through the S-IC
-    // (printed; datasheet §14.1's run c flew the reconstruction itself).
-    func testFittedPitchProgramThroughTheSIC() throws {
-        let flight = try InjectedFlight.fly(injectAtT3: false, injectAtT4: false, tilt: P.fittedTiltProgram, until: 162)
-        let m = try ModelTrajectory(flight)
-        print("AS-506's fitted pitch program, flown through the S-IC, model - AS-506:")
-        printStates(m, at: [P.Event.sICCenterCutoff.time, P.Event.sICCutoff.time])
-        print("  thrust pitch (5 s boxcars), model - AS-506, deg: window mean (rms)")
-        for (a, b) in [(15, 40), (40, 85), (85, 112), (112, 122), (122, 159)] {
-            let d = (a...b).map { k in m.thrustPitch(from: k - 2, to: k + 3) - P.thrustPitch(from: k - 2, to: k + 3) }
-            print(String(format: "    %3d-%3d s: %+.2f (%.2f)", a, b, mean(d), rms(d)))
-        }
-        XCTAssertNil(flight.cutoff)
     }
 
     // MARK: Helpers
@@ -518,6 +533,35 @@ final class AscentResidualTests: XCTestCase {
             cells.append(cell)
             return Dictionary(uniqueKeysWithValues: zip(header, cells))
         }
+    }
+
+    /// The model's cutoff times against AS-506's (FER Table 2-2), and its
+    /// orbit 10 s after the velocity cutoff against the LVDC's (FER Tables
+    /// 10-2 and 10-5).
+    func printEvents(_ f: NominalFlight) {
+        let events: [(String, String, Double)] = [
+            ("CECO", "S-IC centre engine cutoff", 135.20), ("OECO (T3)", "T3: S-IC outboard engine cutoff sensed", 161.66),
+            ("S-II OECO (T4)", "T4: S-II outboard engine cutoff sensed", 548.24),
+            ("S-IVB velocity cutoff", "S-IVB velocity cutoff (IGM)", 699.34)]
+        var line = "  events, model / AS-506 (s):"
+        for (name, event, as506) in events {
+            line += String(format: " %@ %.3f / %.2f;", name, f.time(of: event) ?? .nan, as506)
+        }
+        print(line)
+        guard let cutoff = f.time(of: "S-IVB velocity cutoff (IGM)"), let frame = f.iu.spaceFixed,
+              let s = f.sample(at: cutoff + 10).vessels["Apollo 11"] else { return }
+        let snapshot = f.sim.system.snapshot(at: AS506.rangeZero + f.sample(at: cutoff + 10).range)
+        let pole = frame.conjugate.rotate(snapshot.orientation(f.sim.system.earth).pole)
+        let r = frame.conjugate.rotate(s.position), v = frame.conjugate.rotate(s.velocity)
+        let h = r.cross(v).normalized, meridian = (Vec3.unitX - pole * pole.x).normalized
+        let node = -pole.cross(h).normalized
+        var nodeAngle = atan2(node.dot(pole.cross(meridian)), node.dot(meridian)) / deg
+        if nodeAngle < 0 { nodeAngle += 360 }
+        let el = OrbitalElements(position: s.position, velocity: s.velocity, mu: f.sim.system.earth.gm,
+                                 pole: snapshot.orientation(f.sim.system.earth).pole)
+        print(String(format: "  orbit after the cutoff: i %.4f deg (LVDC 32.532), descending node %.4f deg (123.102), "
+                     + "%.2f x %.2f km over the 6,378,165 m sphere (186.0 x 185.2)", acos(h.dot(pole)) / deg, nodeAngle,
+                     (el.apoapsisRadius - 6_378_165) / 1000, (el.periapsisRadius - 6_378_165) / 1000))
     }
 
     /// Model - AS-506 at AS-506's event times: speed, flight-path angle, radius.

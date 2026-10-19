@@ -426,33 +426,6 @@ enum AS506Postflight {
                          crossRange: 59.8, crossRangeVelocity: 273.3)),
     ]
 
-    // MARK: AS-506's pitch program, fitted (not flown)
-
-    /// AS-506's pre-IGM pitch program in GE504's form, chi_Y = sum F_kn t^n
-    /// (deg, t in s from T1), on `AS506.pitchSegmentBoundaries`: the least-
-    /// squares fit of tools/fit_as506_pitch.py to the 5 s boxcars of
-    /// `reconstructedPitchCommand` from the program start to the arrest
-    /// (those overlapping the centre engine cutoff's transient, 134-138 s,
-    /// left out), with exact joins and AS-506's held -68.90° at the arrest
-    /// (FER Figure 10-4). Rms 0.057°, maximum 0.147°; rates within 0.75°/s.
-    /// It is +0.08° at AS-506's program start (T1 + 12.6 s) and +0.37° at the
-    /// model's (T1 + 10.7 s). The IU does not fly it: `AS506.tiltProgram` is
-    /// SA-504's polynomial scaled 1.025 (datasheet §8.4, §14.5).
-    static let fittedPitchCoefficients: [[Double]] = [
-        [2.1092631223198826, -0.1936626337735124, 0.005057915299567872, -0.00020518344184194986, 5.913540388168162e-07],
-        [-18.34599804968528, 1.5870316763666779, -0.05055899177115696, 0.0004905277226633409, -1.7856186888329139e-06],
-        [-412.0495000334753, 16.736762388740786, -0.2636063201496652, 0.0017592250103918839, -4.33310562000257e-06],
-        [-550.1015769044409, 16.312579677308413, -0.19204984522638613, 0.0009685058696828931, -1.7997602934715665e-06],
-    ]
-
-    /// AS-506's pitch held after the arrest, deg (FER Figure 10-4, OT and LVDC).
-    static let heldPitch = -68.90
-
-    static var fittedTiltProgram: TiltProgram {
-        TiltProgram(boundaries: AS506.pitchSegmentBoundaries, coefficients: fittedPitchCoefficients,
-                    arrest: AS506.tiltArrest)
-    }
-
     // MARK: Table B-II as printed
 
     /// time (s), XS YS ZS (km), DXS DYS DZS (m/s), DDXS DDYS DDZS (m/s^2),

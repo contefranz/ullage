@@ -76,21 +76,25 @@ final class SaturnIUTests: XCTestCase {
         XCTAssertEqual(sim.events.last?.message, "Apollo 11: staging inhibited by the flight program")
     }
 
-    // GE504 Table 5-I, read from the page images: the four segments of the
-    // pre-IGM pitch polynomial join (to within 0.05°; a misread digit would
-    // break that), the command is near zero where the program starts (12-13 s),
-    // the pitch rate never exceeds the 1°/s command limit, and the command is
-    // -66.59° at SA-504's 153 s arrest and held there. It follows AS-506's
-    // commanded pitch (MAN-506 Figure 2-2, read to about 1°: -20° a minute
-    // after first motion, -56° at two minutes, -67.5° at the arrest; first
-    // motion is T1 - 0.4 s there). The IU flies it times `pitchScale`,
-    // arrested at T1 + 159.37 s (FER: 160.0 s range).
+    // GE504 Table 5-I, read from the page images: the four segments of
+    // SA-504's pre-IGM pitch polynomial join (to within 0.05°; a misread
+    // digit would break that), the command is near zero where the program
+    // starts (12-13 s), the pitch rate never exceeds the 1°/s command limit,
+    // and the command is -66.59° at SA-504's 153 s arrest and held there. It
+    // follows AS-506's predicted command (MAN-506 Figure 2-2, read to about
+    // 1°: -20° a minute after first motion, -56° at two minutes, -67.5° at
+    // the arrest; first motion is T1 - 0.4 s there). The IU flies AS-506's
+    // own command instead, reconstructed in the same form
+    // (`AscentResidualTests.testFittedPitchProgramAgainstTheReconstruction`),
+    // arrested at T1 + 159.37 s (FER: 160.0 s range) on AS-506's held -68.90°.
     func testPitchPolynomialTranscription() {
-        let p = TiltProgram(boundaries: AS506.pitchSegmentBoundaries, coefficients: AS506.pitchCoefficients,
+        let p = TiltProgram(boundaries: AS506.pitchSegmentBoundaries, coefficients: AS506.sa504PitchCoefficients,
                             arrest: 153)
         let as506 = AS506.tiltProgram
-        XCTAssertEqual(as506.pitch(at: 150), AS506.pitchScale * p.pitch(at: 150), accuracy: 1e-12)
+        XCTAssertEqual(as506.coefficients, AS506.pitchCoefficients)
+        XCTAssertEqual(as506.boundaries, p.boundaries)
         XCTAssertEqual(as506.arrest, 160.0 - 0.63, accuracy: 1e-12)
+        XCTAssertEqual(as506.pitch(at: 170) / deg, -68.90, accuracy: 1e-9)
         let unscaled = TiltProgram(boundaries: p.boundaries, coefficients: p.coefficients, arrest: as506.arrest)
         XCTAssertEqual(unscaled.pitch(at: 59.6) / deg, -20, accuracy: 2)
         XCTAssertEqual(unscaled.pitch(at: 119.6) / deg, -56, accuracy: 2)
@@ -149,7 +153,8 @@ final class SaturnIUTests: XCTestCase {
     func testTowerYawAndRollProgram() throws {
         let f = try launch()
         var lastChi: Vec3?, worstRate = 0.0, maxYaw = 0.0, northward = 1.0
-        var riseAtStart: Double?, previousRise = 0.0, rollLag: [Double] = [], rollRate: [Double] = []
+        var riseAtStart: (before: Double, at: Double)?, rises = [0.0, 0.0], rollLag: [Double] = []
+        var rollRate: [Double] = []
         var peakRollError = 0.0, peakRollRate = 0.0
         let r0 = f.v.position.length
         let north = { () -> Vec3 in
@@ -157,9 +162,9 @@ final class SaturnIUTests: XCTestCase {
             return up.cross(pole.cross(up).normalized)
         }
         f.fly(to: 45) {
-            let rise = f.v.position.length - r0
-            if riseAtStart == nil && f.iu.programStarted != nil { riseAtStart = previousRise }
-            previousRise = rise
+            // The IU acts at the start of a step, on the rise the last one left.
+            if riseAtStart == nil && f.iu.programStarted != nil { riseAtStart = (rises[0], rises[1]) }
+            rises = [rises[1], f.v.position.length - r0]
             guard f.iu.timeBases[.t1] != nil else { return }
             let chi = f.iu.chi
             if let last = lastChi {
@@ -184,9 +189,13 @@ final class SaturnIUTests: XCTestCase {
         XCTAssertEqual(maxYaw / deg, 1.25, accuracy: 1e-9)
         XCTAssertGreaterThan(northward, 0.01)   // southward lean of the nose, at least 0.57°
         XCTAssertLessThan(worstRate, 1 * deg * 0.02 + 1e-12)
-        // Program start at 137 m (one step's rise is about 0.3 m then).
+        // Program start on the first step that sees a 137 m rise (a step
+        // rises about 0.5 m then).
         let started = try XCTUnwrap(f.iu.programStarted)
-        XCTAssertEqual(try XCTUnwrap(riseAtStart), 137.15, accuracy: 0.15)
+        let rise = try XCTUnwrap(riseAtStart)
+        XCTAssertLessThan(rise.before, 137)
+        XCTAssertGreaterThanOrEqual(rise.at, 137)
+        XCTAssertLessThan(rise.at - rise.before, 0.6)
         XCTAssertLessThan(started, AS506.programStartBackup)
         // Roll: the start's peaks, lag and rate late in the ramp, then
         // Position I on the flight azimuth.
@@ -209,8 +218,9 @@ final class SaturnIUTests: XCTestCase {
     // - At CECO (135.2 s) and OECO (161.63 s), FER Tables 4-1 and 4-2 with
     //   §5 C's tolerances: geodetic altitude (the FER's is over the Fischer
     //   ellipsoid, 30 m above WGS 84's surface at the Cape; datasheet §15),
-    //   space-fixed velocity, flight-path angle and heading. Only the OECO flight-path angle was fitted (`pitchScale`);
-    //   the rest are checks, the headings of the space-fixed frame, flight
+    //   space-fixed velocity, flight-path angle and heading. None is
+    //   fitted: the pitch program is AS-506's reconstructed command
+    //   (datasheet §17); the headings check the space-fixed frame, flight
     //   azimuth and roll program in particular.
     // - Mach 1 at 66.3 s and max Q of 35.2 kPa at 83.0 s (FER Table 4-1; the
     //   model: 66.7 s, 34.9 kPa at 83.3 s), within 1 s and 2 %; the dynamic
@@ -282,8 +292,10 @@ final class SaturnIUTests: XCTestCase {
         let pftRows: [(climb: Double, v: Double)] = [(537 - 59, 53.0), (2_364 - 59, 136.5), (6_153 - 59, 267.0),
                                                      (12_404 - 59, 466.0), (21_341 - 59, 768.0),
                                                      (33_115 - 59, 1_195.9)]
+        // The climb: widened from 100 m with AS-506's pitch program and the
+        // F-1's thrust; see datasheet §17.
         for (model, ref) in zip(pftModel, pftRows) {
-            XCTAssertEqual(model.climb, ref.climb, accuracy: 100)
+            XCTAssertEqual(model.climb, ref.climb, accuracy: 150)
             XCTAssertEqual(model.v, ref.v, accuracy: ref.v * 0.02)
         }
         XCTAssertEqual(peakAxial.f, 1.37e6, accuracy: 0.08e6)
@@ -296,7 +308,11 @@ final class SaturnIUTests: XCTestCase {
         XCTAssertEqual(ceco.heading, 76.315, accuracy: 0.5)
         XCTAssertEqual(oeco.alt, 66_100, accuracy: 2_500)
         XCTAssertEqual(oeco.v, 2_764.1, accuracy: 40)
-        XCTAssertEqual(oeco.gamma, 19.114, accuracy: 0.2)
+        // AS-506's command leaves the S-IC 0.2-0.3° steep at OECO: the model's
+        // thrust flies 0.4-0.6° nose-up of AS-506's after 85 s, part of it
+        // AS-506's late trim, which the model lacks (datasheet §14.1).
+        // Widened from 0.2° (fitted then); see §17.
+        XCTAssertEqual(oeco.gamma, 19.114, accuracy: 0.35)
         XCTAssertEqual(oeco.heading, 75.439, accuracy: 0.5)
         XCTAssertEqual(accelerations.count, 4)
         for (model, fer) in accelerations { XCTAssertEqual(model, fer, accuracy: fer * 0.01) }
@@ -328,7 +344,9 @@ final class SaturnIUTests: XCTestCase {
     // c = 4 F L / Iyy from the model's own geometry, in vacuum (datasheet
     // §8.6: c 0.947 s^-2, wn 0.923 rad/s, zeta 0.354, a 30 % overshoot at
     // 3.6 s, with FER Table 20-10's pitch inertia and the S-IC's feed lines;
-    // 0.955 s^-2 without the lines, 0.887 s^-2 before the table).
+    // 0.955 s^-2 without the lines, 0.887 s^-2 before the table). Since §17
+    // the F-1's thrust at first motion is FER Figure 5-3's at AS-506's
+    // measured level, 0.77 % more: c 0.955 s^-2, wn 0.927 rad/s.
     // Mass properties frozen; self-consistency of law, gains and model.
     func testFlightControlStepResponse() throws {
         let sim = try Simulation.forTests(perturbations: false)
@@ -356,8 +374,8 @@ final class SaturnIUTests: XCTestCase {
         let peak = pitch.max { $0.1 < $1.1 }!
         XCTAssertEqual(peak.0, Double.pi / wd, accuracy: 0.1 * Double.pi / wd)
         XCTAssertEqual(peak.1 / step - 1, exp(-zeta * Double.pi / (1 - zeta * zeta).squareRoot()), accuracy: 0.05)
-        XCTAssertEqual(c, 0.947, accuracy: 0.005)
-        XCTAssertEqual(wn, 0.923, accuracy: 0.005)
+        XCTAssertEqual(c, 0.955, accuracy: 0.005)
+        XCTAssertEqual(wn, 0.927, accuracy: 0.005)
     }
 
     // The FCC's shaping filters (Boeing D5-15481-1 §3.5: the S-IC roll
@@ -717,10 +735,10 @@ final class SaturnIUTests: XCTestCase {
         XCTAssertEqual(c.pitch / deg, -112.4, accuracy: 2)   // OT at cutoff (LVDC -113.6)
         func gamma(_ r: Vec3, _ v: Vec3) -> Double { asin(r.normalized.dot(v.normalized)) / deg }
         // S-II OECO: AS-506's 6,559,961 m, 6,915.96 m/s, 0.614°. The model is
-        // about 30 m/s slower and 0.2° steeper: the S-IC's deficit (datasheet
-        // §9.5) and more, and since the WGS-84 pad (§15) the S-II climbs the
-        // 4.85 km the spherical pad gave it. Widened from 30 m/s and 0.15°
-        // with the pad; see §17, which closes the residuals.
+        // about 8 m/s slower and 0.08° steeper since §17's S-IC (30 m/s and
+        // 0.2° before it, with the WGS-84 pad of §15): the S-II's own deficit
+        // at the EMR shift (§14.2). Widened from 30 m/s and 0.15° with the
+        // pad; see §17, which closes the residuals.
         XCTAssertEqual(s2.r.length, 6_559_961, accuracy: 1_000)
         XCTAssertEqual(s2.v.length, 6_915.96, accuracy: 35)
         XCTAssertEqual(gamma(s2.r, s2.v), 0.614, accuracy: 0.25)
