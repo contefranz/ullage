@@ -3,14 +3,15 @@
 Native Apple Silicon space flight simulator (Swift + Metal), aiming at
 procedurally realistic Apollo and Space Shuttle missions. Owner: Francesco
 Grossetti (Franz). Read `README.md` for architecture and `docs/ROADMAP.md` for
-milestones; M0 (physics core + Metal viewer) is done, M1 (Saturn V to parking
-orbit) is in progress: the AS-506 stack (propulsion and masses calibrated to its
-Flight Evaluation Report, datasheet §9), its gimballing/TVC, the IU flight
-program with iterative guidance to the parking orbit (datasheet §8, §10) and
-its aerodynamics with the launch day's atmosphere (datasheet §11), its retro,
-ullage and tower-jettison solid motors (§12) and its mass characteristics against
-the FER (§13) are done, and the ascent residuals are diagnosed (§14); the remaining M1
-items are in docs/ROADMAP.md.
+milestones. M0 (physics core + Metal viewer) and M1 (Saturn V to parking orbit)
+are done: the AS-506 stack (propulsion and masses calibrated to its Flight
+Evaluation Report, datasheet §9), its gimballing/TVC, the IU flight program with
+iterative guidance to the parking orbit (§8, §10), its aerodynamics with the
+launch day's atmosphere (§11), its solid motors (§12), its mass characteristics
+(§13), the WGS-84 Earth and geodetic pad (§15), engine-out (§16) and the ascent
+residuals closed on AS-506's postflight trajectory (§14, §17), with Earth
+orientation on IAU 2006/2000B and UT1, and the Apollo 11 scenario on its GET.
+M2 (lunar mission profile) is next; see docs/ROADMAP.md.
 
 ## Rules
 
