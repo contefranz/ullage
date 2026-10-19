@@ -142,7 +142,10 @@ final class MassCharacteristicsTests: XCTestCase {
         burn(to: AS506.sIICenterCutoff)
         engine("S-II engine 5").isEnabled = false
         burn(to: AS506.sIIMixtureRatioShift)
-        for e in mains() { e.rating = AS506.sIIJ2LowEMR }
+        for e in mains() {
+            e.setRating(AS506.sIIJ2LowEMR, ramp: AS506.sIIMixtureRatioRamp)
+            e.schedule = AS506.sIILowMixtureRatioDecline.delayed(by: e.burnTime)
+        }
         burn(to: 560)
         check(("2nd flight stage at cutoff signal", 213_890, 2_795.8, 0.871, 44.932))
         set(mains(), 0)

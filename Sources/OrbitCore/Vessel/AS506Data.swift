@@ -96,6 +96,11 @@ enum AS506 {
     /// Tables 2-2, 2-3, 6-2). 9.5 s later than the final prediction.
     static let sIIMixtureRatioShiftCommand = 494.8   // FER Table 2-2 (H)
     static let sIIMixtureRatioShift = 497.60         // FER Table 6-2, "PU valve step" (H)
+    /// Where AS-506's thrust stepped down, impulse for impulse: a single
+    /// step fitted to the postflight trajectory's sensed velocity falls at
+    /// 498.7-498.9 s (PFT Table B-II, H; datasheet §14.2), 1.2 s after the
+    /// valve step. FER Figure 6-3's reconstruction (M) steps at 496.8 s.
+    static let sIIEffectiveMixtureRatioShift = 498.8 // PFT, datasheet §14.2 (H)
     static let sIIOutboardCutoff = 548.22      // SP-4029 Apollo 11 Summary; Mission Report (H). LOX depletion
     static let sIISeparation = 549.00          // SP-4029 Apollo 11 Ascent Phase (H)
     static let sIVBIgnition = 552.20           // Mission Report; SP-4029 Propellant Usage (H)
@@ -261,8 +266,9 @@ enum AS506 {
     static let sIIUllageEndTime = 4.4          // s from T3; FER Table 2-2 (H)
     /// High EMR Select (S-II PU system activated): ESC + 5.5 s, 168.5 s.
     static let sIIHighMixtureRatioTime = 6.9   // s from T3; FER Table 2-2 and §6.5 (H)
-    /// The PU valve step, the model's shift to low EMR, follows the IGM's
-    /// EMR shift command by as long as on AS-506 (494.8 to 497.60 s).
+    /// The PU valve step, where the model's ramp to low EMR starts
+    /// (`sIIMixtureRatioRamp`), follows the IGM's EMR shift command by as
+    /// long as on AS-506 (494.8 to 497.60 s).
     static let sIIMixtureRatioShiftDelay = sIIMixtureRatioShift - sIIMixtureRatioShiftCommand   // s
     /// From T4, S-II outboard cutoff sensed: separation command and S-IVB
     /// ignition (STDV open, range 552.2; FER Table 2-2, H). The IGM cuts the
@@ -664,15 +670,39 @@ enum AS506 {
     static let sIIJ2 = EngineRating.fixedNozzle(
         name: "J-2 S-II high EMR", thrustVacuum: 1_028_303, ispVacuum: 4_164.9 / 9.80665 / sIIFlowScale,
         exitArea: j2ExitArea, mixtureRatio: sIIHighMixtureRatio)
-    /// Low EMR, from the PU valve step to OECO: the four engines delivered
-    /// 3,082,769 N at ESC + 351 s and 3,059,402 N at ESC + 381 s (FER §6.3),
-    /// 768,000 N each on average, at about 183 kg/s (Figure 6-3: 4,181-4,190
-    /// N s/kg), and an average EMR of 4.34 (§6.5; predicted 4.33). AS-506 ran
-    /// 7-8 % below the 828 kN the datasheet had assumed at EMR 4.7.
+    /// Low EMR, from the PU valve step to OECO: the stage thrust of FER
+    /// Figure 6-3 (reconstructed, digitised: M, 0.0036 MN a pixel), a line
+    /// fitted to its traced samples from 499.5 to 538 s (2.7 kN rms), from
+    /// 3,091,000 N at the valve step falling 694 N/s (0.022 % a second),
+    /// which `sIILowMixtureRatioDecline` carries. The line is 0.10 % below
+    /// FER §6.3's 3,082,769 N at ESC + 351 s and 0.02 % below its 3,059,402
+    /// N at ESC + 381 s; the figure's last 8 s, traced 0.016 MN below it
+    /// where the solid curve runs within a few pixels of the dashed
+    /// prediction, are left out. Isp about 4,190 N s/kg (Figure 6-3:
+    /// 4,181-4,190), so about 184 kg/s an engine, and an average EMR of 4.34
+    /// (§6.5; predicted 4.33; Figure 6-3 4.29-4.31). AS-506 ran 7-8 % below
+    /// the 828 kN the datasheet had assumed at EMR 4.7.
     static let sIILowMixtureRatio = 4.34             // FER §6.5 (H)
+    static let sIILowMixtureRatioThrust = (atStep: 3_091_000.0, rate: -694.0)   // N, N/s, stage; FER Figure 6-3 (M)
     static let sIIJ2LowEMR = EngineRating.fixedNozzle(
-        name: "J-2 S-II low EMR", thrustVacuum: 768_000, ispVacuum: 4_190 / 9.80665 / sIIFlowScale,
-        exitArea: j2ExitArea, mixtureRatio: sIILowMixtureRatio)
+        name: "J-2 S-II low EMR", thrustVacuum: sIILowMixtureRatioThrust.atStep / 4,
+        ispVacuum: 4_190 / 9.80665 / sIIFlowScale, exitArea: j2ExitArea, mixtureRatio: sIILowMixtureRatio)
+    /// Figure 6-3's decline from the valve step to OECO (50.62 s on AS-506),
+    /// held after: thrust and flow together, at the rating's Isp and EMR.
+    /// The IU's shift action sets it, so it runs from the shift whenever the
+    /// IGM commands it.
+    static var sIILowMixtureRatioDecline: PerformanceSchedule {
+        let span = sIIOutboardCutoff - sIIMixtureRatioShift
+        let end = 1 + sIILowMixtureRatioThrust.rate * span / sIILowMixtureRatioThrust.atStep
+        return PerformanceSchedule([.init(time: 0, thrustFactor: 1, flowFactor: 1),
+                                    .init(time: span, thrustFactor: end, flowFactor: end)])
+    }
+    /// From high to low EMR the J-2s move along a linear ramp from the valve
+    /// step, as long as puts its middle, where a step of the same impulse
+    /// would fall, on AS-506's effective step: 2.4 s, 1.2 s each side of
+    /// 498.8 s. The FER's low EMR "by 498.0 s" (Table 6-2) is the valve's;
+    /// the thrust followed later.
+    static let sIIMixtureRatioRamp = 2 * (sIIEffectiveMixtureRatioShift - sIIMixtureRatioShift)   // s, PFT (H)
     /// Start and tail-off. Between STDV open (164.0 s) and mainstage (166.2
     /// s) the stage burned 582 kg (FER Table 20-9), 0.56 s of full flow: a
     /// linear rise over the last 1.11 s of those 2.2 s. The OECO cutoff

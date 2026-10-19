@@ -359,7 +359,7 @@ final class SaturnVDataTests: XCTestCase {
         let settings: [(EngineRating, thrust: Double, flow: Double, ratio: Double)] = [
             (AS506.sIIJ2Start, 878_288, 878_288 / 4_195 * 0.99749, 5.0),          // FER §6.2; MSFC-MAN-506 EMR
             (AS506.sIIJ2, 1_028_303, 1_028_303 / 4_164.9 * 0.99749, 5.5006),      // FER Table 6-1; EMR fitted
-            (AS506.sIIJ2LowEMR, 768_000, 768_000 / 4_190 * 0.99749, 4.34),         // FER §6.3, §6.5, Figure 6-3
+            (AS506.sIIJ2LowEMR, 772_750, 772_750 / 4_190 * 0.99749, 4.34),         // FER Figure 6-3, §6.5
             (AS506.sIVBJ2Burn1, 903_000, 215.37, 4.85),                            // FER Figure 7-2, Tables 20-9, 20-5
         ]
         for (rating, thrust, flow, ratio) in settings {
@@ -550,13 +550,64 @@ final class SaturnVDataTests: XCTestCase {
         e.rating = AS506.sIIJ2
         XCTAssertEqual(vacuumThrust(), 1_028_303, accuracy: 1e-6)
         e.rating = AS506.sIIJ2LowEMR
-        XCTAssertEqual(vacuumThrust(), 768_000, accuracy: 1e-6)
+        XCTAssertEqual(vacuumThrust(), 772_750, accuracy: 1e-6)
         XCTAssertEqual(e.massFlow, AS506.sIIJ2LowEMR.massFlow)
         let lox0 = lox.mass, lh20 = lh2.mass
         v.consumePropellant(dt: 1)
         XCTAssertEqual((lox0 - lox.mass) / (lh20 - lh2.mass), 4.34, accuracy: 1e-9)
         XCTAssertEqual(lox0 - lox.mass + lh20 - lh2.mass, e.massFlow, accuracy: 1e-9)
         XCTAssertEqual(e.burnTime, 3.2, accuracy: 1e-9)
+    }
+
+    // The S-II's low EMR against FER Figure 6-3's stage thrust
+    // (reconstructed, digitised: M) and §6.3's text (H). The rating at the
+    // PU valve step, carried by its decline (thrust and flow together, so
+    // the Isp stays the rating's), is a line through the figure's samples
+    // from 499.5 to 538 s within 0.1 % rms and 0.25 % at most, 0.10 % below
+    // §6.3's 3,082,769 N at ESC + 351 s and 0.02 % below its 3,059,402 N at
+    // ESC + 381 s (ESC 163.04 s); it holds after OECO. The figure's last 8 s,
+    // traced 0.5 % below the line where its solid curve meets the dashed
+    // prediction, are not the line's. The ramp from high EMR puts its middle
+    // on AS-506's effective step, 498.8 s (the postflight trajectory,
+    // datasheet §14.2), 1.2 s after the valve step; the figure's own step,
+    // impulse for impulse, falls at 496.8 s, and its low EMR, 4.29-4.31, is
+    // within 0.05 of §6.5's 4.34 average.
+    func testSIILowEMRFollowsFigure6_3() {
+        typealias P = AS506Postflight
+        let low = AS506.sIIJ2LowEMR, decline = AS506.sIILowMixtureRatioDecline
+        func stage(at t: Double) -> (thrust: Double, flow: Double) {
+            let k = decline.values(at: t - AS506.sIIMixtureRatioShift)
+            return (4 * low.thrustVacuum * k.thrust, 4 * low.massFlow * k.flow)
+        }
+        let samples = P.sIIThrust.filter { $0.time >= 499.5 && $0.time <= 538 }
+        let residuals = samples.map { stage(at: $0.time).thrust / ($0.thrust * 1e6) - 1 }
+        XCTAssertEqual(residuals.count, 78)
+        XCTAssertLessThan((residuals.map { $0 * $0 }.reduce(0, +) / Double(residuals.count)).squareRoot(), 1e-3)
+        XCTAssertLessThan(residuals.map(abs).max()!, 2.5e-3)
+        XCTAssertEqual(stage(at: 163.04 + 351).thrust, 3_082_769, accuracy: 3_082_769 * 1.5e-3)
+        XCTAssertEqual(stage(at: 163.04 + 381).thrust, 3_059_402, accuracy: 3_059_402 * 5e-4)
+        let tail = P.sIIThrust.filter { $0.time > 540 }
+        XCTAssertLessThan(tail.map { $0.thrust * 1e6 / stage(at: $0.time).thrust - 1 }.reduce(0, +) / Double(tail.count),
+                          -3e-3)
+        for t in stride(from: 497.6, through: 560, by: 2.5) {
+            let s = stage(at: t)
+            XCTAssertEqual(s.thrust / s.flow, low.thrustVacuum / low.massFlow, accuracy: 1e-9, "\(t) s")
+        }
+        XCTAssertEqual(stage(at: 560).thrust, stage(at: AS506.sIIOutboardCutoff).thrust, accuracy: 1e-6)
+        XCTAssertEqual(AS506.sIIMixtureRatioShift + AS506.sIIMixtureRatioRamp / 2, 498.8, accuracy: 1e-9)
+        // The figure's step: the high-EMR mean (486-493 s) and the low line,
+        // the impulse between them from 490 to 505 s on the samples.
+        let high = P.sIIThrust.filter { $0.time <= 493 }.map(\.thrust)
+        let hi = high.reduce(0, +) / Double(high.count)
+        let span = P.sIIThrust.filter { $0.time >= 490 && $0.time <= 505 }
+        var excess = 0.0
+        for (a, b) in zip(span, span.dropFirst()) {
+            excess += ((a.thrust + b.thrust) / 2 * 1e6 - stage(at: (a.time + b.time) / 2).thrust) * (b.time - a.time)
+        }
+        let lo = stage(at: 490).thrust
+        XCTAssertEqual(490 + excess / (hi * 1e6 - lo), 496.8, accuracy: 0.15)
+        let emr = P.sIIMixtureRatio.filter { $0.time >= 500 }.map(\.ratio)
+        XCTAssertEqual(emr.reduce(0, +) / Double(emr.count), AS506.sIILowMixtureRatio, accuracy: 0.05)
     }
 
     // B4: AS-506's sequence driven through the propellant model alone (no
@@ -638,7 +689,11 @@ final class SaturnVDataTests: XCTestCase {
         XCTAssertEqual(acceleration, 17.84, accuracy: 17.84 * 3e-3)   // 1.82 g
         engine("S-II engine 5").isEnabled = false
         XCTAssertFalse(burn(to: AS506.sIIMixtureRatioShift))
-        for e in mains() { e.rating = AS506.sIIJ2LowEMR }
+        // The low EMR as the IU sets it: along the ramp, then Figure 6-3's decline.
+        for e in mains() {
+            e.setRating(AS506.sIIJ2LowEMR, ramp: AS506.sIIMixtureRatioRamp)
+            e.schedule = AS506.sIILowMixtureRatioDecline.delayed(by: e.burnTime)
+        }
         XCTAssertTrue(burn(to: 560))
         // Consistency (the S-II's flow scale and high EMR were fitted to
         // them): LOX depletion at 548.22 s (Table 2-2) with 3,353 kg of LH2

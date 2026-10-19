@@ -471,5 +471,63 @@ final class PropulsionModelTests: XCTestCase {
         let unbounded = try fly(step: 0.013, bounded: false)
         XCTAssertGreaterThan(abs(unbounded.impulse - impulse), impulse * 1e-4)
     }
+
+    // A11: a rating change can bring a schedule (`.rating(part:_:ramp:
+    // schedule:)`, for the S-II's low-EMR decline) that runs from the event,
+    // on the engines' burn clock, whenever the event comes: lit at 0.5 s and
+    // shifted at 3.0 s from T1, the toy engines run their new rating times
+    // the schedule's factor at the time since the shift (the ramp's last
+    // cell aside), at its Isp; a schedule-free change keeps the engines'.
+    func testRatingChangeStartsItsScheduleThere() throws {
+        let decline = PerformanceSchedule([.init(time: 0, thrustFactor: 1, flowFactor: 1),
+                                           .init(time: 10, thrustFactor: 0.9, flowFactor: 0.95)])
+        let plan = SaturnIU.Plan(
+            liftoffDelay: 0, referenceToLiftoff: 0, flightAzimuth: 0, towerYaw: (0, 0, 0),
+            programStart: (1e9, 1e9), tilt: TiltProgram(boundaries: [], coefficients: [[0, 0, 0, 0, 0]], arrest: 0),
+            commandRateLimit: 0.02, coastRateLimit: Vec3(0.01, 0.01, 0.01), cant: (0, 0),
+            sequence: [SaturnIU.Event(.t1, 0.5, "ignition", .mainThrottle(1)),
+                       SaturnIU.Event(.t1, 3.0, "shift", .rating(part: "Stage", Toy.lowRating, ramp: 0.5,
+                                                                 schedule: decline)),
+                       SaturnIU.Event(.t1, 9.0, "other", .rating(part: "Stage", Toy.lowRating))],
+            stages: ("Stage", "-", "-"), centreEngine: "Stage engine 2", guidance: nil)
+        let sim = try Simulation.forTests(perturbations: false)
+        let v = Toy.rocket()
+        sim.add(v)
+        sim.placeInFreeSpace(v)
+        let iu = SaturnIU(plan: plan)
+        v.flightProgram = iu
+        let e = v.thrusters.first { $0.groups.contains(.main) }!
+        let start = sim.time
+        /// In steps of 0.02 s at most, ending on the IU's events and the ramp's cells.
+        func fly(to t: Double) {
+            while sim.time - start < t - 1e-6 {
+                for w in sim.vessels { sim.prepareControls(w) }
+                sim.step(min(0.02, sim.maxStep()))
+            }
+        }
+        fly(to: 2.9)
+        XCTAssertNil(e.schedule)
+        XCTAssertEqual(e.maxThrustVacuum, Toy.engine.thrustVacuum, accuracy: 1e-6)
+        // The engine's clock at the shift, 2.5 s after it was lit, starts the
+        // schedule (to the simulation's 1 ms minimum step).
+        fly(to: 3.1)
+        let knots = try XCTUnwrap(e.schedule).knots
+        XCTAssertEqual(knots[0].time, 2.5, accuracy: 2e-3)
+        XCTAssertEqual(knots[1].time - knots[0].time, 10, accuracy: 1e-9)
+        XCTAssertEqual(knots.map(\.thrustFactor), [1, 0.9])
+        let shift = try XCTUnwrap(iu.log.first { $0.event == "shift" }).time
+        for t in [4.0, 6.0, 8.0] {
+            fly(to: t)
+            let u = (e.burnTime - knots[0].time) / 10
+            XCTAssertEqual(u * 10, sim.time - shift, accuracy: 2e-3)
+            XCTAssertEqual(e.maxThrustVacuum, Toy.lowRating.thrustVacuum * (1 - 0.1 * u), accuracy: 1e-3, "\(t) s")
+            XCTAssertEqual(e.currentRating.massFlow, Toy.lowRating.massFlow * (1 - 0.05 * u), accuracy: 1e-9, "\(t) s")
+            XCTAssertEqual(e.currentRating.impliedExitArea, 0.8, accuracy: 1e-9)
+            XCTAssertEqual(e.currentRating.mixtureRatio ?? 0, 2.0, accuracy: 1e-12)
+        }
+        fly(to: 15.0)
+        XCTAssertEqual(e.maxThrustVacuum, Toy.lowRating.thrustVacuum * 0.9, accuracy: 1e-3)
+        XCTAssertEqual(try XCTUnwrap(e.schedule).knots, knots)
+    }
 }
 
