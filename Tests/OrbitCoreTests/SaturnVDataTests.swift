@@ -360,7 +360,7 @@ final class SaturnVDataTests: XCTestCase {
             (AS506.sIIJ2Start, 878_288, 878_288 / 4_195 * 0.996784, 5.0),          // FER §6.2; MSFC-MAN-506 EMR
             (AS506.sIIJ2, 1_028_303, 1_028_303 / 4_164.9 * 0.996784, 5.49765),     // FER Table 6-1; EMR fitted
             (AS506.sIIJ2LowEMR, 772_750, 772_750 / 4_190 * 0.996784, 4.34),         // FER Figure 6-3, §6.5
-            (AS506.sIVBJ2Burn1, 903_000, 215.37, 4.85),                            // FER Figure 7-2, Tables 20-9, 20-5
+            (AS506.sIVBJ2Burn1, 912_000, 215.37, 4.85),                            // PFT; FER Tables 20-9, 20-5
         ]
         for (rating, thrust, flow, ratio) in settings {
             let vacuum = run(rating, at: 0)
@@ -374,16 +374,19 @@ final class SaturnVDataTests: XCTestCase {
         // 230,000 lbf and 425 s at EMR 5.5 (NTRS 20100032986;
         // enginehistory.org), and against the FER's own flow at ESC + 61 s,
         // 246.9 kg/s (Table 6-1), which the budget's 0.32 % cut takes 0.8
-        // kg/s below (so the Isp 1.1 s above); the S-IVB's against FER Table 7-1's
-        // standardised 202,603 lbf (also This Day in Aviation; Braeunig) and
-        // 4,204 N s/kg, the engine's own flow: the model's flow is Table
-        // 20-9's mainstage consumption, venting included, so its Isp is 0.3 %
-        // lower.
+        // kg/s below (so the Isp 1.1 s above). The S-IVB's, from AS-506's
+        // measured acceleration, is 1.2 % above FER Table 7-1's standardised
+        // 202,603 lbf (also This Day in Aviation; Braeunig) and 1.0 % above
+        // Figure 7-2's 903 kN; on Table 20-9's mainstage consumption, venting
+        // included, its Isp, 431.8 s, is 0.7 % above Table 7-1's 4,204 N s/kg
+        // on the engine's own flow: high for a J-2 (datasheet §17).
         XCTAssertEqual(AS506.sIIJ2.thrustVacuum, 230_000 * lbf, accuracy: 230_000 * lbf * 0.01)
         XCTAssertEqual(AS506.sIIJ2.ispVacuum, 425, accuracy: 1.5)
         XCTAssertEqual(AS506.sIIJ2.massFlow, 246.9, accuracy: 246.9 * 4e-3)
-        XCTAssertEqual(AS506.sIVBJ2Burn1.thrustVacuum, 202_603 * lbf, accuracy: 202_603 * lbf * 3e-3)
-        XCTAssertEqual(AS506.sIVBJ2Burn1.ispVacuum * g0, 4_204, accuracy: 4_204 * 5e-3)
+        XCTAssertEqual(AS506.sIVBJ2Burn1.thrustVacuum / (202_603 * lbf), 1.012, accuracy: 1e-3)
+        XCTAssertEqual(AS506.sIVBJ2Burn1.thrustVacuum / 903_000, 1.010, accuracy: 1e-3)
+        XCTAssertEqual(AS506.sIVBJ2Burn1.ispVacuum, 431.8, accuracy: 0.05)
+        XCTAssertEqual(AS506.sIVBJ2Burn1.ispVacuum * g0 / 4_204, 1.007, accuracy: 1e-3)
     }
 
     // The F-1's thrust against FER Figure 5-3's stage thrust (reconstructed,
@@ -483,12 +486,14 @@ final class SaturnVDataTests: XCTestCase {
         XCTAssertEqual(impulse(sII, steps: 40), 581_916, accuracy: 581_916 * 0.01)
 
         for _ in 0..<3 { v.jettisonNextStage() }
-        let j2 = engines("S-IVB")
+        // The S-IVB's, reconstructed by the FER at Figure 7-2's 903 kN: the
+        // model's thrust, from the measured acceleration, is 1.0 % higher.
+        let j2 = engines("S-IVB"), level = AS506.sIVBJ2ThrustVacuum / 903_000
         j2[0].level = 1
-        XCTAssertEqual(impulse(j2, steps: 125), 857_243, accuracy: 857_243 * 0.01)
+        XCTAssertEqual(impulse(j2, steps: 125), 857_243 * level, accuracy: 857_243 * 0.01)
         _ = impulse(j2, steps: 50)
         j2[0].level = 0
-        XCTAssertEqual(impulse(j2, steps: 40), 188_302, accuracy: 188_302 * 0.01)
+        XCTAssertEqual(impulse(j2, steps: 40), 188_302 * level, accuracy: 188_302 * 0.01)
         XCTAssertFalse(j2[0].isDelivering)
     }
 
@@ -727,9 +732,10 @@ final class SaturnVDataTests: XCTestCase {
         XCTAssertEqual(v.jettisonNextStage()?.mass ?? 0, AS506.sIVBUllageMotorCases, accuracy: 1e-9)
         XCTAssertFalse(burn(to: 699.34))
         mass(135_182, "S-IVB cutoff")
-        // Figure 4-3 (M) rather than Table 4-1's 6.73 m/s^2, which is more
-        // than the S-IVB's thrust (FER Figure 7-2) over the tabulated mass.
-        XCTAssertEqual(acceleration, 6.69, accuracy: 6.69 * 5e-3)
+        // Independent: Table 4-1's 6.73 m/s^2 (and the PFT's), which the thrust
+        // from the measured acceleration meets (Figure 7-2's 903 kN over the
+        // tabulated mass gives 6.68 m/s^2, Figure 4-3's 6.69).
+        XCTAssertEqual(acceleration, 6.73, accuracy: 6.73 * 3e-3)
         set(mains(), 0)
         XCTAssertFalse(burn(to: 699.54))
         mass(135_102, "S-IVB end of thrust decay")

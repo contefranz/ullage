@@ -348,10 +348,11 @@ enum AS506 {
     /// (GE504: "thrust decay at shutdown and the expected post-cutoff vents";
     /// SA-504's was 2.0275 m/s). AS-506's LVDC cut off at 7,791.43 m/s and
     /// inserted at 7,793.28 m/s 10 s later, a 1.85 m/s gain (FER Table
-    /// 10-2). The model, which has no vents, gains 1.45 m/s: 1.40 from the
-    /// J-2's thrust decay and 0.05 from the APS ullage burn. That is its bias,
-    /// so it inserts at circular speed.
-    static let igmCutoffVelocityBias = 1.45    // m/s, the model's (FER Table 10-2: 1.85 on AS-506)
+    /// 10-2). The model, which has no vents, gains 1.46 m/s in those 10 s
+    /// (1.45 at Figure 7-2's 903 kN): the J-2's thrust decay, 191,520 N s
+    /// on 135,170 kg, and the APS ullage burn. That is its bias, so it
+    /// inserts at circular speed.
+    static let igmCutoffVelocityBias = 1.46    // m/s, the model's (FER Table 10-2: 1.85 on AS-506)
     /// The target: a 100 n mi circular orbit above the 6,378,165 m sphere
     /// (GE504's SA-504 R_T; AS-506's LVDC cut off 30 m below it, FER Table
     /// 10-2), in AS-506's nominal plane (FER Tables 4-5 and 10-5: i and the
@@ -720,12 +721,21 @@ enum AS506 {
     /// model's 3,072,000 N, a decay over 0.38 s.
     static let sIIJ2Transients = EngineTransients(startDelay: 1.09, startRise: 1.11, shutdown: 0.38)   // FER (shape L)
 
-    /// S-IVB burn 1 (PU null): the flight values of FER Figure 7-2 (thrust
-    /// 902-906 kN; the standardised Table 7-1 value is 901,223 N), the
-    /// mainstage flow of Table 20-9 (31,152 kg in 144.64 s, venting included)
-    /// and the tanks' consumption ratio (Table 20-5: LOX 25,873 kg, LH2 5,339
-    /// kg; the engine's own EMR was about 4.96).
-    static let sIVBJ2ThrustVacuum = 903_000.0        // N, FER Figure 7-2 (M)
+    /// S-IVB burn 1 (PU null): the thrust AS-506's measured acceleration
+    /// needs, the mainstage flow of Table 20-9 (31,152 kg in 144.64 s,
+    /// venting included) and the tanks' consumption ratio (Table 20-5: LOX
+    /// 25,873 kg, LH2 5,339 kg; the engine's own EMR was about 4.96). The
+    /// postflight trajectory's sensed acceleration over the mainstage,
+    /// 560-690 s (PFT Table B-II, H), flown from AS-506's state at T4 on the
+    /// model's mass (the FER's within 34 kg: Tables 20-5, 20-9), needs 912
+    /// kN, fitted to the nearest kN; FER Table 4-1's 6.73 m/s^2 at cutoff
+    /// agrees. On the flow that is an Isp of 431.8 s, high for a J-2: FER
+    /// Table 7-1's standardised engine has 901,223 N and 4,204 N s/kg (428.7
+    /// s, on the engine's own flow). The alternative is the FER's thrust
+    /// reconstruction, Figure 7-2's 902-906 kN (903 kN, 427.6 s): over the
+    /// same mass it gives 1.0 % less acceleration than measured, and from
+    /// AS-506's T4 state a cutoff 1.46 s late (datasheet §17).
+    static let sIVBJ2ThrustVacuum = 912_000.0        // N, from AS-506's measured acceleration, PFT (H); M
     static let sIVBJ2MassFlow = 215.37               // kg/s, FER Table 20-9 (H)
     static let sIVBMixtureRatio = 4.85               // FER Table 20-5 (H)
     static let sIVBJ2Burn1 = EngineRating.fixedNozzle(
@@ -734,7 +744,9 @@ enum AS506 {
         mixtureRatio: sIVBMixtureRatio)
     /// Start: 857,243 N s from STDV open to STDV + 2.5 s (FER §7.2), 0.95 s of
     /// full thrust: a rise over 1.9 s after a 0.6 s delay. Cutoff: 188,302 N
-    /// s (§7.4), 0.21 s: a decay over 0.42 s.
+    /// s (§7.4), 0.21 s: a decay over 0.42 s. The FER reconstructs both at
+    /// Figure 7-2's level; at the measured acceleration's the shapes give
+    /// 1.0 % more.
     static let sIVBJ2Transients = EngineTransients(startDelay: 0.6, startRise: 1.9, shutdown: 0.42)   // FER (shape L)
 
     /// The four S-II ullage motors on the S-IC/S-II interstage: 23,000 lbf

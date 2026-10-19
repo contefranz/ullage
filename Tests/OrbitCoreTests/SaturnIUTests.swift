@@ -796,7 +796,10 @@ final class SaturnIUTests: XCTestCase {
     // dropped by hand at 200 s (T3 + 38 s) starts T4 at once, and the S-II's
     // pending events (gain switches, centre engine cutoff) never fire into
     // the S-IVB, which keeps its own law. The IGM still starts on its own
-    // timer (T3 + 42.4 s, GE504 Fig 4-1) and steers the S-IVB.
+    // timer (T3 + 42.4 s, GE504 Fig 4-1) and steers the S-IVB. (An S-IVB
+    // lit at 204 s cannot reach orbit, and the IGM's T3 iteration does not
+    // converge: whether it logs terminal guidance then depends on the
+    // S-IVB's exhaust velocity, so that entry is left out.)
     func testEarlierTimeBaseEventsDropWhenTheNextStarts() throws {
         let f = try launch()
         f.fly(to: 200)
@@ -805,7 +808,7 @@ final class SaturnIUTests: XCTestCase {
         f.fly(to: 260)
         let t4 = try XCTUnwrap(f.iu.timeBases[.t4])
         XCTAssertEqual(f.range(t4), 200, accuracy: 0.03)
-        XCTAssertEqual(f.iu.log.filter { $0.time >= t4 }.map(\.event),
+        XCTAssertEqual(f.iu.log.filter { $0.time >= t4 && $0.event != "terminal guidance" }.map(\.event),
                        ["T4: S-II outboard engine cutoff sensed", "S-II outboard engine cutoff",
                         "S-IVB ullage motor ignition", "S-II/S-IVB separation (nothing to do: gone)",
                         "S-IVB flight control law", "S-IVB ignition", "IGM phase 1", "IGM phase 3: steering frozen",
