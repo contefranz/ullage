@@ -116,9 +116,9 @@ final class EntryTests: XCTestCase {
                        accuracy: 1e-9 * cm.loadFactor)
     }
 
-    /// Sutton-Graves heating at the capsule's 184.8 in heat-shield radius:
+    /// Sutton-Graves heating at the CM's 1.65 m effective radius:
     /// 1.7415e-4 sqrt(ρ / R_n) V^3, at the air-relative speed (here 70 km,
-    /// ρ 8.283e-5 kg/m^3 from the 1976 table, 7.5 km/s: 308.6 kW/m^2).
+    /// ρ 8.283e-5 kg/m^3 from the 1976 table, 7.5 km/s: 520.5 kW/m^2).
     func testStagnationHeatFlux() throws {
         let (sim, v) = try commandModuleAtEntryInterface()
         sim.place(v, geodeticLatitude: 30, longitude: -90, height: 70_000, inertialSpeed: 7_900, flightPathAngle: -1,
@@ -127,9 +127,9 @@ final class EntryTests: XCTestCase {
         let rho = USStandardAtmosphere1976().state(altitude: v.altitude).density
         XCTAssertEqual(v.altitude, 70_000, accuracy: 1e-6)
         XCTAssertEqual(rho, 8.283e-5, accuracy: 0.002e-5)
-        XCTAssertEqual(v.heatFlux, 1.7415e-4 * (rho / 4.69392).squareRoot() * pow(air.length, 3), accuracy: 1e-6)
-        let reference = 1.7415e-4 * (8.283e-5 / 4.69392).squareRoot() * pow(7_500, 3)
-        XCTAssertEqual(reference, 308_627, accuracy: 1)
+        XCTAssertEqual(v.heatFlux, 1.7415e-4 * (rho / 1.65).squareRoot() * pow(air.length, 3), accuracy: 1e-6)
+        let reference = 1.7415e-4 * (8.283e-5 / 1.65).squareRoot() * pow(7_500, 3)
+        XCTAssertEqual(reference, 520_546, accuracy: 1)
         // The heat load integrates the flux step by step (the trapezoid
         // rule): over 20 s of flight it is the sum of the samples (to the
         // 1e-7 s an epoch resolves in each step).
@@ -176,5 +176,172 @@ final class EntryTests: XCTestCase {
             XCTAssertLessThan(worst[k] * 180 / .pi, 2, "α off trim")
             XCTAssertGreaterThan(peak[k], 0.5)
         }
+    }
+
+    // MARK: The entry autopilot and the entry program (E2's command module)
+
+    /// Apollo 7's CM (E2's parts, Mission Report row) with the CM model.
+    func apollo7CM(_ calibration: CapsuleAerodynamics.Calibration = .flightConsistent) -> Vessel {
+        let v = VesselLibrary.commandModule(.apollo7)
+        v.aerodynamics = [.apolloCommandModule(calibration: calibration)]
+        return v
+    }
+
+    /// The entry autopilot from lift up to a 55° bank at Mach 22 (65 km): it
+    /// is within its 4° dead band of the command in under 5 s, rolling no
+    /// faster than 20°/s about the stability axis, with the rates across it
+    /// under 3.5°/s (its 2°/s dead band, the rate loop's lag and the CM's
+    /// products of inertia; 3.04°/s at most) and the trim
+    /// undisturbed (α' within 1°); then it holds the bank inside 5°, and
+    /// rolling flies its rate.
+    func testEntryAutopilotRollsAboutTheStabilityAxis() throws {
+        let sim = try Simulation.forTests(perturbations: true)
+        let v = apollo7CM()
+        sim.add(v)
+        sim.place(v, geodeticLatitude: 30, longitude: -80, height: 65_000, inertialSpeed: 7_300, flightPathAngle: -1,
+                  azimuth: 90)
+        let capsule = v.activeAerodynamics!.capsule!
+        v.attitude = CMEntryProgram.trimAttitude(of: v, capsule: capsule, bank: 0, in: sim)!
+        sim.updateTelemetry(v, snapshot: sim.snapshot)
+        XCTAssertEqual(v.bankAngle!, 0, accuracy: 1e-6)
+        XCTAssertGreaterThan(v.mach, 20)
+        let trim = Double.pi - v.angleOfAttack
+        let deg = Double.pi / 180
+        v.autopilot = .entry
+        v.entryCommand = .bank(55 * deg)
+        var reached: Double?, fastest = 0.0, across = 0.0, offTrim = 0.0
+        for i in 1...250 {
+            sim.tick()
+            let w = v.stabilityAxis, about = v.angularVelocity.dot(w)
+            fastest = max(fastest, abs(about))
+            across = max(across, (v.angularVelocity - w * about).length)
+            offTrim = max(offTrim, abs((Double.pi - v.angleOfAttack) - trim))
+            if reached == nil, abs(v.bankAngle! - 55 * deg) < EntryAutopilot.bankDeadband { reached = Double(i) * 0.02 }
+        }
+        XCTAssertLessThan(reached ?? .infinity, 5)
+        XCTAssertLessThan(fastest, 20.5 * deg)
+        XCTAssertGreaterThan(fastest, 15 * deg)
+        XCTAssertLessThan(across, 3.5 * deg)
+        XCTAssertLessThan(offTrim, 1 * deg)
+        for _ in 0..<1000 {
+            sim.tick()
+            XCTAssertEqual(v.bankAngle!, 55 * deg, accuracy: 5 * deg)
+        }
+        v.entryCommand = .rolling(rate: -15 * deg)
+        sim.run(seconds: 5)
+        var turned = 0.0, last = v.bankAngle!
+        for _ in 0..<500 {
+            sim.tick()
+            turned += EntryAutopilot.wrap(v.bankAngle! - last)
+            last = v.bankAngle!
+        }
+        XCTAssertEqual(turned / 10, -15 * deg, accuracy: 1.5 * deg)
+    }
+
+    /// The program sleeps while the "SM" is aboard and wakes once it has
+    /// gone: CM RCS on, ELS armed, the launch day's sounding dropped, the
+    /// trim attitude held; the pilot's Space key is its own only while it
+    /// sleeps. Manual mode rolls at the pilot's rate and holds where it is
+    /// let go.
+    func testEntryProgramWakesWhenTheServiceModuleLeaves() throws {
+        let sim = try Simulation.forTests(perturbations: true)
+        let v = apollo7CM()
+        let sm = VesselPart(name: "SM", dryMass: 6_000, offset: ApolloAxes.construction(xa: 950), length: 3.9, radius: 1.96,
+                            staging: .event(7))
+        v.parts.append(sm)
+        v.recenter()
+        for t in v.thrusters { t.isEnabled = false }
+        sim.add(v)
+        sim.atmospheres[sim.system.earth.id] = AS506.launchDayAtmosphere()
+        let ei = Self.apollo7EntryInterface
+        sim.place(v, geodeticLatitude: ei.latitude, longitude: ei.longitude, height: 160_000, inertialSpeed: 7_800,
+                  flightPathAngle: -1.6, azimuth: ei.azimuth)
+        let program = CMEntryProgram(mode: .bankHold(0))
+        v.flightProgram = program
+        sim.run(seconds: 1)
+        XCTAssertEqual(program.phase, .dormant)
+        XCTAssertTrue(program.allowsManualStaging(of: v))
+        XCTAssertEqual(program.status, "ENTRY standby")
+        XCTAssertNotNil(sim.atmospheres[sim.system.earth.id])
+        XCTAssertFalse(v.thrusters.contains { $0.isEnabled })
+
+        XCTAssertNotNil(sim.stage(v, event: 7))
+        sim.tick()
+        XCTAssertEqual(program.phase, .preEntry)
+        XCTAssertNil(sim.atmospheres[sim.system.earth.id])
+        XCTAssertTrue(v.thrusters.filter { $0.name.hasPrefix("CM RCS") }.allSatisfy(\.isEnabled))
+        XCTAssertTrue(program.els.isArmed)
+        XCTAssertEqual(v.autopilot, .attitudeHold)
+        XCTAssertFalse(program.allowsManualStaging(of: v))
+        XCTAssertTrue(program.status.hasPrefix("ENTRY hold lift up | ELS armed"), program.status)
+        // From the separation attitude the hold turns it to trim, lift up.
+        sim.run(seconds: 60)
+        let goal = CMEntryProgram.trimAttitude(of: v, capsule: v.activeAerodynamics!.capsule!, bank: 0, in: sim)!
+        XCTAssertLessThan(rotationVector(v.attitude.conjugate * goal).length, 2 * Double.pi / 180)
+        XCTAssertEqual(v.bankAngle!, 0, accuracy: 4 * Double.pi / 180)
+        XCTAssertNotNil(program.prediction)
+
+        // Manual: the pilot's roll keys roll it, and it holds where they stop.
+        program.mode = .manual
+        let deg = Double.pi / 180
+        XCTAssertEqual(program.command(v), .bank(v.bankAngle!))
+        program.pilotRoll = 1
+        XCTAssertEqual(program.command(v), .rolling(rate: 20 * deg))
+        program.pilotRoll = 0
+        if case .bank(let held) = program.command(v) { XCTAssertEqual(held, v.bankAngle!, accuracy: 1e-12) } else { XCTFail() }
+    }
+
+    /// From Apollo 7's entry interface as flown (the onboard computer's
+    /// 25,846.4 ft/s at -2.072°, Mission Report §5.16, H; position and
+    /// azimuth from 68-FM-184 Table IX(b)), lift up as the crew flew it to
+    /// 0.2 g: the program senses 0.05 g and 0.2 g within 6 s of the flight's
+    /// program changes, 132 s and 160 s after entry interface (259:55:38
+    /// and 259:56:06 against 259:53:26 GET); and the landing-point
+    /// predictor, run from entry interface at a constant 55°, lands within
+    /// 50 km of where the flight at 55° reaches the drogues' 24,000 ft.
+    func testPointZeroFiveGAndThePredictor() throws {
+        let sim = try Simulation.forTests(perturbations: true)
+        let v = apollo7CM(.operational)
+        sim.add(v)
+        let ei = Self.apollo7EntryInterface
+        sim.place(v, geodeticLatitude: ei.latitude, longitude: ei.longitude, height: ei.height,
+                  inertialSpeed: 25_846.4 * 0.3048, flightPathAngle: -2.072, azimuth: ei.azimuth)
+        let program = CMEntryProgram(mode: .bankHold(0))
+        v.flightProgram = program
+        v.attitude = CMEntryProgram.trimAttitude(of: v, capsule: v.activeAerodynamics!.capsule!, bank: 0, in: sim)!
+        sim.updateTelemetry(v, snapshot: sim.snapshot)
+        let t0 = sim.time
+        var pointTwo: Double?
+        while pointTwo == nil && sim.time - t0 < 300 {
+            sim.tick()
+            if v.loadFactor >= 0.2 { pointTwo = sim.time - t0 }
+        }
+        XCTAssertEqual(program.pointZeroFiveG.map { $0 - t0 } ?? 0, 132, accuracy: 6)
+        XCTAssertEqual(pointTwo ?? 0, 160, accuracy: 6)
+        XCTAssertEqual(program.phase, .entry)
+        XCTAssertEqual(v.autopilot, .entry)
+        XCTAssertTrue(sim.events.contains { $0.message.hasSuffix("0.05 g") })
+
+        // The predictor against the flight at 55° from 68-FM-184's entry interface.
+        let (flight, cm) = (try Simulation.forTests(perturbations: true), apollo7CM(.operational))
+        flight.add(cm)
+        flight.place(cm, geodeticLatitude: ei.latitude, longitude: ei.longitude, height: ei.height,
+                     inertialSpeed: ei.speed, flightPathAngle: ei.flightPathAngle, azimuth: ei.azimuth)
+        let bank = 55 * Double.pi / 180
+        let entry = CMEntryProgram(mode: .bankHold(bank))
+        cm.flightProgram = entry
+        cm.attitude = CMEntryProgram.trimAttitude(of: cm, capsule: cm.activeAerodynamics!.capsule!, bank: bank, in: flight)!
+        flight.updateTelemetry(cm, snapshot: flight.snapshot)
+        flight.tick()
+        let predicted = try XCTUnwrap(entry.prediction)
+        while cm.altitude > LandingPointPredictor().endAltitude && flight.time - t0 < 1_500 {
+            for x in flight.vessels { flight.prepareControls(x) }
+            flight.step(min(1, flight.maxStep()))
+        }
+        let ll = cm.latitudeLongitude(snapshot: flight.snapshot)
+        let miss = acos(sin(ll.lat) * sin(predicted.latitude)
+                        + cos(ll.lat) * cos(predicted.latitude) * cos(ll.lon - predicted.longitude)) * 6_371
+        XCTAssertLessThan(miss, 50, "predicted \(predicted.latitude * 180 / .pi), \(predicted.longitude * 180 / .pi)")
+        XCTAssertGreaterThan(predicted.peakLoadFactor, 3)
     }
 }

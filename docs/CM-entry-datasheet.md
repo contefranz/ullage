@@ -123,21 +123,84 @@ Computed at the end of every step, after the air and altitude telemetry:
 
 | Field | Definition | Grade |
 |---|---|---|
-| `sensedAcceleration` | aerodynamic and thrust force over mass, body axes, as an accelerometer at the CoM reads it. Parachute loads are added once track E2's loads exist (PR 2). On the surface: the support that holds the vessel in the rotating frame, ω×(ω×r) − g | – |
+| `sensedAcceleration` | aerodynamic, parachute (track E2's `parachuteLoads`) and thrust force over mass, body axes, as an accelerometer at the CoM reads it. On the surface: the support that holds the vessel in the rotating frame, ω×(ω×r) − g | – |
 | `loadFactor` | `sensedAcceleration` / g0, g0 = 9.80665 m/s² | – |
 | `bankAngle` | for a vessel flying a capsule model: the angle about the air-relative velocity from the local up (the ellipsoid normal) projected across it, to the lift side (the CoM's offset from the axis, `Vessel.liftSide`) projected across it; positive with the lift right of the velocity looking along it. Nil without a capsule, or with the air velocity vertical | – |
-| `heatFlux` | Sutton-Graves convective stagnation heating, 1.7415e-4 √(ρ/R_n) V³ W/m², V the air-relative speed (TR R-376, H). R_n = 184.8 in, the heat-shield radius (L: neither 68-FM-184 nor TN D-5399 gives the radius behind its heating). Telemetry only | constant H, R_n L |
+| `heatFlux` | Sutton-Graves convective stagnation heating, 1.7415e-4 √(ρ/R_n) V³ W/m², V the air-relative speed (TR R-376, H). R_n = 1.65 m, an effective radius fitted to 68-FM-184's peak and total together (§4.4; the heat shield's own 184.8 in gives 57 % of the peak). Neither 68-FM-184 nor TN D-5399 gives the radius behind its heating. Telemetry only | constant H, R_n L |
 | `heatLoad` | `heatFlux` integrated over time, by the trapezoid rule from one update to the next (`Vessel.entryTelemetryEpoch`, track E2's PR 1) | – |
 
 **Checks** (`EntryTests`):
 - Bank geometry at Apollo 7's entry interface: 0 lift up, ±180° lift down, +90° lift right, at α' 0 and 0.4 rad, all to 1e-9. A 10° turn about the air velocity reads +10°. Lift up is heads down. Table I(a)'s −0.11 in Y_A puts the lift side 1.07° left.
 - Load factor: zero coasting above the air; thrust over mass in a burn (to 1e-9); WGS-84 normal gravity at rest at 28.6° N (9.79217 m/s², within 1e-4); C_D = 1.2307 and C_R q S/m at Mach 18 on the flight-consistent calibration.
-- Heat flux at 70 km and 7.9 km/s matches Sutton-Graves on the 1976 density, and is zero above the air. Over 20 s of flight the heat load is the trapezoid sum of the fluxes.
+- Heat flux at 70 km and 7.9 km/s matches Sutton-Graves on the 1976 density (520.5 kW/m² at 7.5 km/s), and is zero above the air. Over 20 s of flight the heat load is the trapezoid sum of the fluxes.
 - Flown uncontrolled through `Simulation` from Apollo 7's entry interface, the CM holds its trim within 2° through peak deceleration. When a lift-down CM has fallen to 40 km, a lift-up one is still above 60 km. This pins the lift side in the full integration.
 
-## 4. To come (track E1's PR 2)
+## 4. Entry flight (track E1's PR 2)
 
-- The entry DAP (`.entry` autopilot, `EntryAutopilot.swift`) and `CMEntryProgram`: dormant while the "SM" is aboard, then CM RCS armed and trim lift up, 0.05 g, manual roll, bank hold and rolling. It runs E2's ELS and drops the launch-day sounding.
-- A display-only landing-point predictor (3-DOF, 1 s steps).
-- `Guidance/ApolloMission.swift`, which wires the program in as `ApolloSCS.successor`.
-- The Apollo 7 end-to-end test, deorbit to splashdown: a peak of 3.3 ± 0.3 g, and a landing within about 30 n mi of 29.8° N 67.0° W at a 55° bank from EI (68-FM-184 Table IX(b) and §5.4). Heating will be compared with §5.4.4's 59.8 BTU/ft²·s peak and 12,649 BTU/ft² total, and R_n set or its band stated.
+### 4.1 The entry autopilot (`AttitudeAutopilot.entry`, `EntryAutopilot`)
+
+It rolls the CM about its stability axis to fly `Vessel.entryCommand` (`.bank(φ)` or `.rolling(rate:)`), and leaves pitch and yaw to the trim. This is Apollo's coordinated roll about the velocity: the roll rate gyro is coupled into yaw (TN D-5399).
+
+| Item | Value | Source | Grade |
+|---|---|---|---|
+| Stability axis | the air velocity at trim, body axes: −x turned towards the CoM's side by the trim α' at the current Mach and CoM (`CapsuleAerodynamics.trimAngle`, closed form) | the model; the CMC flew a fixed trim angle | – |
+| Bank | from the telemetry, about the true air velocity | §3 | – |
+| Bank dead band | ±4° | design report | L |
+| Roll rate | up to 20°/s, no faster than it can stop in at half its roll acceleration (M0's approach) | design report (the CMC's) | L |
+| Rate dead bands | ±2°/s across the stability axis; about it inside the bank dead band | TN D-5399 (Apollo 4, all three axes) | H |
+| Rate loop | M0's 0.5 s loop per body axis, on the rotation groups | – | – |
+
+**Checks** (`EntryTests.testEntryAutopilotRollsAboutTheStabilityAxis`, E2's CM at Mach 22):
+- From lift up to 55°, it is inside the dead band in under 5 s (3.9 s), rolling at 18.8°/s at most.
+- The rates across the stability axis stay under 3.5°/s (3.04°/s at most: the dead band, the loop's lag and the CM's products of inertia), and α' within 1° of trim.
+- It then holds 55° ± 5° in a ±2°/s limit cycle. `.rolling` flies its rate within 1.5°/s.
+
+### 4.2 The entry program (`CMEntryProgram`)
+
+| Phase | When | What it does |
+|---|---|---|
+| dormant | an "SM" part is aboard | nothing; the pilot's Space key stages as usual |
+| pre-entry | from the first step without the SM | turns on the CM RCS (once: E2's ELS turns it off under the mains), arms the ELS, removes the reference body's launch-day sounding (`Simulation.atmospheres`, owner decision 13), and holds the trim attitude about the air velocity at the mode's bank (`.attitudeHold`; lift up for manual and rolling) |
+| entry | sensed load factor ≥ 0.05 g (the EMS light; logged "0.05 g") | the entry autopilot flies the mode: `.bankHold(φ)`, `.rolling(rate)`, or `.manual` (`pilotRoll` −1…1 rolls at up to 20°/s; let go, it holds the bank) |
+| drogues | E2's ELS has deployed them | rate damping (`.killRotation`) |
+| mains, landed | E2's ELS (RCS off) | lets go |
+
+- The ELS (E2's `EarthLandingSystem`, on baroswitch pressure) runs inside the program from pre-entry on. `advanceELS` is the crew's Space-key backup, for track I to wire: awake, the program refuses manual staging.
+- Status line, for example: "ENTRY bank 55°L 3.3 g | ELS drogues reefed 1 | 29.6N 65.7W".
+
+**Checks** (`EntryTests`):
+- `testEntryProgramWakesWhenTheServiceModuleLeaves`: dormant with an SM aboard (sounding kept, RCS off, Space allowed). After event 7 it wakes: sounding dropped, CM RCS on, ELS armed, hold on. Within 60 s it is at trim lift up (2°, bank within 4°). Manual mode rolls and holds.
+- `testPointZeroFiveGAndThePredictor`: from Apollo 7's entry interface as flown (25,846.4 ft/s at −2.072°, Mission Report §5.16, H; position and azimuth from Table IX(b)), lift up. The model senses 0.05 g at 127 s and 0.2 g at 160 s after EI. The flight's computer changed programs at 132 s (post-0.05 g) and 160 s (0.2 g, final phase). The test band is ±6 s.
+
+### 4.3 The landing-point predictor (`LandingPointPredictor`, display only)
+
+- A point mass with the capsule's trim drag and lift at the current CoM and mass, at a constant bank (none for rolling).
+- 1 s RK4 steps, the reference body's standard atmosphere rotating with it, central gravity with J2.
+- It ends at the drogues' 24,000 ft. Run every 2 s before the drogues; `CMEntryProgram.prediction`.
+- **Check:** from Table IX(b)'s EI at a constant 55°, its prediction made at EI is 28 km from where the 6-DOF flight passes 24,000 ft (test: 50 km).
+
+### 4.4 Apollo 7 from entry interface to splashdown (`Apollo7EntryTests`)
+
+Setup:
+- E2's Apollo 7 CM, with the operational calibration (MSC's tables, as 68-FM-184 flew them).
+- Table IX(b)'s entry interface: 31.03° N, 98.83° W, 400,000 ft, 25,850.3 ft/s at −1.759° and 83.64° (geocentric horizontal, geodetic position).
+- 55° bank, starting with a left roll. §5.4.4 places the target on the 55° bank contour "if L/D is between 0.42 and 0.26". The crew reverses the bank whenever the CM is more than 10 n mi off the ground track to the target. Held to one side, 55° carries it about 95 n mi across.
+
+| Quantity | Model | 68-FM-184 / Mission Report | Test |
+|---|---|---|---|
+| Peak load factor | 3.29 g | 3.3 g (§5.4.4) | ±0.3 g |
+| Landing | 29.49° N, 65.71° W: 69.6 n mi beyond the target | 29.8° N, 67.0° W (§5.4.3) | 75 n mi |
+| EI to splashdown | 995 s | 963 s (landing 10:20:09:53, cutoff 10:19:40:04 + 826 s) | ±40 s |
+| On the drogues / mains | 53.1 s / 271.3 s | 53 s / 285 s (§5.4.4) | ±5 s / ±20 s |
+| Peak heating / heat load | 57.9 BTU/ft²·s / 13,116 BTU/ft² | 59.8 / 12,649 (§5.4.4) | ±10 % (R_n fitted to both) |
+| CM RCS propellant | 49.0 lb | Apollo 7 flew 49.1 lb (Mission Report §5.21) | within a factor of 2 |
+
+**The landing miss.** The constant-bank range is very sensitive to the entry flight-path angle: about 700 n mi per degree. The same flight entering at −1.80° lands 36 n mi from the target, and at −1.85° 7 n mi. The 70 n mi corresponds to 0.09° of γ, or about 0.03 of vertical L/D (15 % of it at 55°). That is the size of the conventions between 68-FM-184's trajectory program and this one:
+- Fischer 1960 against WGS-84;
+- a geodetic or geocentric horizontal for γ (0.02° here);
+- the 1962 against the 1976 atmosphere;
+- E2's Mission Report CoM (Z 6.0 in) against the table's 5.91 in (9 n mi).
+
+The flight-consistent calibration (L/D about 10 % higher at hypersonic speed) lands 118 n mi beyond.
+
+**Still to come:** `Guidance/ApolloMission.swift`, which wires the program in as `ApolloSCS.successor`, and the same flight from the deorbit burn (SPS-8, Mission Report Table 3-III). Both come after track C.
