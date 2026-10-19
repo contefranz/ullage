@@ -155,6 +155,7 @@ public final class Simulation {
         time = t1
         let snap = system.snapshot(at: time)
         for v in vessels where v.status != .crashed {
+            for c in v.parachutes { c.update(at: time) }
             updateTelemetry(v, snapshot: snap)
             if v.landed == nil {
                 checkSurfaceContact(v, snapshot: snap)
@@ -186,6 +187,7 @@ public final class Simulation {
         let powered = aero.map(v.basePowered) ?? false
         let cpX = aero.map(v.centerOfPressureX) ?? { _ in 0 }
         let planform = v.planform
+        let chutes = v.parachutes.contains(where: \.isDeployed)
 
         func deriv(_ t: Epoch, _ s: RigidState) -> RigidState {
             let snap = system.snapshot(at: t)
@@ -204,6 +206,11 @@ public final class Simulation {
                         torque += l.torque
                     } else {
                         a += air * (-0.5 * state.density * air.length * dragArea / mass)
+                    }
+                    if chutes {
+                        let l = v.parachuteLoads(at: t, air: s.q.inverseRotate(air), omega: s.w, density: state.density)
+                        a += s.q.rotate(l.force) / mass
+                        torque += l.torque
                     }
                 }
             }
@@ -286,17 +293,32 @@ public final class Simulation {
         let g = v.reference.geodetic(v.position, orientation: o)
         let bf = v.reference.figure.bodyFixed(latitude: g.latitude, longitude: g.longitude, height: clearance)
         let icrfToBodyQ = Quat(matrix: o.icrfToBody)
-        let landed = LandedState(body: v.reference, bodyFixedPosition: bf,
-                                 bodyFixedAttitude: (icrfToBodyQ * v.attitude).normalized)
+        // Sea level is the figure: the water's surface is the ellipsoid.
+        let surface = v.reference.surfaceKind(latitude: g.latitude, longitude: g.longitude)
+        var attitude = (icrfToBodyQ * v.attitude).normalized
+        if surface == .water && speed < v.impactLimits.water {
+            // Afloat in Stable I, apex (+x) up: the shortest turn from where
+            // the vessel came down.
+            let up = v.reference.figure.normal(latitude: g.latitude, longitude: g.longitude)
+            let x = attitude.rotate(.unitX), axis = x.cross(up)
+            let angle = atan2(axis.length, x.dot(up))
+            if axis.length > 1e-12 { attitude = (Quat(axis: axis, angle: angle) * attitude).normalized }
+        }
+        let landed = LandedState(body: v.reference, bodyFixedPosition: bf, bodyFixedAttitude: attitude,
+                                 surface: surface)
         v.landed = landed
-        // Every surface is land until bodies tell water from land.
-        if speed < v.impactLimits.land {
+        switch surface {
+        case .water where speed < v.impactLimits.water:
+            v.status = .landed
+            log(String(format: "%@: splashdown at %.1f m/s", v.name, speed))
+        case .land where speed < v.impactLimits.land:
             v.status = .landed
             log(String(format: "%@: touchdown at %.1f m/s", v.name, speed))
-        } else {
+        default:
             v.status = .crashed
             for t in v.thrusters { t.level = 0 }
-            log(String(format: "%@: impact at %.0f m/s", v.name, speed))
+            log(String(format: surface == .water ? "%@: water impact at %.0f m/s" : "%@: impact at %.0f m/s",
+                       v.name, speed))
         }
         setLandedKinematics(v, landed, snapshot: s)
     }

@@ -44,6 +44,9 @@ public final class CelestialBody: Identifiable, CustomStringConvertible {
     public let soiRadius: Double
     /// Parent body for the SOI hierarchy (nil for the Sun).
     public weak var parent: CelestialBody?
+    /// Land and water on the surface: the Earth's (NAIF 399) bundled land
+    /// mask by default; nil is land everywhere.
+    public var surfaceMask: SurfaceMask?
     /// The Earth's precession and nutation, evaluated every 10 minutes.
     let precessionNutation = EarthOrientation.PrecessionNutation.Cache()
 
@@ -52,6 +55,7 @@ public final class CelestialBody: Identifiable, CustomStringConvertible {
         self.id = id; self.name = name; self.gm = gm; self.radius = radius; self.j2 = j2
         self.figure = figure ?? .sphere(radius)
         self.rotation = rotation; self.atmosphere = atmosphere; self.soiRadius = soiRadius
+        surfaceMask = id == 399 ? SurfaceMask.earth : nil
     }
 
     public var description: String { name }
@@ -79,6 +83,13 @@ public final class CelestialBody: Identifiable, CustomStringConvertible {
     public func geodetic(_ r: Vec3, orientation o: BodyOrientation) -> (latitude: Double, longitude: Double,
                                                                         height: Double) {
         figure.geodetic(o.toBody(r))
+    }
+
+    /// What a vessel meets at geodetic `latitude` and `longitude` (radians):
+    /// water or land by `surfaceMask`, whose sea level is the figure (the
+    /// geoid is ignored: |N| < 110 m, about 11 s at a splashdown's 10 m/s).
+    public func surfaceKind(latitude: Double, longitude: Double) -> SurfaceKind {
+        surfaceMask?.kind(latitude: latitude, longitude: longitude) ?? .land
     }
 
     /// The local vertical through `r` (ICRF): the figure's outward normal.

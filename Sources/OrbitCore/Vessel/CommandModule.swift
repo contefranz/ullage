@@ -157,6 +157,49 @@ public enum ApolloCM {
                     ixx: slug * r2, iyy: slug * r2 / 2, izz: slug * r2 / 2)
     }()
 
+    // MARK: Earth landing system
+
+    /// Staging events of the ELS items (the naming contract): the apex
+    /// cover's jettison, the drogues' release, the mains' release.
+    public static let apexCoverEvent = 30, droguesEvent = 31, mainsEvent = 32
+
+    static let foot = AS506.foot
+    /// Two 16.5 ft conical-ribbon drogues: 114 ft^2 each fully open, 65 ft^2
+    /// reefed (42.8 % of the diameter) for 10 s (TN D-7437 Fig. A-16 and p.
+    /// A-11, H). Their risers meet the CM on its axis at the forward deck,
+    /// X_A 1100 (L). They inflate in about 1 s (L).
+    static func drogueParachutes() -> Parachute {
+        let ft2 = foot * foot
+        let c = Parachute(name: "Drogue parachutes", count: 2, diameter: 16.5 * foot, dragArea: 114 * ft2,
+                          attachPoint: ApolloAxes.construction(xa: 1_100))
+        c.reefing = [.init(dragArea: 65 * ft2, duration: 10)]
+        c.inflationTime = 1
+        return c
+    }
+
+    /// Three 83.5 ft ringsail mains: 285 ft^2 each in the first reefing
+    /// stage for 6 s, 1,080 ft^2 in the second to 10 s, 4,200 ft^2 fully
+    /// open (TN D-7437 Fig. A-15, H; "average" areas). The cluster's
+    /// interference is calibrated on TN D-7437 Fig. 2's design splashdowns
+    /// at the 13,000 lb recovery weight, with the CM's own drag: 32 ft/s on
+    /// three mains needs 83.9 % of their area; 36 ft/s on two needs all of it
+    /// (M). They inflate in about 2 s per stage (L). The risers' attachment
+    /// is off the axis on the -Z_A side so that the CM hangs 27.5° from the
+    /// vertical (the design report's hang angle, M; the side, L) about its
+    /// main-deploy CG: X_A 1100, Z_A -25.4.
+    static func mainParachutes() -> Parachute {
+        let ft2 = foot * foot
+        let c = Parachute(name: "Main parachutes", count: 3, diameter: 83.5 * foot, dragArea: 4_200 * ft2,
+                          attachPoint: ApolloAxes.construction(xa: 1_100, za: -25.4))
+        c.reefing = [.init(dragArea: 285 * ft2, duration: 6), .init(dragArea: 1_080 * ft2, duration: 4)]
+        c.inflationTime = 2
+        c.clusterEfficiency = [3: mainClusterEfficiency, 2: 1]
+        return c
+    }
+    static let mainClusterEfficiency = 0.839
+    /// The hang angle under the mains, rad.
+    static let mainHangAngle = 27.5 * AS506.degree
+
     // MARK: Structure
 
     /// The CM's bounding cylinder: the heat shield's tangent plane, the apex
@@ -218,8 +261,9 @@ extension VesselLibrary {
     /// - "Main parachutes": the main pack, event 32 (its release after
     ///   splashdown).
     ///
-    /// The packs stay at their stowed station after deployment: canopies are
-    /// force and visuals only.
+    /// The packs carry their stowed `Parachute`s, which `EarthLandingSystem`
+    /// deploys, and stay at their stowed station after deployment: canopies
+    /// are force and visuals only.
     public static func commandModuleParts(_ mission: ApolloCM.Mission) -> [VesselPart] {
         typealias C = ApolloCM
         guard let row = C.row(mission, .separation) else { preconditionFailure("no separation row") }
@@ -237,15 +281,19 @@ extension VesselLibrary {
             p.dryInertia = item.inertia
         }
 
-        let cover = part("Apex cover", 1_090, C.apexStation, radius: 34, staging: .event(30))
+        let cover = part("Apex cover", 1_090, C.apexStation, radius: 34, staging: .event(C.apexCoverEvent))
         place(C.apexCover, in: cover)
         cover.separationSpeed = 3                       // m/s, thrusters and its chute (L)
-        let drogues = part("Drogue parachutes", 1_074, 1_094, radius: 30, staging: .event(31))
+        let drogues = part("Drogue parachutes", 1_074, 1_094, radius: 30, staging: .event(C.droguesEvent))
         place(C.droguePack, in: drogues)
-        drogues.separationSpeed = 0                     // cut loose: their own drag carries them off
-        let mains = part("Main parachutes", 1_074, 1_104, radius: 30, staging: .event(32))
+        drogues.separationSpeed = 0                     // cut loose
+        let mains = part("Main parachutes", 1_074, 1_104, radius: 30, staging: .event(C.mainsEvent))
         place(C.mainPack, in: mains)
         mains.separationSpeed = 0
+        for (p, chute) in [(drogues, C.drogueParachutes()), (mains, C.mainParachutes())] {
+            chute.attachPoint = chute.attachPoint - p.offset
+            p.parachutes = [chute]
+        }
 
         let cm = part("CM", C.baseStation, C.apexStation, radius: C.diameter / 2, staging: .fixed)
         cm.dragCoefficient = C.subsonicDragCoefficient
