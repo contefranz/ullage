@@ -1,0 +1,74 @@
+# Reader B -- MSC-03466, Apollo 11 anomaly report 3, "SERVICE MODULE ENTRY".
+# Read from page images work/mscimg/p-003..p-007.png only (zoomed crops in readers/B/item6crops/msc00*.png).
+# Format: image (printed page) | item | value | unit | note      ("?" = uncertain digit; none needed)
+
+## p-003 (printed page 1, no number shown) -- STATEMENT OF PROBLEM, DISCUSSION
+p-003 | intended SM behaviour | after jettison on a lunar return, SM should enter the atmosphere then skip out into a highly elliptical earth orbit, removing recontact risk during CM entry | - |
+p-003 | missions where SM did not skip out | Apollo 8, 10 and 11 | - |
+p-003 | C-band radar tracking showed separation velocity much less than expected on | Apollo 7 and Apollo 10 | - |
+p-003 | Apollo 11: SM seen by crew after jettison | about 5 | min | crew noted RCS thrusters still firing
+p-003 | aircraft photographs | SM entering and disintegrating near the CM entry corridor | - |
+p-003 | jettison controller configuration (Apollo 11 and earlier) | four -X translation RCS engines fire from separation until propellant depletion | - |
+p-003 | roll engines start after separation | 2 | s | "Beginning at 2 seconds after separation"
+p-003 | number of roll engines | four | - |
+p-003 | roll engine firing duration | 5 1/2 | s | to spin stabilize the SM about its X-axis
+p-003 | minimum separation velocity that should have been obtained for a stable SM | about 345 | ft/s | "more than sufficient for the service module to skip out"
+p-003 | Apollo 10 separation velocity | about 60 | ft/s |
+p-003 | Apollo 10 shortfall vs skip-out requirement | 30 | ft/s | "(30 ft/sec less than the velocity required for skip out.)" -> implies ~90 ft/s needed
+p-003 | candidate causes | (1) large initial separation moments, (2) RCS hardware failure, (3) propellant dynamics in SM tanks during thrusting | - | plume impingement, unsettled propellants, offset c.g. and asynchronous tension tie release judged insufficient alone
+
+## p-004 (printed page 2)
+p-004 | mechanism | tip-off moments -> spin vector misaligned with SM X-axis by angle theta; propellants move to opposite ends of the two tanks | - | figure 1
+p-004 | precession period of spin vector | about 10 | s |
+p-004 | half period (spin vector on opposite side of X-axis) | 5 | s | "after 5 seconds"
+p-004 | effect | precession excites longitudinal slosh (printed "logitudinal"), dissipates rotational energy, moves spin vector away from X-axis | - |
+p-004 | model | six-degree-of-freedom, residual propellant and separation moments as initial conditions; figures 2, 3, 4 show cos(theta) and slosh displacement vs time | - |
+p-004 | theta definition | from the spin axis (SM X-axis at separation) to the X-axis at later times; cos(theta) < 0 means rotated more than 90 deg and -X thrusters reduce separation velocity | deg |
+p-004 | Figure 2 light slosh mass | 1100 | lb |
+p-004 | Figure 2: cos(theta) begins to diverge from 1.0 at about | 40 | s |
+p-004 | Figure 2: at about 60 s attitude change | about 50 | deg | slosh amplitude increasing
+p-004 | Figure 3 slosh mass | 3300 | lb |
+p-004 | Figure 3: attitude changed 90 deg at about | 35 | s |
+p-004 | Figure 3 end state | fuel and oxidizer stabilized at upper ends of tanks; cos(theta) oscillating near zero; stable spin about an axis perpendicular to X | - |
+
+## p-005 (printed page 3)
+p-005 | Figure 4 slosh mass | 8600 | lb | "equivalent to the propellant mass for Apollo 8"
+p-005 | SM structural limit spin rate | 150 | deg/s | high spin did not noticeably improve stability
+p-005 | no roll firing at all: SM tumbled in about | 10 | s | torque from thrust-vector / c.m. misalignment
+p-005 | optimum roll thruster "on" time | 2.0 | s |
+p-005 | SM remained stable in that case for about | 25 | s |
+p-005 | Figure 5 | attitude history for three sump tank loadings; lighter two stable, heaviest diverges to 90 deg in about 35 s | s |
+p-005 | Figures 6 and 7: thrust termination after SM jettison | 25 | s | relative position and velocity vs total SM propellant loading; SM stable during thrust for all cases
+p-005 | heaviest loading (full SM): total separation velocity reduced to | 6.0 | ft/s | "will not prevent service module entry but should prevent service module recontact"
+
+## p-006 (printed page 4) -- CONCLUSION, CORRECTIVE ACTION
+p-006 | net -X thrusting period over which sloshing can reduce and even reverse separation velocity | 300 | s |
+p-006 | conclusion: restrict spin thrusting to | 2 | s |
+p-006 | conclusion: restrict X-axis thrusting to | 25 | s | of firing time
+p-006 | corrective action applies to | Apollo 13 vehicle and subsequent | - | changes in Figure 8
+p-006 | new sequence t = 0 s | Four -X jets on | s |
+p-006 | new sequence t = 2 s | Four roll jets on | s |
+p-006 | new sequence t = 4 s | Four roll jets off | s |
+p-006 | new sequence t = 25 s | Four -X jets off | s |
+
+## p-007 (printed page 5) -- TABLE I.- COMPARISON OF DERIVED AND EXPECTED SEPARATION VELOCITIES
+# columns: Mission | Propellant, lb x 100 | Expected separation dV, ft/sec | Derived separation dV, ft/sec
+TABLE I | 7 (notes a,b) | 71 | 275 | 30 (note c)
+TABLE I | 8 | 95 | 78 | (d)
+TABLE I | 9 (note b) | 24 | 132 | 134 (note c)
+TABLE I | 10 | 33 | 345 | 60 (note c)
+TABLE I | 11 (note a) | 45 | 360 | (d)
+TABLE I | note a | Service module sighted by crew after jettison.
+TABLE I | note b | Earth-orbital missions.
+TABLE I | note c | Velocities are based on trajectory reconstruction using a service module state vector at 400 000 ft obtained from C-band radar.
+TABLE I | note d | No service module tracking available.
+# propellant in lb: 7 = 7100, 8 = 9500, 9 = 2400, 10 = 3300, 11 = 4500
+
+## CHECKS AND SUSPECTED INCONSISTENCIES (reader B)
+INCONSISTENCY | p-005 says the 8600 lb slosh mass of Figure 4 "is equivalent to the propellant mass for Apollo 8", but Table I gives Apollo 8 propellant as 95 x 100 = 9500 lb.
+CONSISTENT | p-003 Apollo 10 "about 60 ft/sec" = Table I derived 60; p-003 "about 345 ft/sec" = Table I Apollo 10 expected 345 (the text calls it a "minimum separation velocity ... for a stable service module"); Figure 3 slosh mass 3300 lb = Apollo 10 propellant 33 x 100 lb.
+NOTE | p-003 implies skip-out needs ~90 ft/s (60 + 30). Table I expected value for Apollo 8 is only 78 ft/s, below that, although the text lists Apollo 8 among SMs that "did not skip out as expected".
+INCONSISTENCY (minor) | p-003 says C-band tracking on "Apollo 7 and Apollo 10"; Table I also has a C-band-derived value (note c) for Apollo 9 (134 ft/s, above the expected 132).
+NOTE | Table I expected dV is not monotonic in propellant (7100 lb -> 275, 9500 -> 78, 2400 -> 132, 3300 -> 345, 4500 -> 360), so it must reflect mission-specific SM mass/sequence, not propellant alone.
+CONSISTENT | new sequence roll jets 2 s -> 4 s = 2.0 s on-time (p-005, p-006); -X off at 25 s = 25 s of X thrusting (p-005, p-006); old sequence roll from 2 s for 5 1/2 s (p-003).
+NOTE | p-005 "6.0 ft/sec" for a full SM is clearly printed with a decimal point (not 60).

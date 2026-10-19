@@ -1,0 +1,217 @@
+TN D-7437 (West, Apollo Experience Report: Earth Landing System) -- reader B, page images only
+(work/elsimg/p<N>-000.png; printed page numbers in brackets). No uncertain digits unless marked ?.
+
+=====================================================================
+p10 [printed 4]  Figure 2 (normal recovery sequence), Figure 3 (pad/low-altitude abort), text
+=====================================================================
+Figure 2 caption box:
+  Splashdown velocities: Three parachutes - 32 fps; Two parachutes - 36 fps   (dash is a separator)
+  1. Forward heat shield jettisoned at 24 000 ft +0.4 sec
+  2. Drogue parachutes deployed reefed at 24 000 ft +2 sec
+  3. Drogue-parachute single-stage disreef, 10 sec
+  4. Drogue parachutes jettisoned and main parachutes deployed by pilot parachutes at 11 000 ft
+  5. Main-parachute initial inflation
+  6. Main-parachute first-stage disreef, 6 sec
+  7. vhf recovery antennas and flashing beacon deployed, 8 sec
+  8. Main-parachute second-stage disreef, 10 sec, approximately 9 000 ft
+  9. Main parachutes released
+Text (right column):
+  - small, 7.2-foot-diameter parachute mortar-deployed from the forward heat shield (extracts it from wake)
+  - two 16.5-foot-diameter conical ribbon drogue parachutes mortar-deployed 1.6 seconds after
+    forward-heat-shield jettison
+  - drogues undergo a 10-second reefed interval before disreefing to full open; remain attached to an
+    altitude of approximately 11 000 feet
+  - at drogue disconnect, three 7.2-foot-diameter ringslot pilot parachutes are mortar-deployed
+  - three 83.5-foot-diameter main parachutes; each inflates through two reefing stages to full open
+Figure 3 (pad- and low-altitude-abort sequence) labels:
+  - Canards deployed (11 sec)
+  - Arm ELS and jettison launch escape tower, boost protective cover, and docking ring (14 sec)
+  - Forward heat shield jettisoned (14.4 sec)
+  - Drogue parachutes deployed (16 sec)
+  - Main parachutes deployed (28 sec)
+  - Launch escape motor ignited (no time)
+Checks: Fig. 2 +0.4 s (FHS) and +2 s (drogue) => 1.6 s gap, matches the text "1.6 seconds".
+  Fig. 3: 14.4 -> 16 s = 1.6 s, matches. Drogue 16 -> main 28 s = 12 s (10 s reefed + 2 s open).
+  Fig. 2 main disreefs 6 s and 10 s match p12/p30 (6 s first stage, +4 s second stage).
+
+=====================================================================
+p12 [printed 6]  Figure 5 (increases in CM recovery weight) + text
+=====================================================================
+Figure 5: y axis "Recovery weight of CM, lb", 4 to 14 x 10^3; x axis Year 1961 to 1970.
+  Step levels: 8 150 (1961 to ~late 1962); 9 500 (~late 1962 to ~end 1964); 11 000 (~end 1964 to
+  ~mid/late 1967); 13 000 (~mid/late 1967 to 1970).
+  Markers: "First ELS aerial drop test" (triangle, ~1962.6-1962.7 as drawn); "Block I qualification"
+  (bar ~1965.5-1966.2); "Block II qualification" (~1966.9-1967.1); "Increased Capability Block II
+  qualification" (~1968.3-1968.5). (Positions are my estimates from the plot, not printed numbers.)
+Text:
+  - spacecraft 012 accident; by mid-April 1967 weight estimates exceeded what ELS could recover safely
+  - CM recovery weight could increase to as much as 13 000 pounds
+  - safety factors at the 13 000-pound recovery weight; main-parachute loads reduced to values no greater
+    than the design loads for an 11 000-pound CM
+  - July 31, 1967: program approved, effective on the first Block II spacecraft (CSM 101)
+  - "Reefed intervals of 6 seconds in the first stage and an additional 4 seconds in the second stage
+    of inflation were selected." -- added only 2 seconds to the total inflation time of the earlier
+    single-stage reefing system (implies earlier single-stage reefed interval 8 s; cf. p31 "8-second
+    reefing cutters").
+
+=====================================================================
+p13 [printed 7]  text + TABLE I.- MAIN-PARACHUTE DESIGN LOADS
+=====================================================================
+Text: mortars accommodating 16.5-foot-diameter drogue parachutes; delivery for spacecraft 101 (Apollo 7
+mission) by mid-November 1967; main-parachute design-limit loads for the Block II 11 000-pound CM and
+for the final Block II mains with the 13 000-pound CM are in table I.
+TABLE I (Design loads, lb (a)):
+configuration,original_block_II_ELS_with_11000lb_CM,final_block_II_ELS_with_13000lb_CM
+Individual - First stage,21 800,22 000
+Individual - Second stage,--,23 800
+Individual - Full open,24 700,22 900
+Total cluster,39 000,37 500
+Footnote: a These values should not be used for direct comparison.
+
+=====================================================================
+p14 [printed 8]  Main-Parachute-Cluster Interference
+=====================================================================
+  - November 27, 1962: first aerial drop test, parachute test vehicle (PTV), cluster of three
+    independently deployed 88.1-foot-diameter ringsail main parachutes
+  - vehicle ballasted to only 4750 pounds, one-half the weight of the CM (=> CM 9500 lb, matching the
+    Fig. 5 level 9 500 in 1963-64)
+  - removal of 75 percent of the material from the fifth ring of the canopy (open ring)
+  - midgore reefing (reefing rings moved to the middle of the gore on the skirt band)
+  - remove four complete gores -> basic 68-gore-configuration main parachute
+  - net allowable weight saving approximately 45 pounds in main parachute and harness assembly
+  - specified maximum rate of descent of 33 fps at 5000-foot pressure altitude
+  - two-parachute cluster oscillations reduced from approximately +/-20 deg to +/-6 deg
+Note: Fig. 5 places the "first ELS aerial drop test" triangle a little before the 1963 tick (my reading
+  ~1962.6-1962.7), text says November 27, 1962 (=1962.9); the marker position is approximate, likely
+  not a real conflict.
+
+=====================================================================
+p30 [printed A-9]  Two-Stage Main-Parachute Reefing + Figures A-13, A-14
+=====================================================================
+  - first- and second-stage disreefings at 6 and 10 seconds after initial parachute deployment, or
+    6 and 10 seconds after line stretch
+  - dual reefing rings; redundant reefing lines for the first stage; single line for the second stage
+  - first-stage lines through lower holes, 6-second cutters; second-stage line through upper holes,
+    10-second cutters
+Figure A-13 labels: Line A: Shorter length (264 in.), 6-second cutters; Line B: Longer length
+  (780 in.), 10-second cutters. Stages: First stage, Second stage, Full open.
+Checks: 264 in / pi = 84.0 in = 7.00 ft = D_R1 7.0 ft (p31); 780 in / pi = 248.3 in = 20.69 ft
+  = D_R2 20.7 ft (p31). Consistent.
+
+=====================================================================
+p31 [printed A-10]  Figure A-15 (final Block II main parachute), Reefing-Cutter and Drogue text
+=====================================================================
+Figure A-15 dimensions/weights (left side, top to bottom):
+  11.50 lb (deployment bag + bridle segment)
+  85.38 lb (canopy segment)
+  29.20 lb (suspension lines segment)
+  2.50 lb (fabric riser segment)
+  10 lb (steel riser segment)
+  138.5 lb (total)
+  Lengths: 43.5 in. (vent / bridle-attachment width at apex), 510 in. (canopy gore length, arc),
+  1443.9 in. (suspension line length), 42 in. (link/confluence region), 15.5 in. (fabric riser),
+  78 in. (steel riser). Link assembly 1.32 lb. Labels: Deployment bag, main parachute; Bridle; Main
+  parachute; Link assembly; Fabric riser; Steel riser.
+Data box:
+  Nominal diameter: 83.5 ft
+  No. of gores: 68
+  Calculated total porosity: 12 percent
+  Reefing: First stage: 7.0 ft D_R1 (8.4 percent midgore)
+           Second stage: 20.7 ft D_R2 (24.8 percent midgore)
+  Drag area (average): First stage: 285 ft^2; Second stage: 1080 ft^2; Full open: 4200 ft^2
+Text:
+  - time intervals of 6 seconds for the first stage and 4 additional seconds for the second stage
+  - mechanical functions of the 8-second reefing cutters demonstrated on Blocks I and II; only burning
+    rates of the pyrotechnic delay elements modified
+  - black oxide on 6-second first-stage cutters (olive-drab pockets); 10-second cutters untreated
+    (natural-colored cotton-duck pockets)
+  - Increased Capability drogue: 16.5-foot-diameter, 25 deg conical-ribbon parachute (figure A-16);
+    comparative summary in table A-I
+Checks:
+  - 7.0/83.5 = 8.38 % -> 8.4 % OK; 20.7/83.5 = 24.79 % -> 24.8 % OK.
+  - Weights: 11.50 + 85.38 + 29.20 + 2.50 + 10 = 138.58 lb, printed total 138.5 lb (truncated rather
+    than rounded; 138.6 would be the rounded value). Minor. With the 1.32 lb link it would be 139.9.
+  - S0 = pi/4 x 83.5^2 = 5476 ft^2 => CD0 full open = 4200/5476 = 0.767; first stage 0.052;
+    second stage 0.197 (information).
+
+=====================================================================
+p32 [printed A-11]  Figure A-16 (final Block II drogue parachute), TABLE A-I
+=====================================================================
+Figure A-16 weights/lengths:
+  .76 lb (deployment bag), 11.04 lb (canopy), 14.90 lb (suspension lines / integrated riser),
+  10.7 lb (steel riser), 37.4 lb (total)
+  12.1 in. (vent width at apex), 95.2 in. (canopy gore length, arc), 400 in. and 403.5 in. (two
+  suspension-line length dimensions, inner/outer), 200 in. (fabric riser), 180 in. (steel riser)
+Data box:
+  Parachute type: conical ribbon (25 deg)
+  Nominal diameter: 16.5 ft
+  No. of gores: 20
+  Constructed porosity: 22 percent
+  Reefed duration: 10 sec
+  Drag area reefed: 65 ft^2
+  Drag area full open: 114 ft^2
+Text: integrated suspension-line/riser design (multiple strands of braided cord) weight saving of
+  approximately 1.5 pounds; 16.5-foot drogues reefed at 42.8 percent of their nominal diameter for
+  10 seconds; 10-second drogue cutter identical to the main-parachute second-stage cutter.
+TABLE A-I.- COMPARATIVE CHARACTERISTICS OF ORIGINAL AND FINAL BLOCK II DROGUE PARACHUTES
+characteristic,Block II,Increased Capability Block II
+Nominal diameter ft,13.7,16.5
+Gores number,16,20
+Drag area sq ft,68,114
+Total porosity percent,23,22.4
+Gore construction,Spliced horizontals,Continuous horizontals
+Riser material,Dacron webbing,Continuation of suspension lines
+Suspension-line material,Nylon cord,Nylon cord
+Rated strength lb,1500,2500
+Maximum design-limit load lb,12 600,17 200
+Parachute-assembly weight lb,25.4,37.4
+Checks:
+  - .76 + 11.04 + 14.90 + 10.7 = 37.40 lb = figure total 37.4 = Table A-I 37.4. OK.
+  - Porosity: figure box "Constructed porosity: 22 percent" vs Table A-I "Total porosity 22.4" -- different
+    wording/rounding, not necessarily a conflict.
+  - 42.8 % x 16.5 ft = 7.06 ft reefed diameter.
+  - CD0 = 114 / (pi/4 x 16.5^2 = 213.8) = 0.533 full open; reefed 65/213.8 = 0.304;
+    Block II 68 / (pi/4 x 13.7^2 = 147.4) = 0.461 (information).
+
+=====================================================================
+p34 [printed A-13]  pilot parachute text, Figure A-19, forward-heat-shield augmentation text
+=====================================================================
+Text: pilot parachute suspension-line strength specification increased from 400 to 600 pounds;
+  multiple-ply-webbing riser replaced by integrated suspension-line/riser.
+Figure A-19 (final Block II pilot parachute):
+  .33 lb (deployment bag), 1.27 lb (canopy), 2.10 lb (lines/fabric riser), 1.47 lb (steel riser),
+  5.17 lb (total)
+  8.6 in. (vent/apex width), 39.9 in. (canopy gore length, arc), 130.4 in. (suspension lines),
+  346.1 in. (fabric riser), 111 in. (steel riser)
+  Data box: Parachute type: ringslot; Nominal diameter: 7.2 ft; No. of gores: 12;
+  Constructed porosity: 22 percent; Drag area: 24.4 ft^2
+Check: .33 + 1.27 + 2.10 + 1.47 = 5.17 lb. OK. CD0 = 24.4/40.7 = 0.60 (information).
+Figure A-20: Block II forward-heat-shield mortar installation (labels only, no numbers; "Longeron 4").
+
+=====================================================================
+p35 [printed A-14]
+=====================================================================
+  - conventional Apollo 7.2-foot-diameter ringslot parachute identical to the pilot (main-extraction)
+    parachute, with fixed (permanent) reefing to reduce its effective drag area (no value given)
+  - Figure A-21 (Block II forward-heat-shield mortar assembly): "Pressure cartridge (two each, not shown)"
+
+=====================================================================
+p51 [printed C-3]  Apollo 15 MAIN PARACHUTE FAILURE / DESCRIPTION AND SYSTEM OPERATION
+=====================================================================
+  - Apollo 15: three mains deployed and inflated properly at approximately 10 000 feet altitude
+  - obscured by clouds at about 7000 feet; emerging at about 6000 feet one main was deflated (figure 1)
+  - one of the six riser links had a broken stud and three others had cracks
+  - landing sequence initiated at a nominal altitude of 24 000 feet with forward heat shield jettison
+  - 7.2-foot-diameter parachute mortar-deployed from the forward heat shield
+  - two 16.5-foot diameter conical ribbon-type drogues mortar-deployed 1.6 seconds after FHS jettison;
+    10 seconds later inflate to fully open; released at about 11 000 feet
+  - three 7.2-foot diameter ring-slot pilot parachutes at drogue disconnect
+  - each main inflates through two reefing stages; main parachute assemblies in fig. 2
+  - each main canopy consists of twelve rings of sails, each ring divided into 68 gores; canopy
+    terminates in 68 suspension (lines; sentence continues on next page)
+Note: "approximately 10 000 feet" for Apollo 15 main inflation vs nominal 11 000 ft drogue release
+  elsewhere: consistent (inflation follows release by a few seconds).
+
+=====================================================================
+Summary of consistency checks (D-7437): all arithmetic checks pass except the trivial main-parachute
+weight sum (138.58 lb vs printed 138.5 lb). No misprints found.

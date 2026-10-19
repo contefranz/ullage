@@ -1,0 +1,42 @@
+# Reader A (main session), 68-FM-184, from the native 240 dpi page images
+## Table I(a) PDF p23 (printed 15): M, CL, CD, L/D, alpha_deg
+0.2,0.23620,0.82481,0.28637,170.8
+0.4,0.23987,0.85383,0.28093,167.36
+0.7,0.25990,0.98724,0.26326,164.68
+0.9,0.31644,1.06770,0.29639,162.00
+1.1,0.48722,1.1748,0.41474,155.29
+1.2,0.47292,1.1603,0.40757,155.49
+1.35,0.55642,1.2831,0.43367,154.36
+1.65,0.54558,1.2700,0.42959,153.56
+2.0,0.52922,1.2791,0.41374,153.5
+2.4,0.50380,1.2486,0.40348,154.02
+3.0,0.47542,1.2245,0.38826,154.5
+4.0,0.43792,1.2208,0.35873,156.44
+10.0,0.42515,1.2307,0.34545,157.09
+29.5,0.38353,1.2951,0.29614,160.37
+CG body coords: Xcg=1040.58 in, Ycg=-.11 in, Zcg=5.91 in. Footnote a: refs 23 and 26.
+## Table I(b) PDF p24 (printed 16)
+SPS thrust (steady state) 21 080 lb; Isp 312.34 s; flow 67.49 lb/s; buildup dT 0.015 s; tailoff dT 0.54 s (ref 22)
+SM RCS thrust (4 jet) 399.2 lb; Isp 276.0; flow (4 jet) 1.45 lb/s (ref 23)
+## Table I(c) (ref 24)
+CM (with RCS) 12 384 lb; SM (with RCS) 10 604; SLA ring 91; tanked SPS propellant 9 379; CSM with propellant 32 458
+## Table I(d)
+Cd (CSM, LM, CSM/LM docked) 2.0; area 129.5 ft2; a 20 925 741.47 ft; b 20 855 591.48 ft; omegaE 0.729211506e-4 rad/s;
+A0 32.146536 ft/s2; A1 0.0521882775 ft/s2; A2 3.616483034e-5 ft/s2 (zoomed)
+## Table I(d) concluded PDF p25 (printed 17)
+R_E 20 925 738.19 ft; g 32.146546 ft/s2; 6076.11549 ft/nmi; 57.2957795 deg/rad; p_SL 14.6959722 psi;
+rho_SL 2.3768846e-3 slug/ft3; c_SL 1116.45 fps; mu_SL 3.73717340e-7 slug/fps; g_WM 32.174049 ft/s2
+## Table VIII(i) PDF p110 (printed 102), Maneuver 8
+Tig 10:19:39:53.8; dVx -191.20; dVy 0.00; dVz 203.05 fps; weight 25886.9 lb; pitch trim -3.0200 deg; yaw trim -0.5126 deg
+REFSMMAT (MNBY): 0.47771665 0.73540939 0.48058276 / 0.032181752 0.53202425 -0.84611731 / -0.87792432 0.41967032 0.23049008
+IGA 180.0 MGA 0.0 OGA 180.0
+## Table IX PDF p111 (printed 103)
+(a) altitude '10 430·765' ft (as printed; see note); longitude -153; geodetic latitude 11.89; velocity 25262.5 fps; fpa -1.04; azimuth 60.61; weight 25 887 lb; retro attitude 49.3 deg
+(b) coast time 826 s; longitude 98.83 (no sign printed; 5.4.3 says 98.83 W); geodetic latitude 31.03; velocity 25 850.3 fps; fpa -1.759; azimuth 83.64; target latitude 29.80; target longitude -67.0
+## 5.1.4 PDF p15 (printed 7)
+sep ~02:55:00.05 GET over Hawaii, ~44 min before darkness; 2.6 s of four SM RCS +X; dV 1.0 fps; translate ~50 ft, -X to damp to 0.50 fps; pitch 180, roll left 60; +X removes 0.50 fps
+## 5.4 PDF pp20-22 (printed 12-14)
+5.4.1: 10.2-s GNCS burn; targeting Table VIII(i); ~13.75 min remain after burn; retrograde attitude pitched down 31.7 deg below horizon line of sight; SPS-8 in rev 163 at 10d19h39m54s; touchdown 67 W in rev 164
+5.4.2: SPS cutoff 10d19h40m04s; 13.75-min coast; SM jettisoned ~90 s after deorbit burn, CM still retrograde
+5.4.3: 400 000 ft at 31.03 N geodetic, 98.83 W, ~13.75 min after retrofire; landing 10d20h09m53s at 29.8 N geodetic, 67 W; Fig 6 maneuver envelope; Fig 5 groundtrack
+5.4.4: 10 g rolling undershoot; SPS target line; mode I lift-up overshoot; mode II lift-down until 0.2 g then lift-up; mode III lift-down to 0.2 g then rolled; target on ground track at 55 deg bank contour if L/D between 0.42 and 0.26; crossrange within ~22 n mi of envelope lateral boundaries; max load factor 3.3 g; max heating rate 59.8 Btu/ft2/s; total heat load 12 649 Btu/ft2; drogues ~53 s; mains 4 min 45 s

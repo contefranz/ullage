@@ -1,0 +1,12 @@
+Reader B - second scan work/a11img/ia-335.png (read as image only, crops at 300-400% in readers/B/a11crops/ia_*.png)
+cell | reading | clarity
+1. Total after docking / Ascent stage manned : I_XZ | -1018 | clear (all digits sharp). NOTE: my first-scan reading was -1019 (blobbed last digit) -> second scan corrects to -1018
+2. Transearth injection / Cutoff : I_ZZ | 51454 | clear. NOTE: my first-scan reading was 51456 (blobbed last digit) -> second scan corrects to 51454
+3. Entry : I_XZ | -400 | clear (confirms my best guess on the first scan)
+4. Drogue deployment : weight | 11603.7 | clear
+5a. Landing : weight | 10873.0 | clear (hundreds digit is an unambiguous 8)
+5b. Landing : X_A | 1037.1 | clear
+6. Main parachute deployment : weight | 11318.9 | clear
+7. Coelliptic sequence initiation (LM section) : weight | 5881.5 | clear (resolves the first scan's '5 681.5' look; consistent with the OI 5928.6 > CSI > docking 5738.0 constraint)
+8. Transposition and docking / Lunar module : I_XZ | 27 | clear (positive, no minus sign)
+9. Separation (CSM section, after circularization) : X_A | 1082.4 | clear

@@ -1,0 +1,23 @@
+# Reader A, TN D-5276 (DeRose, Jun 1969), NTRS 300 dpi raster
+## Table I "Free-flight test conditions and results" (printed p. 17, PDF 19, sideways)
+run,mach,u_kms,Re,T_K,xcg_d,zcg_d,alpha_trim_deg,osc_range_deg,cd,alpha_rms_deg,ld_at_151,ld_at_162
+1512,11.15,3.86,306180,290,0.2771,0.0458,151,162-140,1.076,146.2,---,---
+41,10.28,3.55,217510,290,.2743,.0471,150,156-146,1.161,150.6,0.43,---
+47,10.17,3.51,214200,290,.2770,.0460,---,164-139,1.077,149.9,.46,---
+63,17.01,6.60,52547,378,.2712,.0499,---,164-138,1.136,153.5,.45,---
+159,11.14,3.85,235180,290,.2719,.0462,150,159-144,1.145,151,.43,---
+161,12.76,4.41,215020,290,.2760,.0478,---,169-133,1.030,151.5,.44,---
+162,13.95,4.80,236570,290,.2748,.0469,149,160-138,1.033,148.3,.43,---
+200,26.43,5.30,160910,100,.2740,.0467,149,158-144,1.064,150.7,.42,---
+239,28.96,5.78,293570,100,.2719,.0459,151,157-139,1.117,147.5,---,---
+240,28.61,5.72,306330,100,.2693,.0471,---,155-144,1.116,150.0,.42,---
+242,17.99,7.21,22205,410,.2729,.0458,153,159-138,1.214,154.0,---,---
+248,17.86,7.16,19225,410,.2750,.0297,161,178-143,1.465,165.8,---,---
+286,17.92,7.23,27570,405,.2750,.0274,163,168-152,1.341,160.1,---,0.27
+290,17.53,7.17,24760,405,.2730,.0271,162,186-133,---,152.2,---,.23
+291,13.70,4.68,291000,290,.2700,.0281,163,167-158,1.338,162.2,---,.24
+## Summary (p. 1, PDF 3): M 10-29, Re 20,000-300,000; 1.27-cm bore light-gas gun; cg offsets 0.046 and 0.028 diameter; trim 151 and 162 deg; L/D 0.435 and 0.255; no variation with Mach or Reynolds number; good agreement when cg referenced to the axis of symmetry of the blunt face.
+## p. 7 (PDF 9): Zcg/d of -0.046 (tungsten slug top, magnesium bottom), -0.028 (magnesium only); a change of 0.0015 in Zcg/d theoretically produces 1 deg change in trim; 0.014 mm on the model; cg measured by two persons.
+## p. 12 (PDF 14): uncertainties: rho M10-14 +-0.2%, M17-18/26-29 +-3.0%; M +-0.1%; alpha,beta +-0.25 deg; alpha_trim +-1 deg; CD +-0.02 (M10-14), +-0.05 (M17-18, 26-29); L/D +-0.025
+## p. 13 (PDF 15): all trim angles adjusted to Xcg/d = 0.270 (adjustment < 0.4 deg); Mach no effect; ref. 4 (AS-202) data plotted with cg from the blunt-face heat-shield centerline.
+## symbols (PDF 5): x_cg = normal distance from line tangent to front face of model to cg; z_cg = perpendicular distance from reference centerline to cg; d = reference diameter, max diameter of model; S = pi d^2/4

@@ -1,0 +1,13 @@
+# Reader A, Apollo 7 MR section 5.16, archive.org raster PDF 167-169, 171-172
+5-98 CM/SM separation: peak rate excursions -1.56 (pitch), +0.84 (roll), -0.22 (yaw) deg/s; disturbances gone after 1 s
+5-98 Entry: Fig 5.16-26; manual control until 259:57:26, DAP thereafter; dual RCS at 259:58:29; abnormality ~15 s before dual-system switch
+5-99 excess pitch/yaw fuel all in the 2-min period before drogue deployment (transonic)
+5-99 EI velocity and fpa greater than predicted by 2.2 ft/s and 0.009 deg; planned 25 844.2 ft/s and -2.063 deg; computer 25 846.4 ft/s and -2.072 deg; Fig 5.16-27 altitude/range
+5-99 EI at 259:53:26 with initial roll program; computer inertial range 1594 n mi to landing; held manually at entry trim for 0.05 g
+5-99 post-0.05g program at 259:55:38; lift vector up until shortly after 0.2 g; 0.2 g sensed at 259:56:06; final phase
+5-99 go/no-go downrange difference ~10 n mi, tolerance +/-100 n mi; manual roll to 55-deg roll-left lift vector, to be held ~30 s; first non-zero roll command -15 deg at about 202 000 ft
+5-99 Fig 5.16-28 commanded and actual bank; Table 5.16-VII
+5-100 computer display undershoot 1 n mi; recovery forces landing 64.07 W 27.54 N -> 7.78 n mi overshoot; reconstructed (platform errors, Table 5.16-VIII) 64.15 W 27.64 N -> overshoot 1.9 n mi; computer downrange nav error ~2.2 n mi at drogue deployment
+5-102 (5.16.3) GDC drift check over 1 h 15 min: 2.96, 0.80, 0.0 deg/hr pitch, yaw, roll
+5-102 (5.16.4) EMS dV counter measured X-axis velocity change for all maneuvers and terminated the SPS maneuvers flown under SCS control; X accelerometer bias before each SPS burn exceeded preflight expectation; intermittent most-significant-digit fault (showed 9) in countdown and flight; entry range-to-go anomaly found preflight, no effect
+5-103 Fig 5.16-31 g/velocity scroll trace retrieved postflight; g/V function operated properly

@@ -1,0 +1,45 @@
+# Reader A, TN D-5399 (Hillje, Oct 1969), NTRS 300 dpi raster
+## Table I "Significant events during entry" (printed p. 23, PDF 31); times are s from range zero; footnote a: Apollo guidance computer time
+event,agc_program,time_s,remarks
+CM/SM separation,,29882.6,
+INITIAL ENTRY (initial roll),63,,
+Entry interface (400 000 ft),,29968.54,
+0.05g interface,64,a29999,
+First peak g,,30045,
+HUNTEST,,a30045,Altitude rate = -679 ft/sec
+UPCONTROL,65,a30085,
+KEPLER or BALLISTIC,66,,Not required for Apollo 4 mission
+FINAL ENTRY,67,a30253,
+Second peak g,,30431,
+Guidance termination,,a30601,V < 1000 ft/sec
+Drogue parachute deployment,,30678.6,
+Main parachute deployment,,30725.8,
+Landing,,31029.2,
+## Table II "Estimated command-module center of gravity and mass change during entry" (printed p. 24, PDF 32)
+mach,time_s,event,x_in,z_in,mass_slug,weight_lb
+25.6,29968.54,Entry,1039.58,6.57,369.7,11959
+29.2,30045,First peak g,1039.62,6.56,368.2,11857
+12.6,30431,Second peak g,1039.70,6.49,364.2,11731
+6.0,30505,,1039.72,6.45,363.8,11715
+4.0,30538,,1039.73,6.42,363.5,11705
+3.0,30553,,1039.74,6.41,363.4,11702
+2.4,30564,,1039.74,6.40,363.2,11696
+2.0,30572,,1039.74,6.39,363.2,11694
+1.65,30581,,1039.75,6.38,363.1,11692
+1.35,30590,,1039.75,6.37,363.0,11688
+1.2,30596,,1039.75,6.37,362.9,11686
+1.1,30602,,1039.76,6.36,362.9,11684
+0.9,30618,,1039.76,6.34,362.5,11674
+0.7,30637,,1039.77,6.32,362.5,11672
+0.42,30678.6,Drogue deployment,1039.79,6.27,362.1,11659
+0.4,30680,,1039.79,6.27,362.1,11659
+# footnotes: a centers of gravity are in the NASA reference system; b the longitudinal reference (body X-axis) has an origin 1000 inches below the tangency line of the CM substructure mold line; c the Z-axis measurement includes the constant Y-axis offset of 0.3 inch.
+# 30590 and 30596 printed light (zoomed). Entry row: 369.7 slug x 32.174 = 11 895 lb, not 11 959 (other rows within ~11 lb); weight column drop entry->drogue = 300 lb = the text's ~90 lb RCS + ~210 lb ablator.
+## Text values
+p. ii (PDF 3) abstract: modified trim-wind-tunnel initial trim lower by ~1.5 deg, resultant L/D higher by ~10 percent; flight L/D and alpha essentially linear with Mach down to 6.0
+p. 3 (PDF 11) symbols: d spacecraft reference diameter 12.833 ft; g 32.1740 ft/s^2; C_A = -m A_x/(q S); C_N = -m A_z/(q S); C_Y = m A_y/(q S)
+p. 4 (PDF 12) symbols: S reference area 129.35 ft^2; t elapsed time from range zero (first integral second of range time before IU umbilical disconnect)
+p. 8 (PDF 16): CM RCS used ~90 lb of propellant to control roll and damp rates above dead-band limits of +-2.0 deg/s in all rate channels (pitch, yaw, roll)
+p. 9 (PDF 17): predicted ablator weight loss ~210 lb; Y-axis cg constant; trim about a plane rotated from X-Z by the Y offset; comparison in the resultant alpha_R plane
+p. 20 (PDF 28) conclusion 1: initial entry steady-state resultant trim ~154.5 deg, average (L/D)R ~0.368 (tunnel 1.5 deg lower, 10 percent higher); Mach 6.0: ~153 deg and ~0.410 (tunnel 0.5 deg higher, 3 percent lower); good agreement M 4.0 to 1.35 and below 0.9; transonic deviations up to 10 deg and 25 percent
+p. 20 conclusion 2: hybrid data agree down to M 1.2; initial entry high Mach (~38), low Re (~1.0e4); tunnel trim poor above M 18 and possibly M 0.9-1.20

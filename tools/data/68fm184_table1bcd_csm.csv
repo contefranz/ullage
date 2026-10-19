@@ -1,0 +1,50 @@
+# MSC Internal Note 68-FM-184, "Apollo 7 (AS-205/CSM-101) Spacecraft Operational
+# Trajectory", Revision 1, Volume I, 31 July 1968 (MSC Mission Planning and
+# Analysis Division). Copy read: https://ibiblio.org/apollo/Documents/HSI-209546.pdf
+# (7,862,903 bytes, sha256 68d0f62b3851bf08f6517600610a9141144f61a4f211abc7b7805584f4b13d1d),
+# native 240 dpi bilevel page images (pdfimages -png), not the OCR text layer.
+#
+# Table I(b) "Performance", I(c) "Weights" and I(d) "Earth and atmosphere
+# constants" (document pages 16-17, PDF pages 24-25). Footnotes: (b) SPS from
+# reference 22, SM RCS from reference 23; (c) from reference 24.
+# value is as printed (thousands groups and exponents kept as printed); si is
+# value converted at 0.45359237 kg/lb, 4.4482216152605 N/lbf, 0.3048 m/ft,
+# 14.593902937 kg/slug, 6894.757293168 Pa/psi.
+# Read by two independent readers: no disagreement.
+# Grades: H = both readers read the same digits on a clean print and every
+# check that applies (a sum, a ratio, a value printed twice) closes; M = both
+# readers agree, but the value needed interpretation (a misprint, a missing
+# sign or unit) or a check does not close; L = uncertain. This is a preflight
+# operational trajectory: the grades rate the transcription, not how well the
+# plan matches what Apollo 7 flew (the Mission Report CSVs hold that).
+table,parameter,value,unit,si,si_unit,grade,note
+I(b),"SPS thrust (steady state)","21 080",lbf,93768.5116,N,H,"ref. 22; F/flow = 312.34 s"
+I(b),"SPS specific impulse","312.34",s,312.34,s,H,"ref. 22"
+I(b),"SPS propellant flow rate","67.49",lb/s,30.6129491,kg/s,H,"ref. 22"
+I(b),"SPS buildup delta T","0.015",s,0.015,s,H,"ref. 22"
+I(b),"SPS tailoff delta T","0.54",s,0.54,s,H,"ref. 22"
+I(b),"SM RCS thrust (4 jet)","399.2",lbf,1775.73007,N,H,"ref. 23; 99.8 lbf (443.9 N) per jet"
+I(b),"SM RCS specific impulse","276.0",s,276,s,M,"ref. 23; no unit printed on this line"
+I(b),"SM RCS propellant flow rate (4 jet)","1.45",lb/s,0.657708937,kg/s,H,"ref. 23; 399.2/276.0 = 1.446"
+I(c),"CM (with RCS)","12 384",lb,5617.28791,kg,H,"ref. 24"
+I(c),"SM (with RCS)","10 604",lb,4809.89349,kg,H,"ref. 24"
+I(c),"SLA ring","91",lb,41.2769057,kg,H,"ref. 24"
+I(c),"Tanked SPS propellant","9 379",lb,4254.24284,kg,H,"ref. 24"
+I(c),"CSM with propellant","32 458",lb,14722.7011,kg,H,"ref. 24; the four lines above sum to it exactly"
+I(d),"Drag coefficient (CSM, LM, CSM/LM docked)","2.0",1,2,1,H,""
+I(d),"Area (CSM, LM, CSM/LM docked)","129.5",ft^2,12.0309437,m^2,H,""
+I(d),"Earth equatorial radius a","20 925 741.47",ft,6378166,m,H,"Fischer 1960: a/(a-b) = 298.30"
+I(d),"Earth polar radius b","20 855 591.48",ft,6356784.28,m,H,""
+I(d),"Earth rotational rate omega_E","0.729211506e-4",rad/s,7.29211506e-05,rad/s,H,"printed 0.729211506 x 10^-4"
+I(d),"Gravity coefficient A0 (oblate earth)","32.146536",ft/s^2,9.79826417,m/s^2,H,"mu/a^2 with mu = 1.4076539e16 ft^3/s^2"
+I(d),"Gravity coefficient A1 (oblate earth)","0.0521882775",ft/s^2,0.015906987,m/s^2,H,"A1/(1.5 A0) = 1.08230e-3 = J2"
+I(d),"Gravity coefficient A2 (oblate earth)","3.616483034e-5",ft/s^2,1.10230403e-05,m/s^2,H,"printed 3.616483034 x 10^-5; a J4 term"
+I(d),"Radius of spherical earth R_E","20 925 738.19",ft,6378165,m,H,"p. 17"
+I(d),"Gravity at sea level g","32.146546",ft/s^2,9.79826722,m/s^2,H,"p. 17; mu/R_E^2 with the same mu as A0 (not a misprint of A0)"
+I(d),"Feet per nautical mile","6076.11549",ft/n mi,1852,m/n mi,H,"p. 17; = 1852/0.3048"
+I(d),"Degrees per radian","57.2957795",deg/rad,57.2957795,deg/rad,H,"p. 17"
+I(d),"Atmospheric pressure at sea level P_SL","14.6959722",lb/in^2,101325.162,Pa,H,"p. 17; 101325 Pa"
+I(d),"Density at sea level","2.3768846e-3",slug/ft^3,1.22499598,kg/m^3,H,"p. 17; printed 2.3768846 x 10^-3"
+I(d),"Sound speed at sea level C_SL","1116.45",ft/s,340.29396,m/s,H,"p. 17"
+I(d),"Viscosity at sea level mu_SL","3.73717340e-7",slug/(ft s),1.7893683e-05,Pa s,M,"p. 17; unit printed 'slug/fps'"
+I(d),"Gravity constant for converting mass to weight g_WM","32.174049",ft/s^2,9.80665014,m/s^2,H,"p. 17; = 9.80665/0.3048"

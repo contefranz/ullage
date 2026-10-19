@@ -1,0 +1,31 @@
+# NASA TN D-5399, Ernest R. Hillje, "Entry Aerodynamics at Lunar Return
+# Conditions Obtained from the Flight of Apollo 4 (AS-501)", October 1969.
+# Copy read: https://ntrs.nasa.gov/api/citations/19690029435/downloads/19690029435.pdf
+# (8,466,113 bytes, sha256 8351dea9b708f7801184469b15c19e1e9a18dd8ac9eff2899b8279675541716c),
+# native 300 dpi bilevel page images.
+#
+# Table I "Significant events during entry" (document page 23, PDF page 31).
+# time_s is seconds from range zero (the first integral second of range time
+# before the Saturn IU umbilical disconnect; page 4). Footnote a: Apollo
+# guidance computer time (whole seconds). agc_program is the CMC entry
+# program number.
+# Read by two independent readers: no disagreement. First peak g (30 045),
+# second peak g (30 431) and drogue deployment (30 678.6) agree with Table II.
+# Grades: H = both readers read the same digits and every check that applies
+# closes; M = both readers agree, but the value needed interpretation or a
+# check does not close; L = uncertain.
+event,agc_program,time_s,agc_time,remarks,grade
+"CM/SM separation",,29882.6,,"",H
+"Initial entry (initial roll)",63,,,"",H
+"Entry interface (400 000 ft)",,29968.54,,"",H
+"0.05g interface",64,29999,a,"",H
+"First peak g",,30045,,"",H
+"HUNTEST",,30045,a,"Altitude rate = -679 ft/sec",H
+"UPCONTROL",65,30085,a,"",H
+"KEPLER or BALLISTIC",66,,,"Not required for Apollo 4 mission",H
+"FINAL ENTRY",67,30253,a,"",H
+"Second peak g",,30431,,"",H
+"Guidance termination",,30601,a,"V < 1000 ft/sec",H
+"Drogue parachute deployment",,30678.6,,"",H
+"Main parachute deployment",,30725.8,,"",H
+"Landing",,31029.2,,"",H
