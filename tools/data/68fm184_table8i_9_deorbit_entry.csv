@@ -1,0 +1,53 @@
+# MSC Internal Note 68-FM-184, "Apollo 7 (AS-205/CSM-101) Spacecraft Operational
+# Trajectory", Revision 1, Volume I, 31 July 1968 (MSC Mission Planning and
+# Analysis Division). Copy read: https://ibiblio.org/apollo/Documents/HSI-209546.pdf
+# (7,862,903 bytes, sha256 68d0f62b3851bf08f6517600610a9141144f61a4f211abc7b7805584f4b13d1d),
+# native 240 dpi bilevel page images (pdfimages -png), not the OCR text layer.
+#
+# Table VIII(i) "Target loads for Apollo 7 orbital maneuvers - Maneuver 8"
+# (document page 102, PDF page 110) and Table IX "SPS deorbit maneuvers to the
+# ETR": (a) conditions at deorbit, (b) conditions at reentry (400 000 ft)
+# (document page 103, PDF page 111). Longitudes are east-positive, angles in
+# degrees as printed (si in radians), the flight-path angle and azimuth are
+# inertial, latitudes geodetic (Fischer 1960 ellipsoid, Table I(d)).
+# value is as printed; si is the reading in SI, signs and misprints resolved as
+# the note says.
+# Read by two independent readers: no disagreement; both flagged the IX(a)
+# altitude and the unsigned IX(b) longitude.
+# Grades: H = both readers read the same digits and an internal check closes
+# (sum, ratio, orthonormality, a second statement elsewhere in the document);
+# M = both readers agree but the value needed interpretation (a misprint, a
+# missing sign or unit) or nothing checks it; L = uncertain. This is a preflight
+# operational trajectory: the grades rate the transcription, not how well the
+# plan matches what Apollo 7 flew (the Mission Report CSVs hold that).
+table,parameter,value,unit,si,si_unit,grade,note
+VIII(i),"T_ig (g.e.t.)","10:19:39:53.8",d:h:min:s,934793.8,s,H,"plus 10.2 s = the 10d19h40m04s cutoff of 5.4.2"
+VIII(i),"delta V_x","-191.20",ft/s,-58.27776,m/s,H,"local-vertical frame of the target load (x forward, z down)"
+VIII(i),"delta V_y","0.00",ft/s,0,m/s,H,""
+VIII(i),"delta V_z","203.05",ft/s,61.88964,m/s,H,"|delta V| = 278.9 ft/s"
+VIII(i),"Weight","25886.9",lb,11742.1003,kg,H,"= Table IX(a) 25 887"
+VIII(i),"SPS engine pitch trim setting","-3.0200",deg,-0.0527089434,rad,H,""
+VIII(i),"SPS engine yaw trim setting","-0.5126",deg,-0.00894655775,rad,H,""
+VIII(i),"REFSMMAT row 1","0.47771665 0.73540939 0.48058276",1,,,H,"MNBY; [X_SM Y_SM Z_SM] = M [X_I Y_I Z_I]; orthonormal to 1e-7"
+VIII(i),"REFSMMAT row 2","0.032181752 0.53202425 -0.84611731",1,,,H,""
+VIII(i),"REFSMMAT row 3","-0.87792432 0.41967032 0.23049008",1,,,H,"speck before 0.41967032 is not a sign (row1 x row2 = row3)"
+VIII(i),"IGA at T_ig","180.0",deg,3.14159265,rad,H,""
+VIII(i),"MGA at T_ig","0.0",deg,0,rad,H,""
+VIII(i),"OGA at T_ig","180.0",deg,3.14159265,rad,H,""
+IX(a),"Altitude (Earth-fixed position)","10 430·765",ft,317929.717,m,M,"printed '10 430.765' with a raised dot; read as 1 043 076.5 ft (171.67 n mi): horizon dip there 17.73 deg + the 31.7 deg of 5.4.1 = 49.4 deg (retro attitude 49.3); a Kepler coast back from IX(b) agrees (tools/check_apollo_data.py)"
+IX(a),"Longitude","-153",deg,-2.67035376,rad,H,"printed as an integer"
+IX(a),"Geodetic latitude","11.89",deg,0.207519648,rad,H,""
+IX(a),"Inertial velocity","25262.5",ft/s,7700.01,m/s,H,""
+IX(a),"Inertial flight-path angle","-1.04",deg,-0.0181514242,rad,H,""
+IX(a),"Inertial azimuth angle","60.61",deg,1.05784406,rad,H,""
+IX(a),"Spacecraft weight","25 887",lb,11742.1457,kg,H,""
+IX(a),"Retro attitude","49.3",deg,0.860447321,rad,H,"pitch below local horizontal: 31.7 deg below the horizon line (5.4.1) plus the dip"
+IX(b),"Coast time (deorbit to 400 000 ft)","826",s,826,s,H,"'13.75 minutes' in 5.4.2-5.4.3"
+IX(b),"Longitude","98.83",deg,-1.7249089,rad,M,"printed without a sign; 5.4.3 says 98.83 W, so -98.83 (si column)"
+IX(b),"Geodetic latitude","31.03",deg,0.541575667,rad,H,"5.4.3: 31.03 N"
+IX(b),"Altitude","400 000",ft,121920,m,H,"from the heading '(400 000 ft)'"
+IX(b),"Inertial velocity","25 850.3",ft/s,7879.17144,m/s,H,""
+IX(b),"Inertial flight-path angle","-1.759",deg,-0.0307003415,rad,H,""
+IX(b),"Inertial azimuth angle","83.64",deg,1.45979339,rad,H,""
+IX(b),"Target latitude","29.80",deg,0.520108117,rad,H,"5.4.3: 29.8 N geodetic"
+IX(b),"Target longitude","-67.0",deg,-1.1693706,rad,H,"5.4.3: 67 W"

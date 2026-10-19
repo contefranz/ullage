@@ -1,0 +1,50 @@
+# MSC Internal Note 68-FM-184, "Apollo 7 (AS-205/CSM-101) Spacecraft Operational
+# Trajectory", Revision 1, Volume I, 31 July 1968 (MSC Mission Planning and
+# Analysis Division). Copy read: https://ibiblio.org/apollo/Documents/HSI-209546.pdf
+# (7,862,903 bytes, sha256 68d0f62b3851bf08f6517600610a9141144f61a4f211abc7b7805584f4b13d1d),
+# native 240 dpi bilevel page images (pdfimages -png), not the OCR text layer.
+#
+# Table I(a) "CM aerodynamic coefficients": aerodynamic coefficients at trim
+# angle of attack as a function of Mach number (document page 15, PDF page 23;
+# the page is printed sideways). Footnote a: "These data were taken from
+# references 23 and 26."
+#
+# Centre of gravity for which the trim was computed, "in body coordinates"
+# (Apollo command-module stations, inches):
+#   X_cg = 1040.58 in (26.430732 m), Y_cg = -0.11 in (-0.002794 m),
+#   Z_cg = 5.91 in (0.150114 m).
+# Y_cg is printed "=-.11 in", in a different typeface from the lines around it
+# (a typed-in correction); both readers read -0.11.
+# Reference area and length are not printed with the table. The table's
+# sketch shows C_L perpendicular to V_Rel towards the CG-offset (+Z) side and
+# C_D along V_Rel; alpha is the total angle between +X (apex) and V_Rel, so
+# 180 deg is heat shield forward.
+#
+# Columns: mach; c_l, c_d, l_over_d (dimensionless, as printed: C_D has five
+# decimals to M 0.9 and four above, alpha one or two); alpha_deg as printed and
+# alpha_rad; ld_check = c_l/c_d - l_over_d (the table's own consistency, every
+# row within 2e-5).
+#
+# Read by two independent readers from the page image (rotated, enlarged):
+# 70 cells, no disagreement.
+# Grades: H = both readers read the same digits and an internal check closes
+# (sum, ratio, orthonormality, a second statement elsewhere in the document);
+# M = both readers agree but the value needed interpretation (a misprint, a
+# missing sign or unit) or nothing checks it; L = uncertain. This is a preflight
+# operational trajectory: the grades rate the transcription, not how well the
+# plan matches what Apollo 7 flew (the Mission Report CSVs hold that).
+mach,c_l,c_d,l_over_d,alpha_deg,alpha_rad,ld_check,grade
+0.2,0.23620,0.82481,0.28637,170.8,2.981022,-1.0e-06,H
+0.4,0.23987,0.85383,0.28093,167.36,2.920983,+4.1e-06,H
+0.7,0.25990,0.98724,0.26326,164.68,2.874208,-8.1e-07,H
+0.9,0.31644,1.06770,0.29639,162.00,2.827433,-1.5e-05,H
+1.1,0.48722,1.1748,0.41474,155.29,2.710322,-1.4e-05,H
+1.2,0.47292,1.1603,0.40757,155.49,2.713812,+1.4e-05,H
+1.35,0.55642,1.2831,0.43367,154.36,2.694090,-1.7e-05,H
+1.65,0.54558,1.2700,0.42959,153.56,2.680128,+5.5e-07,H
+2.0,0.52922,1.2791,0.41374,153.5,2.679080,+4.0e-06,H
+2.4,0.50380,1.2486,0.40348,154.02,2.688156,+1.2e-05,H
+3.0,0.47542,1.2245,0.38826,154.5,2.696534,-3.6e-06,H
+4.0,0.43792,1.2208,0.35873,156.44,2.730393,-1.4e-05,H
+10.0,0.42515,1.2307,0.34545,157.09,2.741738,+3.8e-06,H
+29.5,0.38353,1.2951,0.29614,160.37,2.798985,-7.1e-07,H

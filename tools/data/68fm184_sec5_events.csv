@@ -1,0 +1,45 @@
+# MSC Internal Note 68-FM-184, "Apollo 7 (AS-205/CSM-101) Spacecraft Operational
+# Trajectory", Revision 1, Volume I, 31 July 1968 (MSC Mission Planning and
+# Analysis Division). Copy read: https://ibiblio.org/apollo/Documents/HSI-209546.pdf
+# (7,862,903 bytes, sha256 68d0f62b3851bf08f6517600610a9141144f61a4f211abc7b7805584f4b13d1d),
+# native 240 dpi bilevel page images (pdfimages -png), not the OCR text layer.
+#
+# Numbers stated in the text of section 5.1.4 "S-IVB/CSM separation" (document
+# page 7, PDF page 15) and section 5.4 "Fourth period of activities" (5.4.1
+# eighth SPS burn (deorbit), 5.4.2 preentry sequence, 5.4.3 reentry, 5.4.4
+# reentry targeting; document pages 12-13, PDF pages 20-21). g.e.t. is ground
+# elapsed time from Apollo 7's range zero (planned lift-off), written by the
+# document as days:hours:minutes:seconds; si gives it in seconds.
+# Read by two independent readers: no disagreement.
+# Grades: H = both readers read the same digits and an internal check closes
+# (sum, ratio, orthonormality, a second statement elsewhere in the document);
+# M = both readers agree but the value needed interpretation (a misprint, a
+# missing sign or unit) or nothing checks it; L = uncertain. This is a preflight
+# operational trajectory: the grades rate the transcription, not how well the
+# plan matches what Apollo 7 flew (the Mission Report CSVs hold that).
+section,parameter,value,unit,si,si_unit,grade,note
+5.1.4,"S-IVB/CSM separation","02:55:00.05",h:min:s g.e.t.,10500.05,s,H,"over Hawaii, about 44 min before darkness"
+5.1.4,"Separation firing, four SM RCS +X jets","2.6",s,2.6,s,H,"399.2 lbf x 2.6 s / 32 458 lb = 1.03 ft/s"
+5.1.4,"Separation delta V","1.0",ft/s,0.3048,m/s,H,""
+5.1.4,"Translate forward before damping","50",ft,15.24,m,H,"approximately"
+5.1.4,"Relative velocity after -X damping","0.50",ft/s,0.1524,m/s,H,"then pitch 180 deg and roll left 60 deg; +X removes the remaining 0.50 ft/s"
+5.4.1,"SPS-8 (deorbit) burn duration, GNCS mode","10.2",s,10.2,s,H,"targeting Table VIII(i)"
+5.4.1,"Retrograde attitude, pitched down below the horizon line of sight","31.7",deg,0.553269373,rad,H,""
+5.4.1,"SPS-8 ignition (rev 163)","10:19:39:54",d:h:min:s g.e.t.,934794,s,H,"Table VIII(i): 10:19:39:53.8"
+5.4.2,"SPS-8 cutoff","10:19:40:04",d:h:min:s g.e.t.,934804,s,H,""
+5.4.2,"Coast from cutoff to entry","13.75",min,825,s,H,"Table IX(b) 826 s"
+5.4.2,"SM jettison after the deorbit burn","90",s,90,s,H,"approximately; CM still retrograde"
+5.4.3,"Entry (400 000 ft) geodetic latitude","31.03 N",deg,0.541575667,rad,H,""
+5.4.3,"Entry (400 000 ft) longitude","98.83 W",deg,-1.7249089,rad,H,""
+5.4.3,"Landing","10:20:09:53",d:h:min:s g.e.t.,936593,s,H,"rev 164; EI to landing = 963 s with EI at cutoff + 826 s"
+5.4.3,"Landing geodetic latitude","29.8 N",deg,0.520108117,rad,H,""
+5.4.3,"Landing longitude","67 W",deg,-1.1693706,rad,H,""
+5.4.4,"Target on the ground track at bank-angle contour","55",deg,0.959931089,rad,H,"if L/D is between 0.42 and 0.26"
+5.4.4,"L/D bounds for the 55 deg contour rule","0.42 / 0.26",1,,,H,""
+5.4.4,"Cross-range target margin to the envelope lateral boundaries","22",n mi,40744,m,H,"approximately"
+5.4.4,"Overshoot/undershoot lines","10 g rolling undershoot; SPS target line; mode I lift-up; mode II lift-down to 0.2 g then lift-up; mode III lift-down to 0.2 g then rolling",,,,H,"Figure 7"
+5.4.4,"Maximum load factor","3.3",g,3.3,g,H,""
+5.4.4,"Maximum total heating rate","59.8",Btu/(ft^2 s),679120.296,W/m^2,H,""
+5.4.4,"Total heat load","12 649",Btu/ft^2,143648706,J/m^2,H,""
+5.4.4,"Time on the drogue chutes","53",s,53,s,H,"approximately"
+5.4.4,"Time on the main chutes","4 min 45 s",,285,s,H,""
