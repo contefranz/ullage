@@ -8,6 +8,8 @@ struct TankInfo: Identifiable, Equatable {
     var name: String
     var fraction: Double
     var mass: Double
+    /// The tank belongs to the stage the main throttle drives.
+    var inActiveStage = false
 }
 
 /// Values shown by the SwiftUI overlay, refreshed ~10 times per second.
@@ -43,6 +45,10 @@ struct HUDState: Equatable {
 
     var throttle = 0.0
     var thrustAcceleration = 0.0
+    /// Thrust over the weight at the vessel (the reference body's gravity).
+    var thrustToWeight = 0.0
+    /// What Space separates next (`nextStage(of:)`).
+    var nextStage = "–"
     var deltaV = 0.0
     var mass = 0.0
     var tanks: [TankInfo] = []
@@ -70,6 +76,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var loadError: String?
 
     let input = InputState()
+    /// The navball and the flight instruments, updated every frame.
+    let instruments = InstrumentModel()
     private(set) var system: SolarSystem?
     private(set) var stars: [Star] = []
     private(set) var sim: Simulation?
@@ -125,11 +133,13 @@ final class AppModel: ObservableObject {
         scenario = s
         missionStart = s.missionClockZero ?? sim.time
         failureCapture = nil
+        instruments.reset()
         if let focus = sim.focus {
             camera.target = .vessel(focus.id)
             camera.distance = max(focus.boundingRadius * 3, 30)
         }
         camera.update(sim: sim)
+        instruments.update(sim: sim)
         refreshHUD()
     }
 
@@ -161,6 +171,7 @@ final class AppModel: ObservableObject {
             camera.zoom(mouse.scroll, minimum: OrbitCamera.minimumDistance(for: camera.target, sim: sim))
         }
         camera.update(sim: sim)
+        instruments.update(sim: sim)
 
         hudClock += dt
         if hudClock > 0.1 {
@@ -186,6 +197,7 @@ final class AppModel: ObservableObject {
                 }
                 if key == .escape || key == .f { continue }
             }
+            if instruments.handle(key, sim: sim) { continue }
             switch key {
             case .h: showHelp.toggle()
             case .m: showOrbit.toggle()
@@ -343,23 +355,29 @@ final class AppModel: ObservableObject {
 
         h.throttle = v.mainThrottle
         h.thrustAcceleration = v.thrustAcceleration
+        let weight = v.reference.gravity(at: v.position, pole: snap.orientation(v.reference).pole).length
+        h.thrustToWeight = weight > 0 ? v.thrustAcceleration / weight : 0
+        h.nextStage = Self.nextStage(of: v)
         h.deltaV = v.mainDeltaV
         h.mass = v.mass
         // One row per tank name: a set of solid motors has a grain per motor
         // under the set's name.
-        var rows: [(name: String, mass: Double, capacity: Double)] = []
-        for t in v.tanks {
-            if let i = rows.firstIndex(where: { $0.name == t.name }) {
-                rows[i].mass += t.mass
-                rows[i].capacity += t.capacity
-            } else {
-                rows.append((t.name, t.mass, t.capacity))
+        var rows: [(name: String, mass: Double, capacity: Double, active: Bool)] = []
+        let active = v.activeStage
+        for p in v.parts {
+            for t in p.tanks {
+                if let i = rows.firstIndex(where: { $0.name == t.name }) {
+                    rows[i].mass += t.mass
+                    rows[i].capacity += t.capacity
+                } else {
+                    rows.append((t.name, t.mass, t.capacity, p === active))
+                }
             }
         }
         h.tanks = rows.enumerated().map {
             TankInfo(id: "\($0.offset)", name: $0.element.name,
                      fraction: $0.element.capacity > 0 ? $0.element.mass / $0.element.capacity : 0,
-                     mass: $0.element.mass)
+                     mass: $0.element.mass, inActiveStage: $0.element.active)
         }
         h.autopilot = v.autopilot?.rawValue
         h.program = v.flightProgram?.status
@@ -372,6 +390,25 @@ final class AppModel: ObservableObject {
             "\(Self.formatDuration($0.time - missionStart, tenths: true))  \($0.message)"
         }
         if h != hud { hud = h }
+    }
+
+    /// What Space separates next: the parts of the lowest pending staging
+    /// event, or the bottom part of an M0 stack ("–" when nothing would
+    /// go), and whether the flight program refuses it now (the IU until T3).
+    static func nextStage(of v: Vessel) -> String {
+        let events = v.parts.compactMap { p -> Int? in if case .event(let n) = p.staging { n } else { nil } }
+        let group: [VesselPart]
+        if let n = events.min() {
+            group = v.parts.filter { $0.staging == .event(n) }
+        } else if let bottom = v.parts.filter({ $0.staging == .bottomOfStack }).min(by: { $0.offset.x < $1.offset.x }) {
+            group = [bottom]
+        } else {
+            return "–"
+        }
+        guard group.count < v.parts.count else { return "–" }
+        let names = group.map(\.name).joined(separator: " + ")
+        guard let program = v.flightProgram, !program.allowsManualStaging(of: v) else { return names }
+        return names + (program is SaturnIU ? " (inhibited until T3)" : " (inhibited)")
     }
 
     /// "S-II engine 5 failed +00:05:28.6" for each failed engine aboard (its
