@@ -13,6 +13,18 @@ public enum VesselStatus: Equatable {
     case flying, landed, crashed
 }
 
+/// Largest speed over the surface (m/s) at which a vessel comes to rest on
+/// contact; faster, it crashes.
+public struct ImpactLimits: Equatable {
+    public var water: Double
+    public var land: Double
+    public init(water: Double, land: Double) {
+        self.water = water; self.land = land
+    }
+    /// 5 m/s on any surface.
+    public static let standard = ImpactLimits(water: 5, land: 5)
+}
+
 /// Rotational command per axis, -1...1. x = roll (right +), y = pitch (up +), z = yaw (right +).
 public struct RotationCommand: Equatable {
     public var roll = 0.0, pitch = 0.0, yaw = 0.0
@@ -52,6 +64,9 @@ public final class Vessel: Identifiable {
     public var rotationInput = RotationCommand()
     /// Manual translation input, body axes, -1...1.
     public var translationInput = Vec3.zero
+    /// Pilot axes -> body axes: the frame of the pilot's commands
+    /// (`setPilotInput`). The identity flies in body axes.
+    public var controlFrame = Quat.identity
     public var autopilot: AttitudeAutopilot? {
         didSet { if autopilot != oldValue { resetAttitudeReference() } }
     }
@@ -72,6 +87,11 @@ public final class Vessel: Identifiable {
     /// Program aboard (the Saturn's IU), which sequences the flight and
     /// writes `attitudeCommand`; nil when the vessel carries none.
     public var flightProgram: FlightProgram?
+    /// What the entry autopilot holds about the air-relative velocity; nil
+    /// when nothing is commanded. Nothing flies it yet.
+    public var entryCommand: EntryCommand?
+    /// Contact speeds the vessel survives.
+    public var impactLimits = ImpactLimits.standard
     /// Attitude `.attitudeHold` captured (body -> ICRF).
     var heldAttitude: Quat?
     /// Rate-limited reference the gimbal law tracks (body -> ICRF), and its
@@ -98,6 +118,20 @@ public final class Vessel: Identifiable {
     /// air, winds included (rad).
     public internal(set) var angleOfAttack = 0.0
     public internal(set) var thrustAcceleration = 0.0
+    // Entry telemetry, set by `Simulation.updateEntryTelemetry`, which does
+    // not compute it yet: zero, and the bank nil, until it does.
+    /// What an accelerometer at the centre of mass senses (aerodynamic,
+    /// parachute and thrust forces over mass), body axes, m/s^2.
+    public internal(set) var sensedAcceleration = Vec3.zero
+    /// `sensedAcceleration` in standard g.
+    public internal(set) var loadFactor = 0.0
+    /// Angle of the lift vector about the air-relative velocity from the
+    /// local up, positive to the right (rad); nil without a lifting model.
+    public internal(set) var bankAngle: Double?
+    /// Stagnation-point convective heat flux, W/m^2.
+    public internal(set) var heatFlux = 0.0
+    /// `heatFlux` integrated over time, J/m^2.
+    public internal(set) var heatLoad = 0.0
 
     public init(name: String, parts: [VesselPart], reference: CelestialBody,
                 position: Vec3 = .zero, velocity: Vec3 = .zero,
@@ -117,6 +151,7 @@ public final class Vessel: Identifiable {
     public var mass: Double { parts.reduce(0) { $0 + $1.mass } }
     public var thrusters: [Thruster] { parts.flatMap(\.thrusters) }
     public var tanks: [PropellantTank] { parts.flatMap(\.tanks) }
+    public var parachutes: [Parachute] { parts.flatMap(\.parachutes) }
 
     /// Centre of mass in the vessel frame. The simulation keeps it at the
     /// origin: it re-centres after every step that uses propellant.
@@ -184,6 +219,17 @@ public final class Vessel: Identifiable {
     }
 
     // MARK: Control allocation
+
+    /// Set the manual rotation and translation inputs from commands in pilot
+    /// axes (`controlFrame`), -1...1 per axis, as the keys give them.
+    public func setPilotInput(rotation: RotationCommand, translation: Vec3) {
+        func clamped(_ v: Vec3) -> Vec3 {
+            Vec3(min(max(v.x, -1), 1), min(max(v.y, -1), 1), min(max(v.z, -1), 1))
+        }
+        let r = clamped(controlFrame.rotate(Vec3(rotation.roll, rotation.pitch, rotation.yaw)))
+        rotationInput = RotationCommand(roll: r.x, pitch: r.y, yaw: r.z)
+        translationInput = clamped(controlFrame.rotate(translation))
+    }
 
     /// Torque authority about each body axis (N m): per axis, the larger of
     /// the gimballed engines' at their current thrust and the rotation

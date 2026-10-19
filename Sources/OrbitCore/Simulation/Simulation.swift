@@ -274,6 +274,7 @@ public final class Simulation {
         v.dynamicPressure = 0.5 * env.atm.density * v.airspeed * v.airspeed
         v.mach = env.atm.speedOfSound > 0 && env.atm.density > 0 ? v.airspeed / env.atm.speedOfSound : 0
         v.angleOfAttack = v.airspeed > 1e-6 ? angleBetween(v.attitude.rotate(.unitX), air) : 0
+        updateEntryTelemetry(v, snapshot: s)
     }
 
     func checkSurfaceContact(_ v: Vessel, snapshot s: SystemSnapshot) {
@@ -288,7 +289,8 @@ public final class Simulation {
         let landed = LandedState(body: v.reference, bodyFixedPosition: bf,
                                  bodyFixedAttitude: (icrfToBodyQ * v.attitude).normalized)
         v.landed = landed
-        if speed < 5 {
+        // Every surface is land until bodies tell water from land.
+        if speed < v.impactLimits.land {
             v.status = .landed
             log(String(format: "%@: touchdown at %.1f m/s", v.name, speed))
         } else {

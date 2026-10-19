@@ -52,4 +52,40 @@ extension Simulation {
         v.angularVelocity = .zero
         updateTelemetry(v, snapshot: snap)
     }
+
+    /// Put `v` in flight over geodetic `latitude`/`longitude` (degrees),
+    /// `height` metres above the figure of `body` (the Earth if nil), at
+    /// `inertialSpeed` m/s on the inertial flight-path angle and azimuth
+    /// (degrees, the azimuth from north through east). Both angles are in
+    /// the geocentric horizontal, perpendicular to the radius, as Apollo's
+    /// trajectory listings give them. `attitude` turns the vessel from the
+    /// flight-path frame (+x along the velocity, +z towards the body in the
+    /// plane of the radius and the velocity), so the identity faces prograde
+    /// with +z down, as in `placeInCircularOrbit`.
+    public func place(_ v: Vessel, around body: CelestialBody? = nil, geodeticLatitude latitude: Double,
+                      longitude: Double, height: Double, inertialSpeed: Double, flightPathAngle: Double,
+                      azimuth: Double, attitude: Quat = .identity) {
+        let deg = Double.pi / 180
+        let body = body ?? system.earth
+        let snap = snapshot
+        let o = snap.orientation(body)
+        let lat = latitude * deg, lon = longitude * deg, gamma = flightPathAngle * deg, az = azimuth * deg
+        let r = o.toInertial(body.figure.bodyFixed(latitude: lat, longitude: lon, height: height))
+        let up = r.normalized
+        // East is defined by the longitude, at the poles too.
+        let east = o.toInertial(Vec3(-sin(lon), cos(lon), 0)), north = up.cross(east)
+        let horizontal = north * cos(az) + east * sin(az)
+        let x = horizontal * cos(gamma) + up * sin(gamma)
+        v.reference = body
+        v.landed = nil
+        v.status = .flying
+        v.position = r
+        v.velocity = x * inertialSpeed
+        // Straight up or down, +z takes its limit: towards the azimuth climbing.
+        let down = -up - x * (-up).dot(x)
+        let z = down.length > 1e-9 ? down.normalized : horizontal * (gamma > 0 ? 1 : -1), y = z.cross(x)
+        v.attitude = (Quat(matrix: Mat3(columns: x, y, z)) * attitude).normalized
+        v.angularVelocity = .zero
+        updateTelemetry(v, snapshot: snap)
+    }
 }

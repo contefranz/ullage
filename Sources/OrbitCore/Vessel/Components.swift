@@ -594,6 +594,7 @@ public final class VesselPart {
     public var dragCoefficient: Double
     public var tanks: [PropellantTank]
     public var thrusters: [Thruster]
+    public var parachutes: [Parachute] = []
     public var shapes: [VisualShape]
     /// Centre of mass of the dry part (and of its lumped tanks), part frame.
     public var dryCenterOfMass: Vec3
