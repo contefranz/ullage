@@ -186,9 +186,10 @@ and 21, garbled in the text layer). On the image, both readers read:
 - row 17: I_yy 43,748;
 - row 21: Z 5.9.
 
-Two cells differ from the values the design reports carried:
-- **Row 18 I_yy is 40,971**, not 40,911.
-- **Row 9's weight is 29,780.** The 8 has a broken lower-left stroke. 29,730
+Two cells differ from earlier readings:
+- **Row 18 I_yy is 40,971**, not the design report's 40,911.
+- **Row 9's weight is 29,780**, not the text layer's 29,730. The 8 has a
+  broken lower-left stroke. 29,730
   would make the spacecraft gain 1 lb across SPS-4, and the weight drops
   across the eight SPS burns sum to 7,809 lb against the 7,811.1 lb of SPS
   propellant §5.21 says was consumed (7,759 lb with 29,730).
