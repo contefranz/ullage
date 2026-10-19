@@ -308,20 +308,23 @@ final class SaturnVDataTests: XCTestCase {
 
         // F-1 as flown (FER §5), per engine at first motion: a fifth of the
         // stage's vacuum thrust, 39.4549 MN (FER Figure 5-3's site thrust at
-        // AS-506's pressure, M; `testF1ThrustFollowsFigure5_3`), and of its
-        // site flow, 13,165 kg/s (Figure 5-3, M), with the fitted 0.062 % cut
-        // of the five-engine phase; the mixture ratio, 2.2835, with its fitted
-        // 0.016 % one; a 10.10 m^2 exit (derived from the figure).
+        // AS-506's pressure, M; `testF1ThrustFollowsFigure5_3`) at the level
+        // of AS-506's measured acceleration (fitted, 0.22 % above the figure;
+        // `AscentResidualTests`), and of its site flow, 13,165 kg/s (Figure
+        // 5-3, M), with the fitted 0.062 % cut of the five-engine phase; the
+        // mixture ratio, 2.2835, with its fitted 0.016 % one; a 10.10 m^2 exit
+        // (derived from the figure).
         let f1 = AS506.f1
-        XCTAssertEqual(f1.thrustVacuum, 39_454_900.0 / 5, accuracy: 1e-6)
+        XCTAssertEqual(AS506.sICThrustScale, 1.0022)
+        XCTAssertEqual(f1.thrustVacuum, 39_454_900.0 / 5 * 1.0022, accuracy: 1e-6)
         XCTAssertEqual(f1.massFlow, 13_165.0 / 5 * 0.999385, accuracy: 1e-9)
         XCTAssertEqual(f1.impliedExitArea, 10.10, accuracy: 1e-9)
         let flight = run(f1, at: p0)
         XCTAssertEqual(flight.ox / flight.fuel, 2.2835 * 0.999840, accuracy: 1e-9)
         // Independent: Betts' rated vacuum Isp, 304.1 s, within 0.8 % over the
-        // burn (thrust over flow; 305.8 s at first motion, where Figure 5-3's
+        // burn (thrust over flow; 306.5 s at first motion, where Figure 5-3's
         // thrust is 0.6 % above its flow times its own Isp) and within 0.3 %
-        // on the burn's impulse over its propellant (304.1 s); the sea-level
+        // on the burn's impulse over its propellant (304.7 s); the sea-level
         // Isp at first motion within 3 s of Betts' 265.4 s; the nozzle, (F_vac
         // - F_sl) / p0 = 9.93 m^2, within 2 %.
         var impulse = 0.0, propellant = 0.0
@@ -331,7 +334,7 @@ final class SaturnVDataTests: XCTestCase {
             impulse += k.thrust * f1.thrustVacuum
             propellant += k.flow * f1.massFlow
         }
-        XCTAssertEqual(f1.ispVacuum, 305.8, accuracy: 0.05)
+        XCTAssertEqual(f1.ispVacuum, 306.5, accuracy: 0.05)
         XCTAssertEqual(impulse / propellant / g0, 304.1, accuracy: 304.1 * 3e-3)
         XCTAssertEqual(f1.ispSeaLevel, 265.4, accuracy: 3)
         XCTAssertEqual(f1.impliedExitArea, (1_748_200 - 1_522_000) * lbf / p0, accuracy: 9.93 * 0.02)
@@ -412,7 +415,7 @@ final class SaturnVDataTests: XCTestCase {
             for s in P.sICThrust where span.contains(s.time) {
                 let p = atmosphere.state(altitude: altitude(s.time)).pressure
                 let k = AS506.f1Schedule.values(at: s.time - AS506.firstMotion).thrust
-                let thrust = engines * (f1.thrustVacuum * k - p * f1.impliedExitArea)
+                let thrust = engines * (f1.thrustVacuum / AS506.sICThrustScale * k - p * f1.impliedExitArea)
                 residuals.append(thrust / (s.thrust * 1e6) - 1)
                 model += thrust
                 figure += s.thrust * 1e6
@@ -425,10 +428,11 @@ final class SaturnVDataTests: XCTestCase {
         // At first motion: the pad's 101.2 kPa (the sounding at 59.7 m).
         let p = atmosphere.state(altitude: altitude(AS506.firstMotion)).pressure
         XCTAssertEqual(p, 101_220, accuracy: 50)
-        XCTAssertEqual(5 * (f1.thrustVacuum - p * f1.impliedExitArea), 34.34e6, accuracy: 0.01e6)
+        XCTAssertEqual(5 * (f1.thrustVacuum / AS506.sICThrustScale - p * f1.impliedExitArea), 34.34e6,
+                       accuracy: 0.01e6)
         // At OECO, past the figure's hook: AS-506's sensed acceleration then,
         // 38.61 m/s^2 (FER Table 4-1; the PFT's row: 38.61), over the FER's
-        // 827,292 kg (Table 20-1).
+        // 827,292 kg (Table 20-1), the thrust at the scaled level.
         let oeco = AS506.f1Schedule.values(at: AS506.sICOutboardCutoff - AS506.firstMotion).thrust
         XCTAssertEqual(4 * f1.thrustVacuum * oeco, 38.61 * 827_292, accuracy: 1)
     }

@@ -345,8 +345,8 @@ final class SaturnIUTests: XCTestCase {
     // §8.6: c 0.947 s^-2, wn 0.923 rad/s, zeta 0.354, a 30 % overshoot at
     // 3.6 s, with FER Table 20-10's pitch inertia and the S-IC's feed lines;
     // 0.955 s^-2 without the lines, 0.887 s^-2 before the table). Since §17
-    // the F-1's thrust at first motion is FER Figure 5-3's, 0.55 % more: c
-    // 0.952 s^-2, wn 0.926 rad/s.
+    // the F-1's thrust at first motion is FER Figure 5-3's at AS-506's
+    // measured level, 0.77 % more: c 0.955 s^-2, wn 0.927 rad/s.
     // Mass properties frozen; self-consistency of law, gains and model.
     func testFlightControlStepResponse() throws {
         let sim = try Simulation.forTests(perturbations: false)
@@ -374,8 +374,8 @@ final class SaturnIUTests: XCTestCase {
         let peak = pitch.max { $0.1 < $1.1 }!
         XCTAssertEqual(peak.0, Double.pi / wd, accuracy: 0.1 * Double.pi / wd)
         XCTAssertEqual(peak.1 / step - 1, exp(-zeta * Double.pi / (1 - zeta * zeta).squareRoot()), accuracy: 0.05)
-        XCTAssertEqual(c, 0.952, accuracy: 0.005)
-        XCTAssertEqual(wn, 0.926, accuracy: 0.005)
+        XCTAssertEqual(c, 0.955, accuracy: 0.005)
+        XCTAssertEqual(wn, 0.927, accuracy: 0.005)
     }
 
     // The FCC's shaping filters (Boeing D5-15481-1 §3.5: the S-IC roll
@@ -735,10 +735,10 @@ final class SaturnIUTests: XCTestCase {
         XCTAssertEqual(c.pitch / deg, -112.4, accuracy: 2)   // OT at cutoff (LVDC -113.6)
         func gamma(_ r: Vec3, _ v: Vec3) -> Double { asin(r.normalized.dot(v.normalized)) / deg }
         // S-II OECO: AS-506's 6,559,961 m, 6,915.96 m/s, 0.614°. The model is
-        // about 30 m/s slower and 0.2° steeper: the S-IC's deficit (datasheet
-        // §9.5) and more, and since the WGS-84 pad (§15) the S-II climbs the
-        // 4.85 km the spherical pad gave it. Widened from 30 m/s and 0.15°
-        // with the pad; see §17, which closes the residuals.
+        // about 8 m/s slower and 0.08° steeper since §17's S-IC (30 m/s and
+        // 0.2° before it, with the WGS-84 pad of §15): the S-II's own deficit
+        // at the EMR shift (§14.2). Widened from 30 m/s and 0.15° with the
+        // pad; see §17, which closes the residuals.
         XCTAssertEqual(s2.r.length, 6_559_961, accuracy: 1_000)
         XCTAssertEqual(s2.v.length, 6_915.96, accuracy: 35)
         XCTAssertEqual(gamma(s2.r, s2.v), 0.614, accuracy: 0.25)

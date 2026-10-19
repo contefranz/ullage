@@ -526,21 +526,22 @@ enum AS506 {
     /// the launch-day pressure (`launchDayAtmosphere()`) at AS-506's altitude
     /// over the Fischer ellipsoid (PFT Table B-II, H), the altitude the
     /// model's centre of mass flies as its geodetic height (59 m on the pad;
-    /// datasheet §15), so the model's site thrust is the figure's along
-    /// AS-506's path. The knots are the least-squares piecewise-linear fit to
-    /// the figure's 0.5 s samples: five engines to 134 s, four from 137 to
-    /// 160.5 s (the centre engine's decay between left out), the first
-    /// four-engine knot at the five engines' thrust per engine. They fit the
-    /// samples within 0.035 % rms and 0.18 % at most
+    /// datasheet §15), so the model's site thrust is the figure's (times
+    /// `sICThrustScale`) along AS-506's path. The knots are the least-squares
+    /// piecewise-linear fit to the figure's 0.5 s samples: five engines to
+    /// 134 s, four from 137 to 160.5 s (the centre engine's decay between
+    /// left out), the first four-engine knot at the five engines' thrust per
+    /// engine. They fit the samples within 0.035 % rms and 0.18 % at most
     /// (`SaturnVDataTests.testF1ThrustFollowsFigure5_3`). After 160.5 s the
     /// figure hooks down to OECO, a stretch its digitisation did not follow
     /// (its visual reader: 0.2-0.3 MN below the trace there), so the last
     /// knot is AS-506's sensed acceleration at OECO, 38.61 m/s^2 (FER Table
     /// 4-1, and the PFT's 161.63 s row: H), over the FER's mass then, 827,292
-    /// kg (Table 20-1). In vacuum the thrust dips 0.4 % to 55 s and rises
-    /// 1.9 % from there to CECO, while the flow rises 1.8 % (`sICFlowHistory`):
-    /// the specific impulse, thrust over flow, wanders by ±0.5 % about 2,980
-    /// N s/kg, the two panels' reading and reconstruction errors together.
+    /// kg (Table 20-1), at the figure's level. In vacuum the thrust dips 0.4 %
+    /// to 55 s and rises 1.9 % from there to CECO, while the flow rises 1.8 %
+    /// (`sICFlowHistory`): the specific impulse, thrust over flow, wanders by
+    /// ±0.5 % about 2,980 N s/kg, the two panels' reading and reconstruction
+    /// errors together.
     static let sICThrustHistory: [(t: Double, thrust: Double, engines: Double)] = [
         (0.3, 39_454_900, 5), (2.5, 39_474_300, 5), (5, 39_457_700, 5), (10, 39_501_100, 5),
         (15, 39_501_000, 5), (20, 39_428_600, 5), (25, 39_402_100, 5), (30, 39_422_000, 5),
@@ -552,8 +553,25 @@ enum AS506 {
         (135.2, 40_036_700, 5),
         (135.25, 32_029_400, 4), (137, 31_906_500, 4), (140, 31_703_200, 4), (145, 31_718_000, 4),
         (150, 31_820_500, 4), (155, 31_943_600, 4), (160.5, 32_023_700, 4),
-        (161.63, 38.61 * 827_292, 4),
+        (161.63, 38.61 * 827_292 / sICThrustScale, 4),
     ]
+    /// The level of that thrust, from AS-506's measured acceleration: the
+    /// figure's thrust, on the FER's propellant (Tables 5-2 and 20-1) and
+    /// with the sourced aerodynamics (datasheet §11), gives 10.3 m/s (0.28
+    /// %) less sensed velocity over the S-IC burn (the integral of |a_ng|)
+    /// than the postflight trajectory (PFT Table B-II, H; its first 20 s
+    /// integrate the IU's own accelerometers, FER §4.2.1), 8.9 m/s with the
+    /// frost and purge gas AS-506 shed by CECO taken off. Where drag is under
+    /// 1 % of thrust the PFT's acceleration needs 0.3-0.6 % more thrust than
+    /// the figure in the first 20 s, 0.1-0.3 % at 100-130 s and 0.1-0.5 % at
+    /// 140-160 s; the figure is a reconstruction from engine data, and its
+    /// thrust and flow panels disagree with its own Isp panel by 0.6 % at
+    /// liftoff. The scale is fitted to the nearest 0.0001 on the PFT's S-IC
+    /// integral of |a_ng| with the 661 kg of frost and purge gas AS-506 shed
+    /// by CECO taken off (linearly to CECO; worth 1.3 m/s), which the model
+    /// does not shed yet (datasheet §17): until it does, the model's S-IC is
+    /// 1.3 m/s short. At 1 the figure's thrust stands as printed.
+    static let sICThrustScale = 1.0022               // fitted (model) to the PFT (H): M
     /// Exit area that gives the stage's site Isp at liftoff on the figure's
     /// flow, about 2,594 N s/kg at 100.6 kPa (FER Figure 5-3), from its
     /// vacuum Isp, 2,980.5 N s/kg at 140-160 s, where the ambient pressure is
@@ -565,7 +583,7 @@ enum AS506 {
     /// (`f1Schedule`) carries it along `sICThrustHistory` and `sICFlowHistory`.
     static var f1: EngineRating {
         let h = sICFlowHistory[0], f = sICThrustHistory[0]
-        let thrust = f.thrust / f.engines, mdot = h.flow / h.engines * sICFlowScale.fiveEngines
+        let thrust = f.thrust / f.engines * sICThrustScale, mdot = h.flow / h.engines * sICFlowScale.fiveEngines
         return EngineRating.fixedNozzle(name: "F-1 (AS-506 flight)", thrustVacuum: thrust,
                                         ispVacuum: thrust / (mdot * standardGravity), exitArea: f1ExitArea,
                                         mixtureRatio: h.mixtureRatio * sICMixtureRatioScale.fiveEngines)

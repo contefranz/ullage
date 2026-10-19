@@ -426,6 +426,26 @@ final class AscentResidualTests: XCTestCase {
         XCTAssertGreaterThan(m.times.count, 1000)
     }
 
+    // The S-IC's sensed velocity against AS-506's (PFT Table B-II, H), the
+    // integral of |a_ng| by datasheet §14.2's windows, in the default flight.
+    // The F-1's thrust level is fitted to the whole burn's integral with the
+    // 661 kg of frost and purge gas AS-506 had shed by CECO taken off
+    // (`AS506.sICThrustScale`), so the model, which does not shed them yet,
+    // is about 1.3 m/s short over the burn; the windows are not fitted: the
+    // thrust's shape is FER Figure 5-3's and the mass the FER's tanks'.
+    // Provisional tolerances: the residual closure's re-baseline (datasheet
+    // §17) sets them.
+    func testSICSensedVelocityAgainstThePFT() throws {
+        let m = try ModelTrajectory(NominalFlight.shared)
+        let total = m.sensedVelocity(from: P.firstMotion, to: 161.63).integral
+            - P.sensedVelocity(from: P.firstMotion, to: 161.63).integral
+        XCTAssertEqual(total, -1.3, accuracy: 1)
+        for (a, b) in [(1.0, 20.0), (20, 60), (60, 100), (100, 135.2), (135.2, 140), (140, 161.63)] {
+            let d = m.sensedVelocity(from: a, to: b).integral - P.sensedVelocity(from: a, to: b).integral
+            XCTAssertEqual(d, 0, accuracy: 2, "\(a)-\(b) s")
+        }
+    }
+
     // The S-II and the S-IVB, each from AS-506's state: the stack flown
     // again, with AS-506's postflight state (rotated from PACSS 13 into the
     // model's space-fixed frame, carried with gravity alone from the event
