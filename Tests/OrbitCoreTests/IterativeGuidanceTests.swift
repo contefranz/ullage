@@ -55,6 +55,8 @@ final class IterativeGuidanceTests: XCTestCase {
     /// OECO mass; separation, the S-IVB's start ramp, and the velocity cutoff.
     /// `outboardEngineOut`: an outboard J-2 out from this range time, with
     /// the IU's discrete (the factor 4/3) unless `ignoreDiscrete`.
+    /// `sIIDropped`: the S-II dropped by hand at this range time, its cutoff
+    /// discrete with it.
     struct PointMassFlight {
         var presettings: IGMPresettings
         var latitude = 28.6084 * Double.pi / 180     // the PFT's X_S: the geodetic vertical
@@ -68,6 +70,9 @@ final class IterativeGuidanceTests: XCTestCase {
         var j2 = 1.08262668e-3
         var outboardEngineOut: Double?
         var ignoreDiscrete = false
+        var sIIDropped: Double?
+        /// The S-IVB's vacuum thrust (N), on its 215.37 kg/s.
+        var sIVBThrust = 903_000.0
         /// The flight stops here if the S-IVB has not cut off (range time, s).
         var end = 760.0
 
@@ -79,6 +84,8 @@ final class IterativeGuidanceTests: XCTestCase {
             var pitch: [(t: Double, deg: Double)]
             /// The cycles that gave no command before the high-speed loop.
             var frozen: [Double]
+            /// Every cycle's T3 and τ3 after it, and its commands (rad).
+            var cycles: [(t: Double, t3: Double, tau3: Double, pitch: Double?, yaw: Double?)]
         }
 
         mutating func fly() -> Result {
@@ -93,12 +100,13 @@ final class IterativeGuidanceTests: XCTestCase {
             var cutoff: Double?, tg: Double?, hsl: Double?
             var target = chi, lastCycle: Double?, sensed = 0.0, bnvc = 0.0, pitch: [(Double, Double)] = []
             var frozen: [Double] = []
+            var cycles: [(t: Double, t3: Double, tau3: Double, pitch: Double?, yaw: Double?)] = []
             func atThrust(_ t: Double) -> Bool { ignition.map { t >= $0 + 0.6 + 0.9 * 1.9 } ?? false }
             func thrust(_ t: Double) -> (Double, Double) {
                 if cutoff != nil { return (0, 0) }
                 if let s = ignition {
                     let f = min(1, max(0, (t - s - 0.6) / 1.9))
-                    return (903_000 * f, 215.37 * f)
+                    return (sIVBThrust * f, 215.37 * f)
                 }
                 if sIIOut != nil { return (0, 0) }
                 let e = low ? lo : hi
@@ -109,7 +117,7 @@ final class IterativeGuidanceTests: XCTestCase {
                 if centre == 1 && t >= 460.6 - 1e-9 { centre = 0 }
                 if let out = outboardEngineOut, outboard == 4 && t >= out - 1e-9 { outboard = 3 }
                 if let s = shiftAt, !low, t >= s + 2.8 - 1e-9 { low = true }
-                if sIIOut == nil && m <= 214_248 {
+                if sIIOut == nil && (m <= 214_248 || sIIDropped.map { t >= $0 - 1e-9 } ?? false) {
                     sIIOut = t
                     m = 166_751
                 }
@@ -133,6 +141,7 @@ final class IterativeGuidanceTests: XCTestCase {
                     }
                     if out.beganTerminalGuidance { tg = t }
                     if out.enteredHighSpeedLoop { hsl = t }
+                    cycles.append((t, igm.t3, igm.tau3, out.pitch, out.yaw))
                     lastCycle = t
                     sensed = 0
                     pitch.append((t, target.y / Double.pi * 180))
@@ -165,7 +174,7 @@ final class IterativeGuidanceTests: XCTestCase {
             return Result(r: r, v: v, cutoff: cutoff ?? t, shift: shiftAt, terminalGuidance: tg, t2AtShift: t2AtShift,
                           highSpeedLoop: hsl,
                           sIIOut: sIIOut ?? .nan, sIVBAtThrust: ignition.map { $0 + 0.6 + 0.9 * 1.9 }, guidance: igm,
-                          pitch: pitch, frozen: frozen)
+                          pitch: pitch, frozen: frozen, cycles: cycles)
         }
 
         func direction(_ chi: Vec3) -> Vec3 {
@@ -274,5 +283,75 @@ final class IterativeGuidanceTests: XCTestCase {
         let nominal = flight.fly()
         XCTAssertGreaterThan(res.sIIOut - nominal.sIIOut, 20)
         XCTAssertGreaterThan(res.cutoff - nominal.cutoff, 20)
+    }
+
+    // An S-IVB that cannot reach the target: the S-II dropped by hand at
+    // 200, 201.5 or 210 s (SaturnIUTests.testEarlierTimeBaseEventsDropWhen-
+    // TheNextStarts drops it at 200 s), the S-IVB lit 4 s later on 166.8 t,
+    // on 903 and 912 kN, to 700 s (its 107 t of propellant, SP-4029, about
+    // gone). On the first cycle of the coast GE504's linearised ΔT3
+    // overshoots τ3. Unbounded (Table 4-IV prints no bound), T3 went to
+    // -1,016 s on the IU flight's first cycle on 912 kN and NaN by its
+    // fifth, the yaw command on its 45° limit; here, the S-II dropped at
+    // 201.5 s, between the IGM's first two cycles, it went from stage 1's
+    // 151 s to -162 s, -1.3e4 s, -7.1e6 s and on (at 200 s it happened to
+    // converge). Held 1 s inside (0, τ3) (datasheet §10.2), T3 lands within
+    // 5 s of τ3 on that cycle, settles in about four more (near 567 s) and
+    // then counts down with the clock, within 0.5 s a cycle (0.22 s) from
+    // 10 s after the S-IVB's 90 % thrust; every command is finite, the yaw
+    // within 3° of the plane (1.9°), the pitch between -15° and AS-506's
+    // -114° at insertion (-21° to -94°: the IGM lofts the S-IVB towards R_T,
+    // 182 km up at 700 s, 2 km/s short). Nothing cuts it off: no terminal
+    // guidance and no high-speed loop.
+    func testIGMStaysFiniteWhenTheSIVBCannotReachTheTarget() throws {
+        for drop in [200, 201.5, 210] {
+            for thrust in [903_000.0, 912_000.0] {
+                var flight = PointMassFlight(presettings: presettings())
+                flight.sIIDropped = drop
+                flight.sIVBThrust = thrust
+                flight.end = 700
+                let res = flight.fly(), name = "S-II dropped at \(drop) s, \(thrust) N"
+                XCTAssertEqual(res.sIIOut, drop, accuracy: 0.02, name)
+                XCTAssertNil(res.terminalGuidance, name)
+                XCTAssertNil(res.highSpeedLoop, name)
+                let first = try XCTUnwrap(res.cycles.first { $0.t >= res.sIIOut }, name)
+                XCTAssertGreaterThan(first.t3, first.tau3 - 5, name)
+                let settled = try XCTUnwrap(res.sIVBAtThrust, name) + 10
+                let drift = zip(res.cycles, res.cycles.dropFirst()).filter { $1.t >= settled }
+                    .map { abs($1.t3 - ($0.t3 - ($1.t - $0.t))) }
+                XCTAssertTrue(drift.allSatisfy { $0 <= 0.5 }, "\(name): \(drift.max() ?? .nan) s")
+                let bad = res.cycles.filter { c in
+                    !(c.t3 >= 1 && c.t3 <= c.tau3 - 1) || c.pitch.map { !($0 < -15 * deg && $0 > -114 * deg) } ?? false
+                        || c.yaw.map { !(abs($0) < 3 * deg) } ?? false
+                }
+                XCTAssertTrue(bad.isEmpty, "\(name): \(bad.count) cycles, the first \(bad.first.map { "\($0)" } ?? "")")
+                XCTAssertGreaterThan(res.cycles.filter { $0.pitch != nil }.count, 250, name)
+            }
+        }
+    }
+
+    // T3 run out by the clock before the high-speed loop (here a cycle
+    // late by T3 and 300 s more, by T3 and 1 ns, and by T3 exactly, on
+    // AS-506's state at 200 s with the S-IVB alone, past its artificial
+    // tau): the iteration restarts from T3′ = 1 s, the bound's lower end,
+    // where GE504's L3′ would be negative (T3′ < 0) or zero (T3′ = 0, a
+    // division by zero in ΔL3 with no S-II left in L_Y′). T3 and the
+    // commands stay finite.
+    func testT3RunOutByTheClockRestartsFromItsBound() {
+        let f = PointMassFlight(presettings: presettings())
+        var igm = IterativeGuidance(presettings: f.presettings, launchLatitude: f.latitude, azimuth: f.azimuth)
+        let nav = IGMNavigation(position: f.r, velocity: f.v, gravity: f.r.normalized * -9.5, sensedAcceleration: 6,
+                                sIICutoff: true, sIVBIgnition: true)
+        _ = igm.cycle(nav, interval: nil)
+        for _ in 0..<5 { _ = igm.cycle(nav, interval: 1.7) }
+        XCTAssertFalse(igm.artificialTau)
+        for interval in [igm.t3 + 300, igm.t3 + 1e-9, igm.t3] {
+            var late = igm
+            let out = late.cycle(nav, interval: interval)
+            XCTAssertTrue(late.t3.isFinite && late.t3 >= 1 && late.t3 <= late.tau3 - 1, "\(interval): \(late.t3)")
+            XCTAssertTrue(late.totalTime.isFinite, "\(interval)")
+            XCTAssertTrue(out.pitch?.isFinite ?? false, "\(interval)")
+            XCTAssertTrue(out.yaw?.isFinite ?? false, "\(interval)")
+        }
     }
 }
