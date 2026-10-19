@@ -270,8 +270,52 @@ def a11():
           8000 < sm - resid < 9500, f"{sm - resid:.0f} lb")
 
 
+# ------------------------------------------------ TN D-5399, D-5276, D-7437
+def technical_notes():
+    t2 = rows("tnd5399_table2_apollo4_cg_mass.csv")
+    ratios = [num(r["weight_lb"]) / num(r["mass_slug"]) for r in t2]
+    check("TN D-5399 II: lb/slug is 32.2 on every row but the entry row (its mass is graded M)",
+          all(abs(x - 32.2) < 0.05 for x in ratios[1:]) and abs(ratios[0] - 32.35) < 0.01,
+          f"{min(ratios[1:]):.3f}-{max(ratios[1:]):.3f}, entry {ratios[0]:.3f}")
+    times = [num(r["time_s"]) for r in t2]
+    check("TN D-5399 II: times increase", all(a < b for a, b in zip(times, times[1:])))
+    drop = num(t2[0]["weight_lb"]) - num(t2[-2]["weight_lb"])
+    check("TN D-5399 II: entry - drogue weight = ~90 lb RCS + ~210 lb ablator (text)", drop == 300, f"{drop:.0f} lb")
+    t1 = {r["event"]: num(r["time_s"]) for r in rows("tnd5399_table1_apollo4_events.csv") if r["time_s"]}
+    check("TN D-5399 I and II agree on entry, both peak g and drogue times",
+          [t1["Entry interface (400 000 ft)"], t1["First peak g"], t1["Second peak g"], t1["Drogue parachute deployment"]]
+          == [times[0], times[1], times[2], times[-2]])
+
+    runs = rows("tnd5276_table1_trim_points.csv")
+    ld151 = [num(r["l_over_d_at_151"]) for r in runs if r["l_over_d_at_151"]]
+    ld162 = [num(r["l_over_d_at_162"]) for r in runs if r["l_over_d_at_162"]]
+    check("TN D-5276 I: mean L/D at 151 deg = the summary's 0.435", abs(sum(ld151) / len(ld151) - 0.435) < 0.0015,
+          f"{sum(ld151) / len(ld151):.4f} over {len(ld151)} runs")
+    check("TN D-5276 I: mean L/D at 162 deg within the stated +/-0.025 of the summary's 0.255",
+          abs(sum(ld162) / len(ld162) - 0.255) < 0.025, f"{sum(ld162) / len(ld162):.4f} over {len(ld162)} runs")
+    z = [num(r["zcg_over_d"]) for r in runs]
+    hi, lo = [x for x in z if x > 0.04], [x for x in z if x < 0.04]
+    check("TN D-5276 I: the two CG groups average z/d 0.046 and 0.028",
+          abs(sum(hi) / len(hi) - 0.046) < 0.001 and abs(sum(lo) / len(lo) - 0.028) < 0.001,
+          f"{sum(hi) / len(hi):.4f}, {sum(lo) / len(lo):.4f}")
+
+    e = {r["parameter"]: r for r in rows("tnd7437_els.csv")}
+    for stage, line_in in (("First", 264), ("Second", 780)):
+        d = num(e[f"{stage}-stage reefed diameter D_R{1 if stage == 'First' else 2}"]["si"]) / 0.3048
+        check(f"TN D-7437 A-15: {stage.lower()}-stage reefing line ({line_in} in) = pi x D_R",
+              abs(line_in / 12 / math.pi - d) < 0.05, f"{line_in / 12 / math.pi:.2f} ft against {d:.1f} ft")
+    # Sea-level descent rate on three full-open mains at Apollo 7's landing
+    # weight (Mission Report A.5-I row 24): information for track E2, since the
+    # printed 32 ft/s is the design figure for heavier CMs and real clusters.
+    w = num(rows("a07_mr_table_a5_1.csv")[-1]["weight_lb"])
+    cds = 3 * num(e["Drag area, full open (average, each)"]["value"])
+    v = math.sqrt(2 * w / (2.3768846e-3 * cds))
+    check("TN D-7437: three mains (3 x 4200 ft^2) at Apollo 7's 11 409 lb fall under the 32 ft/s splashdown figure (information)",
+          v < 32, f"{v:.1f} ft/s at sea level")
+
+
 if __name__ == "__main__":
-    for fn in (fm184, a7, a11):
+    for fn in (fm184, a7, a11, technical_notes):
         fn()
     print(f"{len(failures)} failure(s)")
     sys.exit(1 if failures else 0)

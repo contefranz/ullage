@@ -1,0 +1,44 @@
+# NASA TN D-5399, Ernest R. Hillje, "Entry Aerodynamics at Lunar Return
+# Conditions Obtained from the Flight of Apollo 4 (AS-501)", October 1969.
+# Copy read: https://ntrs.nasa.gov/api/citations/19690029435/downloads/19690029435.pdf
+# (8,466,113 bytes, sha256 8351dea9b708f7801184469b15c19e1e9a18dd8ac9eff2899b8279675541716c),
+# native 300 dpi bilevel page images.
+#
+# Table II "Estimated command-module center of gravity and mass change during
+# entry" (document page 24, PDF page 32). Footnotes: (a) centers of gravity
+# are in the NASA reference system; (b) the longitudinal reference (body
+# X-axis) has an origin 1000 inches below the tangency line of the CM
+# substructure mold line; (c) the Z-axis measurement includes the constant
+# Y-axis offset of 0.3 inch. So x_in is the CM station X_c (1000 in at the
+# heat-shield-side datum) and z_in the total lateral offset.
+# time_s as in Table I. SI: x_m, z_m (0.0254 m/in), mass_kg from the weight
+# column (0.45359237 kg/lb); weight_over_mass is the table's own lb/slug.
+#
+# Read by two independent readers: no disagreement (the 9 of 30 590 and the
+# last 6 of 30 596 are faint; both readers read them, and the times rise
+# monotonically). The table converts slugs to pounds with about 32.2, not the
+# 32.1740 ft/s^2 of its symbol list, on every row but the first: the entry row's
+# 369.7 slug gives 32.35 lb/slug. Its weight, 11 959 lb, is the one that
+# checks: entry - drogue = 300 lb = the text's ~90 lb of RCS propellant + ~210
+# lb of ablator (pages 8-9), and entry - first peak g = 102 lb against 3.2 slug
+# (11 959/32.2 = 371.4 slug). The row's mass is graded M; use the weight.
+# Grades: H = both readers read the same digits and every check that applies
+# closes; M = both readers agree, but the value needed interpretation or a
+# check does not close; L = uncertain.
+mach,time_s,event,x_in,z_in,mass_slug,weight_lb,x_m,z_m,mass_kg,weight_over_mass,grade
+25.6,29968.54,"Entry",1039.58,6.57,369.7,11959,26.405332,0.166878,5424.51115,32.348,M
+29.2,30045,"First peak g",1039.62,6.56,368.2,11857,26.406348,0.166624,5378.24473,32.203,H
+12.6,30431,"Second peak g",1039.70,6.49,364.2,11731,26.40838,0.164846,5321.09209,32.210,H
+6.0,30505,"",1039.72,6.45,363.8,11715,26.408888,0.16383,5313.83461,32.202,H
+4.0,30538,"",1039.73,6.42,363.5,11705,26.409142,0.163068,5309.29869,32.201,H
+3.0,30553,"",1039.74,6.41,363.4,11702,26.409396,0.162814,5307.93791,32.201,H
+2.4,30564,"",1039.74,6.40,363.2,11696,26.409396,0.16256,5305.21636,32.203,H
+2.0,30572,"",1039.74,6.39,363.2,11694,26.409396,0.162306,5304.30917,32.197,H
+1.65,30581,"",1039.75,6.38,363.1,11692,26.40965,0.162052,5303.40199,32.200,H
+1.35,30590,"",1039.75,6.37,363.0,11688,26.40965,0.161798,5301.58762,32.198,H
+1.2,30596,"",1039.75,6.37,362.9,11686,26.40965,0.161798,5300.68044,32.202,H
+1.1,30602,"",1039.76,6.36,362.9,11684,26.409904,0.161544,5299.77325,32.196,H
+0.9,30618,"",1039.76,6.34,362.5,11674,26.409904,0.161036,5295.23733,32.204,H
+0.7,30637,"",1039.77,6.32,362.5,11672,26.410158,0.160528,5294.33014,32.199,H
+0.42,30678.6,"Drogue deployment",1039.79,6.27,362.1,11659,26.410666,0.159258,5288.43344,32.198,H
+0.4,30680,"",1039.79,6.27,362.1,11659,26.410666,0.159258,5288.43344,32.198,H

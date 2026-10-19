@@ -1,0 +1,157 @@
+TN D-5399 (Hillje, Apollo 4 entry aerodynamics) -- reader B, from page images only
+(page images work/tnimg/d5399_p<N>-000.png; printed page numbers in brackets)
+Uncertain digits marked with ?; none of the table digits below are uncertain unless marked.
+
+=====================================================================
+p31 [printed 23]  TABLE I. - SIGNIFICANT EVENTS DURING ENTRY
+Columns: Event or AGC entry control phase | AGC entry control program, number | Time, sec | Remarks
+=====================================================================
+event,program,time_sec,footnote,remarks
+CM/SM separation,,29 882.6,,
+INITIAL ENTRY (initial roll),63,,,
+Entry interface (400 000 ft),,29 968.54,,
+0.05g interface,64,29 999,a,
+First peak g,,30 045,,
+HUNTEST,,30 045,a,Altitude rate = -679 ft/sec
+UPCONTROL,65,30 085,a,
+KEPLER or BALLISTIC,66,,,Not required for Apollo 4 mission
+FINAL ENTRY,67,30 253,a,
+Second peak g,,30 431,,
+Guidance termination,,30 601,a,V < 1000 ft/sec
+Drogue parachute deployment,,30 678.6,,
+Main parachute deployment,,30 725.8,,
+Landing,,31 029.2,,
+Footnote: a Apollo guidance computer time.
+Notes:
+- The "a" times (AGC time) are given to whole seconds; the others are to 0.1 or 0.01 s.
+- Row grouping lines: CM/SM sep alone; INITIAL ENTRY / Entry interface / 0.05g / First peak g / HUNTEST
+  in one block; UPCONTROL + KEPLER in one block; FINAL ENTRY ... Landing in one block (horizontal rules
+  are partially broken in the scan; grouping not significant for numbers).
+- Consistency: First peak g 30 045, second peak g 30 431 and drogue 30 678.6 agree with Table II times.
+  Entry interface 29 968.54 agrees with Table II entry time.
+
+=====================================================================
+p32 [printed 24]  TABLE II. - ESTIMATED COMMAND-MODULE CENTER OF GRAVITY AND MASS CHANGE DURING ENTRY
+Columns: Mach number | Time, sec | Event | Center of gravity (a), in.: X-axis (b), Z-axis (c) | Mass, slugs | Weight, lb
+=====================================================================
+mach,time_sec,event,x_in,z_in,mass_slugs,weight_lb
+25.6,29 968.54,Entry,1039.58,6.57,369.7,11 959
+29.2,30 045,First peak g,1039.62,6.56,368.2,11 857
+12.6,30 431,Second peak g,1039.70,6.49,364.2,11 731
+6.0,30 505,,1039.72,6.45,363.8,11 715
+4.0,30 538,,1039.73,6.42,363.5,11 705
+3.0,30 553,,1039.74,6.41,363.4,11 702
+2.4,30 564,,1039.74,6.40,363.2,11 696
+2.0,30 572,,1039.74,6.39,363.2,11 694
+1.65,30 581,,1039.75,6.38,363.1,11 692
+1.35,30 590,,1039.75,6.37,363.0,11 688
+1.2,30 596,,1039.75,6.37,362.9,11 686
+1.1,30 602,,1039.76,6.36,362.9,11 684
+0.9,30 618,,1039.76,6.34,362.5,11 674
+0.7,30 637,,1039.77,6.32,362.5,11 672
+0.42,30 678.6,Drogue deployment,1039.79,6.27,362.1,11 659
+0.4,30 680,,1039.79,6.27,362.1,11 659
+Footnotes (verbatim):
+ a Centers of gravity are in the NASA reference system.
+ b The longitudinal reference (body X-axis) has an origin 1000 inches below the tangency line of the CM
+   substructure mold line.
+ c The Z-axis measurement includes the constant Y-axis offset of 0.3 inch.
+Reading notes:
+- 30 590 and 30 596: the middle "9" of 590 and the final "6" of 596 are faintly printed (broken strokes)
+  but legible; I read them as 9 and 6 with good confidence (590 also fits the monotonic sequence).
+- "Drogue deployment" event label sits on the 0.42 row (first row of the last block).
+Arithmetic checks:
+- weight/mass ratio is 32.20 +/- 0.01 for every row EXCEPT the first: 11 959 / 369.7 = 32.35.
+  The table therefore converts slugs->lb with g ~ 32.2, not with the 32.1740 ft/s^2 given in the
+  symbols list (e.g. 362.1 x 32.174 = 11 650, table says 11 659).
+- SUSPECTED MISPRINT, row 1 (Entry): mass 369.7 slugs is inconsistent with 11 959 lb.
+  11 959 / 32.2 = 371.4 slugs; 369.7 x 32.2 = 11 904 lb.
+  The weight 11 959 looks right: 11 959 - 11 659 = 300 lb = 90 lb RCS propellant + 210 lb ablator
+  (text p16-17), and 11 959 - 11 857 = 102 lb entry->first peak g matches 371.4 - 368.2 = 3.2 slugs
+  (= 103 lb), whereas 369.7 - 368.2 = 1.5 slugs (= 48 lb). So the mass 369.7 is probably a
+  misprint for ~371.4 (or the mass column was computed from a different entry weight).
+- Mach is not monotonic (25.6 at entry interface, 29.2 at first peak g): plausible because of the
+  high temperature (speed of sound) at 400 000 ft, but note the conclusions (p28) quote initial-entry
+  Mach "approximately 38", which does not match 25.6 / 29.2 here.
+- X increases monotonically 1039.58 -> 1039.79; Z decreases 6.57 -> 6.27 (with Y offset 0.3 in
+  included, per footnote c).
+
+=====================================================================
+p3 [printed ii]  ABSTRACT
+=====================================================================
+- "Apollo 4 entry configuration (Command Module 017)"
+- modified trim-wind-tunnel data vs flight: initial trim angle of attack lower by approximately 1.5 deg
+- resultant lift-to-drag ratio higher by approximately 10 percent
+- flight-derived L/D and angles of attack essentially linear with Mach number down to 6.0, at which point
+  comparison showed much better agreement.
+
+=====================================================================
+p11 [printed 3] / p12 [printed 4]  SYMBOLS (numbers only)
+=====================================================================
+- d   spacecraft reference diameter, 12.833 ft
+- g   acceleration of gravity at the surface of the earth, 32.1740 ft/sec^2
+- S   reference area, 129.35 ft^2                      (p12)
+- m   spacecraft mass, slugs; p_t, p_inf in psia; q in lb/ft^2; V in ft/sec; angles in deg
+- C_A = -m A_x / (q_inf S); C_N = -m A_z / (q_inf S); C_Y = m A_y / (q_inf S)
+- C_L,R = sqrt(C_L,H^2 + C_L,V^2); C_N,R = sqrt(C_Y^2 + C_N^2)
+- (L/D)_H = C_L,H/C_D; (L/D)_R = C_L,R/C_D; (L/D)_V = C_L,V/C_D
+- t: elapsed time from range zero = first integral second of range time prior to Saturn
+  instrument-unit umbilical disconnect, sec
+- L_f deceleration load factor, printed as sqrt(A_x^2 + A_y^2 + A_x^2)/g
+  MISPRINT: the third term is printed A_x (checked at 300%), should be A_z.
+Checks:
+- pi/4 x 12.833^2 = 129.344 ft^2 (would round to 129.34); pi/4 x (154 in/12)^2 = 129.350 ft^2.
+  So S = 129.35 corresponds to d = 154 in = 12.8333 ft exactly; 12.833 is that value truncated.
+  Not an error, just rounding.
+
+=====================================================================
+p16 [printed 8]  numbers in text
+=====================================================================
+- aft heat shield has six compression or shear pads (fig. 9(c), 9(d))
+- aft heat shield ablator max thickness approximately 2.7 inches near the theoretical hypersonic
+  stagnation point; approximately 1.5 inches at the tangent point of the CM torus in the negative
+  Z-direction; approximately 1.6 inches in the positive Z-direction at the tangent point of the torus
+- configuration CM-017 of the Apollo 4 mission; wind-tunnel testing-program data refs. 5 to 9; fig. 10
+- RCS: "During atmospheric entry, the CM reaction control subsystem (RCS) used approximately 90 pounds
+  of propellant to control the roll attitude ... and to damp any spacecraft rates that were greater
+  than the dead-band limits of +/-2.0 deg/sec for all the rate channels (pitch, yaw, and roll)."
+
+=====================================================================
+p17 [printed 9]  numbers in text
+=====================================================================
+- ablator: "A predicted weight loss using the postflight trajectory indicated that approximately
+  210 pounds were expended."
+- propellant and ablative-material weight losses accounted for in c.g. and mass time history (table II)
+- Y-axis c.g. movement negligible, taken as constant; Y offset makes the spacecraft trim about a plane
+  rotated from X-Z; comparison restricted to the resultant angle-of-attack (alpha_R) plane
+- previous Apollo mission flight-derived data: ref. 10; fig. 11
+- equations: (1) alpha = tan^-1(w/u); (2) beta = tan^-1( v / sqrt(u^2 + w^2) );
+  (3) alpha_R = tan^-1( sqrt(v^2 + w^2) / u )
+- Check: 90 lb (RCS) + 210 lb (ablator) = 300 lb = 11 959 - 11 659 lb (Table II first/last weights).
+
+=====================================================================
+p28 [printed 20]  end of results + CONCLUSIONS
+=====================================================================
+- (carry-over) "... 25 percent) to good (within 50 percent) agreement down to M_inf = 1.35."
+- C_Y, C_N in figures 19(c), 19(d); sideslip beta fig. 14(b)
+- Conclusion 1: at initial-entry point, flight-derived steady-state resultant trim angle of attack
+  approximately 154.5 deg; average resultant L/D approximately 0.368 (modified trim-wind-tunnel data
+  1.5 deg lower and 10 percent higher, respectively). Trend essentially linear with Mach, reaching
+  flight-derived trim resultant alpha approximately 153 deg and L/D approximately 0.410 at Mach 6.0
+  (modified trim-wind-tunnel values 0.5 deg higher and 3 percent lower, respectively). Good agreement
+  from Mach 4.0 down to Mach 1.35 and below Mach 0.9, with deviations in trim resultant alpha up to
+  10 deg and in trim resultant L/D up to 25 percent in the transonic region.
+- Conclusion 2: hybrid data agreed with flight-derived data down to Mach 1.2. Previous flight AS-202.
+  Modified wind-tunnel force data reliable even at the initial-entry high-Mach-number (approx 38),
+  low-Reynolds-number (approx 1.0 x 10^4) conditions; trim attitudes (moment data) poor in the
+  initial-entry hypersonic region (Mach greater than 18) and possibly in the transonic region (Mach
+  greater than 0.9 and less than 1.20).
+- Conclusion 3: force-coefficient data based on flight-measured stagnation pressure reliable down to
+  Mach 4.0.
+Notes:
+- Abstract says modified trim-wind-tunnel initial trim alpha "lower by approximately 1.5 deg" and L/D
+  "higher by approximately 10 percent": consistent with conclusion 1.
+- Mach "approx 38" at initial entry vs Table II Mach 25.6 at entry interface / 29.2 at first peak g:
+  inconsistent as printed (possibly a different Mach definition / atmosphere, but flag it).
+- Implied wind-tunnel values: alpha_R 153.0 deg and L/D 0.405 at entry (154.5-1.5, 0.368x1.10);
+  153.5 deg and 0.398 at Mach 6 (153+0.5, 0.410x0.97).

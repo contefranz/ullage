@@ -51,6 +51,9 @@ a plan; the Mission Reports describe the flight.
 | | same, ClearScan copy (pages found with it, no values read) | https://www.apollojournals.org/alsj/a410/A07_MissionReport.pdf | 8,768,701 | `c06d973032b9ca19eea672a96f97b195b0e0a21d1d32675b9cddb1c6f3ad529f` |
 | A11 MR | MSC-00171, *Apollo 11 Mission Report* (Nov 1969) | https://ntrs.nasa.gov/api/citations/19700008096/downloads/19700008096.pdf (raster, coarse) | 15,973,944 | `3314d99654ebb2ac3e3ef0ab70a84be9519a5f071cf1362118b2b20a6f161dea` |
 | | same, ClearScan of a cleaner scan (read as rendered images) | https://archive.org/download/apollo-11-mission-report/apollo-11-mission-report.pdf | 11,835,694 | `5b9d033c7b9dd604220f439cddc8a53ad08e3e9c43c83f7342d7e61ef32a1baa` |
+| D-5399 | NASA TN D-5399, Hillje, *Entry Aerodynamics at Lunar Return Conditions Obtained from the Flight of Apollo 4 (AS-501)* (Oct 1969) | https://ntrs.nasa.gov/api/citations/19690029435/downloads/19690029435.pdf | 8,466,113 | `8351dea9b708f7801184469b15c19e1e9a18dd8ac9eff2899b8279675541716c` |
+| D-5276 | NASA TN D-5276, DeRose, *Trim Attitude, Lift and Drag of the Apollo Command Module with Offset Center-of-Gravity Positions at Mach Numbers to 29* (Jun 1969) | https://ntrs.nasa.gov/api/citations/19690020179/downloads/19690020179.pdf | 793,607 | `8df77fb79ef04e54a7092fccbe7e0d61396fdc5b8da151423aad6f77296c86b2` |
+| D-7437 | NASA TN D-7437, West, *Apollo Experience Report - Earth Landing System* (Nov 1973) | https://ntrs.nasa.gov/api/citations/19740003586/downloads/19740003586.pdf | 26,481,429 | `2ca5ab15917d848137bc4b6fa3dc9c553be9387d98eef96902a4063d79cfc91e` |
 
 All copies retrieved 2026-10-19.
 
@@ -69,6 +72,11 @@ All copies retrieved 2026-10-19.
 | `a07_mr_sec5_21_consumables.csv` | Apollo 7 §5.21: SPS, SM RCS (per quad), CM RCS (per system), cryogenics and water: loaded, consumed, remaining | final |
 | `a11_mr_table_a_1.csv` | Apollo 11 Table A-I: weight, CG and full inertia tensor at 27 spacecraft events (lift-off to landing) and 10 LM events | final |
 | `a11_mr_sec8_11_consumables.csv` | Apollo 11 §8.11.1-8.11.3: SPS, SM RCS (per quad), CM RCS (per system) and cryogenics, actual and preflight planned | final |
+| `tnd5399_table1_apollo4_events.csv` | TN D-5399 Table I: Apollo 4 entry events (CM/SM separation to landing, AGC programs) | final |
+| `tnd5399_table2_apollo4_cg_mass.csv` | TN D-5399 Table II: Apollo 4 CM CG and mass from entry to drogue deployment at 16 Mach numbers | final |
+| `tnd5399_text_apollo4.csv` | TN D-5399 text: reference length and area, RCS use and dead bands, ablator loss, flight trim and L/D | final |
+| `tnd5276_table1_trim_points.csv` | TN D-5276 Table I: 15 free-flight runs, Mach 10-29, trim angle, C_D and L/D at two CG offsets | final |
+| `tnd7437_els.csv` | TN D-7437: the Block II ELS sequence, drogue, pilot and main parachutes (diameters, reefing, drag areas, weights, loads), descent rates | final |
 
 ## 68-FM-184 (Apollo 7 Spacecraft Operational Trajectory)
 
@@ -339,9 +347,9 @@ the value every other cell implies.
   | event | weight (lb) | CG X_A (in) | CG Z_A (in) |
   |---|---|---|---|
   | after separation | 12,107.4 | 1040.4 | 6.0 |
-  | entry | 12,095.5 | | 5.9 |
-  | drogue deploy | 11,603.7 | | |
-  | main deploy | 11,318.9 | | 5.2 |
+  | entry | 12,095.5 | 1040.5 | 5.9 |
+  | drogue deploy | 11,603.7 | 1039.2 | 5.9 |
+  | main deploy | 11,318.9 | 1039.1 | 5.2 |
   | landing | 10,873.0 | 1037.1 | 5.1 |
 
   The drop from main deploy to landing (446 lb) is far more than the 205 lb
@@ -354,3 +362,119 @@ the value every other cell implies.
     all).
   - SPS: 40,803 lb loaded, 5,064 lb left at CM/SM separation.
   - CM RCS: 245.9 lb loaded, and system B was never used.
+
+## TN D-5399 (Apollo 4 entry aerodynamics)
+
+Pages read (PDF): 3 (abstract), 11-12 (symbols), 16-17 (RCS and ablator),
+28 (conclusions), 31 (Table I) and 32 (Table II). The scan is a clean
+300 dpi bilevel raster.
+
+**Readers.** Readers A and B agree on every value of Tables I and II and the
+text. In Table II, the 9 of 30 590 and the last 6 of 30 596 print faintly;
+both readers read them, and the times rise monotonically.
+
+**Checks** (`tools/check_apollo_data.py`):
+- Tables I and II agree on the times of entry, the two peaks of g and drogue
+  deployment.
+- The Table II weight falls by 300 lb from entry to drogue deployment. The
+  text gives about 90 lb of RCS propellant and about 210 lb of ablator.
+
+**Misprints and inconsistencies.**
+- **The entry row's mass.** Table II converts slugs to pounds at 32.2 lb per
+  slug on every row but the first (the symbol list says 32.1740). The entry
+  row's 369.7 slug gives 32.35. Its weight, 11,959 lb, is the value that
+  checks: the 300 lb drop to drogue deployment, and the 102 lb drop to first
+  peak g, which is 3.2 slug at 371.4 slug. The mass cell is graded M; use the
+  weight.
+- **The load-factor formula** on page 3 prints Ax twice; the third term
+  should be Az (reader B).
+- **Conclusion 2** gives an initial-entry Mach of about 38, while Table II
+  gives 25.6 at entry interface (graded M in the text CSV).
+
+**Notes for the tracks.**
+- **Datum and CG.** X is the CM station, with its origin 1000 in below the
+  tangency line of the substructure mold line (Table II footnote b), and Z
+  includes the 0.3 in Y offset (footnote c).
+- **Entry state.** At entry Apollo 4 weighed 11,959 lb with its CG at X 1039.58
+  in, Z 6.57 in.
+- **Flight trim** was about 154.5° with an L/D of 0.368 at entry, and about
+  153° with 0.410 at Mach 6.
+- **RCS.** The rate dead bands were ±2.0°/s in every axis.
+- **Timeline** (Table I): 0.05 g came 30.5 s after EI. Drogues deployed at
+  30,678.6 s and mains at 30,725.8 s, so 47.2 s on drogues; landing came at
+  31,029.2 s, 303.4 s on the mains.
+
+## TN D-5276 (CM trim with offset CG, Mach 10-29)
+
+Pages read (PDF): 3 (summary), 5 (symbols), 9 (CG sensitivity), 14-15
+(uncertainties, trim), 19 (Table I, sideways).
+
+**Readers.** Readers A and B agree on all 15 runs of Table I.
+
+**Checks.**
+- The mean L/D of the eight runs at 151° is 0.435, as the summary says.
+- The three runs at 162° average 0.247, against the summary's 0.255; that is
+  within the stated ±0.025.
+- The two CG groups average z/d 0.0468 and 0.0281, which the summary rounds
+  to 0.046 and 0.028.
+
+**Notes.**
+- **Reference axes.** x_cg is measured from the plane tangent to the front
+  face and z_cg from the reference centreline (symbols, page 5).
+- **Datum adjustment.** Trim angles in the figures are adjusted to
+  x_cg/d = 0.270, which changes them by less than 0.4°.
+- **Sensitivity.** A change of 0.0015 in z_cg/d moves the trim by about 1°.
+- **Heat-shield centreline.** Flight data correlate only when the CG is
+  measured from the centreline of the blunt heat shield. For AS-202 that is
+  4.65 in, against 5.23 in from the structural centreline.
+- **Figure 10's ratios imply d ≈ 155.5 in,** not 154 in (reader B). The table
+  values are not affected.
+
+## TN D-7437 (earth landing system)
+
+Pages read (PDF): 10, 12-14 (sequence, history, design loads, descent
+rate), 30-35 (Block II mains, drogues, pilots and the apex-cover chute) and
+51 (the Apollo 15 anomaly report's sequence).
+
+**Readers.** Readers A and B agree on every value.
+
+**Checks.**
+- **Reefing lines.** The lines, 264 and 780 in, are π × D_R1 (7.0 ft) and
+  π × D_R2 (20.7 ft). Over the 83.5 ft nominal diameter that is 8.4 % and
+  24.8 %, as printed.
+- **Parachute weights.** The drogue weights sum to 37.4 lb and the pilot
+  weights to 5.17 lb. The main-parachute weights sum to 138.58 lb, printed
+  138.5.
+- **The 1.6 s** from apex-cover jettison to drogue deployment appears three
+  times: in Figure 2 (+0.4 s and +2 s), in Figure 3 (14.4 s and 16 s) and in
+  the text.
+
+**Notes for track E2.**
+- **Which ELS flew.** Every crewed Apollo flew the Increased Capability Block
+  II system, starting with CSM 101, Apollo 7.
+- **Sequence:**
+  1. apex cover at 24,000 ft + 0.4 s;
+  2. two 16.5 ft drogues at 24,000 ft + 2 s, reefed to 42.8 % for 10 s;
+  3. drogue release and three pilot chutes at about 11,000 ft;
+  4. three 83.5 ft mains, disreefed at 6 s and again at 10 s (about 9,000 ft).
+- **Baroswitch pressures,** US 1976:
+  - 24,000 ft = 39.3 kPa;
+  - 11,000 ft = 67.0 kPa;
+  - 10,000 ft = 69.7 kPa.
+
+  The design report's 69.7 kPa is the 10,000 ft figure, while D-7437 puts
+  the drogue release at about 11,000 ft. That choice is E2's.
+- **Drag areas per canopy:**
+
+  | parachute | stage | ft² |
+  |---|---|---|
+  | drogue | reefed | 65 |
+  | drogue | full open | 114 |
+  | main | first stage | 285 |
+  | main | second stage | 1,080 |
+  | main | full open | 4,200 |
+
+- **Descent rates.** Splashdown is 32 ft/s on three mains and 36 ft/s on two;
+  the specification is 33 ft/s at 5,000 ft. Three mains at 4,200 ft² carrying
+  Apollo 7's 11,409 lb give 27.6 ft/s at sea level. The 32 ft/s is the design
+  figure for the 13,000 lb CM, with cluster losses.
