@@ -46,10 +46,13 @@ final class SaturnIUTests: XCTestCase {
     // trajectory at first motion, 6,373,355 m (PFT, H); the Earth's rotation
     // carries it at SP-4029's liftoff inertial velocity, 408.64 m/s
     // (1,340.7 ft/s) to the east. Space is refused: it would drop the S-IC
-    // on the pad.
+    // on the pad. Range zero, the app's GET zero, is 13:32:00 UTC, 0.30 s
+    // before first motion (SP-4029).
     func testOnThePad() throws {
         let sim = try Simulation.forTests(perturbations: true)
         XCTAssertEqual(sim.time, VesselLibrary.apollo11FirstMotion)
+        XCTAssertEqual(VesselLibrary.apollo11RangeZero.description, "1969-07-16 13:32:00.000 UTC")
+        XCTAssertEqual(VesselLibrary.apollo11FirstMotion - VesselLibrary.apollo11RangeZero, 0.30, accuracy: 1e-6)
         let v = VesselLibrary.apollo11OnPad(in: sim)
         let ll = v.latitudeLongitude(snapshot: sim.snapshot)
         XCTAssertEqual(ll.lat / deg, 28.6084, accuracy: 1e-9)

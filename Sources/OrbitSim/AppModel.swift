@@ -51,6 +51,12 @@ struct HUDState: Equatable {
     var program: String? = nil
     /// Largest deflection of a firing gimballed engine and its range; nil when none fires.
     var gimbal: String? = nil
+    /// After F: the stage whose engine the next digit fails ("S-IC engine
+    /// 1-5?  (Esc cancels)").
+    var failurePrompt: String? = nil
+    /// The failed engines still aboard, with the time they failed, then the
+    /// failures scheduled on the IU and not yet due.
+    var failures: [String] = []
     var events: [String] = []
 }
 
@@ -68,7 +74,11 @@ final class AppModel: ObservableObject {
     private(set) var sim: Simulation?
     var camera = OrbitCamera()
 
+    /// Zero of the mission clock: the scenario's, else liftoff.
     private var missionStart = Epoch(tdbSecondsPastJ2000: 0)
+    /// After F, until the next key: the vessel and stage whose engine a
+    /// digit fails, and that stage's main engines in order.
+    private var failureCapture: (vessel: Vessel, part: String, engines: [String])?
     private var hudClock = 0.0
     private var rateWindow = RateWindow()
     private static let warpSteps: [Double] = [0.1, 1, 10, 100, 1_000, 10_000, 100_000]
@@ -112,7 +122,8 @@ final class AppModel: ObservableObject {
         self.sim = sim
         rateWindow = RateWindow(warp: sim.warp)
         scenario = s
-        missionStart = sim.time
+        missionStart = s.missionClockZero ?? sim.time
+        failureCapture = nil
         if let focus = sim.focus {
             camera.target = .vessel(focus.id)
             camera.distance = max(focus.boundingRadius * 3, 30)
@@ -135,10 +146,10 @@ final class AppModel: ObservableObject {
         rateWindow.real += dt
         rateWindow.simulated += sim.time - frameStart
         rateWindow.limited = rateWindow.limited || sim.warpLimited
-        // The mission clock starts at liftoff, logged at the start of the step
-        // that left the ground: at time warp a frame holds many steps, and the
-        // vehicle may even be down again by its end.
-        if wasLanded, let f = sim.focus,
+        // Without a scenario's zero the mission clock starts at liftoff, logged
+        // at the start of the step that left the ground: at time warp a frame
+        // holds many steps, and the vehicle may even be down again by its end.
+        if scenario?.missionClockZero == nil, wasLanded, let f = sim.focus,
            let liftoff = sim.events.last(where: { $0.message == "\(f.name): liftoff" && $0.time >= frameStart }) {
             missionStart = liftoff.time
         }
@@ -160,6 +171,20 @@ final class AppModel: ObservableObject {
 
     private func handleKeys(sim: Simulation, dt: Double) {
         for key in input.takePressed() {
+            // F, then a digit: the key after F is the capture's. A digit fails
+            // that engine of the stage (none if out of range), so 1-8 and 0
+            // never reach the autopilot here; Escape or F cancels; any other
+            // key cancels and then acts as usual.
+            if let capture = failureCapture {
+                failureCapture = nil
+                if let n = Int(key) {
+                    if (1...capture.engines.count).contains(n) {
+                        failEngine(capture.engines[n - 1], of: capture.vessel, sim: sim)
+                    }
+                    continue
+                }
+                if key == "escape" || key == "f" { continue }
+            }
             switch key {
             case "h": showHelp.toggle()
             case "m": showOrbit.toggle()
@@ -179,6 +204,8 @@ final class AppModel: ObservableObject {
             case "z": v.mainThrottle = 1
             case "x": v.mainThrottle = 0
             case "t": v.autopilot = v.autopilot == .killRotation ? nil : .killRotation
+            case "f":
+                if let stage = Self.failableStage(of: v) { failureCapture = (v, stage.part, stage.engines) }
             case "1": v.autopilot = .prograde
             case "2": v.autopilot = .retrograde
             case "3": v.autopilot = .normal
@@ -201,6 +228,29 @@ final class AppModel: ObservableObject {
         }
         v.rotationInput = RotationCommand(roll: axis("e", "q"), pitch: axis("s", "w"), yaw: axis("d", "a"))
         v.translationInput = Vec3(axis("u", "o"), axis("l", "j"), axis("k", "i"))
+    }
+
+    /// The stage F fails an engine of: the lowest part with a main liquid
+    /// engine still able to run and fed, and its main liquid engines in the
+    /// part's order (the Saturn's "S-IC engine 1" ... "5", 5 the centre).
+    static func failableStage(of v: Vessel) -> (part: String, engines: [String])? {
+        for p in v.parts {
+            let mains = p.thrusters.filter { $0.groups.contains(.main) && !$0.isSolid }
+            if mains.contains(where: { $0.isAvailable && $0.hasPropellant }) { return (p.name, mains.map(\.name)) }
+        }
+        return nil
+    }
+
+    /// Fail the named engine now. The Saturn's IU fails it at the start of
+    /// the next step (logging it, and sensing it as AS-506's LVDC would);
+    /// elsewhere it fails at once.
+    private func failEngine(_ name: String, of v: Vessel, sim: Simulation) {
+        if let iu = v.flightProgram as? SaturnIU {
+            iu.scheduleFailure(of: name, at: .epoch(sim.time))
+        } else if let e = v.thrusters.first(where: { $0.name == name }), !e.isFailed {
+            e.fail()
+            sim.log("\(v.name): \(name) failed")
+        }
     }
 
     private func setWarp(step: Int, sim: Simulation) {
@@ -313,8 +363,35 @@ final class AppModel: ObservableObject {
         h.autopilot = v.autopilot?.rawValue
         h.program = v.flightProgram?.status
         h.gimbal = Self.gimbalSummary(v)
-        h.events = sim.events.suffix(6).map { "\(Self.formatDuration($0.time - missionStart))  \($0.message)" }
+        if let c = failureCapture, c.vessel === v {
+            h.failurePrompt = "\(c.part) engine \(c.engines.count == 1 ? "1" : "1-\(c.engines.count)")?  (Esc cancels)"
+        }
+        h.failures = failureLines(v, sim: sim)
+        h.events = sim.events.suffix(6).map {
+            "\(Self.formatDuration($0.time - missionStart, tenths: true))  \($0.message)"
+        }
         if h != hud { hud = h }
+    }
+
+    /// "S-II engine 5 failed +00:05:28.6" for each failed engine aboard (its
+    /// time from the IU's log, or the simulation's), then "S-II engine 5 at
+    /// T3+167.0 s" for each failure scheduled on the IU and not yet due.
+    private func failureLines(_ v: Vessel, sim: Simulation) -> [String] {
+        let iu = v.flightProgram as? SaturnIU
+        var lines: [String] = v.thrusters.filter(\.isFailed).map { e in
+            let at = iu?.log.first { $0.event == "\(e.name) failed" }?.time
+                ?? sim.events.last { $0.message == "\(v.name): \(e.name) failed" }?.time
+            return "\(e.name) failed" + (at.map { " " + Self.formatDuration($0 - missionStart, tenths: true) } ?? "")
+        }
+        for f in iu?.failureSchedule ?? [] {
+            guard let e = v.thrusters.first(where: { $0.name == f.engine }), !e.isFailed else { continue }
+            switch f.time {
+            case .range(let r): lines.append(String(format: "%@ at range %.1f s", f.engine, r))
+            case let .timeBase(b, dt): lines.append(String(format: "%@ at %@+%.1f s", f.engine, b.description, dt))
+            case .epoch(let t): lines.append("\(f.engine) at \(Self.formatDuration(t - missionStart, tenths: true))")
+            }
+        }
+        return lines
     }
 
     /// "1.2° / 5.0°": the largest deflection of a firing gimballed engine and
@@ -336,13 +413,16 @@ final class AppModel: ObservableObject {
         return "\(Int((w / unit).rounded() * unit))×"
     }
 
-    static func formatDuration(_ seconds: Double) -> String {
+    /// "+00:02:15", or "+00:02:15.2" with `tenths` (rounded; the whole
+    /// seconds of a running clock are truncated).
+    static func formatDuration(_ seconds: Double, tenths: Bool = false) -> String {
         let sign = seconds < 0 ? "-" : "+"
-        var s = abs(seconds)
+        var s = tenths ? (abs(seconds) * 10).rounded() / 10 : abs(seconds)
         let d = Int(s / 86400); s -= Double(d) * 86400
         let hh = Int(s / 3600); s -= Double(hh) * 3600
         let mm = Int(s / 60); s -= Double(mm) * 60
-        if d > 0 { return String(format: "%@%dd %02d:%02d:%02d", sign, d, hh, mm, Int(s)) }
-        return String(format: "%@%02d:%02d:%02d", sign, hh, mm, Int(s))
+        let ss = tenths ? String(format: "%04.1f", s) : String(format: "%02d", Int(s))
+        if d > 0 { return String(format: "%@%dd %02d:%02d:%@", sign, d, hh, mm, ss) }
+        return String(format: "%@%02d:%02d:%@", sign, hh, mm, ss)
     }
 }

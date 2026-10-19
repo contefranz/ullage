@@ -74,6 +74,10 @@ struct HUDView: View {
                     row("Stage Δv", String(format: "%.0f m/s", hud.deltaV))
                     row("Mass", String(format: "%.1f t", hud.mass / 1000))
                     if let p = hud.program { row("IU", p) }
+                    if let f = hud.failurePrompt { row("Fail engine", f, bold: true) }
+                    ForEach(Array(hud.failures.enumerated()), id: \.offset) { i, f in
+                        row(i == 0 ? "Engine out" : "", f)
+                    }
                     row("Autopilot", hud.autopilot ?? "off")
                     if let g = hud.gimbal { row("Gimbal", g) }
                     ForEach(hud.tanks) { tank in
@@ -148,6 +152,7 @@ struct HelpView: View {
         ("Space", "next staging event (Saturn V: after the S-IC cutoff)"),
         ("T", "kill rotation   1-7 prograde, retro, normal, anti-normal, radial±, level   0 off"),
         ("8", "hold attitude (Saturn V: hands the attitude back to the IU)"),
+        ("F, then 1-5", "fail engine n of the stage now firing (S-IC, S-II: 5 is the centre)   Esc cancels"),
         (". , /", "time warp up / down / reset     P pause"),
         ("Mouse drag / scroll", "orbit / zoom camera"),
         ("C / V", "camera target / camera frame"),
