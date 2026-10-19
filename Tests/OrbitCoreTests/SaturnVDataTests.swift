@@ -183,16 +183,17 @@ final class SaturnVDataTests: XCTestCase {
         XCTAssertEqual((v.mass + 39_307) / lb, 6_477_875, accuracy: 3)
         // Bookkeeping identities: the S-IC at holddown release (FER Table
         // 20-1) with the small interstage ring that leaves with it (Table
-        // 20-9), its LOX (liquid, Table 5-2, and the GOX already in its
-        // ullage, Table 20-1) and RP-1 (Table 5-2).
-        XCTAssertEqual(part(v, "S-IC").mass, 2_239_381 + 614, accuracy: 1e-6)
+        // 20-9) and the upper stages' frost and purge gas (S-II 204 + 54 kg,
+        // S-IVB 90 kg, Table 20-1), its LOX (liquid, Table 5-2, and the GOX
+        // already in its ullage, Table 20-1) and RP-1 (Table 5-2).
+        XCTAssertEqual(part(v, "S-IC").mass, 2_239_381 + 614 + 258 + 90, accuracy: 1e-6)
         XCTAssertEqual(v.tanks[0].mass, 1_468_594 + 235, accuracy: 1e-6)
         XCTAssertEqual(v.tanks[1].mass, 637_830, accuracy: 1e-6)
-        XCTAssertEqual(pounds([part(v, "S-II")]), 1_058_140, accuracy: 1e-6)
+        XCTAssertEqual(pounds([part(v, "S-II")]) + 258 / lb, 1_058_140, accuracy: 1e-6)
         // The S-IVB's aft frame and detonation package (23 kg) are booked with
         // the aft interstage, which they leave with, and its ullage motors
         // (53 kg of grain, 61 kg of cases) on a part of their own.
-        XCTAssertEqual(pounds(["S-IVB", "S-IVB ullage rockets"].map { part(v, $0) }) + AS506.sIVBAftFrame / lb,
+        XCTAssertEqual(pounds(["S-IVB", "S-IVB ullage rockets"].map { part(v, $0) }) + (AS506.sIVBAftFrame + 90) / lb,
                        262_613, accuracy: 1e-6)
         XCTAssertEqual(pounds([part(v, "IU")]), 4_275, accuracy: 1e-6)
         // Independent, FER items against SP-4029 rows: the S-IC/S-II
@@ -505,7 +506,7 @@ final class SaturnVDataTests: XCTestCase {
         // 99,059 kg of RP-1, with Table 20-1's 2,809 kg of GOX. Bookkeeping:
         // the vehicle is 661 kg above Table 20-1's 1,110,189 kg, the frost and
         // purge gas AS-506 had shed by then (S-IC 295 + 16 kg, S-II 204 + 54
-        // kg, S-IVB 90 kg), which the model does not shed.
+        // kg, S-IVB 90 kg), which the model's S-IC carries to its separation.
         XCTAssertEqual(lox.mass, 216_633 + 2_809, accuracy: 1)
         XCTAssertEqual(rp1.mass, 99_059, accuracy: 1)
         XCTAssertEqual(v.mass - 1_110_189, 661, accuracy: 3)
@@ -587,23 +588,24 @@ final class SaturnVDataTests: XCTestCase {
             }
             return false
         }
-        // The S-IC's propellant is the FER's, but the model's upper stages
-        // carry 120-360 kg that AS-506 had lost by these events (frost,
-        // venting before ignition), so 0.2 %; the S-IVB about 90-110 kg (its
-        // 91 kg of frost and 23 kg of fuel-lead loss), so 0.1 %.
-        func mass(_ kg: Double, _ label: String, within tolerance: Double = 2e-3) {
-            XCTAssertEqual(v.mass, kg, accuracy: kg * tolerance, label)
+        // The S-IC's propellant is the FER's, and the S-IC carries the 661 kg
+        // of frost and purge gas AS-506 had shed by CECO (Table 20-1) to its
+        // separation, so 0.1 % there. After it the stack is the FER's within
+        // 50 kg (the model has 3-34 kg; the upper stages' boil-off before
+        // ignition and the S-IVB's fuel lead are not modelled).
+        func mass(_ kg: Double, _ label: String, within tolerance: Double = 50) {
+            XCTAssertEqual(v.mass, kg, accuracy: tolerance, label)
         }
 
         // S-IC: centre engine cut at 135.20 s, outboard engines to LOX depletion.
         set(mains(), 1)
         XCTAssertFalse(burn(to: AS506.sICCenterCutoff))
-        mass(1_110_189, "S-IC CECO")
+        mass(1_110_189, "S-IC CECO", within: 1_110)
         engine("S-IC engine 5").isEnabled = false
         XCTAssertTrue(burn(to: 170))
         // Consistency (the F-1's flow scales were fitted to it): 161.63 s.
         XCTAssertEqual(t, 161.63, accuracy: 0.03)
-        mass(827_292, "S-IC OECO", within: 1e-3)
+        mass(827_292, "S-IC OECO", within: 827)
         XCTAssertEqual(acceleration, 38.61, accuracy: 38.61 * 3e-3)   // 3.94 g
 
         // Thrust decay; the S-II ullage motors from T3 + 0.5 s; separation.
@@ -611,7 +613,7 @@ final class SaturnVDataTests: XCTestCase {
         XCTAssertFalse(burn(to: t3 + AS506.sIIUllageIgnitionTime))
         for m in v.thrusters where m.name.hasPrefix("S-II ullage") { XCTAssertTrue(m.ignite()) }
         XCTAssertFalse(burn(to: AS506.sICSeparation))
-        mass(823_625, "S-IC/S-II separation", within: 1e-3)
+        mass(823_625, "S-IC/S-II separation", within: 824)
         XCTAssertEqual(v.jettisonNextStage()?.parts.map(\.name), ["S-IC"])
 
         // S-II: engine start (solenoids) at 164.0 s, mainstage at 166.2 s,
@@ -659,22 +661,22 @@ final class SaturnVDataTests: XCTestCase {
         mass(213_757, "S-II/S-IVB separation")
         XCTAssertEqual(v.jettisonNextStage()?.parts.map(\.name), ["S-II", "S-II/S-IVB interstage"])
         XCTAssertFalse(burn(to: AS506.sIVBIgnition))
-        mass(166_571, "S-IVB ignition", within: 1e-3)
+        mass(166_571, "S-IVB ignition")
         XCTAssertEqual(grains("S-IVB ullage"), 10, accuracy: 3)
         set(mains(), 1)
         XCTAssertFalse(burn(to: 554.70))
-        mass(166_396, "S-IVB mainstage", within: 1e-3)
+        mass(166_396, "S-IVB mainstage")
         XCTAssertEqual(grains("S-IVB ullage"), 0, accuracy: 1)
         XCTAssertFalse(burn(to: 561.0))
         XCTAssertEqual(v.jettisonNextStage()?.mass ?? 0, AS506.sIVBUllageMotorCases, accuracy: 1e-9)
         XCTAssertFalse(burn(to: 699.34))
-        mass(135_182, "S-IVB cutoff", within: 1e-3)
+        mass(135_182, "S-IVB cutoff")
         // Figure 4-3 (M) rather than Table 4-1's 6.73 m/s^2, which is more
         // than the S-IVB's thrust (FER Figure 7-2) over the tabulated mass.
         XCTAssertEqual(acceleration, 6.69, accuracy: 6.69 * 5e-3)
         set(mains(), 0)
         XCTAssertFalse(burn(to: 699.54))
-        mass(135_102, "S-IVB end of thrust decay", within: 1e-3)
+        mass(135_102, "S-IVB end of thrust decay")
         XCTAssertEqual(v.parts.map(\.name), ["S-IVB", "IU", "SLA", "LM", "CSM"])
     }
 }

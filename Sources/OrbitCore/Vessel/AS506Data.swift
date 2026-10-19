@@ -387,6 +387,17 @@ enum AS506 {
     static let sICDry = 287_531.0                // lb, SP-4029 Ground Ignition Weights (H); FER 130,422 kg
     /// Not itemised: frost, GN2 and helium, lubricants.
     static let sICOther = 5_442.0                // lb, SP-4029 Ground Ignition Weights (H)
+    /// Frost and purge gas aboard the upper stages at first motion, all of
+    /// it gone by CECO (FER Table 20-1, first-motion and CECO columns, read
+    /// from the page images, H): the S-II stage 479,964 to 479,706 kg, its
+    /// frost 204 kg and purge gas 54 kg; the S-IVB stage 119,119 to 119,029
+    /// kg, its frost 90 kg. The model books them on the S-IC part, at their
+    /// stages' stations, so they leave with the S-IC rather than ride to the
+    /// S-II's and S-IVB's cutoffs. The S-IC's own (frost 635 to 340 kg, N2
+    /// purge gas 36 to 20 kg; its helium moves into the RP-1 tank's ullage,
+    /// net 0) are in its first-motion mass, and leave with it too.
+    static let sIIFrostAndPurge = 204.0 + 54.0   // kg, FER Table 20-1 (H)
+    static let sIVBFrost = 90.0                  // kg, FER Table 20-1 (H)
     static let sICLOXLoad = 3_305_786.0          // lb, SP-4029 Ground Ignition Weights; FER Table 5-2 (H)
     static let sICRP1Load = 1_424_889.0          // lb, SP-4029 Ground Ignition Weights; FER Table 5-2 (H)
     /// The S-IC stage at holddown release (first motion), and its tanks then:
@@ -515,7 +526,8 @@ enum AS506 {
     /// The vehicle at CECO is then 661 kg above Table 20-1's 1,110,189 kg:
     /// the frost and purge gas shed by then (S-IC frost 295 kg and N2 purge
     /// 16 kg, S-II frost 204 and purge 54 kg, S-IVB frost 90 kg; Table 20-1),
-    /// which the model does not shed. Before, one scale on the whole burn
+    /// which the model's S-IC carries to its separation (`sIIFrostAndPurge`,
+    /// `sIVBFrost`). Before, one scale on the whole burn
     /// (0.99896, 0.99965) left the tanks 761 kg too full at CECO.
     static let sICFlowScale = (fiveEngines: 0.999385, fourEngines: 0.996609)          // fitted (model)
     static let sICMixtureRatioScale = (fiveEngines: 0.999840, fourEngines: 0.998441)  // fitted (model)
@@ -568,9 +580,9 @@ enum AS506 {
     /// thrust and flow panels disagree with its own Isp panel by 0.6 % at
     /// liftoff. The scale is fitted to the nearest 0.0001 on the PFT's S-IC
     /// integral of |a_ng| with the 661 kg of frost and purge gas AS-506 shed
-    /// by CECO taken off (linearly to CECO; worth 1.3 m/s), which the model
-    /// does not shed yet (datasheet §17): until it does, the model's S-IC is
-    /// 1.3 m/s short. At 1 the figure's thrust stands as printed.
+    /// by CECO taken off (linearly to CECO; worth 1.3 m/s), which the model's
+    /// S-IC carries to its separation (datasheet §17), so the model's S-IC
+    /// is 1.3 m/s short. At 1 the figure's thrust stands as printed.
     static let sICThrustScale = 1.0022               // fitted (model) to the PFT (H): M
     /// Exit area that gives the stage's site Isp at liftoff on the figure's
     /// flow, about 2,594 N s/kg at 100.6 kPa (FER Figure 5-3), from its

@@ -430,9 +430,10 @@ final class AscentResidualTests: XCTestCase {
     // integral of |a_ng| by datasheet §14.2's windows, in the default flight.
     // The F-1's thrust level is fitted to the whole burn's integral with the
     // 661 kg of frost and purge gas AS-506 had shed by CECO taken off
-    // (`AS506.sICThrustScale`), so the model, which does not shed them yet,
-    // is about 1.3 m/s short over the burn; the windows are not fitted: the
-    // thrust's shape is FER Figure 5-3's and the mass the FER's tanks'.
+    // (`AS506.sICThrustScale`), so the model, whose S-IC carries them to its
+    // separation, is about 1.3 m/s short over the burn; the windows are not
+    // fitted: the thrust's shape is FER Figure 5-3's and the mass the FER's
+    // tanks'.
     // Provisional tolerances: the residual closure's re-baseline (datasheet
     // §17) sets them.
     func testSICSensedVelocityAgainstThePFT() throws {
