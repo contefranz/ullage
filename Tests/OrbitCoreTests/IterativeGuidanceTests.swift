@@ -53,6 +53,8 @@ final class IterativeGuidanceTests: XCTestCase {
     /// EMR to the centre engine cutoff at 460.6 s, then four; the low EMR
     /// 2.8 s after the IGM's shift command; the S-II's LOX gone at the model's
     /// OECO mass; separation, the S-IVB's start ramp, and the velocity cutoff.
+    /// `outboardEngineOut`: an outboard J-2 out from this range time, with
+    /// the IU's discrete (the factor 4/3) unless `ignoreDiscrete`.
     struct PointMassFlight {
         var presettings: IGMPresettings
         var latitude = 28.6084 * Double.pi / 180     // the PFT's X_S: the geodetic vertical
@@ -64,9 +66,15 @@ final class IterativeGuidanceTests: XCTestCase {
         var m = 608_178.0
         var chi = Vec3(0, -68.74 * Double.pi / 180, -0.05 * Double.pi / 180)
         var j2 = 1.08262668e-3
+        var outboardEngineOut: Double?
+        var ignoreDiscrete = false
+        /// The flight stops here if the S-IVB has not cut off (range time, s).
+        var end = 760.0
 
         struct Result {
             var r: Vec3, v: Vec3, cutoff: Double, shift: Double?, terminalGuidance: Double?
+            /// The IGM's T2 on the cycle that commanded the shift.
+            var t2AtShift: Double?
             var highSpeedLoop: Double?, sIIOut: Double, sIVBAtThrust: Double?, guidance: IterativeGuidance
             var pitch: [(t: Double, deg: Double)]
             /// The cycles that gave no command before the high-speed loop.
@@ -80,7 +88,8 @@ final class IterativeGuidanceTests: XCTestCase {
                                       soiRadius: .infinity)
             var igm = IterativeGuidance(presettings: presettings, launchLatitude: latitude, azimuth: azimuth)
             let hi = (thrust: 1_028_303.0, flow: 1_028_303 / 4_175.37), lo = (thrust: 768_000.0, flow: 768_000 / 4_200.55)
-            var engines = 5.0, low = false, shiftAt: Double?, sIIOut: Double?, ignition: Double?
+            var outboard = 4.0, centre = 1.0, low = false, shiftAt: Double?, sIIOut: Double?, ignition: Double?
+            var t2AtShift: Double?
             var cutoff: Double?, tg: Double?, hsl: Double?
             var target = chi, lastCycle: Double?, sensed = 0.0, bnvc = 0.0, pitch: [(Double, Double)] = []
             var frozen: [Double] = []
@@ -93,11 +102,12 @@ final class IterativeGuidanceTests: XCTestCase {
                 }
                 if sIIOut != nil { return (0, 0) }
                 let e = low ? lo : hi
-                return (engines * e.thrust, engines * e.flow)
+                return ((outboard + centre) * e.thrust, (outboard + centre) * e.flow)
             }
-            while t < 760 && cutoff == nil {
+            while t < end && cutoff == nil {
                 // The vehicle's events.
-                if engines == 5 && t >= 460.6 - 1e-9 { engines = 4 }
+                if centre == 1 && t >= 460.6 - 1e-9 { centre = 0 }
+                if let out = outboardEngineOut, outboard == 4 && t >= out - 1e-9 { outboard = 3 }
                 if let s = shiftAt, !low, t >= s + 2.8 - 1e-9 { low = true }
                 if sIIOut == nil && m <= 214_248 {
                     sIIOut = t
@@ -112,11 +122,15 @@ final class IterativeGuidanceTests: XCTestCase {
                     let nav = IGMNavigation(position: r, velocity: v, gravity: earth.gravity(at: r, pole: pole),
                                             sensedAcceleration: interval.map { sensed / $0 } ?? fm,
                                             characteristicVelocity: bnvc, sIICutoff: sIIOut != nil,
-                                            sIVBIgnition: atThrust(t))
+                                            sIVBIgnition: atThrust(t),
+                                            stage2EngineFactor: outboard < 4 && !ignoreDiscrete ? 4 / outboard : 1)
                     let out = igm.cycle(nav, interval: interval)
                     if let p = out.pitch, let y = out.yaw { target = Vec3(0, p, y) }
                     if out.pitch == nil && !igm.highSpeedLoop { frozen.append(t) }
-                    if out.commandShift { shiftAt = t }
+                    if out.commandShift {
+                        shiftAt = t
+                        t2AtShift = igm.t2
+                    }
                     if out.beganTerminalGuidance { tg = t }
                     if out.enteredHighSpeedLoop { hsl = t }
                     lastCycle = t
@@ -148,7 +162,8 @@ final class IterativeGuidanceTests: XCTestCase {
                 t += dt
                 if dt < h { cutoff = t }
             }
-            return Result(r: r, v: v, cutoff: cutoff ?? t, shift: shiftAt, terminalGuidance: tg, highSpeedLoop: hsl,
+            return Result(r: r, v: v, cutoff: cutoff ?? t, shift: shiftAt, terminalGuidance: tg, t2AtShift: t2AtShift,
+                          highSpeedLoop: hsl,
                           sIIOut: sIIOut ?? .nan, sIVBAtThrust: ignition.map { $0 + 0.6 + 0.9 * 1.9 }, guidance: igm,
                           pitch: pitch, frozen: frozen)
         }
@@ -221,5 +236,43 @@ final class IterativeGuidanceTests: XCTestCase {
             let near = res.pitch.min { abs($0.t - t) < abs($1.t - t) }!
             XCTAssertEqual(near.deg, fer, accuracy: 3, "\(t) s")
         }
+    }
+
+    // An outboard J-2 out at 328.6 s (Apollo 13's time, on an outboard engine)
+    // leaves three of the four engines the stage 2 presettings assume. With
+    // the IU's discrete the IGM stretches T2 and τ2 by 4/3 (GE504 Fig 4-6,
+    // generalised: datasheet §16), so on the shift command its T2 is the
+    // three engines' burn to S-II cutoff within 3 s (71.2 s against 70.8 s),
+    // as the presetting is the four engines'; without it, T2 is a quarter
+    // short. Either way the shift waits for the characteristic velocity, and
+    // the S-IVB still cuts off on the target: the same 100 m, 0.005° and
+    // 0.002° as the nominal flight.
+    func testIGMFliesAPointMassWithAnOutboardSIIEngineOut() throws {
+        func fly(ignoringTheDiscrete ignore: Bool) -> PointMassFlight.Result {
+            var flight = PointMassFlight(presettings: presettings())
+            flight.outboardEngineOut = 328.6
+            flight.ignoreDiscrete = ignore
+            flight.end = 900
+            return flight.fly()
+        }
+        let res = fly(ignoringTheDiscrete: false), blind = fly(ignoringTheDiscrete: true)
+        let p = presettings(), igm = res.guidance
+        XCTAssertEqual(igm.stage2EngineFactor, 4.0 / 3)
+        let shift = try XCTUnwrap(res.shift), t2 = try XCTUnwrap(res.t2AtShift)
+        XCTAssertEqual(t2, p.stage2Time * 4 / 3, accuracy: 1e-9)
+        XCTAssertEqual(t2, res.sIIOut - shift, accuracy: 3)
+        XCTAssertEqual(try XCTUnwrap(blind.t2AtShift), (blind.sIIOut - shift) * 3 / 4, accuracy: 3)
+        XCTAssertEqual(try XCTUnwrap(blind.shift), shift, accuracy: 1e-9)
+        XCTAssertEqual(res.v.length, igm.terminalVelocity - p.cutoffVelocityBias, accuracy: 0.01)
+        XCTAssertEqual(res.r.length, p.terminalRadius, accuracy: 100)
+        XCTAssertEqual(asin(res.r.normalized.dot(res.v.normalized)) / deg, 0, accuracy: 0.005)
+        var flight = PointMassFlight(presettings: p)
+        let (i, node) = plane(res.r, res.v, latitude: flight.latitude, azimuth: flight.azimuth)
+        XCTAssertEqual(i / deg, 32.531, accuracy: 0.002)
+        XCTAssertEqual(node / deg, 123.100, accuracy: 0.002)
+        // Later than the nominal point mass's S-II cutoff and S-IVB cutoff.
+        let nominal = flight.fly()
+        XCTAssertGreaterThan(res.sIIOut - nominal.sIIOut, 20)
+        XCTAssertGreaterThan(res.cutoff - nominal.cutoff, 20)
     }
 }

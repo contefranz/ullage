@@ -69,9 +69,13 @@ public struct IGMNavigation {
     /// The S-II has cut off (T4); the S-IVB has reached 90 % thrust.
     public var sIICutoff: Bool
     public var sIVBIgnition: Bool
+    /// The S-II engine-out discrete, as the engines the stage 2 presettings
+    /// assume over those of them left (1: none out).
+    public var stage2EngineFactor: Double
 
     public init(position: Vec3, velocity: Vec3, gravity: Vec3, sensedAcceleration: Double,
-                characteristicVelocity: Double = 0, sIICutoff: Bool = false, sIVBIgnition: Bool = false) {
+                characteristicVelocity: Double = 0, sIICutoff: Bool = false, sIVBIgnition: Bool = false,
+                stage2EngineFactor: Double = 1) {
         self.position = position
         self.velocity = velocity
         self.gravity = gravity
@@ -79,6 +83,7 @@ public struct IGMNavigation {
         self.characteristicVelocity = characteristicVelocity
         self.sIICutoff = sIICutoff
         self.sIVBIgnition = sIVBIgnition
+        self.stage2EngineFactor = stage2EngineFactor
     }
 }
 
@@ -108,8 +113,13 @@ public struct IGMNavigation {
 /// pitch's arctangents are four-quadrant; the cutoff time-to-go comes from the
 /// speed's present rate, not Table 4-V's quadratic fit to the last three
 /// speeds; the stage logic runs on the cycle, so the coast starts on the first
-/// cycle after the S-II cutoff. Not modelled: the steering misalignment
-/// correction, engine-out and direct staging.
+/// cycle after the S-II cutoff; an S-II engine out (the IU's discrete) scales
+/// the remaining T2, τ2 and τ2N by the engines the stage 2 presettings assume
+/// over those left: GE504 Fig 4-6's 5/4 generalised to AS-506's planned S-II
+/// centre engine cutoff (4/3 for an outboard J-2, 1 for the centre engine,
+/// which the presettings already leave out), with T1 left to the
+/// characteristic velocity (datasheet §16). Not modelled: the steering
+/// misalignment correction and direct staging.
 public struct IterativeGuidance {
     public enum Stage: Equatable { case first, second, coast, third }
 
@@ -144,6 +154,8 @@ public struct IterativeGuidance {
 
     private var tau2N: Double
     private var tau3N: Double
+    /// The S-II engine-out factor applied to T2, τ2 and τ2N so far.
+    public private(set) var stage2EngineFactor = 1.0
     private var c2 = 0.0
     private var c3 = 0.0
     private var cycles = 0
@@ -205,6 +217,15 @@ public struct IterativeGuidance {
         } else if nav.sIICutoff && (stage == .first || stage == .second) {
             stage = .coast
         }
+        // S-II engine out (Fig 4-5's IGM engine-out presettings, Fig 4-6):
+        // the rest of stage 2 burns longer, on less flow, by the factor.
+        if (stage == .first || stage == .second) && nav.stage2EngineFactor != stage2EngineFactor {
+            let r = nav.stage2EngineFactor / stage2EngineFactor
+            t2 *= r
+            tau2 *= r
+            tau2N *= r
+            stage2EngineFactor = nav.stage2EngineFactor
+        }
         artificialTau = false
         switch stage {
         case .first:
@@ -216,7 +237,7 @@ public struct IterativeGuidance {
                 stage = .second
                 out.commandShift = true
                 t1 = 0
-                t2 = p.stage2Time
+                // T2 and τ2 hold their presettings (scaled by an engine out) to here.
                 tau2N = tau2
                 c2 = 0
                 fallthrough
