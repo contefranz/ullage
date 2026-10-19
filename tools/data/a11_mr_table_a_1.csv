@@ -1,0 +1,80 @@
+# Apollo 11 Mission Report, MSC-00171, NASA Manned Spacecraft Center, November
+# 1969. Two copies read, both scans of the same print:
+# - NTRS 19700008096, https://ntrs.nasa.gov/api/citations/19700008096/downloads/19700008096.pdf
+#   (15,973,944 bytes, sha256 3314d99654ebb2ac3e3ef0ab70a84be9519a5f071cf1362118b2b20a6f161dea),
+#   native 300 dpi bilevel images: complete but coarse (blobby digits);
+# - archive.org, https://archive.org/download/apollo-11-mission-report/apollo-11-mission-report.pdf
+#   (11,835,694 bytes, sha256 5b9d033c7b9dd604220f439cddc8a53ad08e3e9c43c83f7342d7e61ef32a1baa),
+#   an Acrobat ClearScan file of a cleaner scan, rendered to 200-300 dpi images
+#   with pdftoppm and read as images (its text layer was not used).
+#
+# Table A-I "Mass properties" (document page A-11, PDF page 335 in both copies).
+# Section A.6 (page A-10): "These data represent the conditions as determined
+# from postflight analyses of expendable loadings and usage during the flight
+# ... The weights and centers of gravity of the individual command and
+# service modules and of the lunar module ascent and descent stages were
+# measured prior to flight, and the inertia values were calculated."
+#
+# section: "spacecraft" rows are the whole spacecraft (CSM, LM, SLA and, at
+# lift-off, the launch escape system) and then the CSM (or CSM + LM) after each
+# event, in Apollo CSM axes X_A, Y_A, Z_A (station inches). "lunar module"
+# rows are the LM section of the table, in the LM's own axes (LM station
+# inches): they do not share the CSM frame. group and event are the table's
+# heading and row labels.
+#
+# Products of inertia: the table prints them as +integral(x y dm) about the
+# CG. The three splits the table itself gives (CSM + LM = total docked,
+# CSM + ascent stage = docked total, SM + CM = CSM before separation)
+# recombine with the parallel-axis theorem only with that sign
+# (tools/check_apollo_data.py).
+# Printed units: lb, in, slug ft^2. SI columns: mass_kg (0.45359237 kg/lb),
+# x/y/z_m (0.0254 m/in), I_*_kgm2 (1.3558179483 kg m^2 per slug ft^2).
+#
+# Read by two independent readers, on the coarse NTRS scan and then on the
+# clean archive.org scan: all 370 cells agree. On the coarse scan nine cells
+# were blurred (the drogue, main and landing weights, the landing X_A, the
+# entry I_xz, the CSM-before-separation weight, the LM coelliptic-sequence
+# weight, which reads like 5 681.5 there, and two I_xz); the clean scan prints
+# each one plainly.
+# Grades: H = both readers read the same digits and every check that applies
+# (a sum, a parallel-axis combination, loaded - consumed = remaining) closes;
+# M = both readers agree, but the value needed interpretation or a check does
+# not close; L = uncertain.
+section,group,event,weight_lb,xa_in,ya_in,za_in,ixx_slugft2,iyy_slugft2,izz_slugft2,ixy_slugft2,ixz_slugft2,iyz_slugft2,mass_kg,x_m,y_m,z_m,ixx_kgm2,iyy_kgm2,izz_kgm2,ixy_kgm2,ixz_kgm2,iyz_kgm2,grade
+spacecraft,"","Lift-off",109666.6,847.0,2.4,3.9,67960,1164828,1167323,2586,8956,3335,49743.933,21.5138,0.06096,0.09906,92141.3878,1579294.71,1582677.47,3506.14521,12142.7055,4521.65286,H
+spacecraft,"","Earth orbit insertion",100756.4,807.2,2.6,4.1,67108,713136,715672,4745,11341,3318,45702.3343,20.50288,0.06604,0.10414,90986.2309,966882.588,970320.943,6433.35616,15376.3314,4498.60395,H
+spacecraft,"Transposition and docking","Command & service modules",63473.0,934.0,4.0,6.5,34445,76781,79530,-1789,-126,3148,28790.8685,23.7236,0.1016,0.1651,46701.1492,104101.058,107828.201,-2425.55831,-170.833061,4268.1149,H
+spacecraft,"Transposition and docking","Lunar module",33294.5,1236.2,0.2,0.1,22299,24826,24966,-508,27,37,15102.1312,31.39948,0.00508,0.00254,30233.3844,33659.5364,33849.3509,-688.755518,36.6070846,50.1652641,H
+spacecraft,"","Total docked",96767.5,1038.0,2.7,4.3,57006,532219,534981,-7672,-9240,3300,43892.9997,26.3652,0.06858,0.10922,77289.758,721592.073,725336.842,-10401.8353,-12527.7578,4474.19923,H
+spacecraft,"","Separation maneuver",96566.6,1038.1,2.7,4.3,56902,531918,534766,-7670,-9219,3270,43801.873,26.36774,0.06858,0.10922,77148.7529,721183.971,725045.341,-10399.1237,-12499.2857,4433.52469,H
+spacecraft,"First midcourse correction","Ignition",96418.2,1038.3,2.7,4.2,56770,531482,534354,-7711,-9170,3305,43734.5598,26.37282,0.06858,0.10668,76969.7849,720592.835,724486.744,-10454.7122,-12432.8506,4480.97832,H
+spacecraft,"First midcourse correction","Cutoff",96204.2,1038.4,2.7,4.2,56667,531148,534113,-7709,-9147,3274,43637.4911,26.37536,0.06858,0.10668,76830.1357,720139.992,724159.992,-10452.0006,-12401.6668,4438.94796,H
+spacecraft,"Lunar orbit insertion","Ignition",96061.6,1038.6,2.7,4.2,56564,530636,533613,-7785,-9063,3310,43572.8088,26.38044,0.06858,0.10668,76690.4864,719445.813,723482.083,-10555.0427,-12287.7781,4487.75741,H
+spacecraft,"Lunar orbit insertion","Cutoff",72037.6,1079.1,1.7,2.9,44117,412855,419920,-5737,-5166,382,32675.7057,27.40914,0.04318,0.07366,59814.6204,559756.219,569335.073,-7778.32757,-7004.15552,517.922456,H
+spacecraft,"Circularization","Ignition",72019.9,1079.2,1.8,2.9,44102,412733,419798,-5745,-5160,386,32667.6771,27.41168,0.04572,0.07366,59794.2832,559590.809,569169.663,-7789.17411,-6996.02061,523.345728,H
+spacecraft,"Circularization","Cutoff",70905.9,1081.5,1.6,2.9,43539,407341,413864,-5403,-5208,316,32162.3752,27.4701,0.04064,0.07366,59030.9577,552280.239,561124.239,-7325.48437,-7061.09987,428.438472,H
+spacecraft,"","Separation",70760.3,1082.4,1.8,2.8,44762,407599,414172,-5040,-5404,286,32096.3322,27.49296,0.04572,0.07112,60689.123,552630.04,561541.831,-6833.32246,-7326.84019,387.763933,H
+spacecraft,"Docking","Command & service modules",36847.4,943.6,2.8,5.5,20747,57181,63687,-2094,833,321,16713.6995,23.96744,0.07112,0.1397,28129.155,77527.0261,86347.9777,-2839.08278,1129.39635,435.217561,H
+spacecraft,"Docking","Ascent stage",5738.0,1168.3,4.9,-2.4,3369,2347,2873,-129,54,-354,2602.71302,29.67482,0.12446,-0.06096,4567.75067,3182.10472,3895.26497,-174.900515,73.2141692,-479.959554,H
+spacecraft,"Total after docking","Ascent stage manned",42585.4,973.9,3.1,4.5,24189,113707,120677,-1720,-1018,-50,19316.4125,24.73706,0.07874,0.1143,32795.8804,154165.991,163616.043,-2332.00687,-1380.22267,-67.7908974,H
+spacecraft,"Total after docking","Ascent stage unmanned",42563.0,972.6,2.9,4.5,24081,110884,117804,-2163,-811,-28,19306.252,24.70404,0.07366,0.1143,32649.452,150338.517,159720.778,-2932.63422,-1099.56836,-37.9629026,H
+spacecraft,"","After ascent stage jettison",37100.5,943.9,2.9,5.4,20807,56919,63417,-2003,730,305,16828.5037,23.97506,0.07366,0.13716,28210.5041,77171.8018,85981.9068,-2715.70335,989.747102,413.524474,H
+spacecraft,"Transearth injection","Ignition",36965.7,943.8,3.0,5.3,20681,56775,63303,-1979,709,336,16767.3595,23.97252,0.0762,0.13462,28039.671,76976.564,85827.3436,-2683.16372,961.274925,455.554831,H
+spacecraft,"Transearth injection","Cutoff",26792.7,961.4,-0.1,6.8,15495,49843,51454,-824,180,-232,12152.9643,24.41956,-0.00254,0.17272,21008.3991,67578.034,69762.2567,-1117.19399,244.047231,-314.549764,H
+spacecraft,"Command & service module separation","Before",26656.5,961.6,0.0,6.7,15406,49739,51338,-854,228,-200,12091.185,24.42464,0,0.17018,20887.7313,67437.0289,69604.9818,-1157.86853,309.126492,-271.16359,H
+spacecraft,"Command & service module separation / After","Service module",14549.1,896.1,0.1,7.2,9143,14540,16616,-837,885,-153,6599.36075,22.76094,0.00254,0.18288,12396.2435,19713.593,22528.271,-1134.81962,1199.89888,-207.440146,H
+spacecraft,"Command & service module separation / After","Command module",12107.4,1040.4,-0.2,6.0,6260,5470,4995,55,-403,-47,5491.82426,26.42616,-0.00508,0.1524,8487.42036,7416.32418,6772.31065,74.5699872,-546.394633,-63.7234436,H
+spacecraft,"","Entry",12095.5,1040.5,-0.2,5.9,6253,5463,4994,55,-400,-47,5486.42651,26.4287,-0.00508,0.14986,8477.92963,7406.83345,6770.95483,74.5699872,-542.327179,-63.7234436,H
+spacecraft,"","Drogue deployment",11603.7,1039.2,-0.2,5.9,6066,5133,4690,56,-375,-48,5263.34978,26.39568,-0.00508,0.14986,8224.39167,6959.41353,6358.78618,75.9258051,-508.431731,-65.0792615,H
+spacecraft,"","Main parachute deployment",11318.9,1039.1,-0.1,5.2,5933,4947,4631,50,-312,-28,5134.16668,26.39314,-0.00254,0.13208,8044.06789,6707.23139,6278.79292,67.7908974,-423.0152,-37.9629026,H
+spacecraft,"","Landing",10873.0,1037.1,-0.1,5.1,5866,4670,4336,45,-322,-27,4931.90984,26.34234,-0.00254,0.12954,7953.22808,6331.66982,5878.82662,61.0118077,-436.573379,-36.6070846,H
+lunar module,"","Lunar module at launch",33297.2,185.7,0.2,0.2,22304,25019,25018,228,454,77,15103.3559,4.71678,0.00508,0.00508,30240.1635,33921.2092,33919.8534,309.126492,615.541349,104.397982,H
+lunar module,"","Separation",33683.5,186.5,0.2,0.7,23658,26065,25922,225,705,73,15278.5786,4.7371,0.00508,0.01778,32075.941,35339.3948,35145.5129,305.059038,955.851654,98.9747102,H
+lunar module,"Descent orbit insertion","Ignition",33669.6,186.5,0.2,0.8,23649,26045,25899,224,704,71,15272.2737,4.7371,0.00508,0.02032,32063.7387,35312.2785,35114.329,303.70322,954.495836,96.2630743,H
+lunar module,"Descent orbit insertion","Cutoff",33401.6,186.5,0.2,0.8,23480,25978,25871,224,704,71,15150.7109,4.7371,0.00508,0.02032,31834.6054,35221.4387,35076.3661,303.70322,954.495836,96.2630743,H
+lunar module,"","Lunar landing",16153.2,213.5,0.4,1.6,12582,13867,16204,182,555,74,7326.96827,5.4229,0.01016,0.04064,17058.9014,18801.1275,21969.674,246.758867,752.478961,100.330528,H
+lunar module,"","Lunar lift-off",10776.6,243.5,0.2,2.9,6808,3475,5971,20,214,45,4888.18353,6.1849,0.00508,0.07366,9230.40859,4711.46737,8095.58897,27.116359,290.145041,61.0118077,H
+lunar module,"","Orbit insertion",5928.6,255.3,0.4,5.3,3457,3082,2273,17,135,43,2689.16772,6.48462,0.01016,0.13462,4687.06265,4178.63092,3081.7742,23.0489051,183.035423,58.3001718,H
+lunar module,"","Coelliptic sequence initiation",5881.5,255.0,0.4,5.3,3437,3069,2246,17,137,44,2667.80352,6.477,0.01016,0.13462,4659.94629,4161.00528,3045.16711,23.0489051,185.747059,59.6559897,H
+lunar module,"","Docking",5738.0,254.4,0.4,5.4,3369,3044,2167,18,141,50,2602.71302,6.46176,0.01016,0.13716,4567.75067,4127.10983,2938.05749,24.4047231,191.170331,67.7908974,H
+lunar module,"","Jettison",5462.5,255.0,0.1,3.1,3226,3039,2216,28,119,35,2477.74832,6.477,0.00254,0.07874,4373.8687,4120.33074,3004.49257,37.9629026,161.342336,47.4536282,H

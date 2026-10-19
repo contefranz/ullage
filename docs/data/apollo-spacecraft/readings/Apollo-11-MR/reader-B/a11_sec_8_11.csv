@@ -1,0 +1,91 @@
+page,subsection,item,component,value,unit,uncertain
+p153 (8-24),8.11,CSM consumable quantities within this of preflight estimates,all CSM consumables,10,percent,
+p154 (8-25),8.11.1 Service propulsion propellant,SPS propellant usage within this of preflight estimate,total,5,percent,
+p154 (8-25),8.11.1 Service propulsion propellant,Loaded / In tanks (actual),fuel,15633,lb,
+p154 (8-25),8.11.1 Service propulsion propellant,Loaded / In tanks (actual),oxidizer,24967,lb,
+p154 (8-25),8.11.1 Service propulsion propellant,Loaded / In lines (actual),fuel,79,lb,
+p154 (8-25),8.11.1 Service propulsion propellant,Loaded / In lines (actual),oxidizer,124,lb,
+p154 (8-25),8.11.1 Service propulsion propellant,Loaded / Total (actual),fuel,15712,lb,"checks: 15633+79"
+p154 (8-25),8.11.1 Service propulsion propellant,Loaded / Total (actual),oxidizer,25091,lb,"checks: 24967+124"
+p154 (8-25),8.11.1 Service propulsion propellant,Loaded / Total (actual),total,40803,lb,"checks: 15712+25091"
+p154 (8-25),8.11.1 Service propulsion propellant,Loaded / Total (preflight planned),total,40803,lb,
+p154 (8-25),8.11.1 Service propulsion propellant,Consumed (actual),fuel,13754,lb,
+p154 (8-25),8.11.1 Service propulsion propellant,Consumed (actual),oxidizer,21985,lb,
+p154 (8-25),8.11.1 Service propulsion propellant,Consumed (actual),total,35739,lb,"checks: 13754+21985"
+p154 (8-25),8.11.1 Service propulsion propellant,Consumed (preflight planned),total,36296,lb,
+p154 (8-25),8.11.1 Service propulsion propellant,Remaining at CM/SM separation (actual),fuel,1958,lb,"checks: 15712-13754"
+p154 (8-25),8.11.1 Service propulsion propellant,Remaining at CM/SM separation (actual),oxidizer,3106,lb,"checks: 25091-21985"
+p154 (8-25),8.11.1 Service propulsion propellant,Remaining at CM/SM separation (actual),total,5064,lb,"checks: 40803-35739 and 1958+3106"
+p154 (8-25),8.11.1 Service propulsion propellant,Remaining at CM/SM separation (preflight planned),total,4507,lb,"checks: 40803-36296"
+p154 (8-25),8.11.2 Reaction control propellant / Service module,SM RCS usage predictions and flight data agreed within,total,5,percent,
+p155 (8-26),8.11.2 Reaction control propellant / Service module,Loaded / Quad A (actual),fuel,110,lb,
+p155 (8-26),8.11.2 Reaction control propellant / Service module,Loaded / Quad A (actual),oxidizer,225,lb,
+p155 (8-26),8.11.2 Reaction control propellant / Service module,Loaded / Quad B (actual),fuel,110,lb,
+p155 (8-26),8.11.2 Reaction control propellant / Service module,Loaded / Quad B (actual),oxidizer,225,lb,
+p155 (8-26),8.11.2 Reaction control propellant / Service module,Loaded / Quad C (actual),fuel,110,lb,
+p155 (8-26),8.11.2 Reaction control propellant / Service module,Loaded / Quad C (actual),oxidizer,225,lb,
+p155 (8-26),8.11.2 Reaction control propellant / Service module,Loaded / Quad D (actual),fuel,110,lb,
+p155 (8-26),8.11.2 Reaction control propellant / Service module,Loaded / Quad D (actual),oxidizer,225,lb,
+p155 (8-26),8.11.2 Reaction control propellant / Service module,Loaded / Total (actual),fuel,440,lb,"checks: 4x110"
+p155 (8-26),8.11.2 Reaction control propellant / Service module,Loaded / Total (actual),oxidizer,900,lb,"checks: 4x225"
+p155 (8-26),8.11.2 Reaction control propellant / Service module,Loaded / Total (actual),total,1340,lb,"checks: 440+900"
+p155 (8-26),8.11.2 Reaction control propellant / Service module,Loaded / Total (preflight planned),total,1342,lb,
+p155 (8-26),8.11.2 Reaction control propellant / Service module,Consumed (actual),fuel,191,lb,
+p155 (8-26),8.11.2 Reaction control propellant / Service module,Consumed (actual),oxidizer,369,lb,
+p155 (8-26),8.11.2 Reaction control propellant / Service module,Consumed (actual),total,560,lb,"checks: 191+369"
+p155 (8-26),8.11.2 Reaction control propellant / Service module,Consumed (preflight planned),total,590,lb,
+p155 (8-26),8.11.2 Reaction control propellant / Service module,Remaining at CM/SM separation (actual),fuel,249,lb,"checks: 440-191"
+p155 (8-26),8.11.2 Reaction control propellant / Service module,Remaining at CM/SM separation (actual),oxidizer,531,lb,"checks: 900-369"
+p155 (8-26),8.11.2 Reaction control propellant / Service module,Remaining at CM/SM separation (actual),total,780,lb,"checks: 1340-560"
+p155 (8-26),8.11.2 Reaction control propellant / Service module,Remaining at CM/SM separation (preflight planned),total,752,lb,"checks: 1342-590"
+p155 (8-26),8.11.2 Reaction control propellant / Command module,CM RCS usage predictions agreed with actual within,total,5,percent,
+p155 (8-26),8.11.2 Reaction control propellant / Command module,Loaded / System A (actual),fuel,44.8,lb,
+p155 (8-26),8.11.2 Reaction control propellant / Command module,Loaded / System A (actual),oxidizer,78.4,lb,
+p155 (8-26),8.11.2 Reaction control propellant / Command module,Loaded / System B (actual),fuel,44.4,lb,
+p155 (8-26),8.11.2 Reaction control propellant / Command module,Loaded / System B (actual),oxidizer,78.3,lb,
+p155 (8-26),8.11.2 Reaction control propellant / Command module,Loaded / Total (actual),fuel,89.2,lb,"checks: 44.8+44.4"
+p155 (8-26),8.11.2 Reaction control propellant / Command module,Loaded / Total (actual),oxidizer,156.7,lb,"checks: 78.4+78.3"
+p155 (8-26),8.11.2 Reaction control propellant / Command module,Loaded / Total (actual),total,245.9,lb,"checks: 89.2+156.7"
+p155 (8-26),8.11.2 Reaction control propellant / Command module,Loaded / Total (preflight planned),total,245.0,lb,
+p155 (8-26),8.11.2 Reaction control propellant / Command module,Consumed / System A (actual),fuel,15.0,lb,"PRINTED CLEARLY 15.0 but inconsistent: 44.8-30.8 = 14.0, and total consumed 40.8 = 14.0+26.8 (15.0+26.8 = 41.8); suspected source misprint, arithmetic value 14.0"
+p155 (8-26),8.11.2 Reaction control propellant / Command module,Consumed / System A (actual),oxidizer,26.8,lb,"checks: 78.4-51.6"
+p155 (8-26),8.11.2 Reaction control propellant / Command module,Consumed / System B (actual),fuel,0.0,lb,
+p155 (8-26),8.11.2 Reaction control propellant / Command module,Consumed / System B (actual),oxidizer,0.0,lb,
+p155 (8-26),8.11.2 Reaction control propellant / Command module,Consumed / Total (actual),fuel,15.0,lb,"PRINTED CLEARLY 15.0 but 89.2-75.2 = 14.0 and 40.8-26.8 = 14.0; suspected source misprint, arithmetic value 14.0"
+p155 (8-26),8.11.2 Reaction control propellant / Command module,Consumed / Total (actual),oxidizer,26.8,lb,"checks: 156.7-129.9"
+p155 (8-26),8.11.2 Reaction control propellant / Command module,Consumed / Total (actual),total,40.8,lb,"checks: 245.9-205.1 (but not 15.0+26.8)"
+p155 (8-26),8.11.2 Reaction control propellant / Command module,Consumed / Total (preflight planned),total,39.3,lb,
+p155 (8-26),8.11.2 Reaction control propellant / Command module,Remaining at main parachute deployment / System A (actual),fuel,30.8,lb,"see consumed fuel note: 44.8-15.0 would be 29.8"
+p155 (8-26),8.11.2 Reaction control propellant / Command module,Remaining at main parachute deployment / System A (actual),oxidizer,51.6,lb,
+p155 (8-26),8.11.2 Reaction control propellant / Command module,Remaining at main parachute deployment / System B (actual),fuel,44.4,lb,
+p155 (8-26),8.11.2 Reaction control propellant / Command module,Remaining at main parachute deployment / System B (actual),oxidizer,78.3,lb,
+p155 (8-26),8.11.2 Reaction control propellant / Command module,Remaining at main parachute deployment / Total (actual),fuel,75.2,lb,"checks: 30.8+44.4"
+p155 (8-26),8.11.2 Reaction control propellant / Command module,Remaining at main parachute deployment / Total (actual),oxidizer,129.9,lb,"checks: 51.6+78.3"
+p155 (8-26),8.11.2 Reaction control propellant / Command module,Remaining at main parachute deployment / Total (actual),total,205.1,lb,"checks: 75.2+129.9 and 245.9-40.8"
+p155 (8-26),8.11.2 Reaction control propellant / Command module,Remaining at main parachute deployment / Total (preflight planned),total,205.7,lb,"checks: 245.0-39.3"
+p156 (8-27),8.11.3 Cryogenics,O2 and H2 usages within this of predicted,total,5,percent,
+p156 (8-27),8.11.3 Cryogenics,Available at lift-off / Tank 1 (actual),hydrogen,27.3,lb,
+p156 (8-27),8.11.3 Cryogenics,Available at lift-off / Tank 2 (actual),hydrogen,26.8,lb,
+p156 (8-27),8.11.3 Cryogenics,Available at lift-off / Total (actual),hydrogen,54.1,lb,"checks: 27.3+26.8"
+p156 (8-27),8.11.3 Cryogenics,Available at lift-off / Total (planned),hydrogen,56.4,lb,
+p156 (8-27),8.11.3 Cryogenics,Available at lift-off / Tank 1 (actual),oxygen,300.5,lb,
+p156 (8-27),8.11.3 Cryogenics,Available at lift-off / Tank 2 (actual),oxygen,314.5,lb,
+p156 (8-27),8.11.3 Cryogenics,Available at lift-off / Total (actual),oxygen,615.0,lb,"checks: 300.5+314.5"
+p156 (8-27),8.11.3 Cryogenics,Available at lift-off / Total (planned),oxygen,634.7,lb,
+p156 (8-27),8.11.3 Cryogenics,Consumed / Tank 1 (actual),hydrogen,17.5,lb,
+p156 (8-27),8.11.3 Cryogenics,Consumed / Tank 2 (actual),hydrogen,17.4,lb,
+p156 (8-27),8.11.3 Cryogenics,Consumed / Total (actual),hydrogen,34.9,lb,"checks: 17.5+17.4"
+p156 (8-27),8.11.3 Cryogenics,Consumed / Total (planned),hydrogen,36.6,lb,
+p156 (8-27),8.11.3 Cryogenics,Consumed / Tank 1 (actual),oxygen,174.0,lb,
+p156 (8-27),8.11.3 Cryogenics,Consumed / Tank 2 (actual),oxygen,180.0,lb,
+p156 (8-27),8.11.3 Cryogenics,Consumed / Total (actual),oxygen,354.0,lb,"checks: 174.0+180.0"
+p156 (8-27),8.11.3 Cryogenics,Consumed / Total (planned),oxygen,371.1,lb,
+p156 (8-27),8.11.3 Cryogenics,Remaining at CM/SM separation / Tank 1 (actual),hydrogen,9.8,lb,"checks: 27.3-17.5"
+p156 (8-27),8.11.3 Cryogenics,Remaining at CM/SM separation / Tank 2 (actual),hydrogen,9.4,lb,"checks: 26.8-17.4"
+p156 (8-27),8.11.3 Cryogenics,Remaining at CM/SM separation / Total (actual),hydrogen,19.2,lb,"checks: 54.1-34.9"
+p156 (8-27),8.11.3 Cryogenics,Remaining at CM/SM separation / Total (planned),hydrogen,19.8,lb,"checks: 56.4-36.6"
+p156 (8-27),8.11.3 Cryogenics,Remaining at CM/SM separation / Tank 1 (actual),oxygen,126.5,lb,"checks: 300.5-174.0"
+p156 (8-27),8.11.3 Cryogenics,Remaining at CM/SM separation / Tank 2 (actual),oxygen,134.5,lb,"checks: 314.5-180.0"
+p156 (8-27),8.11.3 Cryogenics,Remaining at CM/SM separation / Total (actual),oxygen,261.0,lb,"checks: 615.0-354.0"
+p156 (8-27),8.11.3 Cryogenics,Remaining at CM/SM separation / Total (planned),oxygen,263.6,lb,"checks: 634.7-371.1"
+p156 (8-27),8.11.4 Water,(text only on this page; the water table is on the following page p157 which was not provided),,,,"not transcribed"

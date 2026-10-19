@@ -169,8 +169,109 @@ def a7():
     check("A7 5.16: entry velocity 2.2 ft/s above the plan", abs(dv - 2.2) < 1e-6, f"{dv:.1f} ft/s")
 
 
+# ------------------------------------------------- Apollo 11 Mission Report
+def combine(parts, product_sign):
+    """Weight, CG (in) and the six inertias (slug ft^2) of rigidly joined
+    parts, each a row of Table A-I. product_sign is +1 if the table's products
+    are +integral(x y dm), -1 if they are -integral(x y dm)."""
+    g = 32.174049
+    w = sum(num(p["weight_lb"]) for p in parts)
+    c = [sum(num(p["weight_lb"]) * num(p[k]) for p in parts) / w for k in ("xa_in", "ya_in", "za_in")]
+    out = {"weight_lb": w, "xa_in": c[0], "ya_in": c[1], "za_in": c[2]}
+    for k in ("ixx", "iyy", "izz", "ixy", "ixz", "iyz"):
+        total = 0.0
+        for p in parts:
+            m = num(p["weight_lb"]) / g
+            d = [(num(p[a]) - ci) / 12 for a, ci in zip(("xa_in", "ya_in", "za_in"), c)]
+            i, j = "xyz".index(k[1]), "xyz".index(k[2])
+            if i == j:
+                shift = m * (sum(x * x for x in d) - d[i] ** 2)
+            else:
+                shift = product_sign * m * d[i] * d[j]
+            total += num(p[k + "_slugft2"]) + shift
+        out[k] = total
+    # What the printed CGs' rounding (0.05 in) can move a product by.
+    out["product_rounding"] = max(
+        sum(num(p["weight_lb"]) / g * (abs(num(p[a]) - ca) + abs(num(p[b]) - cb)) / 12 * 0.05 / 12 for p in parts)
+        for (a, ca), (b, cb) in (((x, c[i]), (y, c[j])) for i, x in enumerate(("xa_in", "ya_in", "za_in"))
+                                 for j, y in enumerate(("xa_in", "ya_in", "za_in")) if i < j)) + 1.5
+    return out
+
+
+def a11():
+    t = {(r["group"], r["event"]): r for r in rows("a11_mr_table_a_1.csv") if r["section"] == "spacecraft"}
+    lm = {r["event"]: r for r in rows("a11_mr_table_a_1.csv") if r["section"] == "lunar module"}
+    splits = (
+        ("CSM + LM = total docked", [t[("Transposition and docking", "Command & service modules")],
+                                     t[("Transposition and docking", "Lunar module")]], t[("", "Total docked")]),
+        ("CSM + ascent stage = docked total", [t[("Docking", "Command & service modules")], t[("Docking", "Ascent stage")]],
+         t[("Total after docking", "Ascent stage manned")]),
+        ("SM + CM = CSM before separation", [t[("Command & service module separation / After", "Service module")],
+                                             t[("Command & service module separation / After", "Command module")]],
+         t[("Command & service module separation", "Before")]),
+    )
+    for label, parts, whole in splits:
+        for sign in (+1, -1):
+            c = combine(parts, sign)
+            dw = c["weight_lb"] - num(whole["weight_lb"])
+            dcg = max(abs(c[k] - num(whole[k])) for k in ("xa_in", "ya_in", "za_in"))
+            dmom = max(abs(c[k] / num(whole[k + "_slugft2"]) - 1) for k in ("ixx", "iyy", "izz"))
+            dprod = max(abs(c[k] - num(whole[k + "_slugft2"])) for k in ("ixy", "ixz", "iyz"))
+            bound = c["product_rounding"]
+            if sign > 0:
+                check(f"A11 A-I {label}: weight, CG, moments and products (+integral x y dm)",
+                      abs(dw) < 0.15 and dcg < 0.1 and dmom < 0.002 and dprod < bound,
+                      f"weight {dw:+.1f} lb, CG {dcg:.2f} in, moments {dmom:.2%}, "
+                      f"products {dprod:.0f} slug ft^2 (CG rounding allows {bound:.0f})")
+            else:
+                check(f"A11 A-I {label}: the products do not recombine as -integral x y dm",
+                      dprod > 3 * bound, f"products off by {dprod:.0f} slug ft^2")
+
+    after_as = num(t[("Total after docking", "Ascent stage unmanned")]["weight_lb"]) - num(t[("", "After ascent stage jettison")]["weight_lb"])
+    check("A11 A-I: docked total unmanned - after jettison = LM jettison weight (LM section)",
+          abs(after_as - num(lm["Jettison"]["weight_lb"])) < 0.05, f"{after_as:.1f} lb")
+    w = [num(r["weight_lb"]) for r in lm.values()]
+    check("A11 A-I: the LM section weight decreases after separation", all(x >= y for x, y in zip(w[1:], w[2:])))
+    cm = [num(t[k]["weight_lb"]) for k in (("Command & service module separation / After", "Command module"),
+                                          ("", "Entry"), ("", "Drogue deployment"),
+                                          ("", "Main parachute deployment"), ("", "Landing"))]
+    check("A11 A-I: CM weight decreases from separation to landing", all(x > y for x, y in zip(cm, cm[1:])))
+
+    c = {(r["system"], r["item"], r["component"], r["substance"]): r for r in rows("a11_mr_sec8_11_consumables.csv")}
+    v = lambda *k: num(c[k]["actual_lb"])
+    for s in ("fuel", "oxidizer"):
+        check(f"A11 8.11.1 SPS {s}: tanks + lines = loaded, loaded - consumed = remaining",
+              v("SPS", "loaded", "in tanks", s) + v("SPS", "loaded", "in lines", s) == v("SPS", "loaded", "total", s)
+              and abs(v("SPS", "loaded", "total", s) - v("SPS", "consumed", "", s) - v("SPS", "remaining at CM/SM separation", "", s)) < 0.05)
+        quads = sum(v("SM RCS", "loaded", f"quad {q}", s) for q in "ABCD")
+        check(f"A11 8.11.2 SM RCS {s}: quads = loaded, loaded - consumed = remaining",
+              quads == v("SM RCS", "loaded", "total", s)
+              and abs(quads - v("SM RCS", "consumed", "", s) - v("SM RCS", "remaining at CM/SM separation", "", s)) < 0.05)
+    for sysn in ("system A", "system B", "total"):
+        for s in ("fuel", "oxidizer"):
+            left = (v("CM RCS", "loaded", sysn, s) - v("CM RCS", "consumed", sysn, s)
+                    - v("CM RCS", "remaining at main parachute deployment", sysn, s))
+            known = s == "fuel" and sysn in ("system A", "total")
+            check(f"A11 8.11.2 CM RCS {sysn} {s}: loaded - consumed = remaining"
+                  + (" (printed 15.0 consumed, 14.0 closes: graded M)" if known else ""),
+                  abs(left - (-1.0 if known else 0.0)) < 0.05, f"{left:+.1f} lb")
+    for s in ("hydrogen", "oxygen"):
+        left = (v("cryogenics", "available at lift-off", "total", s) - v("cryogenics", "consumed", "total", s)
+                - v("cryogenics", "remaining at CM/SM separation", "total", s))
+        check(f"A11 8.11.3 {s}: available - consumed = remaining", abs(left) < 0.05)
+
+    # The SM at separation against the SPS, SM RCS and cryogenics remaining.
+    sm = num(t[("Command & service module separation / After", "Service module")]["weight_lb"])
+    resid = (v("SPS", "remaining at CM/SM separation", "", "fuel") + v("SPS", "remaining at CM/SM separation", "", "oxidizer")
+             + v("SM RCS", "remaining at CM/SM separation", "", "total")
+             + v("cryogenics", "remaining at CM/SM separation", "total", "hydrogen")
+             + v("cryogenics", "remaining at CM/SM separation", "total", "oxygen"))
+    check("A11: SM at separation less its remaining propellant and cryogenics (dry SM, information)",
+          8000 < sm - resid < 9500, f"{sm - resid:.0f} lb")
+
+
 if __name__ == "__main__":
-    for fn in (fm184, a7):
+    for fn in (fm184, a7, a11):
         fn()
     print(f"{len(failures)} failure(s)")
     sys.exit(1 if failures else 0)

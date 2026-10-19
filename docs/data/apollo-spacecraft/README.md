@@ -49,6 +49,8 @@ a plan; the Mission Reports describe the flight.
 | 68-FM-184 | MSC Internal Note 68-FM-184, *Apollo 7 Spacecraft Operational Trajectory*, Rev. 1, Vol. I (31 Jul 1968) | https://ibiblio.org/apollo/Documents/HSI-209546.pdf | 7,862,903 | `68d0f62b3851bf08f6517600610a9141144f61a4f211abc7b7805584f4b13d1d` |
 | A7 MR | MSC-PA-R-68-15, *Apollo 7 Mission Report* (Dec 1968) | https://archive.org/download/apollo-7-mission-report/apollo-7-mission-report.pdf (raster, read) | 14,156,749 | `740743e38fd97898d4f5f221a2671f366abdd943e9c8f3b4e1d59618342d13e0` |
 | | same, ClearScan copy (pages found with it, no values read) | https://www.apollojournals.org/alsj/a410/A07_MissionReport.pdf | 8,768,701 | `c06d973032b9ca19eea672a96f97b195b0e0a21d1d32675b9cddb1c6f3ad529f` |
+| A11 MR | MSC-00171, *Apollo 11 Mission Report* (Nov 1969) | https://ntrs.nasa.gov/api/citations/19700008096/downloads/19700008096.pdf (raster, coarse) | 15,973,944 | `3314d99654ebb2ac3e3ef0ab70a84be9519a5f071cf1362118b2b20a6f161dea` |
+| | same, ClearScan of a cleaner scan (read as rendered images) | https://archive.org/download/apollo-11-mission-report/apollo-11-mission-report.pdf | 11,835,694 | `5b9d033c7b9dd604220f439cddc8a53ad08e3e9c43c83f7342d7e61ef32a1baa` |
 
 All copies retrieved 2026-10-19.
 
@@ -65,6 +67,8 @@ All copies retrieved 2026-10-19.
 | `a07_mr_table_3_3.csv` | Apollo 7 Table 3-III: ignition and cutoff states of the 13 maneuvers, planned and actual | final |
 | `a07_mr_sec5_16_entry.csv` | Apollo 7 §5.16: CM/SM separation rates, entry interface, 0.05 g and 0.2 g, bank, landing points; EMS ΔV counter | final |
 | `a07_mr_sec5_21_consumables.csv` | Apollo 7 §5.21: SPS, SM RCS (per quad), CM RCS (per system), cryogenics and water: loaded, consumed, remaining | final |
+| `a11_mr_table_a_1.csv` | Apollo 11 Table A-I: weight, CG and full inertia tensor at 27 spacecraft events (lift-off to landing) and 10 LM events | final |
+| `a11_mr_sec8_11_consumables.csv` | Apollo 11 §8.11.1-8.11.3: SPS, SM RCS (per quad), CM RCS (per system) and cryogenics, actual and preflight planned | final |
 
 ## 68-FM-184 (Apollo 7 Spacecraft Operational Trajectory)
 
@@ -259,3 +263,94 @@ Reader B also noted, without a misprint to resolve:
   reconstruction at 27.64° N, 64.15° W.
 - **The EMS ΔV counter** measured X-axis ΔV for every maneuver and cut off
   the SPS burns flown under SCS control (§5.16.4): the device track C models.
+
+## Apollo 11 Mission Report (MSC-00171)
+
+**The copies.**
+- The NTRS scan is complete, 300 dpi bilevel, but coarse: the digits print
+  as blobs, and about a dozen cells of Table A-I cannot be told apart on it
+  (5 from 6 from 9, 3 from 8).
+- The archive.org copy is a ClearScan rendering of a different, much cleaner
+  scan of the same print. ClearScan replaces the scan with traced glyphs, so
+  it was rendered with `pdftoppm` and read as an image. Its text layer was
+  not used, and the archive.org description's quick values were not trusted.
+
+Pages read (PDF): 153-156 (§8.11, pages 8-24 to 8-27) and 334-335 (§A.6 and
+Table A-I, pages A-10 and A-11). The §8.11.4 water table (page 8-28) was not
+read.
+
+**Readers.** Reader A read Table A-I on both scans. Reader B read the coarse
+scan first and then, without seeing reader A's values, the nine cells it had
+flagged, on the clean scan. All 370 cells agree:
+- **Six cells were uncertain on the coarse scan**, and the clean scan reads
+  each plainly: the drogue weight (11,603.7), the landing weight (10,873.0)
+  and X_A (1037.1), the entry I_xz (−400), and the docked-total and LM-row
+  I_xz (−9,240 and 27).
+- **The LM coelliptic-sequence weight** looks like 5,681.5 on the coarse
+  scan, which cannot be right: the LM weighs 5,738.0 later at docking. The
+  clean scan prints 5,881.5.
+- **Two of reader B's first readings were wrong on the coarse scan:** −1,019
+  and 51,456. The clean scan prints −1,018 and 51,454.
+
+§8.11 was read on both scans by both readers: no disagreement.
+
+**What §A.6 says.** The data come from postflight analyses of expendable
+loadings and usage. The weights and CGs of the CM, the SM and the LM ascent
+and descent stages were measured before flight, and the inertias were
+calculated. The text says nothing about axes or signs. From the table itself:
+- **CSM rows** are in CSM X_A station inches.
+- **The LM section** is in the LM's own station frame (X_A about 186-255 in).
+  The LM rows inside the CSM section ("Transposition and docking / Lunar
+  module", "Docking / Ascent stage") are in CSM axes.
+- **The products of inertia are +∫xy dm about the CG.** The table gives three
+  splits: CSM + LM = total docked, CSM + ascent stage = docked total, and
+  SM + CM = CSM before separation. They recombine with the parallel-axis
+  theorem in weight (0.0 lb), CG (≤ 0.06 in), moments (≤ 0.06 %) and
+  products (≤ 38 slug ft², inside what the 0.1 in CG rounding allows) only
+  with that sign. With −∫xy dm the products miss by 500 to 18,000 slug ft²
+  (reader B found this first; `tools/check_apollo_data.py` checks it).
+  Apollo 7's Table A.5-I comes from the same MSC office and format, so the
+  same convention is very likely there, but that table has no split to prove
+  it.
+
+**Checks** (`tools/check_apollo_data.py`):
+- **Table A-I:**
+  - the three parallel-axis recombinations above;
+  - docked total, ascent stage unmanned (42,563.0) − after ascent stage
+    jettison (37,100.5) = the LM section's jettison weight, 5,462.5 lb;
+  - the CM weight falls from separation to landing.
+- **§8.11:**
+  - the SPS tanks + lines = loaded;
+  - the SM RCS quads sum to the loaded total;
+  - loaded − consumed = remaining for the SPS, the SM RCS, the CM RCS
+    (except below) and the cryogenics.
+- **The SM at separation:** 14,549.1 lb less its remaining SPS, RCS and
+  cryogenics gives 8,425 lb dry. That is information for track C, not a
+  test.
+
+**Misprint.** The CM RCS consumed fuel is printed 15.0 lb, for system A and
+for the total. But 44.8 − 30.8 = 14.0, 89.2 − 75.2 = 14.0, and the printed
+consumed total of 40.8 = 14.0 + 26.8. The two cells are graded M; 14.0 is
+the value every other cell implies.
+
+**Notes for the tracks.**
+- **The CM rows for E2:**
+
+  | event | weight (lb) | CG X_A (in) | CG Z_A (in) |
+  |---|---|---|---|
+  | after separation | 12,107.4 | 1040.4 | 6.0 |
+  | entry | 12,095.5 | | 5.9 |
+  | drogue deploy | 11,603.7 | | |
+  | main deploy | 11,318.9 | | 5.2 |
+  | landing | 10,873.0 | 1037.1 | 5.1 |
+
+  The drop from main deploy to landing (446 lb) is far more than the 205 lb
+  of CM RCS left at main deployment, so it includes other losses as well (the
+  main-parachute and propellant-dump rows are not split out).
+- **The CSM at transposition and docking:** 63,473.0 lb at
+  (934.0, 4.0, 6.5).
+- **Loads.**
+  - SM RCS: 110 lb of fuel and 225 lb of oxidizer per quad (1,340 lb in
+    all).
+  - SPS: 40,803 lb loaded, 5,064 lb left at CM/SM separation.
+  - CM RCS: 245.9 lb loaded, and system B was never used.

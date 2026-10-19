@@ -1,0 +1,36 @@
+# Reader A, Apollo 11 MR section 8.11 (pp. 8-24..8-27, PDF 153-156), read on the archive.org clean scan (ClearScan render at 200 dpi)
+page,subsection,system,item,component,fuel_or_h2,oxidizer_or_o2,total,preflight_planned
+8-25,8.11.1,SPS,loaded,in tanks,15633,24967,,
+8-25,8.11.1,SPS,loaded,in lines,79,124,,
+8-25,8.11.1,SPS,loaded,total,15712,25091,40803,40803
+8-25,8.11.1,SPS,consumed,,13754,21985,35739,36296
+8-25,8.11.1,SPS,remaining at CM/SM separation,,1958,3106,5064,4507
+8-26,8.11.2,SM RCS,loaded,quad A,110,225,,
+8-26,8.11.2,SM RCS,loaded,quad B,110,225,,
+8-26,8.11.2,SM RCS,loaded,quad C,110,225,,
+8-26,8.11.2,SM RCS,loaded,quad D,110,225,,
+8-26,8.11.2,SM RCS,loaded,total,440,900,1340,1342
+8-26,8.11.2,SM RCS,consumed,,191,369,560,590
+8-26,8.11.2,SM RCS,remaining at CM/SM separation,,249,531,780,752
+8-26,8.11.2,CM RCS,loaded,system A,44.8,78.4,,
+8-26,8.11.2,CM RCS,loaded,system B,44.4,78.3,,
+8-26,8.11.2,CM RCS,loaded,total,89.2,156.7,245.9,245.0
+8-26,8.11.2,CM RCS,consumed,system A,15.0,26.8,,
+8-26,8.11.2,CM RCS,consumed,system B,0.0,0.0,,
+8-26,8.11.2,CM RCS,consumed,total,15.0,26.8,40.8,39.3
+8-26,8.11.2,CM RCS,remaining at main parachute deployment,system A,30.8,51.6,,
+8-26,8.11.2,CM RCS,remaining at main parachute deployment,system B,44.4,78.3,,
+8-26,8.11.2,CM RCS,remaining at main parachute deployment,total,75.2,129.9,205.1,205.7
+8-27,8.11.3,cryogenics,available at lift-off,tank 1,27.3,300.5,,
+8-27,8.11.3,cryogenics,available at lift-off,tank 2,26.8,314.5,,
+8-27,8.11.3,cryogenics,available at lift-off,total,54.1,615.0,,56.4 / 634.7
+8-27,8.11.3,cryogenics,consumed,tank 1,17.5,174.0,,
+8-27,8.11.3,cryogenics,consumed,tank 2,17.4,180.0,,
+8-27,8.11.3,cryogenics,consumed,total,34.9,354.0,,36.6 / 371.1
+8-27,8.11.3,cryogenics,remaining at CM/SM separation,tank 1,9.8,126.5,,
+8-27,8.11.3,cryogenics,remaining at CM/SM separation,tank 2,9.4,134.5,,
+8-27,8.11.3,cryogenics,remaining at CM/SM separation,total,19.2,261.0,,19.8 / 263.6
+# text: 8.11 all CSM consumables within 10% of preflight; 8.11.1 SPS within 5% (deviations from firing times, section 8.8); loadings from gaging readings and measured densities before lift-off;
+# 8.11.2 SM RCS within 5% (higher during T&D and first sightings, lower in rendezvous); PVT from telemetered helium tank pressure; CM RCS within 5%, PVT.
+# 8.11.3 within 5% (loss of an O2 tank heater element, reduced RCS heater duty cycle); usages from fuel-cell electrical power.
+# CHECK: CM RCS consumed fuel printed 15.0 (system A and total) but 15.0 + 26.8 = 41.8, not the printed 40.8; with 14.0 everything closes (44.8 - 14.0 = 30.8, 89.2 - 14.0 = 75.2, 245.9 - 40.8 = 205.1).
