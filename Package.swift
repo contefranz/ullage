@@ -39,7 +39,8 @@ products.append(.executable(name: "OrbitSim", targets: ["OrbitSim"]))
 targets.append(
     .executableTarget(
         name: "OrbitSim",
-        dependencies: ["OrbitCore", "OrbitInstruments"]
+        dependencies: ["OrbitCore", "OrbitInstruments"],
+        resources: [.copy("MFD/Resources/coastlines.bin")]
     )
 )
 #endif
