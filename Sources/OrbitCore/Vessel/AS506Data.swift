@@ -653,9 +653,9 @@ enum AS506 {
     /// flows carry a scale that closes the FER's S-II budget: from the
     /// ignition loads to the OECO residuals with LOX depletion at 548.22 s
     /// (fitted to the model's flight, the start, the EMR ramp and the
-    /// tail-off included; -0.33 %, within the FER's flow reconstruction,
+    /// tail-off included; -0.32 %, within the FER's flow reconstruction,
     /// which matches acceptance Isp).
-    static let sIIFlowScale = 0.996709               // fitted (model)
+    static let sIIFlowScale = 0.996784               // fitted (model)
     /// Start: the PU valve at null until High EMR Select, ESC + 5.5 s. Thrust
     /// 861,496 to 895,080 N per engine (FER §6.2); EMR about 5.0 (MSFC-MAN-506,
     /// L) and Isp assumed between the S-IVB's and the S-II's (L).
@@ -667,7 +667,7 @@ enum AS506 {
     /// N, 246.9 kg/s, 4,164.9 N s/kg = 424.7 s, engine EMR 5.564). The
     /// mixture ratio is fitted to the FER's LH2 residual at OECO; it is the
     /// stage ratio's mean over this phase (Figure 6-3: 5.55 falling to 5.45).
-    static let sIIHighMixtureRatio = 5.5006          // fitted (model); FER Figure 6-3 (M)
+    static let sIIHighMixtureRatio = 5.49765         // fitted (model); FER Figure 6-3 (M)
     static let sIIJ2 = EngineRating.fixedNozzle(
         name: "J-2 S-II high EMR", thrustVacuum: 1_028_303, ispVacuum: 4_164.9 / 9.80665 / sIIFlowScale,
         exitArea: j2ExitArea, mixtureRatio: sIIHighMixtureRatio)
