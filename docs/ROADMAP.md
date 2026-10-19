@@ -3,7 +3,7 @@
 The goal is procedurally realistic Apollo and Space Shuttle missions on a
 native macOS simulator. Each milestone should be flyable on its own.
 
-## M0 — Physics core and viewer *(this release)*
+## M0 — Physics core and viewer *(done)*
 
 - DE421 ephemerides (1960–2030), lunar libration, Hipparcos star field
 - Earth precession + sidereal rotation, J2 gravity, third-body perturbations
@@ -14,7 +14,7 @@ native macOS simulator. Each milestone should be flyable on its own.
 - Metal renderer: ray-traced planets with atmosphere, camera-relative meshes,
   orbit line, SwiftUI HUD
 
-## M1 — Saturn V to Earth parking orbit
+## M1 — Saturn V to Earth parking orbit *(done)*
 
 - Saturn V stack: S-IC, S-II, S-IVB, IU, CSM, LES; real masses, F-1/J-2 performance
   *(done: AS-506 at first motion, calibrated to its Flight Evaluation Report: the F-1s'
@@ -32,20 +32,30 @@ native macOS simulator. Each milestone should be flyable on its own.
 - Interstage and LES jettison, ullage motors, engine-out
   *(jettisons, the S-II and S-IVB ullage motors, the S-IC and S-II retros and the LES
   tower-jettison motor done, as solid motors that separate the stages and throw the tower
-  clear; engine-out done in the core: failures scheduled on the IU, its engine-out
-  sensing, the S-IC chi freeze and the IGM's S-II engine-out presettings; to do: the
-  app's failure key, scenarios and HUD row)*
+  clear; engine-out done: failures scheduled on the IU, its engine-out sensing, the S-IC
+  chi freeze and the IGM's S-II engine-out presettings, with the app's F key, an engine-out
+  HUD row and the Apollo 13 S-II and S-IC engine-out scenarios)*
 - Aerodynamic normal force and moments for the launch stack
   *(done: axial force by the Saturn V flight-evaluation method, normal force and centre of
   pressure from the design data, their moments about the centre of mass, and the launch day's
   measured atmosphere and winds)*
 - Ascent residuals against AS-506's postflight trajectory
-  *(diagnosed: the fitted pitch scale, the S-IC's speed deficit and the late S-IVB cutoff are
-  placed by stage; to do: AS-506's pitch program in place of the scale, the S-II's
-  mixture-ratio transition and the stages' thrust-to-mass items, after the WGS-84 pad)*
+  *(done: AS-506's postflight trajectory reduced to sensed velocity by stage, its pitch
+  program fitted to the postflight attitude, the S-IC's thrust history and flow, the frost
+  and purge gas AS-506 shed by CECO (carried on the S-IC to its separation), the S-II's
+  mixture-ratio transition and flow, and the S-IVB's thrust from its measured acceleration.
+  Each stage's sensed velocity is within 1.6 m/s of the postflight trajectory's, and the
+  S-IVB's velocity cutoff comes at 698.83 s against AS-506's 699.34 s, into the LVDC's
+  parking orbit: datasheet §17)*
 - WGS-84 Earth ellipsoid: the geodetic pad, altitude and surface contact
+  *(done: geodetic altitude, latitude and vertical, the landed state and surface contact on
+  the ellipsoid, which the renderer draws; LC-39A at 28.6084° geodetic: datasheet §15)*
 - Nutation in Earth orientation; IAU 2006 precession
+  *(done: IAU 2006 precession, IAU 2000B nutation and the equation of the equinoxes on UT1
+  from the IERS C04 series; polar motion is not modelled)*
 - Real launch scenario (Apollo 11, 16 July 1969, 13:32:00 UTC, LC-39A)
+  *(done: the stack opens at first motion, 13:32:00.3 UTC, on LC-39A, and the HUD's MET is
+  Apollo 11's GET from range zero)*
 
 ## M2 — Lunar mission profile
 

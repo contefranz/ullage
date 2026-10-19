@@ -73,6 +73,9 @@ extension VesselLibrary {
     /// the ellipsoid (datasheet §15).
     public static let lc39A = (latitude: AS506.padLatitude, longitude: AS506.padLongitude,
                                elevation: AS506.padElevation)
+    /// Apollo 11's range zero, 1969-07-16 13:32:00 UTC: range time and
+    /// ground elapsed time (GET) 0.
+    public static let apollo11RangeZero = AS506.rangeZero
     /// Apollo 11's first motion, range time 0.30 s: 1969-07-16 13:32:00.3 UTC.
     public static let apollo11FirstMotion = AS506.rangeZero + AS506.firstMotion
 
