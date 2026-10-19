@@ -129,7 +129,7 @@ M2 keeps S-IVB restart and TLI, transposition and docking, the LM, lunar gravity
 | `VisualShape` in Components.swift | Vessel/VisualShape.swift | G1 |
 | SaturnV.swift's inline shape lines | Vessel/ApolloShapes.swift, `VesselLibrary.dressSaturnV(_:)` (same shapes) | G1 |
 | Vessel.swift's staging section (`separate`, `jettison*`, `activeStage`) | Vessel/Staging.swift | C |
-| `Simulation.stage` | Simulation/Staging.swift | C |
+| `Simulation.stage` | Simulation/SimulationStaging.swift (a module cannot hold two Staging.swift) | C |
 | `maxStep()` and `maxStep(for:)` | Simulation/StepControl.swift | C |
 | `placeLanded` and `placeInCircularOrbit` | Simulation/Placement.swift | — |
 
@@ -291,7 +291,7 @@ This is the spacecraft report's design, with lumped storage and sump tanks, D's 
   - migration of the program and control state by `hostPart`;
   - the crewed vessel keeps its id;
   - `controlFrame` is set from the crewed part.
-- Simulation/Staging.swift: `stage` returns several vessels.
+- Simulation/SimulationStaging.swift: `stage` returns several vessels.
 - Simulation/StepControl.swift: passive vessels (not the focus, not controlled, q < 1 Pa) are not held to the 0.05/ω limit and take relaxed steps while thrusting.
 - SaturnIU.swift: refuses staging while the S-IVB burns, and `hostPart` "IU".
 - AS506FlightProgram.swift.

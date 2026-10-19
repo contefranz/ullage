@@ -57,14 +57,57 @@ native macOS simulator. Each milestone should be flyable on its own.
   *(done: the stack opens at first motion, 13:32:00.3 UTC, on LC-39A, and the HUD's MET is
   Apollo 11's GET from range zero)*
 
+## M1.5 — Apollo Earth-orbit mission, from the pad to splashdown
+
+The plan and its design reports are in [docs/m15/](m15/plan.md).
+
+- Navball and flight HUD (KSP-like), on physical key positions
+- Orbiter-style MFD displays (ORBIT, SURFACE, MAP, DEORBIT, ENTRY) in a new
+  `OrbitInstruments` target, left Shift driving the left MFD and right Shift the right one
+- CSM separation: the four SLA panels, and the S-IVB, IU and LM leaving with the IU program
+- CSM SPS and the SM and CM RCS quads, as thrusters (their systems stay in M3)
+- SPS deorbit burn cut off by an EMS-style ΔV counter, CM/SM separation
+- Command module entry aerodynamics (lift vector control), parachutes, splashdown
+- Graphics: Apollo shapes, open engine bells and interstages, plumes, eclipse and earthshine,
+  heat-shield glow, parachute canopies
+
+**Definition of done**
+
+1. AS-506 flown from the pad with only the HUD, navball and MFDs:
+   - the IU flies to the parking orbit;
+   - Space separates the CSM: four SLA panels, and the S-IVB + IU + LM leave with the IU program;
+   - key 2 turns the CSM retrograde on the SM RCS;
+   - the DEORBIT MFD gives the Δv and the time of ignition (TIG);
+   - Z lights the SPS, and the ΔV counter cuts it off;
+   - Space twice separates CM/SM;
+   - the CM holds trim lift-up to entry interface (EI) and is flown in bank (or bank hold);
+   - the earth landing system (ELS) fires on baroswitch pressure;
+   - the log reads "splashdown at x m/s" in water, and the MAP shows the splash point.
+2. An Apollo 7 reference chain in `swift test`:
+   - the SPS-8 cutoff state (Mission Report Table 3-III) and EI;
+   - the CM from 68-FM-184 Table IX(b)'s EI at 55° bank lands within about 30 n mi of
+     29.8° N 67.0° W;
+   - the ELS phase durations fall within their bands.
+3. No regressions: every M1 test passes with the §17 residuals unchanged; `swift test` is green
+   on Linux and `xcodebuild build test` on the Mac; the owner has reviewed the screenshot set;
+   README, ROADMAP and CLAUDE.md are updated.
+
+**Naming contract.** The names the vehicle, the programs, the displays and the tests share:
+
+- Parts: "S-IVB", "IU", "SLA ring", "SLA panel 1"–"SLA panel 4", "LM", "SM", "CM",
+  "Apex cover", "Drogue parachutes", "Main parachutes".
+- Staging events: 1–5 stay the launch vehicle's; 6 is CSM/S-IVB separation, 7 CM/SM
+  separation, and 30, 31 and 32 the apex cover, the drogues and the mains.
+- Thrusters: "SPS", "SM RCS A1"…, "CM RCS 1A"….
+
 ## M2 — Lunar mission profile
 
 - S-IVB restart and TLI, transposition, docking and extraction (docking ports)
-- CSM SPS, LM descent and ascent stages, separation
+- LM descent and ascent stages, separation
 - Lunar gravity beyond J2 (spherical-harmonic field for mascons), LOI and DOI
 - Lunar terrain: LOLA elevation with a quadtree LOD, landing site coordinates in MOON_ME
 - Touchdown points and landing gear model for the LM
-- Command module entry aerodynamics (lift vector control), parachutes, splashdown
+- Lunar-return entry (constant-g guidance) and the lunar MFD displays
 
 ## M3 — Apollo procedural realism
 
@@ -93,7 +136,7 @@ native macOS simulator. Each milestone should be flyable on its own.
 
 ## Engine and tooling (as needed)
 
-- Cockpit/virtual cockpit views, HUD instruments, MFD-style displays
+- Cockpit/virtual cockpit views
 - Real 3-D meshes (glTF/USDZ import)
 - Scenario save/load
 - Sound
