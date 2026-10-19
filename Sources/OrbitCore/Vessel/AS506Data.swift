@@ -149,37 +149,53 @@ enum AS506 {
     /// this limit gives; SA-504's presettings had 1.0°/s (GE504).
     static let coastRateLimit = (roll: 0.6, pitch: 0.4, yaw: 0.4)   // deg/s; ASH (M)
     /// Pre-IGM pitch polynomial chi_Y = sum F_kn t^n, t in s from T1, on
-    /// segments split at t_S1..3: SA-504's presettings (GE504 Table 5-I, read
-    /// from the page images). The segments join to within 0.04°.
+    /// segments split at t_S1..3 (GE504 Table 4-II's form and splits).
     static let pitchSegmentBoundaries = [35.0, 80.0, 115.0]   // s; GE504 t_S1, t_S2, t_S3
-    static let pitchCoefficients: [[Double]] = [               // deg, deg/s, ..., deg/s^4; GE504 F_kn
+    /// SA-504's presettings (GE504 Table 5-I, read from the page images; H
+    /// for SA-504). The segments join to within 0.04°. AS-506's commanded
+    /// pitch (MAN506 Figure 2-2) seemed to follow them to within the figure's
+    /// reading accuracy, about 1°, but AS-506's own command, reconstructed
+    /// from its flight, was not a scale of them (datasheet §14.1, §17). Kept
+    /// for reference; the IU flies `pitchCoefficients`.
+    static let sa504PitchCoefficients: [[Double]] = [          // deg, deg/s, ..., deg/s^4; GE504 F_kn
         [3.19840, -0.544236, 0.0351605, -0.00116379, 0.0000113886],
         [-10.9607, 0.946620, -0.0294206, 0.000207717, -0.000000439036],
         [78.7826, -2.83749, 0.0289710, -0.000178363, 0.000000463029],
         [69.9191, -2.007490, 0.0105367, -0.0000233163, 0.0000000136702],
     ]
+    /// AS-506's pre-IGM pitch program, reconstructed from its flight in
+    /// GE504's form: tools/fit_as506_pitch.py's least-squares fit (default
+    /// options) to its command, the pitch of the postflight trajectory's
+    /// sensed acceleration (PFT Table B-II, H) less FER Figure 11-1's
+    /// measured attitude error (digitised, M), on 5 s boxcars from the
+    /// program start to the arrest (those over the centre engine cutoff's
+    /// transient, 134-138 s, left out). The segments join exactly and the
+    /// command reaches AS-506's held -68.90° at the arrest (FER Figure 10-4,
+    /// OT and LVDC, M). Rms 0.057°, maximum 0.147°; rates within 0.75°/s.
+    /// AS-506's presettings themselves were not found: the fit assumes the
+    /// attitude lay along the sensed acceleration (engine deflection, the
+    /// late trim and the 0.12° stacking misalignment neglected; datasheet
+    /// §14.4), so it is M. It is +0.08° at AS-506's program start (T1 + 12.6
+    /// s) and +0.37° at the model's (T1 + 10.7 s, datasheet §8.5). Only an
+    /// S-IC engine out runs it past the arrest (`TiltProgram.pitch(at:bias:
+    /// arrest:)`), to T1 + 179 s at the latest (a failure at T1 + 81 s);
+    /// there its last quartic is at -77.2° and -0.67°/s, where the SA-504
+    /// polynomial the IU flew before (times 1.025) had flattened to -73.3°
+    /// and -0.2°/s.
+    static let pitchCoefficients: [[Double]] = [               // deg, deg/s, ..., deg/s^4; fitted (M)
+        [2.1092631223198826, -0.1936626337735124, 0.005057915299567872, -0.00020518344184194986, 5.913540388168162e-07],
+        [-18.34599804968528, 1.5870316763666779, -0.05055899177115696, 0.0004905277226633409, -1.7856186888329139e-06],
+        [-412.0495000334753, 16.736762388740786, -0.2636063201496652, 0.0017592250103918839, -4.33310562000257e-06],
+        [-550.1015769044409, 16.312579677308413, -0.19204984522638613, 0.0009685058696828931, -1.7997602934715665e-06],
+    ]
+    /// AS-506's pitch held after the arrest, deg (FER Figure 10-4, OT and
+    /// LVDC; M): the fit's value at `tiltArrest`.
+    static let heldPitch = -68.90
     /// Tilt arrest, s from T1: AS-506's at range 160.0 s (FER Table 2-2, T2 +
     /// 24.7 s; predicted T2 + 25.5). SA-504's preset was 153.0 s (GE504).
     static let tiltArrest = 160.0 - liftoff    // FER (H for the time, to a computation cycle)
-    /// AS-506's commanded pitch (MAN506 Figure 2-2) seemed to follow SA-504's
-    /// polynomial to within the figure's reading accuracy, about 1°: -20° a
-    /// minute after first motion, -56° at two minutes and -67.5° at the
-    /// arrest, against -20.6, -56.5 and -68.0°. AS-506's own command,
-    /// reconstructed from its postflight trajectory and FER Figure 11-1, was
-    /// not a scaled SA-504 polynomial (datasheet §14.1). Flown by this model, that
-    /// program leaves the S-IC 1.3° steeper and 1.8 km higher at OECO than
-    /// AS-506 flew, even with the S-IC's thrust, flow and masses matching the
-    /// FER and with its sourced aerodynamics (datasheet §8.5, §11.5). The IU
-    /// here therefore tilts 2.5 % more: a
-    /// compensation for the model, not AS-506 data, fitted to the nearest
-    /// 0.005 on AS-506's OECO flight-path angle (19.114°, FER Table 4-2).
-    /// CECO's angle, altitude and velocity, OECO's altitude and velocity, and
-    /// both headings, which are not fitted, then fall within the datasheet's
-    /// tolerances. (It was 3 % before the propulsion was recalibrated.)
-    static let pitchScale = 1.025              // fitted model compensation (see above)
     static var tiltProgram: TiltProgram {
-        TiltProgram(boundaries: pitchSegmentBoundaries,
-                    coefficients: pitchCoefficients.map { $0.map { $0 * pitchScale } }, arrest: tiltArrest)
+        TiltProgram(boundaries: pitchSegmentBoundaries, coefficients: pitchCoefficients, arrest: tiltArrest)
     }
     /// Outboard F-1 cant at T1 + 20.0 s (FER Table 2-2, H), about 2° radially
     /// (EL, EH 8.13: M); the ramp rate was not found.
@@ -489,40 +505,96 @@ enum AS506 {
         (150, 10703, 4, 2.3260), (155, 10725, 4, 2.3320), (158, 10728, 4, 2.3344), (160, 10718, 4, 2.3360),
         (161.63, 10712, 4, 2.3360),
     ]
-    /// Scales on that flow and ratio that close the FER's propellant budget
-    /// exactly: the tanks burn from their first-motion loads to the OECO
-    /// residuals, with LOX depletion at 161.63 s (fitted to the model's own
-    /// burn, centre-engine tail-off included; within the figure's reading).
-    static let sICFlowScale = 0.99896                // fitted (model)
-    static let sICMixtureRatioScale = 0.99965        // fitted (model)
-    /// Vacuum specific impulse: the stage's site Isp at 140-160 s, where the
-    /// ambient pressure is a few tens of Pa (FER Figure 5-3: 2,980.5 N s/kg,
-    /// against Betts' rated 304.1 s). Thrust follows the flow at this Isp.
-    static let f1IspVacuum = 2_980.5 / 9.80665       // s (303.93), FER Figure 5-3 (M)
+    /// Scales on that flow and ratio, five engines and four apart, that close
+    /// the FER's propellant budget exactly (fitted to the model's own burn,
+    /// the centre engine's tail-off included; within the figure's reading):
+    /// - to CECO, from the first-motion loads to the tanks' reconstructed
+    ///   contents at 135.20 s, LOX 216,633 kg and RP-1 99,059 kg of liquid
+    ///   (FER Table 5-2) with 2,809 kg of GOX (Table 20-1), H;
+    /// - from CECO to the OECO residuals, with LOX depletion at 161.63 s.
+    /// The vehicle at CECO is then 661 kg above Table 20-1's 1,110,189 kg:
+    /// the frost and purge gas shed by then (S-IC frost 295 kg and N2 purge
+    /// 16 kg, S-II frost 204 and purge 54 kg, S-IVB frost 90 kg; Table 20-1),
+    /// which the model does not shed. Before, one scale on the whole burn
+    /// (0.99896, 0.99965) left the tanks 761 kg too full at CECO.
+    static let sICFlowScale = (fiveEngines: 0.999385, fourEngines: 0.996609)          // fitted (model)
+    static let sICMixtureRatioScale = (fiveEngines: 0.999840, fourEngines: 0.998441)  // fitted (model)
+    /// The stage's thrust over the same burn (FER Figure 5-3, reconstructed,
+    /// digitised: M, 0.017 MN a pixel), as vacuum thrust: range time (s),
+    /// stage thrust (N), engines firing. The figure gives the site thrust;
+    /// to it is added the engines' pressure loss, n p A_e (`f1ExitArea`), at
+    /// the launch-day pressure (`launchDayAtmosphere()`) at AS-506's altitude
+    /// over the Fischer ellipsoid (PFT Table B-II, H), the altitude the
+    /// model's centre of mass flies as its geodetic height (59 m on the pad;
+    /// datasheet §15), so the model's site thrust is the figure's along
+    /// AS-506's path. The knots are the least-squares piecewise-linear fit to
+    /// the figure's 0.5 s samples: five engines to 134 s, four from 137 to
+    /// 160.5 s (the centre engine's decay between left out), the first
+    /// four-engine knot at the five engines' thrust per engine. They fit the
+    /// samples within 0.035 % rms and 0.18 % at most
+    /// (`SaturnVDataTests.testF1ThrustFollowsFigure5_3`). After 160.5 s the
+    /// figure hooks down to OECO, a stretch its digitisation did not follow
+    /// (its visual reader: 0.2-0.3 MN below the trace there), so the last
+    /// knot is AS-506's sensed acceleration at OECO, 38.61 m/s^2 (FER Table
+    /// 4-1, and the PFT's 161.63 s row: H), over the FER's mass then, 827,292
+    /// kg (Table 20-1). In vacuum the thrust dips 0.4 % to 55 s and rises
+    /// 1.9 % from there to CECO, while the flow rises 1.8 % (`sICFlowHistory`):
+    /// the specific impulse, thrust over flow, wanders by ±0.5 % about 2,980
+    /// N s/kg, the two panels' reading and reconstruction errors together.
+    static let sICThrustHistory: [(t: Double, thrust: Double, engines: Double)] = [
+        (0.3, 39_454_900, 5), (2.5, 39_474_300, 5), (5, 39_457_700, 5), (10, 39_501_100, 5),
+        (15, 39_501_000, 5), (20, 39_428_600, 5), (25, 39_402_100, 5), (30, 39_422_000, 5),
+        (35, 39_400_200, 5), (40, 39_374_900, 5), (45, 39_332_000, 5), (50, 39_305_300, 5),
+        (55, 39_287_600, 5), (60, 39_340_400, 5), (65, 39_319_700, 5), (70, 39_338_500, 5),
+        (75, 39_342_500, 5), (80, 39_391_800, 5), (85, 39_419_900, 5), (90, 39_465_600, 5),
+        (95, 39_534_800, 5), (100, 39_592_300, 5), (105, 39_669_900, 5), (110, 39_752_700, 5),
+        (115, 39_840_900, 5), (120, 39_904_500, 5), (125, 39_938_600, 5), (130, 39_983_200, 5),
+        (135.2, 40_036_700, 5),
+        (135.25, 32_029_400, 4), (137, 31_906_500, 4), (140, 31_703_200, 4), (145, 31_718_000, 4),
+        (150, 31_820_500, 4), (155, 31_943_600, 4), (160.5, 32_023_700, 4),
+        (161.63, 38.61 * 827_292, 4),
+    ]
     /// Exit area that gives the stage's site Isp at liftoff on the figure's
-    /// flow, about 2,594 N s/kg at 100.6 kPa (FER Figure 5-3): 10.10 m^2,
-    /// against 9.93 m^2 from the rating. With the Isp above it fits the
-    /// figure's thrust within 0.4 % at CECO and at 160 s, and is 0.6 % low at
-    /// liftoff, where the figure's thrust is 0.6 % above its flow times Isp.
+    /// flow, about 2,594 N s/kg at 100.6 kPa (FER Figure 5-3), from its
+    /// vacuum Isp, 2,980.5 N s/kg at 140-160 s, where the ambient pressure is
+    /// a few tens of Pa: 10.10 m^2, against 9.93 m^2 from the rating. FER
+    /// Table 5-1's sea-level Isp, 2,594 N s/kg (the five engines reduced to
+    /// standard conditions at 35-38 s), agrees.
     static let f1ExitArea = 10.10                    // m^2, derived from FER Figure 5-3 (M)
     /// The F-1 rating at first motion, per engine; its schedule
-    /// (`f1Schedule`) carries it along `sICFlowHistory`.
+    /// (`f1Schedule`) carries it along `sICThrustHistory` and `sICFlowHistory`.
     static var f1: EngineRating {
-        let h = sICFlowHistory[0], mdot = h.flow / h.engines
-        return EngineRating.fixedNozzle(name: "F-1 (AS-506 flight)",
-                                        thrustVacuum: mdot * f1IspVacuum * 9.80665,
-                                        ispVacuum: f1IspVacuum / sICFlowScale, exitArea: f1ExitArea,
-                                        mixtureRatio: h.mixtureRatio * sICMixtureRatioScale)
+        let h = sICFlowHistory[0], f = sICThrustHistory[0]
+        let thrust = f.thrust / f.engines, mdot = h.flow / h.engines * sICFlowScale.fiveEngines
+        return EngineRating.fixedNozzle(name: "F-1 (AS-506 flight)", thrustVacuum: thrust,
+                                        ispVacuum: thrust / (mdot * standardGravity), exitArea: f1ExitArea,
+                                        mixtureRatio: h.mixtureRatio * sICMixtureRatioScale.fiveEngines)
     }
-    /// `sICFlowHistory` on the engine's burn clock (zero at first motion),
-    /// per engine and relative to `f1`: thrust and flow scale together.
+    /// The two histories on the engine's burn clock (zero at first motion),
+    /// per engine and relative to `f1`, on every knot of either: thrust and
+    /// flow are separate factors, and the flow and mixture ratio carry their
+    /// scales for the engines firing.
     static var f1Schedule: PerformanceSchedule {
-        let h0 = sICFlowHistory[0], ref = h0.flow / h0.engines
-        return PerformanceSchedule(sICFlowHistory.map { h in
-            let k = h.flow / h.engines / ref
-            return .init(time: h.t - firstMotion, thrustFactor: k, flowFactor: k,
-                         mixtureRatio: h.mixtureRatio * sICMixtureRatioScale)
+        let thrust = sICThrustHistory.map { (t: $0.t, value: $0.thrust / $0.engines) }
+        let flow = sICFlowHistory.map { h in
+            (t: h.t, value: h.flow / h.engines * (h.engines == 5 ? sICFlowScale.fiveEngines : sICFlowScale.fourEngines))
+        }
+        let ratio = sICFlowHistory.map { h in
+            (t: h.t, value: h.mixtureRatio * (h.engines == 5 ? sICMixtureRatioScale.fiveEngines
+                                                              : sICMixtureRatioScale.fourEngines))
+        }
+        let times = Set(thrust.map(\.t) + flow.map(\.t)).sorted()
+        return PerformanceSchedule(times.map { t in
+            .init(time: t - firstMotion, thrustFactor: interpolate(thrust, at: t) / thrust[0].value,
+                  flowFactor: interpolate(flow, at: t) / flow[0].value, mixtureRatio: interpolate(ratio, at: t))
         })
+    }
+    /// Linear between knots, held beyond the ends.
+    private static func interpolate(_ knots: [(t: Double, value: Double)], at t: Double) -> Double {
+        guard let i = knots.firstIndex(where: { $0.t >= t }) else { return knots[knots.count - 1].value }
+        guard i > 0 else { return knots[0].value }
+        let a = knots[i - 1], b = knots[i]
+        return a.value + (b.value - a.value) * (t - a.t) / (b.t - a.t)
     }
     /// Tail-off: each F-1 delivered about 0.33 s of full thrust after its
     /// cutoff signal (FER §5.4: 10,612,096 N s for the four outboard engines

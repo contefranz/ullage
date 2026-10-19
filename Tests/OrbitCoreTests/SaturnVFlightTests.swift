@@ -48,10 +48,11 @@ final class SaturnVFlightTests: XCTestCase {
         XCTAssertEqual(v.status, .flying)
         XCTAssertTrue(sim.events.contains { $0.message == "Apollo 11: liftoff" })
         // Mechanism: five fixed nozzles at full level, F = 5 (F_vac - p A_e),
-        // with the F-1 at first motion: 2,633 kg/s at 2,980.5 N s/kg and a
-        // 10.10 m^2 exit (FER Figure 5-3, derived; `AS506.f1`).
-        XCTAssertEqual(v.thrustAcceleration, 5 * (2_633 * 2_980.5 - p * 10.10) / m0,
-                       accuracy: v.thrustAcceleration * 2e-4)
+        // with the F-1 at first motion: 7,890,980 N in vacuum (FER Figure
+        // 5-3's thrust at AS-506's pressure) and a 10.10 m^2 exit (derived
+        // from the figure; `AS506.f1`).
+        XCTAssertEqual(v.thrustAcceleration, 5 * (7_890_980 - p * 10.10) / m0,
+                       accuracy: v.thrustAcceleration * 1e-6)
         // Independent: the stage's site thrust at liftoff, about 34.35 MN (FER
         // Figure 5-3, M; at the pad's 100.6 kPa, not the model's standard
         // atmosphere), and "a steady-state acceleration of approximately

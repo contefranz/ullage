@@ -307,24 +307,38 @@ final class SaturnVDataTests: XCTestCase {
         XCTAssertEqual(rated.ox / rated.fuel, 2.27, accuracy: 1e-9)
 
         // F-1 as flown (FER §5), per engine at first motion: a fifth of the
-        // stage's site flow, 13,165 kg/s (FER Figure 5-3, M), at its site
-        // Isp at 140-160 s, 2,980.5 N s/kg, gives the vacuum thrust; the
-        // flow carries the fitted 0.104 % cut, and the mixture ratio, 2.2835,
-        // the fitted 0.035 % one; a 10.10 m^2 exit (derived from the figure).
+        // stage's vacuum thrust, 39.4549 MN (FER Figure 5-3's site thrust at
+        // AS-506's pressure, M; `testF1ThrustFollowsFigure5_3`), and of its
+        // site flow, 13,165 kg/s (Figure 5-3, M), with the fitted 0.062 % cut
+        // of the five-engine phase; the mixture ratio, 2.2835, with its fitted
+        // 0.016 % one; a 10.10 m^2 exit (derived from the figure).
         let f1 = AS506.f1
-        XCTAssertEqual(f1.thrustVacuum, 13_165.0 / 5 * 2_980.5, accuracy: 1e-6)
-        XCTAssertEqual(f1.massFlow, 13_165.0 / 5 * 0.99896, accuracy: 1e-9)
+        XCTAssertEqual(f1.thrustVacuum, 39_454_900.0 / 5, accuracy: 1e-6)
+        XCTAssertEqual(f1.massFlow, 13_165.0 / 5 * 0.999385, accuracy: 1e-9)
         XCTAssertEqual(f1.impliedExitArea, 10.10, accuracy: 1e-9)
         let flight = run(f1, at: p0)
-        XCTAssertEqual(flight.ox / flight.fuel, 2.2835 * 0.99965, accuracy: 1e-9)
-        // Independent: Betts' rated vacuum Isp within 0.2 s, sea-level Isp
-        // within 1 s, and nozzle, (F_vac - F_sl) / p0 = 9.93 m^2, within 2 %.
-        XCTAssertEqual(f1.ispVacuum, 304.1, accuracy: 0.2)
-        XCTAssertEqual(f1.ispSeaLevel, 265.4, accuracy: 1)
+        XCTAssertEqual(flight.ox / flight.fuel, 2.2835 * 0.999840, accuracy: 1e-9)
+        // Independent: Betts' rated vacuum Isp, 304.1 s, within 0.8 % over the
+        // burn (thrust over flow; 305.8 s at first motion, where Figure 5-3's
+        // thrust is 0.6 % above its flow times its own Isp) and within 0.3 %
+        // on the burn's impulse over its propellant (304.1 s); the sea-level
+        // Isp at first motion within 3 s of Betts' 265.4 s; the nozzle, (F_vac
+        // - F_sl) / p0 = 9.93 m^2, within 2 %.
+        var impulse = 0.0, propellant = 0.0
+        for t in stride(from: 0.0, to: AS506.sICOutboardCutoff - AS506.firstMotion, by: 0.01) {
+            let k = AS506.f1Schedule.values(at: t)
+            XCTAssertEqual(k.thrust / k.flow * f1.ispVacuum, 304.1, accuracy: 304.1 * 8e-3, "\(t) s")
+            impulse += k.thrust * f1.thrustVacuum
+            propellant += k.flow * f1.massFlow
+        }
+        XCTAssertEqual(f1.ispVacuum, 305.8, accuracy: 0.05)
+        XCTAssertEqual(impulse / propellant / g0, 304.1, accuracy: 304.1 * 3e-3)
+        XCTAssertEqual(f1.ispSeaLevel, 265.4, accuracy: 3)
         XCTAssertEqual(f1.impliedExitArea, (1_748_200 - 1_522_000) * lbf / p0, accuracy: 9.93 * 0.02)
-        // The schedule against the stage's site thrust in Figure 5-3 (M): about
-        // 34.35 MN at liftoff (100.6 kPa ambient), 40.05 MN just before CECO
-        // and 32.07 MN at 160 s (a few hundred Pa or less: vacuum thrust).
+        // The schedule against the stage's site thrust in Figure 5-3 (M) as
+        // the datasheet first read it (§9.2): about 34.35 MN at liftoff
+        // (100.6 kPa ambient), 40.05 MN just before CECO and 32.07 MN at 160 s
+        // (a few hundred Pa or less: vacuum thrust).
         func stage(_ engines: Double, at range: Double, pressure p: Double) -> Double {
             let factor = AS506.f1Schedule.values(at: range - AS506.firstMotion).thrust
             return engines * (f1.thrustVacuum * factor - p * f1.impliedExitArea)
@@ -365,6 +379,58 @@ final class SaturnVDataTests: XCTestCase {
         XCTAssertEqual(AS506.sIIJ2.massFlow, 246.9, accuracy: 246.9 * 3e-3)
         XCTAssertEqual(AS506.sIVBJ2Burn1.thrustVacuum, 202_603 * lbf, accuracy: 202_603 * lbf * 3e-3)
         XCTAssertEqual(AS506.sIVBJ2Burn1.ispVacuum * g0, 4_204, accuracy: 4_204 * 5e-3)
+    }
+
+    // The F-1's thrust against FER Figure 5-3's stage thrust (reconstructed,
+    // digitised: M), along AS-506's own path: at its altitude over the
+    // Fischer ellipsoid (PFT Table B-II, Hermite between rows; 59.7 m at
+    // first motion) and the launch day's pressure there, the schedule's
+    // stage thrust, n (F_vac k(t) - p A_e), follows the figure's 0.5 s
+    // samples, five engines to 134 s within 0.04 % rms and 0.18 % at most,
+    // four from 137 to 160.5 s within 0.05 % and 0.13 % (the centre engine's
+    // decay between, and the figure's hook before OECO, are not the
+    // schedule's), and its impulse over each span within 0.01 %. A
+    // data-entry check: the schedule's knots are fitted to these samples.
+    func testF1ThrustFollowsFigure5_3() {
+        typealias P = AS506Postflight
+        let atmosphere = AS506.launchDayAtmosphere(), f1 = AS506.f1, rows = P.trajectory
+        func altitude(_ t: Double) -> Double {
+            let i = rows.firstIndex { $0.time >= t }!
+            var r = rows[i].position
+            if rows[i].time > t {
+                let a = rows[i - 1], b = rows[i], h = b.time - a.time, u = (t - a.time) / h
+                r = a.position * (2 * u * u * u - 3 * u * u + 1) + a.velocity * ((u * u * u - 2 * u * u + u) * h)
+                    + b.position * (3 * u * u - 2 * u * u * u) + b.velocity * ((u * u * u - u * u) * h)
+            }
+            let z = r.dot(P.pole)
+            return Ellipsoid.fischer1960.geodetic(Vec3((r - P.pole * z).length, 0, z)).height
+        }
+        XCTAssertEqual(altitude(AS506.firstMotion), 59.7, accuracy: 0.1)   // PFT Table B-III: 59 m
+        for (span, engines, rmsLimit, maxLimit) in [(0.5...134.0, 5.0, 4e-4, 1.85e-3),
+                                                    (137.0...160.5, 4.0, 5.1e-4, 1.35e-3)] {
+            var residuals: [Double] = [], model = 0.0, figure = 0.0
+            for s in P.sICThrust where span.contains(s.time) {
+                let p = atmosphere.state(altitude: altitude(s.time)).pressure
+                let k = AS506.f1Schedule.values(at: s.time - AS506.firstMotion).thrust
+                let thrust = engines * (f1.thrustVacuum * k - p * f1.impliedExitArea)
+                residuals.append(thrust / (s.thrust * 1e6) - 1)
+                model += thrust
+                figure += s.thrust * 1e6
+            }
+            let rms = (residuals.map { $0 * $0 }.reduce(0, +) / Double(residuals.count)).squareRoot()
+            XCTAssertLessThan(rms, rmsLimit, "\(engines) engines")
+            XCTAssertLessThan(residuals.map(abs).max()!, maxLimit, "\(engines) engines")
+            XCTAssertEqual(model / figure, 1, accuracy: 1e-4, "\(engines) engines")
+        }
+        // At first motion: the pad's 101.2 kPa (the sounding at 59.7 m).
+        let p = atmosphere.state(altitude: altitude(AS506.firstMotion)).pressure
+        XCTAssertEqual(p, 101_220, accuracy: 50)
+        XCTAssertEqual(5 * (f1.thrustVacuum - p * f1.impliedExitArea), 34.34e6, accuracy: 0.01e6)
+        // At OECO, past the figure's hook: AS-506's sensed acceleration then,
+        // 38.61 m/s^2 (FER Table 4-1; the PFT's row: 38.61), over the FER's
+        // 827,292 kg (Table 20-1).
+        let oeco = AS506.f1Schedule.values(at: AS506.sICOutboardCutoff - AS506.firstMotion).thrust
+        XCTAssertEqual(4 * f1.thrustVacuum * oeco, 38.61 * 827_292, accuracy: 1)
     }
 
     // B2, transients: the impulse each start and shutdown ramp delivers, run
@@ -430,6 +496,15 @@ final class SaturnVDataTests: XCTestCase {
         for e in mains { e.level = 1 }
         var t = AS506.firstMotion
         while t < AS506.sICCenterCutoff - 1e-9 { v.consumePropellant(dt: 0.02); t += 0.02 }
+        // Consistency (the five-engine scales were fitted to them): at CECO
+        // the tanks hold FER Table 5-2's reconstructed 216,633 kg of LOX and
+        // 99,059 kg of RP-1, with Table 20-1's 2,809 kg of GOX. Bookkeeping:
+        // the vehicle is 661 kg above Table 20-1's 1,110,189 kg, the frost and
+        // purge gas AS-506 had shed by then (S-IC 295 + 16 kg, S-II 204 + 54
+        // kg, S-IVB 90 kg), which the model does not shed.
+        XCTAssertEqual(lox.mass, 216_633 + 2_809, accuracy: 1)
+        XCTAssertEqual(rp1.mass, 99_059, accuracy: 1)
+        XCTAssertEqual(v.mass - 1_110_189, 661, accuracy: 3)
         mains[4].isEnabled = false
         while mains[0].hasPropellant && t < 200 { v.consumePropellant(dt: 0.02); t += 0.02 }
         XCTAssertEqual(lox.mass, lox.unusableMass)

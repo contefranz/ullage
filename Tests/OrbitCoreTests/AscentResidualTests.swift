@@ -221,18 +221,21 @@ final class AscentResidualTests: XCTestCase {
         XCTAssertEqual(step(P.sIIMixtureRatio.map { ($0.time, $0.ratio) }, 4.9), 498, accuracy: 1.5)
     }
 
-    // AS-506's pitch program fitted in GE504's form (tools/fit_as506_pitch.py)
-    // against its reconstructed command, chi_thr less Figure 11-1's error, on
-    // 5 s boxcars from the program start to the arrest, but for those over
-    // the centre engine cutoff's transient (134-138 s): rms 0.057°, maximum
-    // 0.147°; the segments join exactly, the command holds -68.90° at the
-    // arrest and never turns faster than the LVDC's 1°/s. Like §14.1's
-    // reconstruction it lies further downrange than SA-504's from 40 to 158 s,
-    // by 0.8-1.8° (§14.1: 0.6-1.5°), and is no scale of it: 1.12 times
-    // SA-504's at 40 s, 1.01 at 158 s. PR 12's own C0 fit (docs/data/as506/
-    // e1-reference, which leaves the hold free) is within 0.06° rms of it.
+    // The pitch program the IU flies, AS-506's fitted in GE504's form
+    // (tools/fit_as506_pitch.py), against its reconstructed command, chi_thr
+    // less Figure 11-1's error, on 5 s boxcars from the program start to the
+    // arrest, but for those over the centre engine cutoff's transient
+    // (134-138 s): rms 0.057°, maximum 0.147°; the segments join exactly,
+    // the command holds -68.90° at the arrest and never turns faster than
+    // the LVDC's 1°/s. Like §14.1's reconstruction it lies further downrange
+    // than SA-504's from 40 to 158 s, by 0.8-1.8° (§14.1: 0.6-1.5°), and is
+    // no scale of it: 1.12 times SA-504's at 40 s, 1.01 at 158 s. PR 12's
+    // own C0 fit (docs/data/as506/e1-reference, which leaves the hold free)
+    // is within 0.06° rms of it.
     func testFittedPitchProgramAgainstTheReconstruction() {
-        let fit = P.fittedTiltProgram, sa504 = AS506.tiltProgram
+        let fit = AS506.tiltProgram
+        let sa504 = TiltProgram(boundaries: AS506.pitchSegmentBoundaries, coefficients: AS506.sa504PitchCoefficients,
+                                arrest: AS506.tiltArrest)
         let t1 = AS506.liftoff
         var residuals: [Double] = []
         for k in 16...157 where k + 3 <= 134 || k - 2 >= 138 {
@@ -248,20 +251,19 @@ final class AscentResidualTests: XCTestCase {
         for j in AS506.pitchSegmentBoundaries {
             XCTAssertEqual(fit.pitch(at: j - 1e-9) / deg, fit.pitch(at: j) / deg, accuracy: 1e-6)
         }
-        XCTAssertEqual(fit.pitch(at: AS506.tiltArrest) / deg, P.heldPitch, accuracy: 1e-9)
-        XCTAssertEqual(fit.pitch(at: 200) / deg, P.heldPitch, accuracy: 1e-9)
+        XCTAssertEqual(fit.pitch(at: AS506.tiltArrest) / deg, AS506.heldPitch, accuracy: 1e-9)
+        XCTAssertEqual(fit.pitch(at: 200) / deg, AS506.heldPitch, accuracy: 1e-9)
         let rates = stride(from: 12.6, to: AS506.tiltArrest - 0.01, by: 0.01).map {
             (fit.pitch(at: $0 + 0.01) - fit.pitch(at: $0)) / 0.01 / deg
         }
         XCTAssertLessThan(rates.map(abs).max()!, 0.75)
-        let scaled = sa504.coefficients[0][0] / AS506.pitchCoefficients[0][0]   // the IU's 1.025
         for t in stride(from: 40.0, through: 158, by: 2) {
-            let sa = sa504.pitch(at: t - t1) / scaled / deg, as506 = fit.pitch(at: t - t1) / deg
+            let sa = sa504.pitch(at: t - t1) / deg, as506 = fit.pitch(at: t - t1) / deg
             XCTAssertGreaterThan(sa - as506, 0.75, "\(t) s")
             XCTAssertLessThan(sa - as506, 1.8, "\(t) s")
         }
-        XCTAssertEqual(fit.pitch(at: 40 - t1) / (sa504.pitch(at: 40 - t1) / scaled), 1.12, accuracy: 0.01)
-        XCTAssertEqual(fit.pitch(at: 158 - t1) / (sa504.pitch(at: 158 - t1) / scaled), 1.01, accuracy: 0.01)
+        XCTAssertEqual(fit.pitch(at: 40 - t1) / sa504.pitch(at: 40 - t1), 1.12, accuracy: 0.01)
+        XCTAssertEqual(fit.pitch(at: 158 - t1) / sa504.pitch(at: 158 - t1), 1.01, accuracy: 0.01)
     }
 
     // The fixtures in AS506PostflightData.swift are tools/data's
@@ -460,21 +462,6 @@ final class AscentResidualTests: XCTestCase {
         } else {
             print("  S-IVB from T4: no velocity cutoff")
         }
-    }
-
-    // AS-506's fitted pitch program flown by the model through the S-IC
-    // (printed; datasheet §14.1's run c flew the reconstruction itself).
-    func testFittedPitchProgramThroughTheSIC() throws {
-        let flight = try InjectedFlight.fly(injectAtT3: false, injectAtT4: false, tilt: P.fittedTiltProgram, until: 162)
-        let m = try ModelTrajectory(flight)
-        print("AS-506's fitted pitch program, flown through the S-IC, model - AS-506:")
-        printStates(m, at: [P.Event.sICCenterCutoff.time, P.Event.sICCutoff.time])
-        print("  thrust pitch (5 s boxcars), model - AS-506, deg: window mean (rms)")
-        for (a, b) in [(15, 40), (40, 85), (85, 112), (112, 122), (122, 159)] {
-            let d = (a...b).map { k in m.thrustPitch(from: k - 2, to: k + 3) - P.thrustPitch(from: k - 2, to: k + 3) }
-            print(String(format: "    %3d-%3d s: %+.2f (%.2f)", a, b, mean(d), rms(d)))
-        }
-        XCTAssertNil(flight.cutoff)
     }
 
     // MARK: Helpers
