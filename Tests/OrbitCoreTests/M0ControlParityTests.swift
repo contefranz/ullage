@@ -97,7 +97,7 @@ final class M0ControlParityTests: XCTestCase {
         let sim = try Simulation.forTests(perturbations: false)
         var rng = Random(state: 506)
         func r(_ s: Double) -> Double { Double.random(in: -s...s, using: &rng) }
-        let modes = AttitudeAutopilot.allCases.filter { $0 != .attitudeHold }
+        let modes = AttitudeAutopilot.allCases.filter { $0 != .attitudeHold && $0 != .entry }
         XCTAssertEqual(modes.count, 8)
         for v in [VesselLibrary.testRocket(), VesselLibrary.capsule(), Toy.rocket(), Toy.rollWeakDrum()] {
             v.position = Vec3(7e6, 0, 0)
