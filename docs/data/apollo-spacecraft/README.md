@@ -593,6 +593,11 @@ value.
 - The text says C-band tracked Apollo 7 and 10, but Table I also gives an
   Apollo 9 value.
 
-**Note for track C.** Apollo 7's SM left with about 7,100 lb (§5.21:
-1,926 lb of SPS and 398 lb of RCS propellant; the rest is cryogenics and
-residuals). Table I's 7,100 lb is therefore a total load, not the RCS alone.
+**Note for track C.** Table I's propellant column does not match the
+Mission Reports' remaining propellant:
+- Apollo 7: 7,100 lb, against 1,926 lb of SPS and 398 lb of SM RCS
+  propellant at separation (§5.21);
+- Apollo 11: 4,500 lb, against 5,064 lb and 780 lb (§8.11).
+
+The report does not say what the column counts, so use the Mission Reports
+for the SM's loads.
