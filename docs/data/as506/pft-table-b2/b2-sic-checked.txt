@@ -1,0 +1,56 @@
+# PFT D5-15560-6 (AS-506 postflight trajectory) Table B-II "Launch vehicle navigation positions, velocities,
+# and accelerations - ascent phase" (PACSS 13 according to the report text), S-IC phase. v2, re-read 2026-10-18.
+# Source: PDF pages 104-108 (document pages B-14..B-18), native 300 dpi CCITT page images extracted with
+# pdfimages, rotated upright, deskewed (page 108 is ~1.0 deg skewed), cropped and read; every value below
+# was read twice (400 dpi render, then native 300 dpi zoom). pdftotext was used only to locate pages.
+# Units exactly as printed: TIME SEC, XS YS ZS KM, DXS DYS DZS M/S, DDXS DDYS DDZS M/S SQ.
+# Verified: (1) the 18 rows of the previous file (pft_b2_sic.txt) were re-read independently: 161 of 162
+#   cells agree; t=30.0 DYS is 126.3 as printed (previous file had 126.4); corrected here.
+# (2) added rows: every 5 s 10-160 s, 135.200 (S-IC CENTER ENGINE CUTOFF (ENGINE SOLENOID), printed event row),
+#   0.300 (FIRST MOTION = first printed row after range zero), 0.600 (START OF TIME BASE 1) and 1.0 (first
+#   regular 1-s row) so either liftoff convention is covered; 161.0 kept from the previous file.
+# (3) every row checked: velocity vs 3-point central differences of neighbouring printed positions and
+#   acceleration vs central differences of neighbouring printed velocities, 1-s neighbours where printed
+#   (rows are printed every 1 s from -16 to 162 s; 83.000 is printed as the MAXIMUM DYNAMIC PRESSURE row), residuals compared with the bound set by print rounding
+#   (0.57 m/s, 0.06 m/s2 for 1-s stencils), plus interval checks (Hermite position step, trapezoid velocity step).
+#   All target rows with 1-s stencils pass except 160.0 (X velocity 0.04 m/s over the bound) and 115.0 (DDYS 0.003 over), both
+#   re-read and confirmed. Event-adjacent rows (0.3, 0.6, 1.0, 135.0, 135.2, 161.0) pass with one-sided stencils
+#   that do not cross release/CECO/OECO. Full 1-s neighbour transcription: data2/pft-b2/pft_b2_sic_all_rows.txt.
+# Event labels: 0.300 FIRST MOTION; 0.600 START OF TIME BASE 1; 135.200 S-IC CENTER ENGINE CUTOFF (ENGINE SOLENOID).
+# t XS YS ZS(km) DXS DYS DZS(m/s) DDXS DDYS DDZS(m/s2)
+0.300 6373.326 19.258 1.181 -0.5 125.6 388.8 0.65 -0.01 0.00
+0.600 6373.326 19.296 1.298 -0.0 125.6 388.8 1.71 -0.02 0.02
+1.0 6373.327 19.346 1.453 0.6 125.6 388.9 2.08 -0.05 0.02
+10.0 6373.425 20.475 4.954 22.0 125.9 389.0 2.69 0.20 0.02
+15.0 6373.569 21.107 6.899 36.2 126.3 389.1 2.99 -0.04 0.01
+20.0 6373.789 21.738 8.846 52.0 126.4 389.7 3.32 -0.01 0.22
+25.0 6374.092 22.371 10.799 69.4 126.4 391.5 3.68 -0.02 0.49
+30.0 6374.487 23.002 12.764 88.8 126.3 394.8 4.07 -0.03 0.86
+35.0 6374.983 23.633 14.751 110.1 126.0 400.5 4.48 -0.06 1.41
+40.0 6375.592 24.262 16.774 133.5 125.8 409.1 4.88 -0.05 2.08
+45.0 6376.322 24.890 18.849 158.9 125.4 421.5 5.29 -0.08 2.90
+50.0 6377.184 25.516 20.996 186.3 125.1 438.4 5.66 -0.06 3.87
+55.0 6378.187 26.141 23.241 215.4 124.8 460.6 5.97 -0.04 5.02
+60.0 6379.340 26.764 25.612 245.8 124.6 488.6 6.20 -0.03 6.21
+65.0 6380.647 27.387 28.137 277.3 124.6 522.6 6.35 0.05 7.40
+70.0 6382.113 28.011 30.848 308.9 124.9 562.9 6.32 0.10 8.73
+75.0 6383.737 28.637 33.778 340.7 125.7 610.2 6.43 0.20 10.22
+80.0 6385.521 29.268 36.963 373.1 126.5 665.3 6.53 0.13 11.78
+85.0 6387.469 29.902 40.444 406.1 126.9 728.1 6.67 0.03 13.34
+90.0 6389.583 30.536 44.257 439.9 126.8 798.2 6.87 -0.06 14.72
+95.0 6391.869 31.169 48.439 474.4 126.2 876.0 6.91 -0.14 16.42
+100.0 6394.327 31.799 53.031 508.7 125.7 962.4 6.80 -0.11 18.16
+105.0 6396.954 32.426 58.078 542.4 125.1 1057.8 6.69 -0.10 19.97
+110.0 6399.749 33.050 63.624 575.5 124.9 1162.2 6.58 0.05 21.77
+115.0 6402.710 33.676 69.714 608.7 125.4 1275.1 6.77 0.06 23.37
+120.0 6405.839 34.303 76.388 642.8 125.0 1396.4 6.78 -0.21 25.24
+125.0 6409.136 34.925 83.695 675.8 124.0 1528.1 6.45 -0.17 27.44
+130.0 6412.595 35.543 91.687 708.1 123.3 1670.6 6.55 -0.07 29.58
+135.0 6416.218 36.159 100.420 741.2 123.0 1823.9 6.70 -0.07 31.74
+135.200 6416.367 36.183 100.786 742.6 123.0 1830.3 6.70 -0.07 31.82
+140.0 6419.974 36.774 109.880 759.6 123.1 1957.9 3.35 0.09 26.81
+145.0 6423.814 37.390 120.013 776.5 123.4 2096.9 3.48 0.02 28.64
+150.0 6427.743 38.008 130.864 794.3 123.4 2244.9 3.66 -0.02 30.59
+155.0 6431.763 38.624 142.480 813.1 123.2 2403.2 3.86 -0.03 32.76
+160.0 6435.879 39.240 154.915 832.9 123.2 2572.8 4.08 -0.02 35.09
+161.0 6436.715 39.363 157.505 837.0 123.2 2608.2 4.13 -0.02 35.56

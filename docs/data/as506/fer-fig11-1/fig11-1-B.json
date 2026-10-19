@@ -1,0 +1,411 @@
+{
+ "pdf_page": 159,
+ "panels": "PDF page 159 = FER page 11-3, printed rotated 90 deg (rotated +90 deg for reading). Caption 'Figure 11-1. Pitch Plane Dynamics During S-IC Burn'. Legend: solid line '\u2014\u2014 MEASURED' (= flight), dashed '- - - SIMULATED'. Event triangles: 1 BEGIN YAW MANEUVER, 2 END YAW MANEUVER, 3 BEGIN PITCH/ROLL MANEUVER, 4 OUTBOARD ENGINE CANT, 5 END ROLL MANEUVER, 6 MACH 1, 7 MAX Q, 8 S-IC CECO, 9 TILT ARREST, 10 S-IC OECO. X axis (shared, each panel has its own vertical gridlines every 10 s): 'RANGE TIME, SECONDS', labels 0 20 40 60 80 100 120 140 160 (0 on left border, 160 on 17th line, right border = 170, unlabelled). Panel 1: 'PITCH ATTITUDE AND COMMAND (POSITIVE NOSE UP), deg'; 5 horizontal lines (top border, 3 gridlines, bottom border) = 4 divisions; printed labels: '0' on the top border, '-40' on the middle gridline (2 divisions down, the 3rd of 5 lines counting borders), '-60' on the bottom border (4 divisions down) -> inconsistent (0/-40 imply 20 deg/div and -80 at the bottom; 0/-60 imply 15 deg/div and -30 at the middle). One thick solid trace with two arrows labelled 'ACTUAL ATTITUDE' and 'COMMANDED ATTITUDE' pointing at it: actual and command are superimposed and cannot be separated (they differ by <1 deg = <5 px, trace is ~8 px thick); no dashed/simulated curve in panel 1. Panel 2: 'PITCH ATTITUDE ERROR (POSITIVE NOSE UP), deg'; labels '0.8' (2nd line), '0' (4th line), '-0.8' (bottom border); 5 divisions of 0.4, top border = 1.2 (unlabelled); consistent. Panel 3: 'PITCH RATE (POSITIVE NOSE UP), deg/s'; labels '0' (2nd line), '-0.4' (4th), '-0.8' (6th); 6 divisions of 0.2, top border 0.2 and bottom border -1.0 unlabelled; consistent. Panel 4: 'AVERAGE PITCH ENGINE POSITION (POSITIVE STEER NOSE DOWN), deg'; labels '0.4' (top border), '0' (middle), '-0.4' (bottom border); 4 divisions of 0.2; consistent. Units reported as printed (deg, deg/s, s).",
+ "calibration": "Rendered with pdftoppm at 300 dpi = the native resolution of the embedded 1-bit CCITT scan (3272x2544, 300 ppi; no resampling), grayscale, rotated +90 deg with ImageMagick. Every gridline and border of every panel fitted separately as a straight line by robust least squares on the centroids of short dark runs sampled away from crossings (horizontal: y = a + b x, 300-390 samples each; vertical: x = a + b y, 80-200 samples each; 2.5-sigma rejection). Residual rms 0.2-0.7 px for all lines except two panel-1 verticals contaminated by the 'ACTUAL ATTITUDE' text/arrow (1.3 and 2.3 px; effect <0.1 s). Skew is NOT a rigid rotation: horizontal-line slopes are +0.0094..+0.0146 (panel 1), +0.0072..+0.0090 (p2), +0.0048..+0.0065 (p3), +0.0035..+0.0048 (p4); vertical-line slopes dx/dy -0.0024..-0.0147, different per panel and not parallel within a panel (panel-1 interior gridlines tilt 0.0145 vs borders 0.009-0.011). Grid spacing is non-uniform in the same way in all four panels (vertical lines deviate up to 3-4 px from uniform spacing, e.g. -2.5 px near 90-100 s, +3.8 px at the 170 s border), i.e. it is in the printed grid, so the pixel->value map is piecewise-linear between the two bracketing fitted lines (value: between bracketing horizontal lines evaluated at the point's x; time: between bracketing vertical lines evaluated at the point's y). Scales: ~94.5 px per 10 s (0.106 s/px); ~92 px per division -> p1 0.217 deg/px (20 deg/div), p2 0.0043 deg/px, p3 0.0022 deg/s/px, p4 0.0022 deg/px. Horizontal lines at x=1400 (px): p1 653.9 751.1 843.7 934.0 1026.7; p2 1092.7 1183.7 1275.8 1368.6 1459.6 1553.0; p3 1613.5 1707.4 1798.1 1890.5 1980.7 2073.2 2165.6; p4 2210.9 2303.7 2396.7 2487.4 2581.2. Curve extraction: gridline pixels removed (runs <=6 px wide centred on a fitted line; wider runs kept as curve overlaps), connected components labelled, then a dynamic-programming path per panel that minimises skipped columns and vertical jumps and penalises short components (dashes), which follows the continuous MEASURED stroke; each 5 s sample is the stroke centre on the slanted time line. Every sample was checked visually on 3x zoom windows; samples on 10 s gridlines and steep strokes were re-checked at 5-9x and 14 were re-read by hand (listed in notes). Independent calibration checks against FER Table 11-2 (pitch, read on PDF page 163): panel 4 max 0.226 at 90.55 s vs table 0.23 at 90.6 s; panel 3 spike min about -0.95..-0.96 at 69.1-69.3 s vs table -0.97 at 69.1 s; panel 2 at OECO -0.305 vs FER text '-0.3'. Event triangle apexes fall at 1.3, 9.1, 13.7, 20.3, 30.9, 65.9 (Mach 1), 83.6 (max Q), 135.6 (CECO), 160.3 (tilt arrest), 161.57 s (OECO 161.63): no time offset beyond the +-0.5 s drafting precision of the markers.",
+ "samples": [
+  {
+   "t": 15.0,
+   "attitude_deg": -1.3,
+   "command_deg": null,
+   "error_deg": 0.169,
+   "rate_deg_s": -0.197,
+   "engine_deg": 0.03,
+   "flags": "p1 curve merges with the top border; p3 steep; p4 steep"
+  },
+  {
+   "t": 20.0,
+   "attitude_deg": -1.8,
+   "command_deg": null,
+   "error_deg": 0.084,
+   "rate_deg_s": -0.113,
+   "engine_deg": -0.061,
+   "flags": "p4 hand-read"
+  },
+  {
+   "t": 25.0,
+   "attitude_deg": -2.3,
+   "command_deg": null,
+   "error_deg": 0.162,
+   "rate_deg_s": -0.287,
+   "engine_deg": -0.083
+  },
+  {
+   "t": 30.0,
+   "attitude_deg": -4.0,
+   "command_deg": null,
+   "error_deg": 0.285,
+   "rate_deg_s": -0.342,
+   "engine_deg": -0.065
+  },
+  {
+   "t": 35.0,
+   "attitude_deg": -5.8,
+   "command_deg": null,
+   "error_deg": 0.347,
+   "rate_deg_s": -0.472,
+   "engine_deg": -0.11
+  },
+  {
+   "t": 40.0,
+   "attitude_deg": -8.2,
+   "command_deg": null,
+   "error_deg": 0.464,
+   "rate_deg_s": -0.501,
+   "engine_deg": -0.048
+  },
+  {
+   "t": 45.0,
+   "attitude_deg": -11.1,
+   "command_deg": null,
+   "error_deg": 0.493,
+   "rate_deg_s": -0.607,
+   "engine_deg": -0.073
+  },
+  {
+   "t": 50.0,
+   "attitude_deg": -14.3,
+   "command_deg": null,
+   "error_deg": 0.624,
+   "rate_deg_s": -0.671,
+   "engine_deg": -0.054
+  },
+  {
+   "t": 55.0,
+   "attitude_deg": -17.5,
+   "command_deg": null,
+   "error_deg": 0.467,
+   "rate_deg_s": -0.74,
+   "engine_deg": -0.119,
+   "flags": "p3 hand-read; p3 noisy max-Q region: +-0.05..0.1 deg/s"
+  },
+  {
+   "t": 60.0,
+   "attitude_deg": -21.0,
+   "command_deg": null,
+   "error_deg": 0.654,
+   "rate_deg_s": -0.694,
+   "engine_deg": -0.058,
+   "flags": "p3 hand-read; p3 noisy max-Q region: +-0.05..0.1 deg/s"
+  },
+  {
+   "t": 65.0,
+   "attitude_deg": -24.6,
+   "command_deg": null,
+   "error_deg": 0.729,
+   "rate_deg_s": -0.619,
+   "engine_deg": 0.05,
+   "flags": "p3 steep flank of 63 s spike; p2 steep flank near 65.3 s peak; p3 noisy max-Q region: +-0.05..0.1 deg/s"
+  },
+  {
+   "t": 70.0,
+   "attitude_deg": -28.3,
+   "command_deg": null,
+   "error_deg": 0.453,
+   "rate_deg_s": -0.8,
+   "engine_deg": -0.076,
+   "flags": "p3 hand-read; p3 noisy max-Q region: +-0.05..0.1 deg/s"
+  },
+  {
+   "t": 75.0,
+   "attitude_deg": -32.0,
+   "command_deg": null,
+   "error_deg": 0.556,
+   "rate_deg_s": -0.695,
+   "engine_deg": -0.029,
+   "flags": "p3 steep flank; p3 noisy max-Q region: +-0.05..0.1 deg/s"
+  },
+  {
+   "t": 80.0,
+   "attitude_deg": -35.3,
+   "command_deg": null,
+   "error_deg": 0.266,
+   "rate_deg_s": -0.62,
+   "engine_deg": -0.093,
+   "flags": "p3 hand-read; p3 noisy max-Q region: +-0.05..0.1 deg/s"
+  },
+  {
+   "t": 85.0,
+   "attitude_deg": -39.2,
+   "command_deg": null,
+   "error_deg": 0.358,
+   "rate_deg_s": -0.744,
+   "engine_deg": -0.115,
+   "flags": "p3 bottom of narrow V; p3 noisy max-Q region: +-0.05..0.1 deg/s"
+  },
+  {
+   "t": 90.0,
+   "attitude_deg": -41.6,
+   "command_deg": null,
+   "error_deg": 0.724,
+   "rate_deg_s": -0.552,
+   "engine_deg": 0.19,
+   "flags": "p1 hand-read; p4 hand-read; p3 noisy max-Q region: +-0.05..0.1 deg/s"
+  },
+  {
+   "t": 95.0,
+   "attitude_deg": -44.7,
+   "command_deg": null,
+   "error_deg": 0.548,
+   "rate_deg_s": -0.647,
+   "engine_deg": 0.039
+  },
+  {
+   "t": 100.0,
+   "attitude_deg": -47.7,
+   "command_deg": null,
+   "error_deg": 0.445,
+   "rate_deg_s": -0.613,
+   "engine_deg": 0.048
+  },
+  {
+   "t": 105.0,
+   "attitude_deg": -50.5,
+   "command_deg": null,
+   "error_deg": 0.132,
+   "rate_deg_s": -0.548,
+   "engine_deg": -0.076
+  },
+  {
+   "t": 110.0,
+   "attitude_deg": -53.4,
+   "command_deg": null,
+   "error_deg": -0.125,
+   "rate_deg_s": -0.534,
+   "engine_deg": -0.093,
+   "flags": "p2 hand-read; p3 hand-read"
+  },
+  {
+   "t": 115.0,
+   "attitude_deg": -54.9,
+   "command_deg": null,
+   "error_deg": 0.568,
+   "rate_deg_s": -0.208,
+   "engine_deg": 0.169,
+   "flags": "p2 steep; p4 steep"
+  },
+  {
+   "t": 120.0,
+   "attitude_deg": -56.8,
+   "command_deg": null,
+   "error_deg": 0.59,
+   "rate_deg_s": -0.586,
+   "engine_deg": 0.015,
+   "flags": "p2 hand-read; p4 hand-read"
+  },
+  {
+   "t": 125.0,
+   "attitude_deg": -59.7,
+   "command_deg": null,
+   "error_deg": -0.356,
+   "rate_deg_s": -0.508,
+   "engine_deg": -0.206,
+   "flags": "p2 steep"
+  },
+  {
+   "t": 130.0,
+   "attitude_deg": -61.0,
+   "command_deg": null,
+   "error_deg": -0.222,
+   "rate_deg_s": -0.312,
+   "engine_deg": -0.112,
+   "flags": "p2 hand-read"
+  },
+  {
+   "t": 135.0,
+   "attitude_deg": -63.1,
+   "command_deg": null,
+   "error_deg": -0.461,
+   "rate_deg_s": -0.428,
+   "engine_deg": -0.169,
+   "flags": "p2 steep"
+  },
+  {
+   "t": 140.0,
+   "attitude_deg": -64.1,
+   "command_deg": null,
+   "error_deg": -0.05,
+   "rate_deg_s": -0.245,
+   "engine_deg": -0.067,
+   "flags": "p2 hand-read; p3 hand-read"
+  },
+  {
+   "t": 145.0,
+   "attitude_deg": -65.6,
+   "command_deg": null,
+   "error_deg": -0.136,
+   "rate_deg_s": -0.298,
+   "engine_deg": -0.122
+  },
+  {
+   "t": 150.0,
+   "attitude_deg": -66.5,
+   "command_deg": null,
+   "error_deg": -0.059,
+   "rate_deg_s": -0.246,
+   "engine_deg": -0.099
+  },
+  {
+   "t": 155.0,
+   "attitude_deg": -68.1,
+   "command_deg": null,
+   "error_deg": -0.02,
+   "rate_deg_s": -0.277,
+   "engine_deg": -0.109
+  },
+  {
+   "t": 160.0,
+   "attitude_deg": -69.1,
+   "command_deg": null,
+   "error_deg": -0.103,
+   "rate_deg_s": -0.228,
+   "engine_deg": -0.107
+  }
+ ],
+ "axis_reading_for_panel1": "Printed: '0' at the top border, '-40' on the middle gridline (2 of 4 divisions down), '-60' at the bottom border. Used: 0 to -80 deg, 20 deg/division (i.e. '0' and '-40' are right and the bottom label '-60' is a misprint for '-80'). Reasons, both independent of the attitude labels: (1) integrating my panel-3 pitch-rate trace from liftoff gives -1.5/-8.4/-21.3/-35.4/-48.0/-57.6/-65.6/-71.2 deg at 20/40/60/80/100/120/140/160 s, against panel-1 readings on the 0..-80 axis of -1.8/-8.2/-21.0/-35.3/-47.7/-56.8/-64.1/-69.1 (within 0.3 deg to 100 s, 2.1 deg at 160 s), while the 0..-60 axis would give -1.3/-6.2/-15.8/-26.5/-35.8/-42.6/-48.1/-51.8 (19 deg short at 160 s); (2) the SA-504 pre-IGM pitch polynomial in docs/AS506-datasheet.md 8.4 (time from first motion = range - 0.6 s, frozen at T1+159.37) gives -1.0/-7.7/-20.5/-34.8/-47.0/-56.5/-63.2/-68.0, within 1.1 deg of the 0..-80 reading everywhere. The third reading (-20 at top so that '-40' and '-60' are right) is excluded because the trace starts on the top border at liftoff (attitude 0). The 0..-80 reading plateaus at -69.1 at 160 s and -69.5 at OECO.",
+ "accuracy_deg": "Time: +-0.1 s (1 px = 0.106 s). Panel 1 attitude: +-0.4 deg (trace ~8 px thick = 1.7 deg; centroid +-2 px), +-0.6 deg at 15-20 s where the trace merges with the top border; this is conditional on the 0..-80 axis. Panel 2 error: +-0.015 deg where the measured stroke is isolated and shallow, +-0.03..0.05 deg on steep flanks (15, 20, 65, 115, 120, 125, 130, 135 s) and where it merges with the dashed curve (40, 50, 140 s); extremes +-0.01..0.02. Panel 3 rate: +-0.01..0.02 deg/s outside 55-90 s; +-0.05 deg/s at 55-90 s (max-Q region, measured and simulated strokes interleave, measured has spikes; 70 s +-0.1). Panel 4 engine: +-0.01 deg typical, +-0.02..0.03 on steep strokes (15, 20, 90, 115, 120 s).",
+ "notes": "FLIGHT curve = solid 'MEASURED' stroke; it is continuous, the SIMULATED one is dashed (dash ~15-20 px, gap ~8-10 px at 300 dpi). In panel 3 at 55-90 s the two interleave; the spiky stroke is the measured one, confirmed by Table 11-2 (pitch angular rate -0.97 deg/s at 69.1 s matches its spike). command_deg is null: no separate command curve is resolvable in panel 1. Hand-read samples (DP trace replaced): p4 t=20: steep stroke along 20 s gridline; centreline crossing from row runs (DP trace gave -0.045) | p3 t=55: two strokes form a small loop at the local minimum; loop centre (DP trace gave -0.726) | p3 t=60: DP followed the simulated stroke; measured stroke read by hand (DP trace gave -0.719) | p3 t=70: measured stroke is the near-vertical rising branch of the -0.97 spike, along the 70 s gridline; +-0.1 (DP trace gave -0.721) | p3 t=80: measured stroke rises along the 80 s gridline from -0.67 to -0.57; midpoint, +-0.05 (DP trace gave -0.694) | p1 t=90: DP run merged with arrow head; interpolated from +-0.4 s columns (DP trace gave -41.009) | p4 t=90: steep stroke along 90 s gridline; read by hand at 8x (DP trace gave 0.226) | p2 t=110: steep crossing on 110 s gridline; read by hand at 8x (DP trace gave -0.139) | p3 t=110: steep crossing on 110 s gridline; read by hand at 8x (DP trace gave -0.514) | p2 t=120: steep stroke runs along the 120 s gridline; centreline crossing read by hand at 8x (DP trace gave 0.695) | p4 t=120: steep stroke along 120 s gridline; read by hand at 8x (DP trace gave 0.054) | p2 t=130: steep crossing on 130 s gridline; read by hand at 8x (DP trace gave -0.187) | p2 t=140: measured/simulated strokes merge at 140 s gridline; read by hand (DP trace gave -0.077) | p3 t=140: steep crossing on 140 s gridline; read by hand at 8x (DP trace gave -0.229). Panel 2 extremes (also in panel2_extremes): max 0.900 at 117.6 s (global), 0.835 at 91.5, 0.786 at 65.3, 0.654 at 60.3, 0.635 at 49.1, 0.632 at 74.4, 0.403 at 82.9; min -0.569 at 136.3 s (global, 1.1 s after CECO), -0.428 at 126.9, -0.169 at 111.0, -0.154 at 145.8, 0.214 at 78.6, 0.438 at 70.6, 0.461 at 55.2; early (0-15 s, measured and simulated superimposed) min -0.47 at 10.9 s. Value at CECO 135.2 s: -0.486; at OECO 161.63 s: -0.305 (FER text says -0.3). Comparison with the previous by-eye values: 30 s +0.285 vs +0.27 (agree); 40 s +0.464 vs +0.42 (+0.04); 50-60 s +0.624/+0.467/+0.654 at 50/55/60 vs ~+0.6 (agree at 50 and 60; there is a dip to 0.46 at 55 s); 70 s +0.453 vs +0.77: DISAGREE by 0.32 - at 70 s the measured curve is in a trough (min 0.438 at 70.6 s); 0.77-0.79 is its peak at 65.3 s, and the dashed simulated curve is ~0.58 at 70 s; 90 s +0.724 vs '+0.8 peak at 90': the peak is 0.835 at 91.5 s, at 90.0 s the curve is still rising; 100 s +0.445 vs +0.43 (agree); 110 s -0.125 vs -0.14 (agree; min -0.169 at 111.0 s); 117.5 s peak +0.900 at 117.6 s vs +0.92 (agree within 0.02); this is 0.07 deg above Table 11-2's 0.83 at 117.4 s, a real plot-vs-table difference since the same calibration matches the table's panel-3 and panel-4 maxima within 0.01-0.02; CECO -0.486 at 135.2 s vs -0.5 (agree), but the minimum -0.569 is at 136.3 s. Panel 1 reading near the top (15-25 s) is weak (trace merges with the top border). Units as printed: attitude, error, engine position in deg; rate in deg/s; time in s (range time). Work files: images in .../fig111-B/img, scripts in .../fig111-B/scripts, traces in .../fig111-B/work (p*_dp.json are full-resolution traces of the measured curves).",
+ "panel2_extremes": [
+  {
+   "t": 3.0,
+   "error_deg": 0.19,
+   "kind": "max",
+   "note": "measured and simulated overlap 0-15 s"
+  },
+  {
+   "t": 7.1,
+   "error_deg": -0.26,
+   "kind": "min",
+   "note": "overlap with simulated"
+  },
+  {
+   "t": 10.9,
+   "error_deg": -0.47,
+   "kind": "min",
+   "note": "overlap with simulated; +-0.03"
+  },
+  {
+   "t": 14.5,
+   "error_deg": 0.181,
+   "kind": "max"
+  },
+  {
+   "t": 18.7,
+   "error_deg": 0.0,
+   "kind": "min"
+  },
+  {
+   "t": 49.1,
+   "error_deg": 0.635,
+   "kind": "max"
+  },
+  {
+   "t": 55.2,
+   "error_deg": 0.461,
+   "kind": "min"
+  },
+  {
+   "t": 60.3,
+   "error_deg": 0.654,
+   "kind": "max"
+  },
+  {
+   "t": 61.8,
+   "error_deg": 0.561,
+   "kind": "min"
+  },
+  {
+   "t": 65.3,
+   "error_deg": 0.786,
+   "kind": "max",
+   "note": "apex touches 0.8 gridline; +-0.02"
+  },
+  {
+   "t": 70.6,
+   "error_deg": 0.438,
+   "kind": "min"
+  },
+  {
+   "t": 74.4,
+   "error_deg": 0.632,
+   "kind": "max"
+  },
+  {
+   "t": 78.6,
+   "error_deg": 0.214,
+   "kind": "min"
+  },
+  {
+   "t": 82.9,
+   "error_deg": 0.403,
+   "kind": "max"
+  },
+  {
+   "t": 86.0,
+   "error_deg": 0.301,
+   "kind": "min"
+  },
+  {
+   "t": 91.5,
+   "error_deg": 0.835,
+   "kind": "max"
+  },
+  {
+   "t": 111.0,
+   "error_deg": -0.169,
+   "kind": "min"
+  },
+  {
+   "t": 117.6,
+   "error_deg": 0.9,
+   "kind": "max (global)",
+   "note": "apex run y=1160-1167 px vs 0.8 line at 1186 px; +-0.01. Table 11-2 prints 0.83 at 117.4"
+  },
+  {
+   "t": 126.9,
+   "error_deg": -0.428,
+   "kind": "min"
+  },
+  {
+   "t": 131.5,
+   "error_deg": -0.145,
+   "kind": "max"
+  },
+  {
+   "t": 135.2,
+   "error_deg": -0.486,
+   "kind": "value at S-IC CECO (not an extremum)"
+  },
+  {
+   "t": 136.3,
+   "error_deg": -0.569,
+   "kind": "min (global)",
+   "note": "1.1 s after CECO"
+  },
+  {
+   "t": 140.6,
+   "error_deg": -0.01,
+   "kind": "max",
+   "note": "merged with simulated; +-0.03"
+  },
+  {
+   "t": 145.8,
+   "error_deg": -0.154,
+   "kind": "min"
+  },
+  {
+   "t": 153.2,
+   "error_deg": 0.018,
+   "kind": "max"
+  },
+  {
+   "t": 161.63,
+   "error_deg": -0.305,
+   "kind": "value at S-IC OECO (FER text: -0.3)"
+  },
+  {
+   "t": 162.0,
+   "error_deg": -0.33,
+   "kind": "end of trace (still falling)"
+  }
+ ]
+}

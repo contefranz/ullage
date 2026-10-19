@@ -22,8 +22,13 @@ public struct TiltProgram {
     }
 
     /// The pitch command at `t` s from T1, held after the arrest (rad).
-    public func pitch(at t: Double) -> Double {
-        let tc = min(t, arrest)
+    public func pitch(at t: Double) -> Double { pitch(at: t, bias: 0, arrest: arrest) }
+
+    /// The pitch command at `t` s from T1 with the polynomial run `bias` s
+    /// behind (GE504's t_c - Δt_f after an S-IC engine-out freeze), held
+    /// from `arrest` on: its value at `arrest` - `bias` (rad).
+    public func pitch(at t: Double, bias: Double, arrest: Double) -> Double {
+        let tc = min(t, arrest) - bias
         let k = boundaries.firstIndex { tc < $0 } ?? boundaries.count
         let degrees = coefficients[k].reversed().reduce(0.0) { $0 * tc + $1 }
         return degrees * .pi / 180
@@ -41,7 +46,8 @@ public struct TiltProgram {
 ///   relative to the space-fixed frame fixed at guidance reference release,
 ///   with each commanded angle rate-limited. The outboard F-1 cant and the
 ///   S-IC flight-control gain switches.
-/// - T2 when the LVDC senses the centre engine's cutoff, which T1 commands.
+/// - T2 when the LVDC senses the centre engine's cutoff, which T1 commands:
+///   its own cutoff, not a failure of that engine.
 /// - T3 when it senses the S-IC outboard cutoff (LOX depletion): separation,
 ///   S-II ignition, S-II gains, aft interstage and LET jettison, iterative
 ///   guidance, S-II centre cutoff.
@@ -50,6 +56,16 @@ public struct TiltProgram {
 /// - T5 when it senses the S-IVB cutoff: APS ullage burn, then the local
 ///   horizontal in orbit, the command moving there within the orbital rate
 ///   limits.
+///
+/// Engine failures come from a schedule (`scheduleFailure`), each applied at
+/// the start of the step at its time. The IU senses an engine out, one it
+/// did not cut off itself, when the engine's thrust falls below its stage's
+/// thrust OK level: on the S-IC from `EngineOut.sensingStart` until T3,
+/// with GE504's chi freeze of the pitch program and a later tilt arrest for
+/// the first; on the S-II from mainstage until T4, where iterative guidance
+/// stretches its stage 2 burn by the engines its presettings assume over
+/// those left. Losing every engine of a stage starts the next time base.
+/// Aborts are logged, not flown.
 ///
 /// From its start event to the S-IVB cutoff the attitude comes from the
 /// iterative guidance mode (`IterativeGuidance`), run on its own cycle with
@@ -82,8 +98,9 @@ public final class SaturnIU: FlightProgram {
         case mainThrottle(Double)
         /// Separate the staging event of the named part, if still attached.
         case separate(String)
-        /// New operating setting for the main engines of the named part.
-        case rating(part: String, EngineRating)
+        /// New operating setting for the main engines of the named part,
+        /// reached over `ramp` s (0: at once; `Thruster.setRating`).
+        case rating(part: String, EngineRating, ramp: Double = 0)
         /// Start ramping the outboard cant of the named part's engines.
         case startCant(String)
         case gains(FCCGains?)
@@ -144,6 +161,85 @@ public final class SaturnIU: FlightProgram {
         public var centreEngine: String
         /// Iterative guidance, from the `.iterativeGuidance` event to the S-IVB cutoff.
         public var guidance: Guidance?
+        /// Engine-out sensing and reactions.
+        public var engineOut = EngineOut.as506
+    }
+
+    /// The IU's engine-out logic (datasheet §16): when it senses an engine
+    /// out, and the S-IC chi freeze's presettings (GE504 Table 4-II and
+    /// Figure 3-4).
+    public struct EngineOut {
+        /// Fractions of rated thrust below which the IU senses an engine of
+        /// the first and of the second stage out (thrust OK switches).
+        public var thrustOK: (first: Double, second: Double)
+        /// The first stage's engines are sensed from this time (s from T1)
+        /// until T3; the second stage's from mainstage (one of its engines
+        /// at its thrust OK level) until T4.
+        public var sensingStart: Double
+        /// The freeze schedule's times t_2 ... t_5 (s from T1) and lines
+        /// B11 t + B12, B21 t + B22 (s).
+        public var freezeTimes: (t2: Double, t3: Double, t4: Double, t5: Double)
+        public var freezeLines: (b11: Double, b12: Double, b21: Double, b22: Double)
+        /// Until this time (s from T1) a second first-stage engine out sets
+        /// off the EDS automatic abort (logged only).
+        public var autoAbortEnd: Double
+        /// Range time of T1, for failures scheduled in range time.
+        public var liftoffRangeTime: Double
+
+        public init(thrustOK: (first: Double, second: Double), sensingStart: Double,
+                    freezeTimes: (t2: Double, t3: Double, t4: Double, t5: Double),
+                    freezeLines: (b11: Double, b12: Double, b21: Double, b22: Double),
+                    autoAbortEnd: Double, liftoffRangeTime: Double) {
+            self.thrustOK = thrustOK
+            self.sensingStart = sensingStart
+            self.freezeTimes = freezeTimes
+            self.freezeLines = freezeLines
+            self.autoAbortEnd = autoAbortEnd
+            self.liftoffRangeTime = liftoffRangeTime
+        }
+
+        /// AS-506's: GE504's SA-504 presettings for the freeze, MAN506's
+        /// thrust OK levels and EDS limit (`AS506`, datasheet §16).
+        public static var as506: EngineOut {
+            EngineOut(thrustOK: (AS506.sICThrustOK, AS506.sIIThrustOK), sensingStart: AS506.sICEngineOutSensingStart,
+                      freezeTimes: AS506.engineOutFreezeTimes, freezeLines: AS506.engineOutFreezeLines,
+                      autoAbortEnd: AS506.edsAutoAbortEnd, liftoffRangeTime: AS506.liftoff)
+        }
+
+        /// The chi freeze for a first-stage engine out sensed at `t` s from
+        /// T1 (GE504 Table 4-II): it starts at t, or at t_2 for t up to t_2,
+        /// and lasts `duration` s (0: none).
+        public func freeze(failure t: Double) -> (start: Double, duration: Double) {
+            let f = freezeTimes, b = freezeLines
+            if t <= f.t2 { return (f.t2, f.t3) }
+            if t <= f.t4 { return (t, b.b11 * t + b.b12) }
+            if t <= f.t5 { return (t, b.b21 * t + b.b22) }
+            return (t, 0)
+        }
+
+        /// The tilt arrest after a first-stage engine out at `t` s from T1:
+        /// t_AR + (t_AR - t)/4 (GE504 Table 4-II). One after the arrest
+        /// leaves it, as the LVDC already holds the command.
+        public func arrest(_ tAR: Double, failure t: Double) -> Double { t < tAR ? tAR + (tAR - t) / 4 : tAR }
+    }
+
+    /// An engine failure to inject: the named engine fails at `time`
+    /// (`scheduleFailure`). It stops as on a cutoff, and nothing restarts it.
+    public struct EngineFailure: Equatable {
+        public enum Time: Equatable {
+            /// Range time, s (T1 at the plan's `engineOut.liftoffRangeTime`).
+            case range(Double)
+            /// Seconds after a time base starts.
+            case timeBase(TimeBase, Double)
+            /// An epoch: `sim.time` fails the engine at the start of the next step.
+            case epoch(Epoch)
+        }
+        public var engine: String
+        public var time: Time
+        public init(engine: String, time: Time) {
+            self.engine = engine
+            self.time = time
+        }
     }
 
     /// The IGM's presettings (μ is set from the vehicle's reference body),
@@ -211,9 +307,36 @@ public final class SaturnIU: FlightProgram {
     private var cutoffAt: Epoch?
     /// Events the IGM set off: (when, name, action).
     private var pending: [(at: Epoch, name: String, action: Action)] = []
+    /// The rating ramps started (when, and how long): their cells' ends end steps.
+    private var ratingRamps: [(start: Epoch, duration: Double)] = []
+
+    /// The failures scheduled, and those that have happened (by index).
+    public private(set) var failureSchedule: [EngineFailure] = []
+    private var failuresDone = Set<Int>()
+    /// The engines the IU cut off itself (its `.engineCutoff` events).
+    private var ownCutoffs = Set<String>()
+    /// The engines it sensed out, and when, in order.
+    public private(set) var enginesOut: [(engine: String, time: Epoch)] = []
+    /// The S-II has reached mainstage: its engines are sensed from here.
+    private var secondStageMainstage = false
+    /// The S-IC engine-out chi freeze (s from T1), from the first S-IC engine
+    /// out (GE504's T_EO1), and the tilt arrest (s from T1), moved out by it.
+    public private(set) var chiFreeze: (start: Double, duration: Double)?
+    public private(set) var tiltArrest: Double
+    /// The engines the IGM's stage 2 presettings assume over those of them
+    /// not sensed out (1 with none out).
+    public private(set) var stage2EngineFactor = 1.0
 
     public init(plan: Plan) {
         self.plan = plan
+        tiltArrest = plan.tilt.arrest
+    }
+
+    /// Fail the named engine at `time`: at the start of the step there, the
+    /// simulation ending a step on it at any time warp. An engine already
+    /// gone or failed then is logged as such.
+    public func scheduleFailure(of engine: String, at time: EngineFailure.Time) {
+        failureSchedule.append(EngineFailure(engine: engine, time: time))
     }
 
     /// Euler angles of `attitude` (body -> ICRF) in the space-fixed frame, in
@@ -231,6 +354,7 @@ public final class SaturnIU: FlightProgram {
     public func update(_ v: Vessel, in sim: Simulation) {
         let now = sim.time
         defer { lastUpdate = now }
+        applyDueFailures(v, sim, now: now)
         if v.landed != nil {
             lastLanded = now
             startRadius = v.position.length
@@ -250,6 +374,9 @@ public final class SaturnIU: FlightProgram {
             startT1(at: t1, v, sim)
         }
         detectTimeBases(v, now: now)
+        // A failure on a time base that started just now.
+        applyDueFailures(v, sim, now: now)
+        senseEngineOut(v, sim, now: now)
         runDueEvents(v, sim, now: now)
         runGuidance(v, sim, now: now)
         if let cant = cantStart { applyCant(v, part: cant.part, since: now - cant.at) }
@@ -290,7 +417,21 @@ public final class SaturnIU: FlightProgram {
             if dt > 0 { next = min(next ?? dt, dt) }
         }
         for e in pending where e.at > now { next = min(next ?? (e.at - now), e.at - now) }
+        for (i, f) in failureSchedule.enumerated() where !failuresDone.contains(i) {
+            guard let at = epoch(of: f), at > now else { continue }
+            next = min(next ?? (at - now), at - now)
+        }
         if let c = cutoffAt, c > now { next = min(next ?? (c - now), c - now) }
+        // The ends of a rating ramp's cells (`Thruster.setRating`): each step
+        // then lies in one cell, and the ramp's impulse does not depend on
+        // the steps, at any warp.
+        for r in ratingRamps {
+            let n = Thruster.rampCells(r.duration), cell = r.duration / Double(n), elapsed = now - r.start
+            guard elapsed < r.duration - 1e-6 else { continue }
+            let k = min(Double(n), ((elapsed + 1e-6) / cell).rounded(.down) + 1)
+            let dt = r.start + k * cell - now
+            if dt > 0 { next = min(next ?? dt, dt) }
+        }
         // The next IGM cycle ends a step, so the cycles stay `cycle` s apart
         // at any time warp (within the gate's slack, no step is needed).
         if let last = lastCycle, let g = plan.guidance, let igm = guidance, !igm.highSpeedLoop {
@@ -336,7 +477,7 @@ public final class SaturnIU: FlightProgram {
         func part(_ name: String) -> VesselPart? { v.parts.first { $0.name == name } }
         func burnedOut(_ name: String) -> Bool {
             guard let p = part(name) else { return true }
-            return !p.thrusters.contains { $0.groups.contains(.main) && $0.isEnabled && $0.hasPropellant }
+            return !p.thrusters.contains { $0.groups.contains(.main) && $0.isAvailable && $0.hasPropellant }
         }
         func firing(_ name: String) -> Bool { stageFiring(v, name) }
         func start(_ b: TimeBase, _ what: String) {
@@ -357,8 +498,10 @@ public final class SaturnIU: FlightProgram {
                 cutoffAt = nil
             }
         }
+        // T2 on the IU's own centre engine cutoff, not on a failure of that
+        // engine: T1's later events (gain switches, cant, the cutoff) stand.
         if timeBases[.t2] == nil
-            && v.thrusters.first(where: { $0.name == plan.centreEngine }).map({ !$0.isEnabled }) ?? true {
+            && (ownCutoffs.contains(plan.centreEngine) || !v.thrusters.contains { $0.name == plan.centreEngine }) {
             start(.t2, "centre engine cutoff")
         }
         if timeBases[.t3] == nil && burnedOut(plan.stages.first) {
@@ -387,14 +530,28 @@ public final class SaturnIU: FlightProgram {
             if let k = pending.indices.min(by: { pending[$0].at < pending[$1].at }), pending[k].at <= now + 1e-9,
                next.map({ pending[k].at < $0.1 }) ?? true {
                 let e = pending.remove(at: k)
-                record(perform(e.action, at: e.at, v, sim) ? e.name : "\(e.name) (nothing to do: gone)", at: e.at, v, sim)
+                let note = cutoffNote(e.action, v)
+                record(perform(e.action, at: e.at, v, sim) ? e.name + note : "\(e.name) (nothing to do: gone)", at: e.at, v, sim)
                 continue
             }
             guard let (i, at) = next else { return }
             done.insert(i)
             let e = plan.sequence[i]
-            record(perform(e.action, at: at, v, sim) ? e.name : "\(e.name) (nothing to do: gone)", at: at, v, sim)
+            let note = cutoffNote(e.action, v)
+            record(perform(e.action, at: at, v, sim) ? e.name + note : "\(e.name) (nothing to do: gone)", at: at, v, sim)
         }
+    }
+
+    /// For the log, an engine cutoff of an engine already out (failed or
+    /// sensed out), or with other engines of its stage sensed out.
+    private func cutoffNote(_ action: Action, _ v: Vessel) -> String {
+        guard case .engineCutoff(let name) = action,
+              let part = v.parts.first(where: { $0.thrusters.contains { $0.name == name } }) else { return "" }
+        let out = enginesOut.map(\.engine).filter { n in part.thrusters.contains { $0.name == n } }
+        if out.contains(name) || part.thrusters.first(where: { $0.name == name })?.isFailed == true {
+            return " (engine already out)"
+        }
+        return out.isEmpty ? "" : " (with \(out.joined(separator: ", ")) out)"
     }
 
     private func record(_ name: String, at: Epoch, _ v: Vessel, _ sim: Simulation) {
@@ -408,6 +565,7 @@ public final class SaturnIU: FlightProgram {
         case .engineCutoff(let name):
             guard let engine = v.thrusters.first(where: { $0.name == name }) else { return false }
             engine.isEnabled = false
+            ownCutoffs.insert(name)
         case .mainThrottle(let level):
             v.mainThrottle = level
         case .separate(let name):
@@ -415,9 +573,10 @@ public final class SaturnIU: FlightProgram {
                 return false
             }
             sim.stage(v, event: n)
-        case let .rating(name, rating):
+        case let .rating(name, rating, ramp):
             guard let part = v.parts.first(where: { $0.name == name }) else { return false }
-            for t in part.thrusters where t.groups.contains(.main) { t.rating = rating }
+            for t in part.thrusters where t.groups.contains(.main) { t.setRating(rating, ramp: ramp) }
+            if ramp > 0 { ratingRamps.append((sim.time, ramp)) }
         case .startCant(let name):
             guard v.parts.contains(where: { $0.name == name }) else { return false }
             cantStart = (name, at)
@@ -450,7 +609,7 @@ public final class SaturnIU: FlightProgram {
     /// Whether a main engine of the named part delivers thrust.
     private func stageFiring(_ v: Vessel, _ name: String) -> Bool {
         v.parts.first { $0.name == name }?.thrusters.contains {
-            $0.groups.contains(.main) && $0.level > 0 && $0.isEnabled && $0.hasPropellant
+            $0.groups.contains(.main) && $0.level > 0 && $0.isAvailable && $0.hasPropellant
         } ?? false
     }
 
@@ -473,6 +632,100 @@ public final class SaturnIU: FlightProgram {
                 e.gimbal[i].bias = atan(-out * tan(cant))
             }
         }
+    }
+
+    // MARK: Engine out
+
+    /// When failure `f` is due, once the time base it counts from has started.
+    private func epoch(of f: EngineFailure) -> Epoch? {
+        switch f.time {
+        case .range(let r): return timeBases[.t1].map { $0 + (r - plan.engineOut.liftoffRangeTime) }
+        case let .timeBase(b, dt): return timeBases[b].map { $0 + dt }
+        case .epoch(let e): return e
+        }
+    }
+
+    /// Fail the engines whose time has come, logged at their scheduled time.
+    private func applyDueFailures(_ v: Vessel, _ sim: Simulation, now: Epoch) {
+        for (i, f) in failureSchedule.enumerated() where !failuresDone.contains(i) {
+            guard let at = epoch(of: f), at - now <= 1e-9 else { continue }
+            failuresDone.insert(i)
+            guard let engine = v.thrusters.first(where: { $0.name == f.engine }) else {
+                record("\(f.engine) failed (nothing to do: gone)", at: at, v, sim)
+                continue
+            }
+            if engine.isFailed {
+                record("\(f.engine) failed (nothing to do: already failed)", at: at, v, sim)
+                continue
+            }
+            engine.fail()
+            record("\(f.engine) failed", at: at, v, sim)
+        }
+    }
+
+    /// The engine-out discrete: a main engine of the first stage (from
+    /// `sensingStart` until T3) or of the second (from its mainstage until
+    /// T4) that the IU did not cut off itself, delivering under its stage's
+    /// thrust OK level with the main throttle open, is sensed out, once. A
+    /// closed throttle is the IU's (or the pilot's) cutoff of every engine.
+    private func senseEngineOut(_ v: Vessel, _ sim: Simulation, now: Epoch) {
+        guard let t1 = timeBases[.t1], v.mainThrottle > 0, timeBases[.t4] == nil else { return }
+        let eo = plan.engineOut, second = timeBases[.t3] != nil
+        if !second && now - t1 < eo.sensingStart { return }
+        let name = second ? plan.stages.second : plan.stages.first
+        guard let part = v.parts.first(where: { $0.name == name }) else { return }
+        let level = second ? eo.thrustOK.second : eo.thrustOK.first
+        let mains = part.thrusters.filter { $0.groups.contains(.main) && !ownCutoffs.contains($0.name) }
+        func fraction(_ e: Thruster) -> Double { e.output?.fraction ?? 0 }
+        if second && !secondStageMainstage {
+            guard mains.contains(where: { fraction($0) >= level }) else { return }
+            secondStageMainstage = true
+        }
+        for e in mains where fraction(e) < level && !enginesOut.contains(where: { $0.engine == e.name }) {
+            enginesOut.append((e.name, now))
+            record("engine out sensed: \(e.name)", at: now, v, sim)
+            let out = enginesOut.filter { o in part.thrusters.contains { $0.name == o.engine } }.count
+            if second { secondStageEngineOut(part, count: out, v, sim, now: now) }
+            else { firstStageEngineOut(at: now - t1, count: out, v, sim, now: now) }
+        }
+    }
+
+    /// The first S-IC engine out (GE504's T_EO1 latch) sets the chi freeze
+    /// and moves the tilt arrest out; a second is an abort, logged only.
+    private func firstStageEngineOut(at t: Double, count: Int, _ v: Vessel, _ sim: Simulation, now: Epoch) {
+        let eo = plan.engineOut
+        if chiFreeze == nil {
+            let f = eo.freeze(failure: t)
+            chiFreeze = f
+            tiltArrest = eo.arrest(tiltArrest, failure: t)
+            record(f.duration > 0
+                   ? String(format: "S-IC engine out: chi freeze %.2f s from T1 + %.2f s, tilt arrest T1 + %.2f s",
+                            f.duration, f.start, tiltArrest)
+                   : String(format: "S-IC engine out: no chi freeze, tilt arrest T1 + %.2f s", tiltArrest), at: now, v, sim)
+        }
+        if count == 2 {
+            record(t < eo.autoAbortEnd ? "EDS automatic abort: two S-IC engines out (abort not flown)"
+                   : "abort limit: two S-IC engines out (abort not flown)", at: now, v, sim)
+        }
+    }
+
+    /// An S-II engine out scales the IGM's stage 2 burn: by the engines its
+    /// presettings assume (the stage's, less those the plan cuts itself:
+    /// the centre engine) over those of them left. MAN506's flight rules on
+    /// two and three engines out are logged only.
+    private func secondStageEngineOut(_ part: VesselPart, count: Int, _ v: Vessel, _ sim: Simulation, now: Epoch) {
+        let cut = Set(plan.sequence.compactMap { e -> String? in
+            if case .engineCutoff(let n) = e.action { return n } else { return nil }
+        })
+        let assumed = part.thrusters.filter { $0.groups.contains(.main) && !cut.contains($0.name) }.map(\.name)
+        let left = assumed.filter { n in !enginesOut.contains { $0.engine == n } }.count
+        if left > 0 && Double(assumed.count) / Double(left) != stage2EngineFactor {
+            stage2EngineFactor = Double(assumed.count) / Double(left)
+            record(String(format: "IGM engine-out presettings: stage 2 time and tau x %.4f", stage2EngineFactor),
+                   at: now, v, sim)
+        }
+        if count == 2 { record("S-II double engine failure: abort if control is lost (abort not flown)", at: now, v, sim) }
+        if count == 3 { record("abort limit: three S-II engines out (abort not flown)", at: now, v, sim) }
     }
 
     // MARK: Iterative guidance
@@ -516,7 +769,8 @@ public final class SaturnIU: FlightProgram {
         let nav = IGMNavigation(position: toS.rotate(v.position), velocity: toS.rotate(v.velocity),
                                 gravity: toS.rotate(v.reference.gravity(at: v.position, pole: pole)),
                                 sensedAcceleration: fm, characteristicVelocity: characteristicVelocity,
-                                sIICutoff: timeBases[.t4] != nil, sIVBIgnition: thirdStageAtThrust(v))
+                                sIICutoff: timeBases[.t4] != nil, sIVBIgnition: thirdStageAtThrust(v),
+                                stage2EngineFactor: stage2EngineFactor)
         let stage = igm.stage
         let out = igm.cycle(nav, interval: interval)
         guidance = igm
@@ -580,15 +834,15 @@ public final class SaturnIU: FlightProgram {
             log.append((now, "roll and pitch program"))
             sim.log("\(v.name): roll and pitch program")
         }
-        if !tiltArrested && t >= plan.tilt.arrest {
+        if !tiltArrested && t >= tiltArrest {
             tiltArrested = true
-            log.append((t1 + plan.tilt.arrest, "tilt arrest"))
+            log.append((t1 + tiltArrest, "tilt arrest"))
             sim.log("\(v.name): tilt arrest")
         }
         var yaw = t >= plan.towerYaw.start && t < plan.towerYaw.end ? plan.towerYaw.angle : 0
         var roll = programStarted != nil ? 0 : initialRoll
         // The program holds its value from the arrest on, until the IGM's.
-        var pitch = programStarted != nil ? plan.tilt.pitch(at: t) : 0
+        var pitch = programStarted != nil ? programPitch(at: t) : 0
         if let c = guidanceCommand { (roll, pitch, yaw) = (0, c.pitch, c.yaw) }
         // From the S-IVB cutoff the LVDC uses its coast rate limits.
         let l = plan.commandRateLimit
@@ -605,6 +859,17 @@ public final class SaturnIU: FlightProgram {
         lastCommand = command
     }
 
+    /// The pitch program at `t` s from T1 (GE504 Table 4-II): after an S-IC
+    /// engine out it holds through the chi freeze, then runs on as far
+    /// behind as the freeze lasted, from the value it held; it holds from
+    /// the (moved) tilt arrest, or from the freeze if that ends later.
+    private func programPitch(at t: Double) -> Double {
+        guard let f = chiFreeze else { return plan.tilt.pitch(at: t) }
+        if t < f.start { return plan.tilt.pitch(at: t, bias: 0, arrest: tiltArrest) }
+        if t < f.start + f.duration { return plan.tilt.pitch(at: f.start, bias: 0, arrest: tiltArrest) }
+        return plan.tilt.pitch(at: t, bias: f.duration, arrest: max(tiltArrest, f.start + f.duration))
+    }
+
     // MARK: HUD
 
     private func statusLine(_ v: Vessel, now: Epoch) -> String {
@@ -617,6 +882,9 @@ public final class SaturnIU: FlightProgram {
         case .t1, .t2:
             if t1 < plan.towerYaw.end && t1 >= plan.towerYaw.start { phase = "tower-clearance yaw" }
             else if tiltArrested { phase = "tilt arrested" }
+            else if let f = chiFreeze, programStarted != nil, t1 >= f.start && t1 < f.start + f.duration {
+                phase = "chi freeze (engine out)"
+            }
             else if programStarted != nil && abs(chi.x) > 1e-6 { phase = "roll and pitch program" }
             else if programStarted != nil { phase = "pitch program" }
             else { phase = "vertical rise" }
@@ -633,7 +901,11 @@ public final class SaturnIU: FlightProgram {
                 : ullageOn ? "APS ullage" : "S-IVB cutoff"
             phase = guidanceCutoff ? coast + ", IGM done" : coast
         }
-        return String(format: "%@+%.0f %@%@", base.description, now - start, phase, pilot ? "  (attitude: pilot)" : "")
+        // The engines sensed out that are still aboard.
+        let out = enginesOut.map(\.engine).filter { n in v.thrusters.contains { $0.name == n } }
+        let note = out.isEmpty ? "" : (out.count == 1 ? ", engine out: " : ", engines out: ") + out.joined(separator: ", ")
+        return String(format: "%@+%.0f %@%@%@", base.description, now - start, phase, note,
+                      pilot ? "  (attitude: pilot)" : "")
     }
 
     /// What the attitude follows in the S-II and S-IVB burns.

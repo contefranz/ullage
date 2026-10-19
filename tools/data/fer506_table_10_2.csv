@@ -1,0 +1,41 @@
+# AS-506 Flight Evaluation Report, MPR-SAT-FE-69-9, Table 10-2 "Guidance
+# Comparisons" (document page 10-6, PDF page 148 of
+# https://www.ibiblio.org/apollo/Documents/lvfea-AS506-Apollo11.pdf,
+# sha256 84b23ee1f3e8e76db20e4e6c1a5bc8b83cd9bc09950c43c43330bce753c3a9c7).
+#
+# Navigation (PACSS 13) positions (m), velocities (m/s) and flight-path angle
+# (deg) at the boost events: guidance (LVDC), postflight (observed postflight
+# trajectory, which PFT Table B-II tabulates) and operational trajectory. The
+# ft and ft/s columns are printed in the table and kept as a check. The Time
+# Base 6 rows are not transcribed.
+#
+# Read from the page image at 300 dpi and checked cell by cell by a second
+# reader. The last digit of the Z_S positions touches the cell's rule on the
+# page (the PDF's text layer loses it); the ft values confirm 11 of the 12, and
+# the first S-IVB ECO operational 2,893,708 stands on the image (its 9,493,791 ft
+# is 2,893,707.5 m). Printed slips kept as printed: the operational radius at
+# parking orbit insertion reads 6,963,309 m (21,533,166 ft, i.e. 6,563,309 m),
+# and the V_S ft/s of the three insertion rows read 22,568.50, 22,567.81 and
+# 22,567.91 (25,568.50, 25,567.81 and 25,567.91 by the m/s values).
+#
+# Against PFT Table B-II: the postflight velocities agree with its event rows
+# within 0.1 m/s at all four events, and the positions within 1 m at S-IC OECO
+# (161.63 s) and insertion (709.33 s). At S-II OECO and first S-IVB ECO the
+# positions lie 1,432 m behind and 517 m ahead of its 548.22 s and 699.33 s
+# rows along the track (the PFT trajectory 0.207 s earlier and 0.066 s later in
+# X and Z; Y within 12 m), while the velocities are the rows'. The flight-path
+# angles there (0.6075 and 0.01511 deg) follow those positions; the rows give
+# 0.619 and 0.011 deg.
+event,source,xs_m,ys_m,zs_m,r_m,dxs,dys,dzs,vs,gamma_deg,xs_ft,ys_ft,zs_ft,r_ft,dxs_fts,dys_fts,dzs_fts,vs_fts
+S-IC OECO,guidance,6437364,39169,159182,6439450,841.25,121.94,2630.38,2764.32,19.1484,21119961,128507,522251,21126804,2760.01,400.07,8629.86,9069.29
+S-IC OECO,postflight,6437247,39441,159164,6439335,839.62,123.11,2630.64,2764.13,19.1143,21119577,129400,522192,21126426,2754.66,403.90,8630.71,9068.67
+S-IC OECO,operational,6437901,38968,157586,6439948,861.66,115.11,2614.93,2755.64,19.635,21121724,127847,517014,21128437,2826.97,377.66,8579.17,9040.81
+S-II OECO,guidance,6289965,79413,1860948,6559961,-1891.78,88.17,6651.61,6915.96,0.6139,20636368,260541,6105471,21522182,-6206.63,289.27,21822.87,22690.16
+S-II OECO,postflight,6289873,80367,1859720,6559537,-1891.43,90.43,6651.87,6916.14,0.6075,20636067,263670,6101444,21520790,-6205.48,296.69,21823.72,22690.75
+S-II OECO,operational,6283160,79489,1884673,6560214,-1917.77,90.69,6668.07,6938.96,0.661,20614043,260791,6183310,21523012,-6291.90,297.54,21876.87,22765.62
+First S-IVB ECO,guidance,5891469,91789,2891285,6563335,-3433.60,76.86,6993.63,7791.43,-0.00148,19328968,301144,9485842,21533251,-11265.09,252.17,22944.98,25562.43
+First S-IVB ECO,postflight,5890834,93058,2892017,6563105,-3432.48,78.03,6993.87,7791.17,0.01511,19326885,305310,9488245,21532498,-11261.42,256.00,22945.77,25561.58
+First S-IVB ECO,operational,5890252,91860,2893708,6563311,-3436.57,76.94,6992.15,7791.41,-0.00220,19324973,301377,9493791,21533172,-11274.84,252.43,22940.12,25562.39
+Parking Orbit Insertion,guidance,5856709,92552,2961037,6563334,-3517.14,75.69,6954.08,7793.28,-0.00064,19214926,303647,9714687,21533247,-11539.17,248.33,22815.22,22568.50
+Parking Orbit Insertion,postflight,5856252,93832,2961276,6563052,-3515.97,76.90,6954.42,7793.07,0.01205,19213427,307846,9715472,21532323,-11535.33,252.30,22816.34,22567.81
+Parking Orbit Insertion,operational,5855466,92623,2963438,6963309,-3520.02,75.77,6952.42,7793.10,-0.00142,19210845,303882,9722567,21533166,-11548.62,248.59,22809.78,22567.91

@@ -141,6 +141,18 @@ public struct EngineRating: Equatable {
     /// Exit area implied by the two Isp values, m^2.
     public var impliedExitArea: Double { thrustVacuum * (1 - ispSeaLevel / ispVacuum) / standardAtmosphere }
 
+    /// This rating moved a fraction `u` of the way to `other`: vacuum thrust,
+    /// mass flow, mixture ratio and nozzle exit area each linearly (the
+    /// pressure loss with the area), under `other`'s name.
+    public func blended(to other: EngineRating, _ u: Double) -> EngineRating {
+        func lerp(_ a: Double, _ b: Double) -> Double { a + (b - a) * u }
+        let f = lerp(thrustVacuum, other.thrustVacuum), mdot = lerp(massFlow, other.massFlow)
+        let area = lerp(impliedExitArea, other.impliedExitArea), isp = f / (mdot * standardGravity)
+        let ratio = mixtureRatio.flatMap { a in other.mixtureRatio.map { lerp(a, $0) } } ?? other.mixtureRatio
+        return EngineRating(name: other.name, thrustVacuum: f, ispVacuum: isp,
+                            ispSeaLevel: isp * (1 - standardAtmosphere * area / f), mixtureRatio: ratio)
+    }
+
     /// This rating with its vacuum thrust and mass flow scaled, and its
     /// mixture ratio replaced if given, on the same nozzle: the exit area,
     /// and so the pressure loss p A_e, stay the same.
@@ -256,22 +268,33 @@ public final class Thruster {
     /// was inactive during S-IC and S-II flight).
     public var activeStageOnly = false
     /// Current operating setting; assigning it changes thrust, flow and the
-    /// propellant split from the next step.
-    public var rating: EngineRating { didSet { checkMixtureRatio() } }
+    /// propellant split from the next step (`setRating(_:ramp:)` can move
+    /// them there over a ramp; an assignment ends a ramp in progress).
+    public var rating: EngineRating {
+        didSet {
+            ratingRamp = nil
+            checkMixtureRatio()
+        }
+    }
     public var feed: PropellantFeed? { didSet { checkMixtureRatio() } }
     public var groups: Set<ThrusterGroup>
     /// Levels the engine can run at; any positive command is clamped into it.
     /// `1...1` is an on/off engine (F-1, J-2).
     public var throttleRange: ClosedRange<Double>
-    /// False keeps the engine shut down whatever the controls command.
+    /// False keeps the engine shut down whatever the controls command: a
+    /// flight program's cutoff, which setting it true again undoes.
     public var isEnabled = true
+    /// True once the engine has failed (`fail()`): latched, and distinct from
+    /// `isEnabled`, so a flight program can tell a failure from its own cutoff.
+    public private(set) var isFailed = false
     /// Commanded level 0...1 (set by controls each step).
     public var level: Double = 0
     /// A solid motor: once lit (`ignite()`, or staging through `trigger`) it
     /// burns its grain to the end at full output and nothing stops or relights
     /// it; levels, groups and `isEnabled` do nothing after ignition, and a
-    /// motor not enabled when lit is a dud. It needs a single feed, and no
-    /// shutdown transient (its tank has nothing below empty to tail off on).
+    /// motor not enabled, or failed, when lit is a dud. It needs a single
+    /// feed, and no shutdown transient (its tank has nothing below empty to
+    /// tail off on).
     public var isSolid = false
     /// When staging lights this solid; nil: only `ignite()` does.
     public var trigger: SolidTrigger?
@@ -289,6 +312,9 @@ public final class Thruster {
     private var lastOutput: (fraction: Double, rating: EngineRating)?
     /// Seconds since the engine stopped, while its shutdown ramp runs.
     private var shutdownElapsed: Double?
+    /// A change of rating in progress (`setRating(_:ramp:)`): from `from` to
+    /// `rating` over `duration` s, `elapsed` s in.
+    private var ratingRamp: (from: EngineRating, duration: Double, elapsed: Double)?
     /// Length of the last step the engine was commanded or ramping in: the
     /// ramps are sampled at the middle of the coming step, assuming it is as
     /// long. Zero after a coast, so a long coast step does not move the
@@ -344,14 +370,48 @@ public final class Thruster {
         }
     }
 
-    /// The rating now: `rating` with the schedule applied at the burn clock.
+    /// The rating now: `rating` (along a ramp to it, the ramp's) with the
+    /// schedule applied at the burn clock.
     public var currentRating: EngineRating { rating(atBurnTime: burnTime) }
 
-    /// `rating` with the schedule applied at burn time `t`.
+    /// `rating`, or along a ramp to it the present cell's, with the schedule
+    /// applied at burn time `t`.
     public func rating(atBurnTime t: Double) -> EngineRating {
-        guard let s = schedule else { return rating }
+        let base = rampedRating
+        guard let s = schedule else { return base }
         let v = s.values(at: t)
-        return rating.scaled(thrust: v.thrust, flow: v.flow, mixtureRatio: v.mixtureRatio)
+        return base.scaled(thrust: v.thrust, flow: v.flow, mixtureRatio: v.mixtureRatio)
+    }
+
+    /// The longest cell of a rating ramp, s.
+    public static let rampCell = 0.02
+
+    /// The equal cells a ramp of `duration` s runs in: as few as keep each
+    /// within `rampCell`.
+    public static func rampCells(_ duration: Double) -> Int {
+        max(1, Int((duration / rampCell - 1e-9).rounded(.up)))
+    }
+
+    /// Change the rating to `r`: at once (`ramp` 0, as assigning `rating`
+    /// does), or over `ramp` s, vacuum thrust, mass flow, mixture ratio and
+    /// nozzle exit area moving linearly from the rating in effect now. The
+    /// ramp runs in `rampCells(ramp)` equal cells from the step that starts
+    /// it, each at the value of its middle: a flight program that ends steps
+    /// on the cells' ends (`SaturnIU` does) gets the ramp's exact impulse and
+    /// propellant, however the steps divide the cells.
+    public func setRating(_ r: EngineRating, ramp: Double = 0) {
+        let from = rampedRating
+        rating = r
+        if ramp > 0 { ratingRamp = (from, ramp, 0) }
+    }
+
+    /// `rating`, or along a ramp to it the rating of the ramp's present cell.
+    private var rampedRating: EngineRating {
+        guard let r = ratingRamp else { return rating }
+        let n = Self.rampCells(r.duration), cell = r.duration / Double(n)
+        // A step starts on a cell's end to within the epoch's rounding.
+        let k = min(n - 1, Int(((r.elapsed + 1e-6) / cell).rounded(.down)))
+        return r.from.blended(to: rating, (Double(k) + 0.5) / Double(n))
     }
 
     public var maxThrustVacuum: Double { currentRating.thrustVacuum }
@@ -363,19 +423,28 @@ public final class Thruster {
     /// True while every tank of the feed holds usable propellant.
     public var hasPropellant: Bool { feed.map { $0.tanks.allSatisfy { $0.usableMass > 0 } } ?? false }
 
-    /// True while the controls command thrust: enabled, lit and fed, and not
-    /// still decaying from a cutoff (a new command waits for the decay to
+    /// Enabled and not failed: the controls can run the engine.
+    public var isAvailable: Bool { isEnabled && !isFailed }
+
+    /// True while the controls command thrust: available, lit and fed, and
+    /// not still decaying from a cutoff (a new command waits for the decay to
     /// end). Start and shutdown ramps aside, this is when the engine
     /// delivers thrust. A solid is commanded from ignition to burnout.
     public var isCommanded: Bool {
-        (isSolid ? isIgnited : isEnabled && level > 0) && hasPropellant && shutdownElapsed == nil
+        (isSolid ? isIgnited : isAvailable && level > 0) && hasPropellant && shutdownElapsed == nil
     }
 
+    /// Fail the engine now. A liquid engine stops as on a cutoff: it is no
+    /// longer commanded, and its shutdown ramp starts with the next step;
+    /// unlike a cutoff, nothing restarts it. A solid not yet lit becomes a
+    /// dud; one already lit burns on, as nothing stops a lit solid.
+    public func fail() { isFailed = true }
+
     /// Light a solid motor; false (and nothing happens) for a liquid engine,
-    /// a dud (`isEnabled` false), an empty grain or one already lit.
+    /// a dud (`isEnabled` false, or failed), an empty grain or one already lit.
     @discardableResult
     public func ignite() -> Bool {
-        guard isSolid, isEnabled, !isIgnited, hasPropellant else { return false }
+        guard isSolid, isAvailable, !isIgnited, hasPropellant else { return false }
         precondition(tank != nil && (transients?.shutdown ?? 0) == 0,
                      "\(name): a solid motor needs a single feed and no shutdown ramp")
         isIgnited = true
@@ -404,6 +473,13 @@ public final class Thruster {
     /// Move the burn clock and the ramps on by `dt`, after the step has used
     /// this step's output. Call once per step.
     func advanceTransients(dt: Double) {
+        defer {
+            // A rating ramp runs whether or not the engine fires.
+            if let r = ratingRamp {
+                let e = r.elapsed + dt
+                ratingRamp = e >= r.duration - 1e-6 ? nil : (r.from, r.duration, e)
+            }
+        }
         if isCommanded {
             lastOutput = output
             shutdownElapsed = nil
@@ -418,9 +494,9 @@ public final class Thruster {
             lastStep = 0
             return
         }
-        // A cutoff commanded before this step started the ramp with it; an
-        // engine that ran out of propellant during it ran to its end.
-        let ranOut = shutdownElapsed == nil && (isSolid ? isIgnited : isEnabled && level > 0)
+        // A cutoff commanded (or a failure) before this step started the ramp
+        // with it; an engine that ran out of propellant during it ran to its end.
+        let ranOut = shutdownElapsed == nil && (isSolid ? isIgnited : isAvailable && level > 0)
         let e = shutdownElapsed.map { $0 + dt } ?? (ranOut ? 0 : dt)
         if e >= tr.shutdown {
             lastOutput = nil

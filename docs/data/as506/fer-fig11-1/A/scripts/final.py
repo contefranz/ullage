@@ -1,0 +1,67 @@
+import json, sys
+rows = [
+# t, attitude (0..-80 reading), error, rate, engine
+(15, -0.4, 0.17, -0.20, 0.03),
+(20, -1.1, 0.06, -0.12, -0.05),
+(25, -2.6, 0.16, -0.29, -0.08),
+(30, -4.1, 0.29, -0.35, -0.06),
+(35, -6.0, 0.35, -0.47, -0.11),
+(40, -8.4, 0.45, -0.50, -0.05),
+(45, -11.2, 0.49, -0.61, -0.07),
+(50, -14.2, 0.59, -0.67, -0.05),
+(55, -17.7, 0.47, -0.76, -0.12),
+(60, -20.8, 0.61, -0.70, -0.04),
+(65, -24.5, 0.73, -0.63, 0.05),
+(70, -28.3, 0.44, -0.85, -0.09),
+(75, -31.8, 0.56, -0.70, -0.03),
+(80, -35.6, 0.27, -0.60, -0.12),
+(85, -39.0, 0.36, -0.74, -0.12),
+(90, -41.6, 0.74, -0.56, 0.18),
+(95, -44.8, 0.55, -0.65, 0.04),
+(100, -47.6, 0.43, -0.59, 0.03),
+(105, -50.3, 0.13, -0.55, -0.08),
+(110, -53.0, -0.11, -0.54, -0.11),
+(115, -54.7, 0.57, -0.21, 0.17),
+(120, -56.7, 0.56, -0.58, 0.02),
+(125, -59.4, -0.36, -0.51, -0.21),
+(130, -60.9, -0.22, -0.33, -0.10),
+(135, -62.9, -0.46, -0.43, -0.17),
+(140, -64.1, -0.06, -0.25, -0.07),
+(145, -65.5, -0.14, -0.30, -0.12),
+(150, -66.7, -0.06, -0.25, -0.10),
+(155, -67.8, -0.02, -0.28, -0.11),
+(160, -69.0, -0.12, -0.23, -0.10),
+]
+samples = [{'t': t, 'attitude_deg': a, 'command_deg': None, 'error_deg': e, 'rate_deg_s': r, 'engine_deg': g} for t, a, e, r, g in rows]
+extremes = [
+  {'t': 11.0, 'error_deg': -0.47, 'kind': 'min', 'note': 'before 15 s'},
+  {'t': 14.6, 'error_deg': 0.18, 'kind': 'max', 'note': 'before 15 s'},
+  {'t': 18.8, 'error_deg': 0.00, 'kind': 'min'},
+  {'t': 23.3, 'error_deg': 0.21, 'kind': 'max'},
+  {'t': 25.5, 'error_deg': 0.15, 'kind': 'min'},
+  {'t': 49.1, 'error_deg': 0.64, 'kind': 'max'},
+  {'t': 55.3, 'error_deg': 0.46, 'kind': 'min'},
+  {'t': 59.4, 'error_deg': 0.64, 'kind': 'max'},
+  {'t': 61.6, 'error_deg': 0.56, 'kind': 'min'},
+  {'t': 65.4, 'error_deg': 0.78, 'kind': 'max'},
+  {'t': 70.2, 'error_deg': 0.44, 'kind': 'min', 'note': 'flat bottom 0.44-0.45 from 69.3 to 71.0 s'},
+  {'t': 73.9, 'error_deg': 0.62, 'kind': 'max'},
+  {'t': 78.7, 'error_deg': 0.22, 'kind': 'min'},
+  {'t': 82.7, 'error_deg': 0.40, 'kind': 'max'},
+  {'t': 86.1, 'error_deg': 0.30, 'kind': 'min'},
+  {'t': 91.4, 'error_deg': 0.83, 'kind': 'max'},
+  {'t': 111.1, 'error_deg': -0.17, 'kind': 'min'},
+  {'t': 117.7, 'error_deg': 0.90, 'kind': 'max', 'note': 'global max 15-162 s; centreline, stroke top edge 0.91; FER Table 11-2 gives 0.83 at 117.4 s'},
+  {'t': 126.9, 'error_deg': -0.43, 'kind': 'min'},
+  {'t': 131.5, 'error_deg': -0.15, 'kind': 'max'},
+  {'t': 136.3, 'error_deg': -0.57, 'kind': 'min', 'note': 'global min 15-162 s, 1.1 s after CECO (135.2 s), where the curve reads -0.48'},
+  {'t': 140.8, 'error_deg': -0.02, 'kind': 'max', 'note': 'low bump, +-0.5 s'},
+  {'t': 145.7, 'error_deg': -0.15, 'kind': 'min'},
+  {'t': 153.0, 'error_deg': 0.00, 'kind': 'max'},
+  {'t': 162.0, 'error_deg': -0.33, 'kind': 'end', 'note': 'curve end; drops from -0.09 at 159.5 s to -0.30 at 161.6 s (OECO) and -0.33 at about 162 s'},
+]
+out = json.load(open(sys.argv[1]))
+out['samples'] = samples
+out['error_extremes'] = extremes
+json.dump(out, open(sys.argv[2], 'w'), indent=1)
+print(len(samples), 'samples', len(extremes), 'extremes')

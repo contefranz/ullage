@@ -383,4 +383,93 @@ final class PropulsionModelTests: XCTestCase {
         for _ in 0..<10_000 where stage.thrusters[0].hasPropellant { sim.tick() }
         XCTAssertEqual(v.velocity.dot(x), expected, accuracy: expected * 1e-3)
     }
+
+    // A10: a rating ramp (`.rating(part:_:ramp:)`, for the S-II's EMR
+    // shift): thrust, flow and mixture ratio move linearly from one setting
+    // to the next in equal cells of at most 0.02 s, each at its middle's
+    // value, and the IU ends steps on the cells' ends. Over the ramp the
+    // impulse is then the linear ramp's, (F0 + F1)/2 times its length, the
+    // propellant (ṁ0 + ṁ1)/2 times it, and its split the same, however the
+    // steps fall: fixed 0.02 s and 0.007 s steps and the app's frames at 1×,
+    // 10× and 1,000×.
+    // The bound is the epoch's resolution (1.2e-7 s in 1969: 1e-6 of the
+    // impulse) and the simulation's 1 ms minimum step: a step that starts
+    // less than 1 ms before a cell's end (after a frame's end, or the
+    // epoch's rounding) is stretched to 1 ms past it, and runs that part at
+    // the earlier cell's value, at most a cell's change for 1 ms. Steps that
+    // ignore the cells' ends (0.013 s, not bounded by the IU) err by over
+    // 1e-4. Two toy engines go from `Toy.engine` (1 MN) to `Toy.lowRating`
+    // (0.8 MN) over 0.73 s (37 cells), lit at 0.5 s and shifted at 1.0 s.
+    func testRatingRampImpulseIsIndependentOfStepAndWarp() throws {
+        let plan = SaturnIU.Plan(
+            liftoffDelay: 0, referenceToLiftoff: 0, flightAzimuth: 0, towerYaw: (0, 0, 0),
+            programStart: (1e9, 1e9), tilt: TiltProgram(boundaries: [], coefficients: [[0, 0, 0, 0, 0]], arrest: 0),
+            commandRateLimit: 0.02, coastRateLimit: Vec3(0.01, 0.01, 0.01), cant: (0, 0),
+            sequence: [SaturnIU.Event(.t1, 0.5, "ignition", .mainThrottle(1)),
+                       SaturnIU.Event(.t1, 1.0, "shift", .rating(part: "Stage", Toy.lowRating, ramp: 0.73))],
+            // Engine 2 as the "centre engine": the IU never cuts it, so no T2.
+            stages: ("Stage", "-", "-"), centreEngine: "Stage engine 2", guidance: nil)
+        let ramp = 0.73, cells = Thruster.rampCells(ramp)
+        XCTAssertEqual(cells, 37)
+        /// The impulse (N s), oxidizer and fuel (kg) over the ramp, its steps
+        /// and those stretched to the 1 ms minimum, flown in fixed steps of
+        /// `step` s or in frames of `frame` s at `warp`; `bounded`: steps end
+        /// where the IU asks.
+        func fly(step: Double = 0.02, frame: Double? = nil, warp: Double = 1, bounded: Bool = true)
+            throws -> (impulse: Double, ox: Double, fuel: Double, steps: Int, stretched: Int) {
+            let sim = try Simulation.forTests(perturbations: false)
+            let v = Toy.rocket()
+            sim.add(v)
+            sim.placeInFreeSpace(v)
+            let iu = SaturnIU(plan: plan)
+            v.flightProgram = iu
+            let mains = v.thrusters.filter { $0.groups.contains(.main) }, tanks = v.parts[0].tanks
+            let start = sim.time
+            var shift: (at: Epoch, ox: Double, fuel: Double)?, drawn: (ox: Double, fuel: Double)?
+            var impulse = 0.0, steps = 0, stretched = 0
+            while sim.time - start < 2 {
+                var remaining = frame.map { $0 * warp } ?? step
+                while remaining > 1e-9 {
+                    for w in sim.vessels { sim.prepareControls(w) }
+                    if shift == nil, iu.log.contains(where: { $0.event == "shift" }) {
+                        shift = (sim.time, tanks[0].mass, tanks[1].mass)
+                    }
+                    let most = sim.maxStep()
+                    let h = min(remaining, frame == nil ? step : .infinity, bounded ? most : .infinity)
+                    if let s = shift, sim.time - s.at < ramp - 1e-6 {
+                        impulse += mains.reduce(0) { $0 + $1.thrust(ambientPressure: 0, seaLevelPressure: 0) } * h
+                        steps += 1
+                        if most == 1e-3 && h == most { stretched += 1 }
+                    } else if let s = shift, drawn == nil {
+                        drawn = (s.ox - tanks[0].mass, s.fuel - tanks[1].mass)
+                    }
+                    sim.step(h)
+                    remaining -= h
+                }
+            }
+            let d = try XCTUnwrap(drawn)
+            return (impulse, d.ox, d.fuel, steps, stretched)
+        }
+        let impulse = (2e6 + 1.6e6) / 2 * ramp
+        let flows = (Toy.engine.massFlow, Toy.lowRating.massFlow), flow = (flows.0 + flows.1) * ramp
+        // A cell's change for 1 ms.
+        let cellImpulse = (2e6 - 1.6e6) / Double(cells) * 1e-3, cellFlow = 2 * (flows.0 - flows.1) / Double(cells) * 1e-3
+        let reference = try fly()
+        var runs = [("0.02 s", reference), ("0.007 s", try fly(step: 0.007)), ("1x", try fly(frame: 1.0 / 60)),
+                    ("10x", try fly(frame: 1.0 / 60, warp: 10)), ("1000x", try fly(frame: 1.0 / 60, warp: 1000))]
+        // The split from a run no step of which was stretched.
+        let exact = try XCTUnwrap(runs.first { $0.1.stretched == 0 }).1
+        for (name, run) in runs {
+            let n = Double(run.stretched)
+            XCTAssertEqual(run.impulse, impulse, accuracy: impulse * 1e-6 + n * cellImpulse, name)
+            XCTAssertEqual(run.ox + run.fuel, flow, accuracy: flow * 1e-6 + n * cellFlow, name)
+            XCTAssertEqual(run.ox, exact.ox, accuracy: exact.ox * 1e-6 + n * cellFlow, name)
+            XCTAssertEqual(run.fuel, exact.fuel, accuracy: exact.fuel * 1e-6 + n * cellFlow, name)
+        }
+        runs.removeFirst()
+        XCTAssertTrue(runs.allSatisfy { $0.1.steps != reference.steps })
+        let unbounded = try fly(step: 0.013, bounded: false)
+        XCTAssertGreaterThan(abs(unbounded.impulse - impulse), impulse * 1e-4)
+    }
 }
+

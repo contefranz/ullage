@@ -1,0 +1,384 @@
+{
+ "pdf_page": 159,
+ "panels": "PDF page 159 (printed page 11-3), landscape page with the figure rotated 90 deg; caption 'Figure 11-1. Pitch Plane Dynamics During S-IC Burn'. Legend: solid line '\u2014\u2014 MEASURED' (flight), dashed '------ SIMULATED'. Events: 1 BEGIN YAW MANEUVER, 2 END YAW MANEUVER, 3 BEGIN PITCH/ROLL MANEUVER, 4 OUTBOARD ENGINE CANT, 5 END ROLL MANEUVER, 6 MACH 1, 7 MAX Q, 8 S-IC CECO, 9 TILT ARREST, 10 S-IC OECO. X axis (shared): 'RANGE TIME, SECONDS', tick labels 0 20 40 60 80 100 120 140 160, gridlines every 10 s; the right border is the unlabelled 170 s line. Panel 1: 'PITCH ATTITUDE AND COMMAND (POSITIVE NOSE UP), deg'; 5 horizontal lines (4 divisions); labels printed: '0' on line 1 (top border), '-40' on line 3, '-60' on line 5 (bottom border); lines 2 and 4 unlabelled. The labels are inconsistent: no linear scale puts both '-40' on the middle line and '-60' on the bottom one. Arrows labelled 'ACTUAL ATTITUDE' and 'COMMANDED ATTITUDE' point at the same single stroke, about 7 px (1.5 deg) wide. No separate commanded or dashed curve can be seen. Panel 2: 'PITCH ATTITUDE ERROR (POSITIVE NOSE UP), deg'; labels '0.8' (line 2), '0' (line 4), '-0.8' (line 6, bottom); 0.4 deg/div; top border = 1.2 (unlabelled). Panel 3: 'PITCH RATE (POSITIVE NOSE UP), deg/s'; labels '0' (line 2), '-0.4' (line 4), '-0.8' (line 6); 0.2 deg/s per div; top border +0.2, bottom border -1.0 (both unlabelled). Panel 4: 'AVERAGE PITCH ENGINE POSITION (POSITIVE STEER NOSE DOWN), deg'; labels '0.4' (top border), '0' (line 3), '-0.4' (bottom border); 0.2 deg/div. Panels 2-4 have consistent labels. Every panel has the solid measured curve and a dashed simulated curve, except panel 1, where only one stroke is visible.",
+ "calibration": "Source pixels: the page's embedded 300 ppi 1-bit CCITT scan (pdfimages, 3272x2544), rotated 90 deg so time runs left to right (2544x3272). This is the native resolution; the 400 dpi pdftoppm render (also made) is only a resample of it. The gridlines were tracked separately for each panel and each line: each horizontal line was centroided in 6 px windows about every 6 px along x (about 230-260 samples a line), and each vertical line likewise along y (40-88 samples). Each line got its own robust linear fit (3-sigma clipping). Per-line fit rms: horizontal 0.24-0.71 px, vertical 0.17-0.45 px. Skew is not rigid: horizontal-line slopes fall from 0.0095-0.0154 (0.76 deg) in panel 1 to 0.0036-0.0048 (0.24 deg) in panel 4, and vertical-line slopes run -0.0025 to -0.0130 (0.25-0.55 deg). So no single rotation or affine map was used. Mapping: time from the two neighbouring vertical lines, evaluated at the point's own y (10 s per interval). Value from the two neighbouring horizontal lines, evaluated at the point's own x. Gridline spacing is not uniform: vertical lines depart from a uniform 94.5-94.8 px/10 s fit by up to 2.5-3.5 px (rms 1.0-1.3 px, i.e. up to 0.37 s). Panel 1's horizontal lines depart from a uniform 92.9 px/div by -2.5..+2.2 px (up to 0.5 deg at 20 deg/div); panels 2-4 by at most 1.1 px. The piecewise-local mapping absorbs both. Horizontal lines at x=1400 (y px): p1 653.8, 751.3, 844.1, 934.4, 1026.7; p2 1092.6, 1183.6, 1275.8, 1368.6, 1459.5, 1552.9; p3 1613.5, 1707.3, 1798.1, 1890.5, 1980.7, 2073.2, 2165.5; p4 2210.9, 2303.7, 2396.7, 2487.4, 2581.2. Vertical lines 0-170 s at panel mid-height (x px), p2: 602.7, 695.9, 791.6, 884.8, 979.5, 1075.0, 1168.5, 1264.2, 1359.4, 1451.9, 1547.4, 1643.2, 1736.8, 1832.0, 1927.0, 2020.6, 2117.1, 2214.3 (other panels in calib.json). Scales: p1 0.215 deg/px (at 20 deg/div), p2 0.00435 deg/px, p3 0.00218 deg/s/px, p4 0.00216 deg/px, time 0.106 s/px. Time-axis check: the event-triangle centres read 13.7 s (begin pitch/roll), 20.5 (cant), 30.8 (end roll), 65.8 (Mach 1), 83.6 (max Q), 135.5 (CECO) and 160.0 (tilt arrest). These match the flight event times within +-0.55 s, with no systematic offset. Curve extraction: the gridlines were erased only where the dark run across a line is no longer than the bare line, then connected components were labelled. A Viterbi path over column runs (penalising short dash components and gaps) picked out the continuous solid curve, and its column-run centres give the centreline. It was checked by overlay on zoomed crops. Anchors forced the path onto the solid spikes in panel 3 (55-92 s) and onto the solid in panel 2 (68.8 s) and panel 4 (66 s), where it had followed dashes. Samples on 10 s gridlines were read from where the curve crosses the vertical line (rows where the dark run is wider than the line) and checked against 7x zooms. Panel 1 samples come from a local robust linear fit of the centreline over +-15 px.",
+ "axis_reading_for_panel1": "Printed: '0' at the top border, '-40' on the 3rd of 5 horizontal lines (the middle one), '-60' on the bottom border, lines 2 and 4 unlabelled. Used: 0 to -80 deg at 20 deg/div, so lines read 0, -20, -40, -60, -80. This keeps the '0' and '-40' labels and treats the bottom '-60' as a misprint for '-80'. Evidence 1, internal to the figure: integrating this figure's own pitch-rate panel (the traced solid curve) from 25 to 160 s gives -68.8 deg. The panel-1 attitude change over the same span is -66.4 deg on the 0..-80 reading and -49.8 deg on the 0..-60 reading (15 deg/div, which would make the middle label -30). Over each 15-20 s sub-interval the rate integral matches the 20 deg/div attitude change within 0.6 deg (for example 60-80 s: -14.4 vs -14.8), while 15 deg/div is short by about 25 % every time. Evidence 2, external, a cross-check only and not used to read values: on the 0..-80 reading the curve gives -20.8 deg at 60 s, -56.7 at 120 s and -69.0 at 160 s. The SA-504 tilt polynomial and MAN506 Fig. 2-2, quoted in the repo's AS506-datasheet.md, give -20 to -20.6 at 1 min, -56 to -56.5 at 2 min and a -67.5 to -68.0 plateau. On 0..-60 the curve would read -15.6, -42.5 and -51.7.",
+ "accuracy_deg": "Panel 1 (attitude): +-0.4 deg from 25 to 160 s (centreline-fit rms 0.3-1.4 px = 0.07-0.3 deg, plus up to 0.5 deg of grid non-uniformity, which the local mapping absorbs). At 15 and 20 s the curve merges with the top border, so it is only +-0.5 deg there. The 20 deg/div scale is assumed (see the axis reading). Panel 2 (error): +-0.015 deg where the curve is shallow (stroke 6-8 px = 0.03 deg). +-0.03-0.04 deg on steep stretches (65, 90, 115, 120 and 135 s, where the slope is up to 0.25 deg/s) and where solid and dashed merge at gridline crossings (40, 50, 60 s). Panel 3 (rate): +-0.015 deg/s away from 60-90 s. From 60 to 90 s the measured trace oscillates at about 1 Hz with thin, steep strokes tangled with the dashed curve: +-0.05 deg/s there. At 70.0 s the curve rises almost vertically along the gridline from -0.96 to -0.66, so +-0.1 deg/s. Panel 4 (engine): +-0.015 deg, +-0.03 at 90 and 120 s (steep). Time calibration: +-0.1 s.",
+ "notes": "Flight curve = solid 'MEASURED'. command_deg is null at every time: panel 1 shows one stroke, which both the ACTUAL and COMMANDED arrows point at. The attitude error is below 1 deg (4.7 px), smaller than the 7 px stroke, so the two curves cannot be told apart. Panel-2 extremes of the flight curve (t s, deg): min 11.0 -0.47 and max 14.6 +0.18 (both before 15 s); min 18.8 0.00; max 23.3 +0.21; min 25.5 +0.15; max 49.1 +0.64; min 55.3 +0.46; max 59.4 +0.64; min 61.6 +0.56; max 65.4 +0.78; min 70.2 +0.44 (flat 69.3-71.0); max 73.9 +0.62; min 78.7 +0.22; max 82.7 +0.40; min 86.1 +0.30; max 91.4 +0.83; min 111.1 -0.17; max 117.7 +0.90 (global max over 15-162 s; centreline, stroke top edge +0.91); min 126.9 -0.43; max 131.5 -0.15; min 136.3 -0.57 (global min, 1.1 s after CECO); max about 140.8 -0.02; min 145.7 -0.15; max 153.0 0.00. The curve ends with a drop: -0.09 at 159.5, -0.18 at 160.8, -0.30 at 161.6 (OECO), -0.33 at about 162.0 s (the end of the curve). Also in the JSON file as error_extremes.\nComparison with the earlier by-eye values. Agree: 30 s 0.29 (by-eye 0.27); 40 s 0.45 (0.42); 100 s 0.43 (0.43); CECO, 135.2 s, -0.48 (-0.5), but the minimum is later, -0.57 at 136.3 s. Partly agree: 50-60 s, where by-eye had 0.6 throughout; I get 0.59 at 50 and 0.61 at 60 s, but a dip to 0.46 at 55.3 s in between. Disagree: 70 s, 0.44 against by-eye 0.77. The 0.78 peak is at 65.4 s, and 70 s is the bottom of a trough. Disagree: the 'peak 0.8 at 90 s' is 0.83 at 91.4 s, and at 90.0 s the curve is still rising through 0.74. Close: 110 s, -0.11 against -0.14 (the minimum is -0.17 at 111.1 s). 117.5 s: I read the centreline peak as 0.90 at 117.7 s (0.91 at the top edge of the stroke), against 0.92 by eye. FER Table 11-2's 0.83 at 117.4 s is 0.07 deg (16 px) below the plotted peak. The plot is drawn above the tabulated maximum, and this is not a reading error: the 0.8 line at that x is at y=1186.2 and the peak centreline at y=1164. Text cross-check: FER \u00a711.2.2 gives a pitch attitude error of -0.3 deg at OECO, and the plot reads -0.30 at 161.6 s. Panel 3, 60-90 s: the measured rate is a high-frequency trace of 0.5-1 s spikes between about -0.5 and -0.96 deg/s. The 5 s samples there are single points on that oscillation and do not average it. The dashed (simulated) curve runs about -0.70 to -0.75 there. Panel 4 at 160 s comes from a manual zoom: the solid crosses the 160 s line at -0.10 and ends at -0.14 at about 162 s. All work files are in /tmp/claude-0/-home-user-ullage/1c835ba6-4d0a-5d42-96bb-a9ff7c081ab9/scratchpad/data2/fig111-A/: native scan img/nat-000.png, rotated img/natr.png, gridline fits calib.json, traces dp_p1..p4.json, scripts in scripts/.",
+ "samples": [
+  {
+   "t": 15,
+   "attitude_deg": -0.4,
+   "command_deg": null,
+   "error_deg": 0.17,
+   "rate_deg_s": -0.2,
+   "engine_deg": 0.03
+  },
+  {
+   "t": 20,
+   "attitude_deg": -1.1,
+   "command_deg": null,
+   "error_deg": 0.06,
+   "rate_deg_s": -0.12,
+   "engine_deg": -0.05
+  },
+  {
+   "t": 25,
+   "attitude_deg": -2.6,
+   "command_deg": null,
+   "error_deg": 0.16,
+   "rate_deg_s": -0.29,
+   "engine_deg": -0.08
+  },
+  {
+   "t": 30,
+   "attitude_deg": -4.1,
+   "command_deg": null,
+   "error_deg": 0.29,
+   "rate_deg_s": -0.35,
+   "engine_deg": -0.06
+  },
+  {
+   "t": 35,
+   "attitude_deg": -6.0,
+   "command_deg": null,
+   "error_deg": 0.35,
+   "rate_deg_s": -0.47,
+   "engine_deg": -0.11
+  },
+  {
+   "t": 40,
+   "attitude_deg": -8.4,
+   "command_deg": null,
+   "error_deg": 0.45,
+   "rate_deg_s": -0.5,
+   "engine_deg": -0.05
+  },
+  {
+   "t": 45,
+   "attitude_deg": -11.2,
+   "command_deg": null,
+   "error_deg": 0.49,
+   "rate_deg_s": -0.61,
+   "engine_deg": -0.07
+  },
+  {
+   "t": 50,
+   "attitude_deg": -14.2,
+   "command_deg": null,
+   "error_deg": 0.59,
+   "rate_deg_s": -0.67,
+   "engine_deg": -0.05
+  },
+  {
+   "t": 55,
+   "attitude_deg": -17.7,
+   "command_deg": null,
+   "error_deg": 0.47,
+   "rate_deg_s": -0.76,
+   "engine_deg": -0.12
+  },
+  {
+   "t": 60,
+   "attitude_deg": -20.8,
+   "command_deg": null,
+   "error_deg": 0.61,
+   "rate_deg_s": -0.7,
+   "engine_deg": -0.04
+  },
+  {
+   "t": 65,
+   "attitude_deg": -24.5,
+   "command_deg": null,
+   "error_deg": 0.73,
+   "rate_deg_s": -0.63,
+   "engine_deg": 0.05
+  },
+  {
+   "t": 70,
+   "attitude_deg": -28.3,
+   "command_deg": null,
+   "error_deg": 0.44,
+   "rate_deg_s": -0.85,
+   "engine_deg": -0.09
+  },
+  {
+   "t": 75,
+   "attitude_deg": -31.8,
+   "command_deg": null,
+   "error_deg": 0.56,
+   "rate_deg_s": -0.7,
+   "engine_deg": -0.03
+  },
+  {
+   "t": 80,
+   "attitude_deg": -35.6,
+   "command_deg": null,
+   "error_deg": 0.27,
+   "rate_deg_s": -0.6,
+   "engine_deg": -0.12
+  },
+  {
+   "t": 85,
+   "attitude_deg": -39.0,
+   "command_deg": null,
+   "error_deg": 0.36,
+   "rate_deg_s": -0.74,
+   "engine_deg": -0.12
+  },
+  {
+   "t": 90,
+   "attitude_deg": -41.6,
+   "command_deg": null,
+   "error_deg": 0.74,
+   "rate_deg_s": -0.56,
+   "engine_deg": 0.18
+  },
+  {
+   "t": 95,
+   "attitude_deg": -44.8,
+   "command_deg": null,
+   "error_deg": 0.55,
+   "rate_deg_s": -0.65,
+   "engine_deg": 0.04
+  },
+  {
+   "t": 100,
+   "attitude_deg": -47.6,
+   "command_deg": null,
+   "error_deg": 0.43,
+   "rate_deg_s": -0.59,
+   "engine_deg": 0.03
+  },
+  {
+   "t": 105,
+   "attitude_deg": -50.3,
+   "command_deg": null,
+   "error_deg": 0.13,
+   "rate_deg_s": -0.55,
+   "engine_deg": -0.08
+  },
+  {
+   "t": 110,
+   "attitude_deg": -53.0,
+   "command_deg": null,
+   "error_deg": -0.11,
+   "rate_deg_s": -0.54,
+   "engine_deg": -0.11
+  },
+  {
+   "t": 115,
+   "attitude_deg": -54.7,
+   "command_deg": null,
+   "error_deg": 0.57,
+   "rate_deg_s": -0.21,
+   "engine_deg": 0.17
+  },
+  {
+   "t": 120,
+   "attitude_deg": -56.7,
+   "command_deg": null,
+   "error_deg": 0.56,
+   "rate_deg_s": -0.58,
+   "engine_deg": 0.02
+  },
+  {
+   "t": 125,
+   "attitude_deg": -59.4,
+   "command_deg": null,
+   "error_deg": -0.36,
+   "rate_deg_s": -0.51,
+   "engine_deg": -0.21
+  },
+  {
+   "t": 130,
+   "attitude_deg": -60.9,
+   "command_deg": null,
+   "error_deg": -0.22,
+   "rate_deg_s": -0.33,
+   "engine_deg": -0.1
+  },
+  {
+   "t": 135,
+   "attitude_deg": -62.9,
+   "command_deg": null,
+   "error_deg": -0.46,
+   "rate_deg_s": -0.43,
+   "engine_deg": -0.17
+  },
+  {
+   "t": 140,
+   "attitude_deg": -64.1,
+   "command_deg": null,
+   "error_deg": -0.06,
+   "rate_deg_s": -0.25,
+   "engine_deg": -0.07
+  },
+  {
+   "t": 145,
+   "attitude_deg": -65.5,
+   "command_deg": null,
+   "error_deg": -0.14,
+   "rate_deg_s": -0.3,
+   "engine_deg": -0.12
+  },
+  {
+   "t": 150,
+   "attitude_deg": -66.7,
+   "command_deg": null,
+   "error_deg": -0.06,
+   "rate_deg_s": -0.25,
+   "engine_deg": -0.1
+  },
+  {
+   "t": 155,
+   "attitude_deg": -67.8,
+   "command_deg": null,
+   "error_deg": -0.02,
+   "rate_deg_s": -0.28,
+   "engine_deg": -0.11
+  },
+  {
+   "t": 160,
+   "attitude_deg": -69.0,
+   "command_deg": null,
+   "error_deg": -0.12,
+   "rate_deg_s": -0.23,
+   "engine_deg": -0.1
+  }
+ ],
+ "error_extremes": [
+  {
+   "t": 11.0,
+   "error_deg": -0.47,
+   "kind": "min",
+   "note": "before 15 s"
+  },
+  {
+   "t": 14.6,
+   "error_deg": 0.18,
+   "kind": "max",
+   "note": "before 15 s"
+  },
+  {
+   "t": 18.8,
+   "error_deg": 0.0,
+   "kind": "min"
+  },
+  {
+   "t": 23.3,
+   "error_deg": 0.21,
+   "kind": "max"
+  },
+  {
+   "t": 25.5,
+   "error_deg": 0.15,
+   "kind": "min"
+  },
+  {
+   "t": 49.1,
+   "error_deg": 0.64,
+   "kind": "max"
+  },
+  {
+   "t": 55.3,
+   "error_deg": 0.46,
+   "kind": "min"
+  },
+  {
+   "t": 59.4,
+   "error_deg": 0.64,
+   "kind": "max"
+  },
+  {
+   "t": 61.6,
+   "error_deg": 0.56,
+   "kind": "min"
+  },
+  {
+   "t": 65.4,
+   "error_deg": 0.78,
+   "kind": "max"
+  },
+  {
+   "t": 70.2,
+   "error_deg": 0.44,
+   "kind": "min",
+   "note": "flat bottom 0.44-0.45 from 69.3 to 71.0 s"
+  },
+  {
+   "t": 73.9,
+   "error_deg": 0.62,
+   "kind": "max"
+  },
+  {
+   "t": 78.7,
+   "error_deg": 0.22,
+   "kind": "min"
+  },
+  {
+   "t": 82.7,
+   "error_deg": 0.4,
+   "kind": "max"
+  },
+  {
+   "t": 86.1,
+   "error_deg": 0.3,
+   "kind": "min"
+  },
+  {
+   "t": 91.4,
+   "error_deg": 0.83,
+   "kind": "max"
+  },
+  {
+   "t": 111.1,
+   "error_deg": -0.17,
+   "kind": "min"
+  },
+  {
+   "t": 117.7,
+   "error_deg": 0.9,
+   "kind": "max",
+   "note": "global max 15-162 s; centreline, stroke top edge 0.91; FER Table 11-2 gives 0.83 at 117.4 s"
+  },
+  {
+   "t": 126.9,
+   "error_deg": -0.43,
+   "kind": "min"
+  },
+  {
+   "t": 131.5,
+   "error_deg": -0.15,
+   "kind": "max"
+  },
+  {
+   "t": 136.3,
+   "error_deg": -0.57,
+   "kind": "min",
+   "note": "global min 15-162 s, 1.1 s after CECO (135.2 s), where the curve reads -0.48"
+  },
+  {
+   "t": 140.8,
+   "error_deg": -0.02,
+   "kind": "max",
+   "note": "low bump, +-0.5 s"
+  },
+  {
+   "t": 145.7,
+   "error_deg": -0.15,
+   "kind": "min"
+  },
+  {
+   "t": 153.0,
+   "error_deg": 0.0,
+   "kind": "max"
+  },
+  {
+   "t": 162.0,
+   "error_deg": -0.33,
+   "kind": "end",
+   "note": "curve end; drops from -0.09 at 159.5 s to -0.30 at 161.6 s (OECO) and -0.33 at about 162 s"
+  }
+ ]
+}

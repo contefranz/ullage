@@ -2,7 +2,7 @@
 
 Compiled on 2026-10-15 for M1 item 1 (the Saturn V stack) from web research in four categories: launch-vehicle masses and timeline, propulsion, geometry and aero, and spacecraft. Each category was independently re-verified, then reconciled here. `Sources/OrbitCore/Vessel/AS506Data.swift` holds the values the simulator uses, with the same sources and confidence grades.
 
-**Limits.** The NASA documents could not be fetched directly; values come from search extracts of them, from arithmetic on those values, or (marked **recalled**) from memory without a check against the source. The SP-4029 S-II and S-IVB propellant-usage rows and the FER mass tables are still unread; they are the most valuable follow-up. *Update (§8, 2026-10-16): the FER was then read directly; §8.7 lists its values that bear on §1–§7. Update (§9, 2026-10-17): the model's propulsion and masses are now calibrated to the FER. §9 supersedes, for the model, the derived masses of §1.1, the S-II and S-IVB engine rows of §1.2 and §1.3 and §1.7's decision 7, all of §2, the flight rows of §3 and targets A and B of §5, which stay here as the pre-FER record. Update (§10, 2026-10-17): the IU now flies the S-II and S-IVB on iterative guidance (IGM), which commands the EMR shift and the S-IVB cutoff in place of §8's timed stand-ins. Update (§11, 2026-10-17): the launch stack now has sourced aerodynamics (axial and normal force, centre of pressure) and flies through the launch day's measured air and winds; §11 supersedes §1.6's placeholder drag. Update (§12, 2026-10-17): the retros and ullage motors are solid motors that separate the stages, and the LES's tower-jettison motor throws the tower clear; §12 supersedes §3's solid-motor rows. Update (§13, 2026-10-18): the mass distribution is sourced: each stage's dry CG and inertias from FER Table 20-10, the tank loads from the station diagram and the tank drawings, the J-2 gimbal stations, the LM's CG; liquids have no roll inertia, and the S-IC flies REF504's roll filter. §13 supersedes §4's tank extents and J-2 rows and the dry-CG remarks of §4. Update (§14, 2026-10-18): three diagnostics against AS-506's postflight trajectory place the remaining ascent residuals by stage; they answer §8.5's and §11.5's open causes and break down §10.5's cutoff delay. Update (§15, 2026-10-18): the Earth has WGS 84's figure, with geodetic altitude, latitude and vertical, and the pad stands at AS-506's geodetic latitude, 4.85 km lower than on the sphere; §15 supersedes the model fact "Spherical Earth", §1.6's pad rows and §5's frame notes, and re-baselines the flight (§15.3).*
+**Limits.** The NASA documents could not be fetched directly; values come from search extracts of them, from arithmetic on those values, or (marked **recalled**) from memory without a check against the source. The SP-4029 S-II and S-IVB propellant-usage rows and the FER mass tables are still unread; they are the most valuable follow-up. *Update (§8, 2026-10-16): the FER was then read directly; §8.7 lists its values that bear on §1–§7. Update (§9, 2026-10-17): the model's propulsion and masses are now calibrated to the FER. §9 supersedes, for the model, the derived masses of §1.1, the S-II and S-IVB engine rows of §1.2 and §1.3 and §1.7's decision 7, all of §2, the flight rows of §3 and targets A and B of §5, which stay here as the pre-FER record. Update (§10, 2026-10-17): the IU now flies the S-II and S-IVB on iterative guidance (IGM), which commands the EMR shift and the S-IVB cutoff in place of §8's timed stand-ins. Update (§11, 2026-10-17): the launch stack now has sourced aerodynamics (axial and normal force, centre of pressure) and flies through the launch day's measured air and winds; §11 supersedes §1.6's placeholder drag. Update (§12, 2026-10-17): the retros and ullage motors are solid motors that separate the stages, and the LES's tower-jettison motor throws the tower clear; §12 supersedes §3's solid-motor rows. Update (§13, 2026-10-18): the mass distribution is sourced: each stage's dry CG and inertias from FER Table 20-10, the tank loads from the station diagram and the tank drawings, the J-2 gimbal stations, the LM's CG; liquids have no roll inertia, and the S-IC flies REF504's roll filter. §13 supersedes §4's tank extents and J-2 rows and the dry-CG remarks of §4. Update (§14, 2026-10-18): three diagnostics against AS-506's postflight trajectory place the remaining ascent residuals by stage; they answer §8.5's and §11.5's open causes and break down §10.5's cutoff delay. Update (§15, 2026-10-18): the Earth has WGS 84's figure, with geodetic altitude, latitude and vertical, and the pad stands at AS-506's geodetic latitude, 4.85 km lower than on the sphere; §15 supersedes the model fact "Spherical Earth", §1.6's pad rows and §5's frame notes, and re-baselines the flight (§15.3). Update (§16, 2026-10-18): engines can fail in flight; the IU senses an engine out, freezes the S-IC's pitch program (GE504) and stretches the S-II's stage 2 for the IGM; the nominal flight is unchanged.*
 
 ## Conventions
 
@@ -1084,7 +1084,7 @@ GE504 Table 4-II: chi_Y = Σ F_kn t^n (n = 0…4; t in s from T1) on four segmen
 | 3 (80–115) | 78.7826 | −2.83749 | 0.0289710 | −0.000178363 | 0.000000463029 |
 | 4 (≥ 115) | 69.9191 | −2.007490 | 0.0105367 | −0.0000233163 | 0.0000000136702 |
 
-Checks: the segments join within 0.04° (5.59/5.62° at 35 s, 35.16° at 80 s, 54.67° at 115 s); the command is −0.04° at 12 s, where the program starts; no segment exceeds 1°/s; it reaches −66.59° at SA-504's 153.0 s arrest. Other GE504 pre-IGM presettings: engine-out freeze B11 −0.62, B12 40.9 s, B21 −0.3611, B22 29.25 s, t_1 13.0 s (start backup), t_2 25, t_3 36, t_4 45, t_5 81 s; ΔtLET 35.1 s. The engine-out freeze logic is not modelled (§8.9 item 6).
+Checks: the segments join within 0.04° (5.59/5.62° at 35 s, 35.16° at 80 s, 54.67° at 115 s); the command is −0.04° at 12 s, where the program starts; no segment exceeds 1°/s; it reaches −66.59° at SA-504's 153.0 s arrest. Other GE504 pre-IGM presettings: engine-out freeze B11 −0.62, B12 40.9 s, B21 −0.3611, B22 29.25 s, t_1 13.0 s (start backup), t_2 25, t_3 36, t_4 45, t_5 81 s; ΔtLET 35.1 s. *The engine-out freeze is modelled since §16.*
 
 **AS-506's commanded pitch.** MAN506 Figure 2-2 plots AS-506's typical commanded pitch for the July window; read to about 1°, it seems to follow SA-504's polynomial (time from first motion, which is T1 − 0.4 s in MAN506; *§14.1 shows that AS-506's own command did not*):
 
@@ -1173,7 +1173,7 @@ The propulsion and mass model of §1–§3 was calibrated without the FER. These
 3. *Resolved in §10:* IGM, with presettings from the model's vehicle and AS-506's flight (AS-506's own presettings are still missing, §10.7).
 4. *Resolved in §10:* the S-II EMR shift by characteristic velocity.
 5. AS-506's roll gains and the definition of the roll β (per actuator or tangential, §7.2; the Astrionics System Handbook sends the roll signals to all eight servo amplifiers, which would make it per actuator and raise the roll authority √2), and the FCC filters (REF504 §3.5: the S-IC roll filter is flown since §13, the pitch and yaw filter is not). With FER Table 20-10's roll inertia (§13) the roll program's peaks come 1.3 and 2.0 s after its start, against AS-506's 0.6 and 1.2 s after its logged 13.2 s start; AS-506's measured rate carries a ±0.10–0.15°/s oscillation at about 0.25 Hz through the ramp (FER Figure 11-3) that neither MSFC's post-flight simulation nor the model has.
-6. GE504 Table 4-II's pre-IGM engine-out tilt freeze (B11, B12, B21, B22) for an S-IC engine out in the pitch program.
+6. *Resolved in §16:* GE504 Table 4-II's pre-IGM engine-out tilt freeze (B11, B12, B21, B22) for an S-IC engine out in the pitch program, with SA-504's presettings; AS-506's own are still missing.
 
 **Values tests must not depend on**: `pitchScale` beyond the OECO angle it was fitted to; the cant ramp rate; every gain (§7.5), beyond the roll-program peaks checked against the FER; APS K and minimum on-time; the program-start time (§8.5).
 
@@ -1206,6 +1206,8 @@ Compiled on 2026-10-17 to apply §8.7. Values come from the FER (MPR-SAT-FE-69-9
 | S-II ullage motors | Four solids, 23,000 lbf for 3.75 s each and 152.5 kg of propellant each (Isp_eff 256.5 s), on the interstage; lit by the IU at T3 + 0.5 s, burned out 3.75 s later (solid motors since §12, canted 10°). | MAN506 (thrust, burn time; M); Table 20-9 (610 kg in all; 309 kg left at S-II engine start; H); Table 2-2 (times; H). | M |
 
 **How the engines work in the core** (`Components.swift`, `PropulsionModelTests` A6–A9). A `PerformanceSchedule` scales an engine's rating, thrust and flow by factors and sets its mixture ratio, piecewise linear on the engine's burn clock, which runs from its start; the exit area stays. `EngineTransients` add a start delay with a linear rise and a linear shutdown. Ramps are sampled at the middle of each step. A cutoff commanded before a step starts the decay with that step; an engine whose tank runs dry within a step runs to its end, then decays. Every engine's step is fixed before any draws, so engines sharing a tank that runs dry within a step are treated alike. A cut engine runs its decay to the end before a new command can start it, and the simulation keeps 0.02 s steps from a start command, through the delay, so the ramps are the same at any time warp. The IU senses an engine's cutoff, not the end of its decay, and the HUD's stage Δv follows the schedule and ignores the ramps.
+
+**Rating ramps** (2026-10-18, `PropulsionModelTests` A10). A change of rating can take time: the IU's `.rating(part:_:ramp:)` action, through `Thruster.setRating(_:ramp:)`, moves vacuum thrust, mass flow, mixture ratio and nozzle exit area linearly from the rating in effect to the new one over `ramp` s. The ramp runs in equal cells of at most 0.02 s, each at the value of its middle, and the IU ends steps on the cells' ends, so each step lies within one cell: the ramp's impulse, (F0 + F1)/2 over its length, its propellant and the propellant's split are the same at any step size and warp. The exceptions are the epoch's resolution (1.2e-7 s in 1969) and the simulation's 1 ms minimum step, which can stretch a step that starts just before a cell's end past it, so that it runs at most 1 ms at the earlier cell's value. The S-II's shifts keep a ramp of 0 (a step at the PU valve step, §9.2's table), so the flight is unchanged; the residual closure (§17) sizes AS-506's (§14.5 item 5: its effective EMR step came about 1.2 s after the valve step).
 
 ### 9.3 Fitted values
 
@@ -1276,6 +1278,7 @@ The S-IC's propellant is the FER's, so from OECO on the differences are the uppe
 | test | checks | depends on |
 |---|---|---|
 | `PropulsionModelTests` A6–A9 | schedule on the burn clock; start ramp; shutdown ramp after a cutoff and after depletion; a relight waits for the decay to end; scheduled stage Δv | mechanism only |
+| `PropulsionModelTests` A10 (`testRatingRampImpulseIsIndependentOfStepAndWarp`) | a rating ramp through a minimal IU plan, in fixed 0.02 s and 0.007 s steps and the app's frames at 1×, 10× and 1,000×: its impulse (F0 + F1)/2 over it, its propellant and their split the same in every run, within 1e-6 and a cell's change for 1 ms per step the 1 ms minimum stretches; steps that ignore the cells' ends err by over 1e-4 | mechanism only |
 | `SaturnVDataTests.testFirstMotionMassesMatchTheFER` (B3) | 2,899,008 kg at first motion to 1 kg, the ground-ignition 6,477,875 lb, every part, and the FER's interstage and spacecraft items against SP-4029's rows | FER Tables 20-1, 20-7, 20-9 (H); GIW (H) |
 | `testEngineRatings` (B1, B2) | the F-1's flight rating and its schedule against Figure 5-3 at liftoff, CECO and 160 s; against Betts' rating; the J-2 settings; the S-II's high EMR against the J-2 rating and Table 6-1's flow; the S-IVB's thrust and Isp against Table 7-1 | FER (H tables, M figures), Betts, NTRS 20100032986 |
 | `testTransientImpulsesMatchTheFER` (B2) | every start and shutdown ramp's impulse (or the S-II start's propellant), run through the engines, within 1 % of the FER's | FER §5.4, §6.4, §7.2, §7.4, Table 20-9 (H) |
@@ -1334,7 +1337,8 @@ GE504's into-orbit path, every 1.7 s cycle (Fig. 4-1; the IU ends a step on the 
 | cutoff | T_GO from a quadratic fit to the last three speeds (Table 4-V) | from the speed's present rate (thrust acceleration along the velocity plus gravity), the simulation ending a step on the predicted cutoff | with the app's steps (`Simulation.advance`) the cutoff lands on V_T − ΔV_B within 0.01 m/s (§10.4: under 0.0001 m/s); fixed 0.02 s steps that ignore the IU's event time overshoot it by up to 0.13 m/s |
 | phase 3 | from the T4 interrupt | from the first IGM cycle after T4 (up to 1.7 s late; the steering is frozen through the coast either way) | the stage logic runs on the cycle |
 | IGM start | TB3 + T_LET (40.671 s) | T3 + 42.4 s, AS-506's | FER Tables 2-2 and 10-4 |
-| not modelled | steering misalignment correction (SMC), S-II engine-out (the 5/4 factors), direct staging, rotated terminal conditions, range angle 2 (ε1), terminal-condition updates (ε3) | — | AS-506 ran SMC from 221.5 s (FER Table 10-4); it corrects a thrust misalignment the model does not have. ε1 and ε3 never apply into orbit with SA-504's values. |
+| S-II engine out | Fig. 4-6: on the engine-out discrete, T1, T2 and τ2 times 5/4 | T2, τ2 and τ2N times the engines the stage 2 presettings assume over those left (4/3 for an outboard J-2, 1 for the centre engine); T1 from the characteristic velocity; T2 no longer reset at the shift (§16) | AS-506's planned S-II CECO leaves four engines in stage 2; AS-506's own "expanded IGM" was not found (§16.3 item 2) |
+| not modelled | steering misalignment correction (SMC), direct staging, rotated terminal conditions, range angle 2 (ε1), terminal-condition updates (ε3) | — | AS-506 ran SMC from 221.5 s (FER Table 10-4); it corrects a thrust misalignment the model does not have. ε1 and ε3 never apply into orbit with SA-504's values. |
 
 ### 10.3 Presettings
 
@@ -1414,7 +1418,7 @@ The pitch follows the OT within 1.3° throughout, including the pitch-up at IGM 
 4. **Terminal guidance as ε2 = 35 s** rests on reading the FER's "begin chi bar steering" as GE504's K = 0 mode (§10.3).
 5. **The model's presettings are its own vehicle's,** not AS-506's (§10.3), and V_C is fitted to the shift command's time.
 6. **Phase 3 starts on the first cycle after T4,** 0.9 s after it here; the steering is frozen through the coast either way.
-7. **Perfect navigation and an exact BNVC;** no SMC, engine-out or direct staging.
+7. **Perfect navigation and an exact BNVC;** no SMC or direct staging. *An S-II engine out scales the stage 2 presettings since §16.*
 8. **The model inserts at circular speed,** where AS-506's vents left the LVDC 0.22 m/s above it (186.0 × 185.2 km).
 
 ### 10.6 Tests
@@ -1433,7 +1437,7 @@ The pitch follows the OT within 1.3° throughout, including the pitch-up at IGM 
 ### 10.7 Remaining gaps
 
 1. AS-506's own IGM presettings (operational trajectory, ICD 40M33626B), and its formula for T1i from BNVC.
-2. SMC, the S-II engine-out logic and direct staging; navigation errors and the LVDC's gravity model and BNVC scaling.
+2. SMC and direct staging (*the S-II engine-out logic: §16, as GE504's; AS-506's expanded IGM is still missing*); navigation errors and the LVDC's gravity model and BNVC scaling.
 3. The S-IVB second burn (TLI) is M2: GE504's out-of-orbit path and AS-506's restart presettings.
 4. The model's 15.6 m/s speed deficit at S-II OECO, mostly the S-IC's (§9.5, §11.5): about 2.3 s of the cutoff's 3.4 s delay; the other 1.1 s is not broken down (§10.5). *Broken down in §14.*
 
@@ -2183,7 +2187,7 @@ The next item replaces `pitchScale` with AS-506's pitch program and adds the unm
    - **S-IVB F/m:** −8.4 m/s, about 1.25 s. This is a choice between the FER's thrust reconstruction (Figure 7-2, Table 20-5) and its measured acceleration (Table 4-1, the PFT, the platform). Record the choice. R5 shows that 0.7 % is worth 0.94 s.
    - **S-IC F/m:** −8.1 m/s. It is 0.4–0.8 % low in the first 20 s (liftoff thrust 34.11 against 34.35 MN) and 0.2–0.35 % low after that.
    - **S-II:**
-     - AS-506's effective EMR step came about 1.2 s after the valve step, which costs −5.1 m/s.
+     - AS-506's effective EMR step came about 1.2 s after the valve step, which costs −5.1 m/s. *The core can now ramp a rating (§9.2, "Rating ramps"); the ramp's length is still to size.*
      - Figure 6-3's declining low-EMR thrust, in place of a constant 3.072 MN, explains part of −5.0 m/s.
    - **In the model's favour, to keep in view:**
      - the F-1 tail-off through S-II start: +1.1 to +1.5 m/s against the PFT;
@@ -2301,3 +2305,105 @@ Pins widened by this section, each marked "see §17" in its test; nothing else w
 Two tests changed what they measure, not their tolerances:
 - `testSICAscentMatchesApollo11` takes the climb from the pad's geodetic altitude (the sphere's r − R would carry the 4.8 km), and its CECO and OECO altitudes, now geodetic, compare with the FER's directly: 43.98 and 66.05 km against 44.0 and 66.1 km.
 - `testSpentStagesClimbAsPredicted` compares the apexes as heights over Fischer 1960 (`Ellipsoid.fischer1960`) instead of as climbs above the pad: the S-IC 113.6 km at 267.5 s (PFT 115.0 km at 269.1 s), the S-II 189.1 km (188.8 km), both within 1.5 km.
+
+---
+
+## 16. Engine out (M1 item: engine-out)
+
+Compiled on 2026-10-18. An engine of the S-IC or the S-II can now fail in flight, and the IU reacts as AS-506's flight program did, as far as its documents show: it senses the engine out, freezes the S-IC's pitch program for a time set by the failure time, and stretches the S-II's predicted burn for the IGM. The failure comes from a schedule on the IU (`SaturnIU.scheduleFailure`), which is public so that the app can add a failure key and scenarios without changing the core. With no failure scheduled every new branch stays idle, and the nominal flight is unchanged to the bit (16.2). `SaturnIU.swift` holds the logic, `IterativeGuidance.swift` the S-II reaction, `AS506EngineOut.swift` the values, and `Thruster.fail()` the failure itself.
+
+**Sources** (read directly; tables and figures from the page images):
+
+- **GE504** (Boeing D5-15706-4). Table 4-II, "S-IC engine out" (the T_EO1 latch and t_FAIL), "Freeze time calculation", the pre-IGM χ_Y steering on t_c − Δt_f, and "S-II IGM engine out"; Figure 3-4, the SA-504 reduced-loads chi-freeze schedule; Figure 4-4, the pre-IGM logic; Figures 4-5 and 4-6, the IGM stage logic and its engine-out presettings (T1, T2 and τ2 times 5/4); Table 5-I's presettings (B11 −0.62, B12 40.9 s, B21 −0.3611, B22 29.25 s, t_2 25, t_3 36, t_4 45, t_5 81 s). H for SA-504, M for AS-506.
+- **MAN506** (MSFC-MAN-506). Page 2-17: the chi-freeze schedule "is incorporated into the vehicle guidance program as an alternate" for the loss of thrust of an S-IC engine (H: AS-506's program had it). §2 and §3: the IU's switching logic reads the thrust OK pressure switches of each engine, whose engine status lights come on below 90 % of rated thrust on an F-1 and 65 % on a J-2; the EDS automatic abort on two or more S-IC engines below 90 %, armed from liftoff until the crew turns it off at 2 min. Figure 3-7, the abort limits: on the S-IC a single engine failure continues the mission and two are an abort; on the S-II one continues, two are an abort if control is lost (rates over 9°/s), and three or more an abort if before S-IVB capability (H).
+- **AS-506 FER** Table B-4: the flight program flew an "expanded S-II IGM guidance", which adjusts automatically for performance far off nominal and has an inherent capability for more than one S-II engine out (H).
+- **AS-508 FER** (MPR-SAT-FE-70-2; Apollo 13). Table 2-2: S-II engine 5 cut off at 330.65 s, T3 + 167.00 s, 132.36 s before its planned cutoff; the IGM's EMR shift command 32.2 s later than predicted, S-II OECO 34.53 s later, the S-IVB velocity cutoff 44.06 s later. §6.1: the delays are mainly the early cutoff's, and to a smaller degree the engines' performance (S-II thrust 0.19 % and flow 0.25 % below prediction) and the upper stages' heavier loads. Table 4-5: insertion near nominal (0.2 km, −0.5 m/s, its navigation's errors included). §9: the expanded IGM's reaction to a thrust loss did not depend on the engine-out discrete, which only set a telemetry bit; AS-505's IGM, the last without it, reacted on the discrete after sampling the acceleration for three cycles (H).
+- **AS-502 FER** (MPR-SAT-FE-68-3; Apollo 6) §11: S-II engines 2 and 3 cut off at 412.92 and 414.18 s (the thrust OK switches' dropout); the pitch attitude error reached 13.4° at a rate of 2.8°/s, with up to 5.95° of engine deflection (H). A sanity bound on the control transient, not a calibration target.
+
+AS-506's own engine-out presettings were not found: GE504's SA-504 values stand in, as they do for the pitch program (§8.4).
+
+### 16.1 The model
+
+| item | model | basis | conf |
+|---|---|---|---|
+| failure | `Thruster.fail()`: latched, apart from `isEnabled` (a flight program's cutoff, which it can undo). From the next step the engine is no longer commanded and falls along its shutdown ramp as on a cutoff; nothing restarts it. A failed solid not yet lit is a dud. `isAvailable` is `isEnabled` and not failed | — | — |
+| failure schedule | `SaturnIU.scheduleFailure(of:at:)`: an engine by name, at a range time (T1 at 0.63 s), a time-base offset or an epoch. Each failure is applied at the start of the step at its time, and `timeToNextEvent` ends a step there, so it lands on its time at any warp (to the simulation's 1 ms minimum step) | — | — |
+| engine-out discrete | the IU senses an engine out, once, when a main engine it did not cut off itself (its own cutoffs are kept apart) delivers under its stage's thrust OK level with the main throttle open: 90 % of rated thrust on the S-IC, from T1 + 6 s until T3; 65 % on the S-II, from mainstage (an S-II engine at 65 %) until T4. The F-1's 0.66 s decay passes 90 % 0.066 s after the cutoff, the J-2's 0.38 s decay 65 % after 0.133 s; the model senses it on the step that samples less | MAN506 §2, §3 (thrust OK levels: M as the LVDC's); T1 + 6 s from the planning study's reading of GE504 (L, not re-read) | M / L |
+| T2 | starts on the IU's own centre engine cutoff, no longer when the centre engine is merely not enabled: an early failure of S-IC engine 5 would have started T2 at once, dropping T1's gain switches at T1 + 105 and 130 s, the cant and the timed cutoff | FER Table 2-1 (T2: the CECO sensed) | H |
+| stage cutoff | an engine that has failed counts as out in the time bases' burnout and firing tests, so losing every engine of a stage starts the next time base at that step | — | — |
+| S-IC chi freeze | on the first S-IC engine out (T_EO1), at t_FAIL s from T1: Δt_f = 36 s from 25 s for t_FAIL ≤ 25 s; 40.9 − 0.62 t_FAIL from the failure to 45 s; 29.25 − 0.3611 t_FAIL to 81 s; none after. The pitch program holds its value through the freeze, then runs Δt_f s behind (`TiltProgram.pitch(at:bias:arrest:)`), on from where it held. The tilt arrest moves out to t_AR + (t_AR − t_FAIL)/4 (from 159.37 s), and not for a failure after the arrest, when the LVDC already holds the command | GE504 Table 4-II, Figure 3-4 | H (SA-504), M (AS-506) |
+| S-II IGM | on the S-II discrete the IGM scales the remaining T2, τ2 and τ2N by k = the engines its stage 2 presettings assume over those of them left: GE504 Figure 4-6's 5/4 generalised to AS-506's planned S-II CECO, whose presettings are the four outboard engines'. k is 4/3 for an outboard J-2 (2 for two), 1 for the centre engine. T1 comes from the characteristic velocity (§10.2) and needs no factor. T2 is no longer reset to its presetting at the shift, which keeps the scaling; in a nominal flight T2 does not count down in stage 1, so that changes nothing | GE504 Figs 4-5, 4-6; FER Table B-4 | M (proxy, 16.3 item 2) |
+| timed cutoffs | the S-IC's centre engine cutoff at T1 + 134.56 s and the S-II's at T3 + 299 s stand with an engine out, and the log says so ("(with S-IC engine 1 out)", "(engine already out)") | not found for AS-506 | L |
+| aborts | logged only: two S-IC engines out (the EDS automatic abort before 120 s range time, an abort limit after), two S-II engines out (abort if control is lost), three (abort limit) | MAN506 Figure 3-7, §3 | H (rules) |
+| log and HUD | each failure, each engine-out sensed, the freeze and the IGM factor go in the IU's log; the status line ends ", engine out: S-II engine 5" (", engines out: ..." for more) while the engine is aboard, and reads "chi freeze (engine out)" during the freeze | — | — |
+
+### 16.2 Results
+
+**Nominal flight unchanged.** The IU flight with no failure (`NominalFlight`'s steps, and the IU tests' fixed 0.02 s steps) gives bit-identical final states, event times and logs before and after this section:
+
+| | event-ending steps | fixed 0.02 s steps |
+|---|---|---|
+| CECO, T2 | 135.190, 135.210 s | 135.190, 135.220 s |
+| OECO (T3) | 161.650 s | 161.640 s |
+| S-II OECO (T4) | 548.251 s | 548.240 s |
+| S-IVB velocity cutoff | 702.632352 s | 702.743239 s |
+| insertion (cutoff + 10 s): r, v, γ | 6,563,329.11 m, 7,793.0206 m/s, −0.000190° | 6,563,328.73 m, 7,793.0176 m/s, −0.000194° |
+| i, θ_N | 32.530889°, 123.097451° | 32.530888°, 123.097439° |
+
+**Apollo 13 analogue** (`EngineOutTests.testApollo13AnalogueMatchesAS508`): S-II engine 5 failed at T3 + 167.0 s (AS-508's time from T3), against the nominal flight. The IU senses it 0.13 s on; the IGM's factor stays 1. The same deltas came from today's IGM with the engine cut by hand (before this section's logic), so they are the vehicle's and the IGM's own response, not the new scaling's.
+
+| | nominal | engine 5 out | model Δ | AS-508 Δ (FER Table 2-2) |
+|---|---|---|---|---|
+| EMR shift command | 494.75 s | 527.05 s | +32.30 s | +32.2 s |
+| S-II OECO (T4) | 548.25 s | 581.53 s | +33.28 s | +34.53 s |
+| S-IVB velocity cutoff | 702.63 s | 747.82 s | +45.19 s | +44.06 s |
+| insertion r, v | 6,563,329.1 m, 7,793.020 m/s | 6,563,331.3 m, 7,793.048 m/s | +2.2 m, +0.03 m/s | near nominal (Table 4-5) |
+
+The S-II's OECO comes 1.25 s earlier than AS-508's: AS-508's own S-II flowed 0.25 % below prediction, about 1.1 s over its 429 s burn, which the model's delta does not contain. The model's S-IVB then burns 11.9 s longer than nominal against AS-508's 9.5 s, so its velocity cutoff ends 1.1 s later than AS-508's delta.
+
+**S-IC engine out** (`testSICEngineOutReachesOrbit`, `testChiFreezeHoldsAndResumesWithoutAStep`, `testEarlyCentreEngineFailureKeepsT1Events`): every case keeps its timed centre engine cutoff, reaches the IGM's velocity cutoff on V_T − ΔV_B within 0.01 m/s and inserts within 50 m and 0.003–0.006° of the nominal flight's radius and plane.
+
+| failure (s from T1) | sensed | chi freeze | tilt arrest | T3 | T4 | velocity cutoff | insertion speed against nominal | S-IVB LOX, LH2 left |
+|---|---|---|---|---|---|---|---|---|
+| none | — | — | 159.37 | 161.65 | 548.25 | 702.63 | — | — |
+| engine 1 (outboard) at 30 | 30.06 | 22.26 s from 30.06 | 191.70 | 204.85 | 591.45 | 879.82 | +0.40 m/s | 34.9 t, 7.0 t |
+| engine 5 (centre) at 60 | 60.06 | 7.56 s from 60.06 | 184.20 | 180.17 | 566.77 | 755.15 | +0.09 m/s | 52.7 t, 10.7 t |
+| engine 3 (outboard) at 90 | 90.06 | none | 176.70 | 185.17 | 571.77 | 760.22 | +0.07 m/s | 52.7 t, 10.7 t |
+
+Range times are 0.63 s later than times from T1. The IU's pitch command is the program's exactly through the freeze and after it, below the 1°/s limit, except where that limit takes two steps over the polynomial's own joins of up to 0.04° (§8.4), as in the nominal flight. The arrest extended past T3 keeps the pitch program running into the S-II burn until the IGM starts, as GE504 Figure 4-4 does. With the centre engine out early, T1's gain switches at 105 and 130 s and its timed cutoff at 134.56 s stand, and T2 starts on that cutoff.
+
+**S-II outboard engine out** (`testSIIOutboardEngineOutStretchesStage2`): engine 2 at T3 + 10 s. The IU sets k = 4/3 and the IGM starts with T2 and τ2 at 4/3 of their presettings. The attitude error peaks at 5.1° and the pitch and yaw rate at 1.27°/s, inside Apollo 6's two-engine-out 13.4° and 2.8°/s. On the point mass of §10.4 (`IterativeGuidanceTests.testIGMFliesAPointMassWithAnOutboardSIIEngineOut`), an outboard J-2 out at 328.6 s moves the shift command to 550.2 s; there the IGM's T2 is 71.2 s against the 70.8 s the three engines then burn (without the factor it would be 53.4 s), and the cutoff still lands within 100 m, 0.005° and 0.002° of the target.
+
+**Losing every engine of a stage** (`testLosingEveryEngineOfAStageStartsTheNextTimeBase`): all five J-2s failed at T3 + 20 s start T4 at that step, and the S-IVB's sequence follows.
+
+### 16.3 Known deviations
+
+1. **AS-506's own engine-out presettings were not found.** The freeze schedule, the arrest extension and the IGM's stage 2 presettings are SA-504's (GE504), M for AS-506. MAN506 confirms only that AS-506's program had a chi freeze.
+2. **The S-II reaction is GE504's discrete-triggered scaling, not AS-506's expanded IGM.** AS-506 flew an "expanded S-II IGM" (FER Table B-4) that adjusted its stage 2 predictions from the measured performance, so that by AS-508 the engine-out discrete only set a telemetry bit (AS-508 FER §9). Its equations were not found. The model scales T2, τ2 and τ2N on the discrete, as GE504 Figure 4-6 does (AS-505's way, without its three-cycle check of the acceleration), with the factor generalised to AS-506's planned S-II CECO. For the centre engine both reduce to no change in the presettings (k = 1), which is the Apollo 13 case.
+3. **Thrust OK levels and sensing start.** The 90 % (F-1) and 65 % (J-2) levels are MAN506's for the EDS engine status lights, taken for the LVDC's engine-out discrete (M). The brief this section was built from had 65 % for both; the difference moves the S-IC's sensing 0.18 s earlier. The S-IC's sensing from T1 + 6 s is the planning study's reading of GE504, not re-read (L). The model samples the discrete every step, the LVDC every computation cycle.
+4. **Fixed FCC mixing is not modelled (deferred).** The model's control allocation re-mixes the gimbals still firing every step (`ControlAllocation`, Gimbal.swift); the Saturn's flight control computer mixed the actuator commands in fixed proportions. After an engine out the model's control is therefore somewhat better than AS-506's would have been.
+5. **Aborts are logged, not flown,** and the S-IVB's engine-out reactions are not modelled: a failed S-IVB J-2 starts T5 as any S-IVB cutoff does.
+6. **Hard cutoffs only.** There is no partial thrust loss: Apollo 6's engine 2 ran at reduced thrust from 319 s until it cut off at 412.9 s.
+7. **The timed centre engine cutoffs stand with an outboard engine out.** Whether AS-506's program inhibited the S-II CECO with an outboard engine already out (leaving three, or two with two out) is not known; the S-IC's cutoff at T1 + 134.56 s limited the vehicle's acceleration and is kept.
+8. **ΔV_B is the nominal decay's.** A long S-IVB burn after an early S-IC engine out leaves a lighter S-IVB at cutoff, which the J-2's decay takes 0.40 m/s past circular speed for the failure at 30 s (134 s more S-IVB burn, about 29 t lighter). The LVDC's ΔV_B was a presetting too.
+9. **A stage that loses every engine starts the next time base at the failure step,** not on its propellant-depletion sensors.
+10. **At exactly 25 s** the model follows Table 4-II (36 s from 25 s); Figure 3-4 puts 25 s itself in the next row (25.4 s from 25 s).
+
+### 16.4 Tests (`EngineOutTests`, and `IterativeGuidanceTests` for the point mass)
+
+The four full flights (the Apollo 13 analogue and the three S-IC cases) are flown once and shared by the tests that read them, as `NominalFlight` is.
+
+| test | checks | depends on |
+|---|---|---|
+| `testFailureIsLatchedAndDistinctFromACutoff` | a failure stops the engine along the same shutdown ramp as a cutoff (900 N on the first step of a 1 kN engine with a 0.5 s ramp); a cut engine restarts when enabled again, a failed one does not; a failed solid is a dud | — |
+| `testChiFreezeScheduleIsGE504Figure34` | Table 5-I's presettings; Figure 3-4's freeze durations (36 s from 25 s, 25.4 s just after 25 s, 22.3 at 30, 13.0 at 45, 7.584 at 60, 0.0009 at 81, none at 90), the lines joining at 45 s and reaching 0 at 81 s; the arrest extension, none after the arrest; the biased pitch program, bit for bit the program at bias 0 | GE504 (H) |
+| `testFailureLandsOnItsTimeAtTenTimesWarp` | stepped as the app steps at 10×, a step starts on each failure (in range time and on a time base) and the log has it there; each sensed 0.066 ± 0.021 s on; the second S-IC engine out logs the EDS automatic abort; the status line names both | MAN506 (90 %) |
+| `testChiFreezeHoldsAndResumesWithoutAStep` | engine 1 at 30 s: sensed within a step of 30.066 s; freeze 40.9 − 0.62 t from there; arrest t_AR + (t_AR − t)/4; the command the program's through the freeze and after it (outside the polynomial's joins), below 1°/s, and continuous across the resumption | GE504 (H) |
+| `testEarlyCentreEngineFailureKeepsT1Events` | engine 5 at 60 s: T1's gains at 0, 105 and 130 s; the timed cutoff at 134.56 s logged "(engine already out)"; T2 within a step (and the 1 ms minimum step) after it; freeze 29.25 − 0.3611 t | GE504 (H) |
+| `testSICEngineOutReachesOrbit` | the three S-IC cases: the velocity cutoff on V_T − ΔV_B (0.01 m/s); insertion r 50 m, v 0.6 m/s, γ 0.005°, i 0.003°, θ_N 0.006° from the nominal flight; the S-IVB keeps over 25 t of LOX and 5 t of LH2; the outboard cases' CECO logged with the engine out; no freeze at 90 s | — |
+| `testApollo13AnalogueMatchesAS508` | the EMR shift command +32.2 s ± a cycle (1.7 s), S-II OECO +34.53 ± 2 s, the velocity cutoff +44.06 ± 2 s against the nominal flight (AS-508's flow alone is 1.1 s); k = 1; the cutoff on V_T − ΔV_B; insertion within 50 m, 0.25 m/s, 0.005°, 0.003°, 0.006° of the nominal flight's | AS-508 FER Table 2-2, §6.1, Table 4-5 (H) |
+| `testSIIOutboardEngineOutStretchesStage2` | engine 2 at T3 + 10 s: k = 4/3; the IGM starts with T2 and τ2 at 4/3 of their presettings; attitude error under 13.4° and rate under 2.8°/s | GE504 Fig 4-6 (H); AS-502 FER (sanity bound) |
+| `testLosingEveryEngineOfAStageStartsTheNextTimeBase` | all five J-2s failed at T3 + 20 s start T4 there; the S-II separates | — |
+| `IterativeGuidanceTests.testIGMFliesAPointMassWithAnOutboardSIIEngineOut` | an outboard J-2 out at 328.6 s: T2 and τ2 times 4/3; T2 at the shift within 3 s of the three engines' burn (a quarter short without the factor); the same shift command either way; the cutoff on target (100 m, 0.005°, 0.002°) | GE504 Fig 4-6 (H) |
+
+**Values tests must not depend on**: the thrust OK levels beyond the sensing step; the sensing start; the S-IVB's propellant margins after an engine out (its unusable masses are the model's, L); the S-IC cases' event times, which rest on the SA-504 freeze.

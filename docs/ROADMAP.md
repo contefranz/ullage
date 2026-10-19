@@ -32,7 +32,9 @@ native macOS simulator. Each milestone should be flyable on its own.
 - Interstage and LES jettison, ullage motors, engine-out
   *(jettisons, the S-II and S-IVB ullage motors, the S-IC and S-II retros and the LES
   tower-jettison motor done, as solid motors that separate the stages and throw the tower
-  clear; engine-out to do)*
+  clear; engine-out done in the core: failures scheduled on the IU, its engine-out
+  sensing, the S-IC chi freeze and the IGM's S-II engine-out presettings; to do: the
+  app's failure key, scenarios and HUD row)*
 - Aerodynamic normal force and moments for the launch stack
   *(done: axial force by the Saturn V flight-evaluation method, normal force and centre of
   pressure from the design data, their moments about the centre of mass, and the launch day's
