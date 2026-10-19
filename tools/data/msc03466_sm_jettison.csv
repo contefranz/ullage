@@ -1,0 +1,37 @@
+# MSC-03466, "Apollo 11 Mission Anomaly Report No. 3: Service Module Entry",
+# NASA Manned Spacecraft Center (NTRS 19710017109). Copy read:
+# https://ntrs.nasa.gov/api/citations/19710017109/downloads/19710017109.pdf
+# (1,196,958 bytes, sha256 4ed78136948d3f48028b4cbf6c13982b624b186e13132e91ef38b68db5cd2285),
+# native page images. Text pages 1-4 (PDF 4-7) and Table I (PDF 8).
+# Times are seconds after CM/SM separation.
+#
+# Read by two independent readers: no disagreement. Inconsistencies inside
+# the report (reader B): the text calls 8 600 lb "the propellant mass for
+# Apollo 8" while Table I gives 9 500 lb; the text says C-band tracked Apollo 7
+# and 10, but Table I also has a C-band value for Apollo 9; Apollo 8's expected
+# 78 ft/s is below the ~90 ft/s skip-out velocity the text implies.
+# Grades: H = both readers read the same digits and every check that applies
+# closes; M = both readers agree, but the value needed interpretation or a
+# check does not close; L = uncertain.
+source,item,parameter,value,unit,si,si_unit,grade,note
+p. 1,controller before Apollo 13,"-X translation jets (4)","from separation to propellant depletion",s,0,s,H,"si: start time"
+p. 1,controller before Apollo 13,"Roll jets (4), start","2",s,2,s,H,"to spin-stabilise the SM about X"
+p. 1,controller before Apollo 13,"Roll jets (4), duration","5 1/2",s,5.5,s,H,""
+p. 1,controller before Apollo 13,"Minimum separation velocity for a stable SM","about 345",ft/s,105.156,m/s,H,""
+p. 1,flight,"Apollo 10 separation velocity","about 60 (30 less than needed for skip-out)",ft/s,18.288,m/s,H,""
+p. 2,analysis,"Spin-vector precession period","about 10",s,10,s,H,"longitudinal slosh excited by tip-off moments"
+p. 2,analysis,"1100 lb slosh mass: divergence","at ~40 s, ~50 deg by ~60 s",s,40,s,H,""
+p. 2,analysis,"3300 lb slosh mass: 90 deg reached at","about 35",s,35,s,H,"then stable spin about an axis normal to X"
+p. 3,analysis,"SM structural spin-rate limit","150",deg/s,2.61799388,rad/s,H,""
+p. 3,analysis,"No roll firing: SM tumbles in","about 10",s,10,s,H,"thrust misalignment with the centre of mass"
+p. 3,analysis,"Optimum roll on-time; SM then stable for","2.0 s; about 25 s",s,2,s,H,""
+p. 3,analysis,"Separation velocity of a full SM with 25 s of -X","6.0",ft/s,1.8288,m/s,H,""
+p. 4,Apollo 13 on,"-X jets on","0",s,0,s,H,"corrective action, Figure 8"
+p. 4,Apollo 13 on,"Roll jets on","2",s,2,s,H,""
+p. 4,Apollo 13 on,"Roll jets off","4",s,4,s,H,""
+p. 4,Apollo 13 on,"-X jets off","25",s,25,s,H,""
+Table I,Apollo 7,"Propellant; expected / derived separation dV","7100 lb; 275 / 30",ft/s,9.144,m/s,H,"si: derived; crew sighted the SM; Earth orbital; derived from a C-band state at 400 000 ft"
+Table I,Apollo 8,"Propellant; expected / derived separation dV","9500 lb; 78 / none",ft/s,,,H,"no SM tracking"
+Table I,Apollo 9,"Propellant; expected / derived separation dV","2400 lb; 132 / 134",ft/s,40.8432,m/s,H,"Earth orbital"
+Table I,Apollo 10,"Propellant; expected / derived separation dV","3300 lb; 345 / 60",ft/s,18.288,m/s,H,""
+Table I,Apollo 11,"Propellant; expected / derived separation dV","4500 lb; 360 / none",ft/s,,,H,"crew sighted the SM; no SM tracking"

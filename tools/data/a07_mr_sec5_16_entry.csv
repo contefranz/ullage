@@ -1,0 +1,48 @@
+# Apollo 7 Mission Report, MSC-PA-R-68-15, NASA Manned Spacecraft Center,
+# December 1968. Copy read: https://archive.org/download/apollo-7-mission-report/apollo-7-mission-report.pdf
+# (14,156,749 bytes, sha256 740743e38fd97898d4f5f221a2671f366abdd943e9c8f3b4e1d59618342d13e0),
+# native 240 dpi bilevel page images (pdfimages -png). The apollojournals.org copy
+# (A07_MissionReport.pdf) is a ClearScan rendering of the same pages whose text
+# layer garbles digits; it was used only to find pages.
+#
+# Section 5.16 "Guidance, navigation and control systems": the paragraphs
+# "Command module/service module separation" and "Entry" of 5.16.1 (document
+# pages 5-98 to 5-100, PDF pages 167-169), 5.16.3 and 5.16.4 "Entry monitor
+# system" (pages 5-102 and 5-103, PDF pages 171-172). Every number stated.
+# Times are ground elapsed time (GET) from range zero, 1968-10-11 15:02:45 UTC.
+# Read by two independent readers: no disagreement. (The ClearScan text layer
+# prints the 0.05 g time as "259:55:31\"; the image reads 259:55:38.)
+# Grades: H = both readers read the same digits on a clean print and every
+# check that applies (a sum, a ratio, a value printed twice) closes; M = both
+# readers agree, but the value needed interpretation (a misprint, a missing
+# sign) or a check does not close; L = uncertain.
+page,parameter,value,unit,si,si_unit,grade,note
+5-98,"CM/SM separation peak rate excursion, pitch","-1.56",deg/s,-0.0272271363,rad/s,H,""
+5-98,"CM/SM separation peak rate excursion, roll","+0.84",deg/s,0.0146607657,rad/s,H,""
+5-98,"CM/SM separation peak rate excursion, yaw","-0.22",deg/s,-0.00383972435,rad/s,H,"disturbances essentially gone after 1 s"
+5-98,"Entry flown manually until (DAP thereafter)","259:57:26",h:min:s GET,935846,s,H,"Figure 5.16-26"
+5-98,"Crew switched to dual CM RCS operation","259:58:29",h:min:s GET,935909,s,H,"after a large pitch disturbance; excess pitch/yaw fuel was all used in the 2 min before drogue deployment (transonic)"
+5-99,"Entry interface velocity, planned","25 844.2",ft/s,7877.31216,m/s,H,"last pre-entry plan (68-FM-184's preflight value is 25 850.3)"
+5-99,"Entry interface flight-path angle, planned","-2.063",deg,-0.0360061425,rad,H,""
+5-99,"Entry interface velocity, onboard computer","25 846.4",ft/s,7877.98272,m/s,H,"2.2 ft/s above the plan, as the text says"
+5-99,"Entry interface flight-path angle, onboard computer","-2.072",deg,-0.0361632221,rad,H,"0.009 deg steeper than planned"
+5-99,"Entry interface (400 000 ft)","259:53:26",h:min:s GET,935606,s,H,"Table 2-I: planned 259:53:26, actual 259:53:27"
+5-99,"Inertial range to landing at entry interface (computer)","1594",n mi,2952088,m,H,""
+5-99,"Post-0.05 g program","259:55:38",h:min:s GET,935738,s,H,"held manually at the 0.05 g trim until then; rate damped in pitch and yaw after"
+5-99,"0.2 g sensed, final phase program","259:56:06",h:min:s GET,935766,s,H,"lift vector up until shortly after 0.2 g"
+5-99,"Downrange error at the go/no-go check","10",n mi,18520,m,H,"approximately; tolerance +/-100 n mi"
+5-99,"Backup bank angle, roll left, held about 30 s","55",deg,0.959931089,rad,H,"the crew kept it until the first non-zero computer roll command"
+5-99,"First non-zero computer roll command","-15",deg,-0.261799388,rad,H,"at about 202 000 ft"
+5-99,"Altitude of the first non-zero roll command","202 000",ft,61569.6,m,H,"about"
+5-100,"Computer-displayed miss at landing","1",n mi,1852,m,H,"undershoot"
+5-100,"Landing, recovery forces estimate, latitude","27.54 N",deg,0.480663676,rad,H,"7.78 n mi overshoot"
+5-100,"Landing, recovery forces estimate, longitude","64.07 W",deg,-1.11823245,rad,H,""
+5-100,"Landing, reconstructed (accelerometers corrected for platform errors), latitude","27.64 N",deg,0.482409005,rad,H,"1.9 n mi overshoot; Table 5.16-VIII errors"
+5-100,"Landing, reconstructed, longitude","64.15 W",deg,-1.11962872,rad,H,""
+5-100,"Overshoot, recovery forces estimate","7.78",n mi,14408.56,m,H,""
+5-100,"Overshoot, reconstructed trajectory","1.9",n mi,3518.8,m,H,""
+5-100,"Computer downrange navigation error at drogue deployment","2.2",n mi,4074.4,m,H,"approximately; within the preflight 1-sigma"
+5-102,"GDC attitude drift over 1 h 15 min, pitch","2.96",deg/h,1.4350485e-05,rad/s,H,"5.16.3"
+5-102,"GDC attitude drift, yaw","0.80",deg/h,3.87850945e-06,rad/s,H,""
+5-102,"GDC attitude drift, roll","0.0",deg/h,0,rad/s,H,""
+5-102,"EMS delta-V counter use","X-axis delta V for all maneuvers; terminated the SPS maneuvers flown under SCS control",,,,H,"5.16.4; the counter's most significant digit intermittently showed 9 during SPS setups"

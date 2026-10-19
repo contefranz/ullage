@@ -1,0 +1,26 @@
+# Reader A, TN D-7437 (West, Nov 1973), NTRS 300 dpi raster
+## p. 4 (PDF 10) Figure 2 "Normal recovery sequence" (Increased Capability Block II)
+splashdown velocities: three parachutes 32 fps; two parachutes 36 fps
+1. forward heat shield jettisoned at 24 000 ft + 0.4 sec
+2. drogue parachutes deployed reefed at 24 000 ft + 2 sec
+3. drogue single-stage disreef, 10 sec
+4. drogues jettisoned and mains deployed by pilot parachutes at 11 000 ft
+5. main initial inflation
+6. main first-stage disreef, 6 sec
+7. VHF recovery antennas and flashing beacon deployed, 8 sec
+8. main second-stage disreef, 10 sec, approximately 9 000 ft
+9. mains released
+text: 7.2-ft parachute mortar-deployed from the forward heat shield; two 16.5-ft conical ribbon drogues mortar-deployed 1.6 s after forward-heat-shield jettison; 10-s reefed interval; drogues attached to ~11 000 ft; three 7.2-ft ringslot pilots; three 83.5-ft mains, two reefing stages
+Figure 3 (pad/low-altitude abort): canards 11 s; ELS armed and LES jettison 14 s; forward heat shield 14.4 s; drogues 16 s; mains 28 s
+## p. 6 (PDF 12): Fig 5 CM recovery weight 8 150 / 9 500 / 11 000 / 13 000 lb; 13 000 lb possible after spacecraft 012; program approved July 31, 1967, effective on first Block II spacecraft (CSM 101); reefed intervals 6 s first stage + 4 s second
+## p. 7 (PDF 13): Apollo 7 (spacecraft 101) carried the Increased Capability Block II system (delivery mid-Nov 1967); 16.5-ft drogues; Table I main-parachute design loads (lb): original Block II with 11 000-lb CM: first stage 21 800, second --, full open 24 700, cluster 39 000; final Block II with 13 000-lb CM: 22 000, 23 800, 22 900, cluster 37 500 (footnote: not for direct comparison)
+## p. 8 (PDF 14): spec max rate of descent 33 fps at 5000-ft pressure altitude; two-chute oscillation +-20 deg reduced to +-6 deg (open ring); 68 gores; 88.1-ft ringsail in 1962 tests
+## p. A-9 (PDF 30): two-stage reefing; disreef at 6 and 10 s after deployment (line stretch); line A 264 in (6-s cutters), line B 780 in (10-s cutters)
+## p. A-10 (PDF 31) Figure A-15 Final Block II main parachute: nominal diameter 83.5 ft; 68 gores; calculated total porosity 12 percent; reefing first stage 7.0 ft D_R1 (8.4 percent midgore); second stage 20.7 ft D_R2 (24.8 percent midgore); drag area (average) first stage 285 ft2, second stage 1080 ft2, full open 4200 ft2; weights 11.50, 85.38, 29.20, 2.50, 10 lb; total 138.5 lb; link assembly 1.32 lb; lengths 43.5, 510, 1443.9, 42, 15.5, 78 in
+text: 6 s first stage and 4 additional s second stage; drogue 16.5-ft 25-deg conical ribbon
+## p. A-11 (PDF 32) Figure A-16 Final Block II drogue: conical ribbon (25 deg); 16.5 ft; 20 gores; constructed porosity 22 percent; reefed duration 10 s; drag area reefed 65 ft2; full open 114 ft2; total 37.4 lb (0.76, 11.04, 14.90, 10.7 lb); lengths 12.1, 95.2, 400, 403.5, 200, 180 in
+text: drogues reefed at 42.8 percent of nominal diameter for 10 s; the 10-s cutter identical to the main second-stage cutter
+Table A-I drogue comparison (Block II / Increased Capability Block II): diameter 13.7 / 16.5 ft; gores 16 / 20; drag area 68 / 114 sq ft; total porosity 23 / 22.4 percent; spliced / continuous horizontals; Dacron webbing / continuation of suspension lines; nylon cord rated 1500 / 2500 lb; max design-limit load 12 600 / 17 200 lb; assembly weight 25.4 / 37.4 lb
+## p. A-13 (PDF 34) Figure A-19 Final Block II pilot parachute: ringslot; 7.2 ft; 12 gores; constructed porosity 22 percent; drag area 24.4 ft2; total 5.17 lb; suspension lines 400 -> 600 lb
+## p. A-14 (PDF 35): forward-heat-shield parachute = the 7.2-ft ringslot pilot type with fixed (permanent) reefing
+## p. C-3 (PDF 51, Apollo 15 anomaly report MSC-05805): sequence initiated at nominal 24 000 ft with forward heat shield jettison; 7.2-ft parachute from the forward heat shield; two 16.5-ft drogues 1.6 s after jettison, reefed, 10 s later fully open; drogue release at about 11 000 ft; three 7.2-ft ring-slot pilots; mains inflate through two reefing stages; Apollo 15 mains deployed at ~10 000 ft; one failed at ~6000 ft; canopy 12 rings x 68 gores

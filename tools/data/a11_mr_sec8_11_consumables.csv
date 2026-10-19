@@ -1,0 +1,102 @@
+# Apollo 11 Mission Report, MSC-00171, NASA Manned Spacecraft Center, November
+# 1969. Two copies read, both scans of the same print:
+# - NTRS 19700008096, https://ntrs.nasa.gov/api/citations/19700008096/downloads/19700008096.pdf
+#   (15,973,944 bytes, sha256 3314d99654ebb2ac3e3ef0ab70a84be9519a5f071cf1362118b2b20a6f161dea),
+#   native 300 dpi bilevel images: complete but coarse (blobby digits);
+# - archive.org, https://archive.org/download/apollo-11-mission-report/apollo-11-mission-report.pdf
+#   (11,835,694 bytes, sha256 5b9d033c7b9dd604220f439cddc8a53ad08e3e9c43c83f7342d7e61ef32a1baa),
+#   an Acrobat ClearScan file of a cleaner scan, rendered to 200-300 dpi images
+#   with pdftoppm and read as images (its text layer was not used).
+#
+# Section 8.11 "Consumables" (document pages 8-24 to 8-27, PDF pages 153-156):
+# 8.11.1 service propulsion propellant (loadings from gaging-system readings
+# and measured densities before lift-off), 8.11.2 SM RCS (consumption from
+# telemetered helium tank pressures, PVT) and CM RCS (PVT), 8.11.3 cryogenics
+# (usage from the fuel cells' electrical output). The 8.11.4 water table
+# (page 8-28) was not read. The text says every CSM consumable was within
+# 10 percent of the preflight estimate, and the SPS, SM RCS, CM RCS and
+# cryogenics within 5 percent.
+# actual is the "actual usage" column (fuel or hydrogen, oxidizer or oxygen,
+# and the table's total where it prints one); planned is the "preflight
+# planned usage" column, which the tables print only on total lines.
+# Printed in lb; *_kg at 0.45359237 kg/lb.
+#
+# Read by two independent readers on both scans: no disagreement. Every
+# printed sum and loaded - consumed = remaining closes except the CM RCS
+# consumed fuel, printed 15.0 (system A and total) where 44.8 - 30.8 = 14.0,
+# 89.2 - 75.2 = 14.0 and the printed consumed total 40.8 = 14.0 + 26.8: those
+# two cells are graded M (14.0 is the value every other cell implies).
+# Grades: H = both readers read the same digits and every check that applies
+# (a sum, a parallel-axis combination, loaded - consumed = remaining) closes;
+# M = both readers agree, but the value needed interpretation or a check does
+# not close; L = uncertain.
+system,item,component,substance,actual_lb,planned_lb,actual_kg,planned_kg,grade
+SPS,loaded,in tanks,fuel,15633,,7091.00952,,H
+SPS,loaded,in tanks,oxidizer,24967,,11324.8407,,H
+SPS,loaded,in lines,fuel,79,,35.8337972,,H
+SPS,loaded,in lines,oxidizer,124,,56.2454539,,H
+SPS,loaded,total,fuel,15712,,7126.84332,,H
+SPS,loaded,total,oxidizer,25091,,11381.0862,,H
+SPS,loaded,total,total,40803,40803,18507.9295,18507.9295,H
+SPS,consumed,,fuel,13754,,6238.70946,,H
+SPS,consumed,,oxidizer,21985,,9972.22825,,H
+SPS,consumed,,total,35739,36296,16210.9377,16463.5887,H
+SPS,remaining at CM/SM separation,,fuel,1958,,888.13386,,H
+SPS,remaining at CM/SM separation,,oxidizer,3106,,1408.8579,,H
+SPS,remaining at CM/SM separation,,total,5064,4507,2296.99176,2044.34081,H
+SM RCS,loaded,quad A,fuel,110,,49.8951607,,H
+SM RCS,loaded,quad A,oxidizer,225,,102.058283,,H
+SM RCS,loaded,quad B,fuel,110,,49.8951607,,H
+SM RCS,loaded,quad B,oxidizer,225,,102.058283,,H
+SM RCS,loaded,quad C,fuel,110,,49.8951607,,H
+SM RCS,loaded,quad C,oxidizer,225,,102.058283,,H
+SM RCS,loaded,quad D,fuel,110,,49.8951607,,H
+SM RCS,loaded,quad D,oxidizer,225,,102.058283,,H
+SM RCS,loaded,total,fuel,440,,199.580643,,H
+SM RCS,loaded,total,oxidizer,900,,408.233133,,H
+SM RCS,loaded,total,total,1340,1342,607.813776,608.720961,H
+SM RCS,consumed,,fuel,191,,86.6361427,,H
+SM RCS,consumed,,oxidizer,369,,167.375585,,H
+SM RCS,consumed,,total,560,590,254.011727,267.619498,H
+SM RCS,remaining at CM/SM separation,,fuel,249,,112.9445,,H
+SM RCS,remaining at CM/SM separation,,oxidizer,531,,240.857548,,H
+SM RCS,remaining at CM/SM separation,,total,780,752,353.802049,341.101462,H
+CM RCS,loaded,system A,fuel,44.8,,20.3209382,,H
+CM RCS,loaded,system A,oxidizer,78.4,,35.5616418,,H
+CM RCS,loaded,system B,fuel,44.4,,20.1395012,,H
+CM RCS,loaded,system B,oxidizer,78.3,,35.5162826,,H
+CM RCS,loaded,total,fuel,89.2,,40.4604394,,H
+CM RCS,loaded,total,oxidizer,156.7,,71.0779244,,H
+CM RCS,loaded,total,total,245.9,245.0,111.538364,111.130131,H
+CM RCS,consumed,system A,fuel,15.0,,6.80388555,,M
+CM RCS,consumed,system A,oxidizer,26.8,,12.1562755,,H
+CM RCS,consumed,system B,fuel,0.0,,0,,H
+CM RCS,consumed,system B,oxidizer,0.0,,0,,H
+CM RCS,consumed,total,fuel,15.0,,6.80388555,,M
+CM RCS,consumed,total,oxidizer,26.8,,12.1562755,,H
+CM RCS,consumed,total,total,40.8,39.3,18.5065687,17.8261801,H
+CM RCS,remaining at main parachute deployment,system A,fuel,30.8,,13.970645,,H
+CM RCS,remaining at main parachute deployment,system A,oxidizer,51.6,,23.4053663,,H
+CM RCS,remaining at main parachute deployment,system B,fuel,44.4,,20.1395012,,H
+CM RCS,remaining at main parachute deployment,system B,oxidizer,78.3,,35.5162826,,H
+CM RCS,remaining at main parachute deployment,total,fuel,75.2,,34.1101462,,H
+CM RCS,remaining at main parachute deployment,total,oxidizer,129.9,,58.9216489,,H
+CM RCS,remaining at main parachute deployment,total,total,205.1,205.7,93.0317951,93.3039505,H
+cryogenics,available at lift-off,tank 1,hydrogen,27.3,,12.3830717,,H
+cryogenics,available at lift-off,tank 1,oxygen,300.5,,136.304507,,H
+cryogenics,available at lift-off,tank 2,hydrogen,26.8,,12.1562755,,H
+cryogenics,available at lift-off,tank 2,oxygen,314.5,,142.6548,,H
+cryogenics,available at lift-off,total,hydrogen,54.1,56.4,24.5393472,25.5826097,H
+cryogenics,available at lift-off,total,oxygen,615.0,634.7,278.959308,287.895077,H
+cryogenics,consumed,tank 1,hydrogen,17.5,,7.93786648,,H
+cryogenics,consumed,tank 1,oxygen,174.0,,78.9250724,,H
+cryogenics,consumed,tank 2,hydrogen,17.4,,7.89250724,,H
+cryogenics,consumed,tank 2,oxygen,180.0,,81.6466266,,H
+cryogenics,consumed,total,hydrogen,34.9,36.6,15.8303737,16.6014807,H
+cryogenics,consumed,total,oxygen,354.0,371.1,160.571699,168.328129,H
+cryogenics,remaining at CM/SM separation,tank 1,hydrogen,9.8,,4.44520523,,H
+cryogenics,remaining at CM/SM separation,tank 1,oxygen,126.5,,57.3794348,,H
+cryogenics,remaining at CM/SM separation,tank 2,hydrogen,9.4,,4.26376828,,H
+cryogenics,remaining at CM/SM separation,tank 2,oxygen,134.5,,61.0081738,,H
+cryogenics,remaining at CM/SM separation,total,hydrogen,19.2,19.8,8.7089735,8.98112893,H
+cryogenics,remaining at CM/SM separation,total,oxygen,261.0,263.6,118.387609,119.566949,H

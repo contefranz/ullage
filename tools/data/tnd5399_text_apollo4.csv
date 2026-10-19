@@ -1,0 +1,29 @@
+# NASA TN D-5399, Ernest R. Hillje, "Entry Aerodynamics at Lunar Return
+# Conditions Obtained from the Flight of Apollo 4 (AS-501)", October 1969.
+# Copy read: https://ntrs.nasa.gov/api/citations/19690029435/downloads/19690029435.pdf
+# (8,466,113 bytes, sha256 8351dea9b708f7801184469b15c19e1e9a18dd8ac9eff2899b8279675541716c),
+# native 300 dpi bilevel page images.
+#
+# Numbers stated in the text: abstract (page ii, PDF 3), symbols (pages 3-4,
+# PDF 11-12), RCS and ablator (pages 8-9, PDF 16-17), conclusions (page 20,
+# PDF 28). Read by two independent readers: no disagreement. Reader B noted
+# that the load-factor formula on page 3 prints Ax twice (sqrt(Ax^2 + Ay^2 +
+# Ax^2)/g; Az is meant).
+# Grades: H = both readers read the same digits and every check that applies
+# closes; M = both readers agree, but the value needed interpretation or a
+# check does not close; L = uncertain.
+page,parameter,value,unit,si,si_unit,grade,note
+p. ii,"Modified trim-wind-tunnel initial trim angle relative to flight","about 1.5 lower",deg,,,H,"abstract; conclusion 1"
+p. ii,"Modified trim-wind-tunnel L/D relative to flight at high Mach","about 10 percent higher",,,,H,""
+p. 3,"Spacecraft reference diameter d","12.833",ft,3.9114984,m,H,"154 in = 12.833 ft"
+p. 4,"Reference area S","129.35",ft^2,12.0170082,m^2,H,"pi (154 in)^2 / 4"
+p. 3,"g in the symbol list","32.1740",ft/s^2,9.8066352,m/s^2,H,"Table II's lb/slug is about 32.2"
+p. 8,"CM RCS propellant used during entry","about 90",lb,40.8233133,kg,H,"roll control and rate damping"
+p. 8,"RCS rate dead band, pitch, yaw and roll","+/-2.0",deg/s,0.034906585,rad/s,H,""
+p. 9,"Ablator mass loss (predicted from the postflight trajectory)","about 210",lb,95.2543977,kg,H,""
+p. 20,"Flight resultant trim angle at initial entry","about 154.5",deg,2.69653369,rad,H,"conclusion 1; with beta 2 deg (p. 14)"
+p. 20,"Flight resultant L/D at initial entry","about 0.368",,0.368,,H,""
+p. 20,"Flight resultant trim angle at Mach 6.0","about 153",deg,2.67035376,rad,H,"tunnel 0.5 deg higher"
+p. 20,"Flight resultant L/D at Mach 6.0","about 0.410",,0.41,,H,"tunnel 3 percent lower"
+p. 20,"Agreement with modified tunnel data","good from Mach 4.0 to 1.35 and below 0.9; transonic deviations up to 10 deg and 25 percent",,,,H,""
+p. 20,"Initial-entry Mach number","about 38",,38,,M,"conclusion 2 (low Reynolds number about 1e4); Table II gives 25.6 at entry interface"

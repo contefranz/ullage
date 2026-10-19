@@ -1,0 +1,85 @@
+# Apollo 7 Mission Report, MSC-PA-R-68-15, NASA Manned Spacecraft Center,
+# December 1968. Copy read: https://archive.org/download/apollo-7-mission-report/apollo-7-mission-report.pdf
+# (14,156,749 bytes, sha256 740743e38fd97898d4f5f221a2671f366abdd943e9c8f3b4e1d59618342d13e0),
+# native 240 dpi bilevel page images (pdfimages -png). The apollojournals.org copy
+# (A07_MissionReport.pdf) is a ClearScan rendering of the same pages whose text
+# layer garbles digits; it was used only to find pages.
+#
+# Section 5.21 "Consumables" (document pages 5-186 to 5-189, PDF pages
+# 239-242): SPS propellants (loadings from gaging-system readings and measured
+# densities before lift-off), SM RCS (consumption from telemetered helium
+# bottle pressures), CM RCS and cryogenics (pressure, volume, temperature)
+# and water. Totals are the table's own sum lines. The SM RCS consumed and
+# remaining lines are single fuel-plus-oxidizer values.
+# Printed in lb; mass_kg at 0.45359237 kg/lb.
+#
+# Read by two independent readers: no disagreement. Every printed sum closes
+# except CM RCS system B fuel: loaded 44.4 - consumed 7.4 = 37.0, printed
+# remaining 34.0 (totals 88.8 - 17.6 = 71.2 against 68.2); graded M. Water in
+# (514 lb) and out (503 lb) differ by 11 lb, presumably what the crew drank,
+# which the table does not list.
+# Grades: H = both readers read the same digits on a clean print and every
+# check that applies (a sum, a ratio, a value printed twice) closes; M = both
+# readers agree, but the value needed interpretation (a misprint, a missing
+# sign) or a check does not close; L = uncertain.
+system,item,component,substance,value_lb,mass_kg,grade
+SPS,loaded,in tanks,fuel,3632.0,1647.44749,H
+SPS,loaded,in tanks,oxidizer,5903.0,2677.55576,H
+SPS,loaded,in lines,fuel,78.6,35.6523603,H
+SPS,loaded,in lines,oxidizer,123.7,56.1093762,H
+SPS,loaded,total,fuel,3710.6,1683.09985,H
+SPS,loaded,total,oxidizer,6026.7,2733.66514,H
+SPS,consumed,,fuel,2998.7,1360.18744,H
+SPS,consumed,,oxidizer,4812.4,2182.86792,H
+SPS,remaining at separation,,fuel,711.9,322.912408,H
+SPS,remaining at separation,,oxidizer,1214.3,550.797215,H
+SM RCS,loaded,quad A,fuel,111.3,50.4848308,H
+SM RCS,loaded,quad A,oxidizer,223.7,101.468613,H
+SM RCS,loaded,quad B,fuel,110.6,50.1673161,H
+SM RCS,loaded,quad B,oxidizer,223.7,101.468613,H
+SM RCS,loaded,quad C,fuel,110.8,50.2580346,H
+SM RCS,loaded,quad C,oxidizer,225.9,102.466516,H
+SM RCS,loaded,quad D,fuel,110.6,50.1673161,H
+SM RCS,loaded,quad D,oxidizer,225.1,102.103642,H
+SM RCS,loaded,total,fuel,443.3,201.077498,H
+SM RCS,loaded,total,oxidizer,898.4,407.507385,H
+SM RCS,consumed,total,fuel+oxidizer,943.8,428.100479,H
+SM RCS,remaining at separation,total,fuel+oxidizer,397.9,180.484404,H
+CM RCS,loaded,system A,fuel,44.4,20.1395012,H
+CM RCS,loaded,system A,oxidizer,87.6,39.7346916,H
+CM RCS,loaded,system B,fuel,44.4,20.1395012,H
+CM RCS,loaded,system B,oxidizer,87.5,39.6893324,H
+CM RCS,loaded,total,fuel,88.8,40.2790025,H
+CM RCS,loaded,total,oxidizer,175.1,79.424024,H
+CM RCS,consumed,system A,fuel,10.2,4.62664217,H
+CM RCS,consumed,system A,oxidizer,18.3,8.30074037,H
+CM RCS,consumed,system B,fuel,7.4,3.35658354,M
+CM RCS,consumed,system B,oxidizer,13.2,5.98741928,H
+CM RCS,consumed,total,fuel,17.6,7.98322571,M
+CM RCS,consumed,total,oxidizer,31.5,14.2881597,H
+CM RCS,remaining at landing,system A,fuel,34.2,15.5128591,H
+CM RCS,remaining at landing,system A,oxidizer,69.3,31.4339512,H
+CM RCS,remaining at landing,system B,fuel,34.0,15.4221406,M
+CM RCS,remaining at landing,system B,oxidizer,74.3,33.7019131,H
+CM RCS,remaining at landing,total,fuel,68.2,30.9349996,M
+CM RCS,remaining at landing,total,oxidizer,143.6,65.1358643,H
+cryogenics,loaded,tank 1,hydrogen,26.2,11.8841201,H
+cryogenics,loaded,tank 1,oxygen,318.4,144.423811,H
+cryogenics,loaded,tank 2,hydrogen,25.7,11.6573239,H
+cryogenics,loaded,tank 2,oxygen,317.1,143.834141,H
+cryogenics,loaded,total,hydrogen,51.9,23.541444,H
+cryogenics,loaded,total,oxygen,635.5,288.257951,H
+cryogenics,consumed,tank 1,hydrogen,22.7,10.2965468,H
+cryogenics,consumed,tank 1,oxygen,227.9,103.373701,H
+cryogenics,consumed,tank 2,hydrogen,22.0,9.97903214,H
+cryogenics,consumed,tank 2,oxygen,226.3,102.647953,H
+cryogenics,consumed,total,hydrogen,44.7,20.2755789,H
+cryogenics,consumed,total,oxygen,454.2,206.021654,H
+water,loaded,potable tank,water,21,9.52543977,H
+water,loaded,waste tank,water,40,18.1436948,H
+water,produced,fuel cells,water,394,178.715394,H
+water,produced,LiOH,water,59,26.7619498,H
+water,dumped overboard,,water,359,162.839661,H
+water,evaporated,,water,77,34.9266125,H
+water,remaining postflight,potable tank,water,37,16.7829177,H
+water,remaining postflight,waste tank,water,30,13.6077711,H

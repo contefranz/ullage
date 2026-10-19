@@ -1,0 +1,109 @@
+# Reader A, Apollo 7 MR Table 3-III, archive.org raster PDF 44-50 (pp. 3-11..3-17), rotated
+pdf,maneuver,condition,ign_planned,ign_actual,cut_planned,cut_actual
+44,First phasing maneuver (RCS),time,03:20:00.0,03:20:09.9,03:20:16.3,03:20:26.2
+44,First phasing maneuver (RCS),lat,25.07,24.96,24.68,24.46
+44,First phasing maneuver (RCS),lon,-61.72,-61.39,-60.62,-60.02
+44,First phasing maneuver (RCS),alt_ft,789581,789997,790031,791756
+44,First phasing maneuver (RCS),alt_nmi,129.95,130.01,130.00,130.31
+44,First phasing maneuver (RCS),vel,25532.2,25531.7,25526.9,25525.0
+44,First phasing maneuver (RCS),fpa,0.234,0.236,0.239,0.244
+44,First phasing maneuver (RCS),hdg,110.11,110.26,110.60,110.87
+44,Second phasing maneuver (RCS),time,15:52:00.0,15:52:00.9,15:52:18.5,15:52:18.5
+44,Second phasing maneuver (RCS),lat,-31.70,-31.70,-31.74,-31.73
+44,Second phasing maneuver (RCS),lon,-116.36,-119.41,-115.10,-117.10
+44,Second phasing maneuver (RCS),alt_ft,1004151,1002632,1004169,1002090
+44,Second phasing maneuver (RCS),alt_nmi,165.26,165.00,165.26,164.92
+44,Second phasing maneuver (RCS),vel,25281.3,25283.1,25274.8,25277.4
+44,Second phasing maneuver (RCS),fpa,0.0,0.0,-0.006,-0.007
+44,Second phasing maneuver (RCS),hdg,92.26,92.29,91.59,91.19
+45,First SPS maneuver,time,26:24:55.2,26:24:55.7,26:25:04.7,26:25:05.1
+45,First SPS maneuver,lat,-29.55,-29.56,-29.41,-29.42
+45,First SPS maneuver,lon,106.8,107.7,107.5,107.5
+45,First SPS maneuver,alt_ft,990459,990253,988920,988518
+45,First SPS maneuver,alt_nmi,163.01,162.98,162.75,162.69
+45,First SPS maneuver,vel,25289.4,25289.9,25354.2,25354.0
+45,First SPS maneuver,fpa,-0.110,-0.130,-0.557,-0.556
+45,First SPS maneuver,hdg,77.79,77.81,77.43,77.45
+45,Second SPS maneuver,time,28:00:56.0,28:00:56.5,28:01:03.8,28:01:04.3
+45,Second SPS maneuver,lat,-22.42,-22.41,-22.19,-22.21
+45,Second SPS maneuver,lon,106.77,106.76,107.27,107.24
+45,Second SPS maneuver,alt_ft,902496,902269,901015,901050
+45,Second SPS maneuver,alt_nmi,148.53,148.49,148.29,148.29
+45,Second SPS maneuver,vel,25446.7,25446.5,25354.7,25357.2
+45,Second SPS maneuver,fpa,-0.529,-0.516,-0.196,-0.196
+45,Second SPS maneuver,hdg,66.94,66.94,66.74,66.75
+# p45 notes: SPS-1 ignition actual longitude printed 107.7 (zoomed): east of its own cutoff (107.5) on an eastbound pass, so probably 106.7 misprinted; SPS-1 cutoff actual 26:25:05.1 here vs 26:25:05.7 in Table 2-I.
+46,Terminal phase initiate,time,29:18:34.0,29:16:33.0,,
+46,Terminal phase initiate,lat,-31.74,-31.14,,
+46,Terminal phase initiate,lon,35.66,26.45,,
+46,Terminal phase initiate,alt_ft,934904,931769,,
+46,Terminal phase initiate,alt_nmi,153.86,153.35,,
+46,Terminal phase initiate,vel,25323.4,25327.1,,
+46,Terminal phase initiate,fpa,0.043,0.086,,
+46,Terminal phase initiate,hdg,91.55,96.63,,
+46,Station-keeping initiate,time,29:53:34.0,29:55:43.0,,
+46,Station-keeping initiate,lat,23.00,26.06,,
+46,Station-keeping initiate,lon,162.54,171.29,,
+46,Station-keeping initiate,alt_ft,775469,764351,,
+46,Station-keeping initiate,alt_nmi,127.62,125.80,,
+46,Station-keeping initiate,vel,25531.7,25546.1,,
+46,Station-keeping initiate,fpa,0.238,-0.206,,
+46,Station-keeping initiate,hdg,67.54,71.22,,
+47,Separation maneuver,time,30:20:00.0,30:20:00.0,30:20:05.4,30:20:05.4
+47,Separation maneuver,lat,12.79,12.81,12.63,12.64
+47,Separation maneuver,lon,-88.60,-88.63,-88.32,-88.34
+47,Separation maneuver,alt_ft,786642,786598,787157,784351
+47,Separation maneuver,alt_nmi,129.46,129.45,129.55,129.09
+47,Separation maneuver,vel,25514.1,25514.1,25515.0,25515.1
+47,Separation maneuver,fpa,0.270,0.270,0.271,0.257
+47,Separation maneuver,hdg,119.21,119.21,119.28,119.28
+47,Third SPS maneuver,time,75:47:58.6,75:48:00.3,75:48:07.8,75:48:09.3
+47,Third SPS maneuver,lat,-16.97,-16.95,-16.69,-16.68
+47,Third SPS maneuver,lon,105.52,105.57,106.06,106.08
+47,Third SPS maneuver,alt_ft,944885,944663,944297,943708
+47,Third SPS maneuver,alt_nmi,155.51,155.47,155.41,155.31
+47,Third SPS maneuver,vel,25326.2,25326.1,25272.2,25273.9
+47,Third SPS maneuver,fpa,-0.140,-0.144,-0.238,-0.237
+47,Third SPS maneuver,hdg,62.84,62.84,63.46,63.12
+48,Fourth SPS maneuver,time,120:43:00.0,120:43:00.4,120:43:00.4,120:43:00.9
+48,Fourth SPS maneuver,lat,31.38,31.38,31.38,31.39
+48,Fourth SPS maneuver,lon,-102.75,-102.78,-102.73,-102.79
+48,Fourth SPS maneuver,alt_ft,609937,610161,609948,609848
+48,Fourth SPS maneuver,alt_nmi,100.38,100.42,100.38,100.36
+48,Fourth SPS maneuver,vel,25658.9,25661.2,25671.9,25670.6
+48,Fourth SPS maneuver,fpa,-0.383,-0.383,-0.381,-0.382
+48,Fourth SPS maneuver,hdg,90.77,90.75,90.76,90.75
+48,Fifth SPS maneuver,time,165:00:00.0,165:00:00.5,165:01:05.9,165:01:07.6
+48,Fifth SPS maneuver,lat,28.57,28.56,29.47,29.41
+48,Fifth SPS maneuver,lon,-91.09,-91.12,-85.82,-86.24
+48,Fifth SPS maneuver,alt_ft,720774,720388,701234,700249
+48,Fifth SPS maneuver,alt_nmi,118.62,118.56,115.41,115.24
+48,Fifth SPS maneuver,vel,25518.9,25519.3,25707.4,25714.9
+48,Fifth SPS maneuver,fpa,-0.482,-0.482,-0.902,-0.912
+48,Fifth SPS maneuver,hdg,75.46,76.46,81.52,82.70
+# p48 notes: SPS-4 ignition actual 120:43:00.4 here vs 120:43:00.5 in Table 2-I; SPS-5 ignition heading planned 75.46 vs actual 76.46 (every other ignition pair agrees within 0.05 deg; one of the two may be misprinted).
+49,Sixth SPS maneuver,time,210:08:00.0,210:08:00.5,210:08:00.4,210:08:01.0
+49,Sixth SPS maneuver,lat,24.41,24.40,24.42,24.44
+49,Sixth SPS maneuver,lon,-82.77,-82.81,-82.74,-82.70
+49,Sixth SPS maneuver,alt_ft,994614,995944,994225,993943
+49,Sixth SPS maneuver,alt_nmi,163.69,163.91,163.63,163.58
+49,Sixth SPS maneuver,vel,25354.1,25354.7,25354.5,25354.6
+49,Sixth SPS maneuver,fpa,-1.169,-1.169,-1.168,-1.168
+49,Sixth SPS maneuver,hdg,71.67,71.67,71.73,71.73
+49,Seventh SPS maneuver,time,239:06:11.0,239:06:12.0,239:06:18.8,239:06:19.7
+49,Seventh SPS maneuver,lat,15.06,15.05,14.82,14.80
+49,Seventh SPS maneuver,lon,-66.20,-66.16,-65.72,-65.68
+49,Seventh SPS maneuver,alt_ft,545506,545503,545583,544535
+49,Seventh SPS maneuver,alt_nmi,89.78,89.78,89.79,89.62
+49,Seventh SPS maneuver,vel,25864.5,25864.6,25865.7,25866.4
+49,Seventh SPS maneuver,fpa,-0.224,-0.207,-0.239,-0.242
+49,Seventh SPS maneuver,hdg,116.38,116.38,116.30,116.31
+50,Eighth SPS maneuver,time,259:39:15.9,259:31:16.3,259:39:27.9,259:39:28.2
+50,Eighth SPS maneuver,lat,13.84,13.83,14.20,14.19
+50,Eighth SPS maneuver,lon,-148.63,-148.65,-147.96,-147.98
+50,Eighth SPS maneuver,alt_ft,1143422,1143579,1138667,1137041
+50,Eighth SPS maneuver,alt_nmi,188.18,188.21,187.40,187.13
+50,Eighth SPS maneuver,vel,25152.8,25155.3,24966.7,24966.5
+50,Eighth SPS maneuver,fpa,-0.985,-0.988,-1.652,-1.643
+50,Eighth SPS maneuver,hdg,63.21,63.20,63.38,63.38
+# p50 notes: SPS-8 ignition actual printed 259:31:16.3: misprint for 259:39:16.3 (Table 2-I; latitude/longitude next to the planned 259:39:15.9 values). No footnotes on any page.

@@ -1,0 +1,13 @@
+# Reader A, MSC-03466 Apollo 11 Mission Anomaly Report No. 3 "Service Module Entry", NTRS 19710017109 raster (~400 dpi)
+## p. 1 (PDF 4): SM was to skip out into a highly elliptical orbit on lunar return; on Apollo 8, 10 and 11 it did not; C-band tracking on Apollo 7 and 10 showed separation velocity much less than expected; Apollo 11 crew saw the SM about 5 min after jettison with RCS still firing
+jettison controller (this case): four -X translation RCS engines from separation to propellant depletion; beginning 2 s after separation, four roll engines fired for 5 1/2 s to spin-stabilise about X; minimum separation velocity about 345 ft/s expected for a stable SM; Apollo 10 about 60 ft/s (30 ft/s less than needed for skip-out)
+## p. 2 (PDF 5): precession period about 10 s; slosh mass 1100 lb diverges at ~40 s, ~50 deg at ~60 s; 3300 lb: 90 deg at ~35 s
+## p. 3 (PDF 6): 8600-lb slosh mass (Apollo 8 propellant); structural spin limit 150 deg/s; no roll firing: tumble in ~10 s; optimum roll-thruster on time 2.0 s, stable about 25 s; full SM with 25 s of -X: separation velocity 6.0 ft/s
+## p. 4 (PDF 7) conclusion: net -X thrusting over 300 s can reverse the separation velocity; optimum: spin thrusting 2 s and X-axis thrusting 25 s; corrective action for Apollo 13 and subsequent: t=0 four -X jets on; t=2 four roll jets on; t=4 four roll jets off; t=25 four -X jets off
+## p. 5 (PDF 8) Table I comparison of derived and expected separation velocities: mission, propellant (lb x 100), expected dV ft/s, derived dV ft/s
+7 (a,b),71,275,30 (c)
+8,95,78,(d)
+9 (b),24,132,134 (c)
+10,33,345,60 (c)
+11 (a),45,360,(d)
+footnotes: a SM sighted by crew after jettison; b earth-orbital missions; c from trajectory reconstruction with an SM state vector at 400 000 ft from C-band radar; d no SM tracking available

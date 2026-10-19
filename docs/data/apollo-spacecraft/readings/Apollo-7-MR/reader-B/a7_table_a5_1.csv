@@ -1,0 +1,25 @@
+row,event,weight_lb,XA_in,YA_in,ZA_in,Ixx_slugft2,Iyy_slugft2,Izz_slugft2,Ixy_slugft2,Ixz_slugft2,Iyz_slugft2,note
+1,Lift-off,45295,992.1,1.0,4.4,28874,393235,396846,-2035,84,-324,
+2,Insertion,36419,917.3,1.2,5.4,28036,141839,145517,-1397,2196,-333,"YA: small dot at baseline height left of 1.2, separated by a space; baseline position (not mid-height), so read as a speck, not a minus sign"
+3,Service propulsion maneuver 1,32356,950.4,1.4,6.0,18129,56210,59982,-1747,595,-32,
+4,Coast,31711,951.6,1.2,6.1,17774,55638,59073,-1628,550,-67,
+5,Service propulsion maneuver 2,31595,951.7,1.2,6.2,17781,55655,59084,-1633,560,-69,
+6,Coast,31057,952.7,1.1,6.2,17470,55112,58246,-1550,521,-103,
+7,Service propulsion maneuver 3,30671,953.0,1.1,6.2,17446,55085,58219,-1578,559,-90,
+8,Coast,30050,954.4,0.9,6.3,17096,54373,57175,-1475,511,-127,
+9,Service propulsion maneuver 4,29780,954.5,1.0,6.3,17057,54309,57123,-1495,531,-110,"weight 29 780: middle digit is a closed 8 (checked at 800%), not 3"
+10,Coast,29731,954.7,1.0,6.3,17032,54253,57044,-1487,527,-113,
+11,Service propulsion maneuver 5,29607,954.7,1.1,6.1,16978,54159,56973,-1500,531,-90,
+12,Coast,25077,969.7,-0.7,7.0,14632,45675,46274,-505,77,-330,
+13,Service propulsion maneuver 6,24975,969.9,-0.7,6.8,14599,45594,46202,-532,111,-314,
+14,Coast,24927,970.1,-0.7,6.9,14574,45459,46044,-518,105,-316,
+15,Service propulsion maneuver 7,24864,970.2,-0.6,6.8,14556,45412,46000,-535,128,-308,"YA: the 0 is broken on its left side (faint), reads -0.6"
+16,Coast,24295,972.9,-0.9,6.9,14268,43773,44090,-368,54,-336,
+17,Service propulsion maneuver 8,24262,973.0,-0.9,6.9,14262,43748,44062,-383,77,-331,
+18,Command module/service module separation,23453,977.2,-1.3,7.1,13829,40971,40878,-110,-45,-373,
+19,Command module after separation,12364,1040.8,-0.2,6.0,5799,5213,4745,42,-423,30,
+20,Entry interface (400 000 feet),12356,1040.8,-0.2,6.0,5795,5208,4744,41,-421,30,"XA: final 8 printed light but is an 8"
+21,Mach 10,12277,1041.0,-0.2,5.9,5735,5144,4687,42,-417,30,"ZA: top bar of the 5 faint/broken, reads 5.9"
+22,Drogue deploy,11936,1039.7,-0.1,5.9,5649,4901,4467,42,-392,32,
+23,Main parachute deploy,11855,1039.4,-0.1,6.1,5633,4841,4424,42,-366,32,
+24,Landing,11409,1037.4,-0.1,6.1,5567,4567,4131,40,-371,33,

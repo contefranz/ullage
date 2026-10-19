@@ -1,0 +1,48 @@
+# NASA TN D-5276, Charles E. DeRose, "Trim Attitude, Lift and Drag of the
+# Apollo Command Module with Offset Center-of-Gravity Positions at Mach Numbers
+# to 29", June 1969. Copy read:
+# https://ntrs.nasa.gov/api/citations/19690020179/downloads/19690020179.pdf
+# (793,607 bytes, sha256 8df77fb79ef04e54a7092fccbe7e0d61396fdc5b8da151423aad6f77296c86b2),
+# native 300 dpi bilevel page images.
+#
+# Table I "Free-flight test conditions and results" (document page 17, PDF
+# page 19; printed sideways): 0.95-cm Apollo CM models gun-launched in the
+# Ames hypervelocity free-flight facility, heat shield forward. Columns as
+# printed: run; Mach number; velocity (km/s); free-stream Reynolds number
+# (model diameter); air temperature (K); x_cg/d and z_cg/d (x from the line
+# tangent to the front face, z from the reference centreline; symbols, PDF 5);
+# trim angle alpha_trim (deg); the range of angle of attack measured; drag
+# coefficient C_D; rms resultant angle of attack (deg); L/D at alpha_trim 151
+# and 162 deg ("---" printed where empty, left empty here).
+#
+# Text (summary, page 1; pages 7, 12-13): CG offsets z/d 0.046 and 0.028 give
+# trim 151 and 162 deg and L/D 0.435 and 0.255, with no Mach (10-29) or
+# Reynolds number (2e4-3e5) effect; a change of 0.0015 in z_cg/d gives about
+# 1 deg of trim; trim angles in the figures are adjusted to x_cg/d = 0.270
+# (less than 0.4 deg); flight data agree once the CG is referred to the
+# centreline of the blunt-face heat shield, not the structural one (AS-202:
+# 4.65 in against 5.23 in, Figure 10). Uncertainties: alpha_trim +/-1 deg,
+# C_D +/-0.02 (M 10-14) and +/-0.05 (M 17-18, 26-29), L/D +/-0.025.
+#
+# Read by two independent readers: no disagreement. The mean of the eight L/D
+# values at 151 deg is 0.435, as the summary says; the three at 162 deg average
+# 0.247, against the summary's 0.255 (within the stated +/-0.025).
+# Grades: H = both readers read the same digits and every check that applies
+# closes; M = both readers agree, but the value needed interpretation or a
+# check does not close; L = uncertain.
+run,mach,velocity_km_s,reynolds,temperature_k,xcg_over_d,zcg_over_d,alpha_trim_deg,alpha_range_deg,c_d,alpha_rms_deg,l_over_d_at_151,l_over_d_at_162,grade
+1512,11.15,3.86,306180,290,0.2771,0.0458,151,162-140,1.076,146.2,,,H
+41,10.28,3.55,217510,290,0.2743,0.0471,150,156-146,1.161,150.6,0.43,,H
+47,10.17,3.51,214200,290,0.2770,0.0460,,164-139,1.077,149.9,0.46,,H
+63,17.01,6.60,52547,378,0.2712,0.0499,,164-138,1.136,153.5,0.45,,H
+159,11.14,3.85,235180,290,0.2719,0.0462,150,159-144,1.145,151,0.43,,H
+161,12.76,4.41,215020,290,0.2760,0.0478,,169-133,1.030,151.5,0.44,,H
+162,13.95,4.80,236570,290,0.2748,0.0469,149,160-138,1.033,148.3,0.43,,H
+200,26.43,5.30,160910,100,0.2740,0.0467,149,158-144,1.064,150.7,0.42,,H
+239,28.96,5.78,293570,100,0.2719,0.0459,151,157-139,1.117,147.5,,,H
+240,28.61,5.72,306330,100,0.2693,0.0471,,155-144,1.116,150.0,0.42,,H
+242,17.99,7.21,22205,410,0.2729,0.0458,153,159-138,1.214,154.0,,,H
+248,17.86,7.16,19225,410,0.2750,0.0297,161,178-143,1.465,165.8,,,H
+286,17.92,7.23,27570,405,0.2750,0.0274,163,168-152,1.341,160.1,,0.27,H
+290,17.53,7.17,24760,405,0.2730,0.0271,162,186-133,,152.2,,0.23,H
+291,13.70,4.68,291000,290,0.2700,0.0281,163,167-158,1.338,162.2,,0.24,H

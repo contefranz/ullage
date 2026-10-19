@@ -1,0 +1,268 @@
+# MSC IN 68-FM-184, Apollo 7 Spacecraft Operational Trajectory
+# Reader B transcription, from page images only (work/fm184img/*.png), zoomed crops in readers/B/crops/.
+# Values are as printed (spacing in thousands groups kept as a single space; trailing zeros kept).
+# "?" marks an uncertain character. Notes in [brackets].
+
+============================================================
+p23-000.png  (printed p. 15)  TABLE I.- SPACECRAFT PARAMETERS
+(a) CM aerodynamic coefficients^a   [page printed sideways; drawing of CM with axes +X, -X, +Y, C_L, C_D, V_Rel]
+Sub-heading: AERODYNAMIC COEFFICIENTS AT TRIM ANGLE OF ATTACK AS A FUNCTION OF MACH NUMBER
+[alpha column has no unit printed; values are degrees]
+M,C_L,C_D,L/D,alpha
+0.2,0.23620,0.82481,0.28637,170.8
+0.4,0.23987,0.85383,0.28093,167.36
+0.7,0.25990,0.98724,0.26326,164.68
+0.9,0.31644,1.06770,0.29639,162.00
+1.1,0.48722,1.1748,0.41474,155.29
+1.2,0.47292,1.1603,0.40757,155.49
+1.35,0.55642,1.2831,0.43367,154.36
+1.65,0.54558,1.2700,0.42959,153.56
+2.0,0.52922,1.2791,0.41374,153.5
+2.4,0.50380,1.2486,0.40348,154.02
+3.0,0.47542,1.2245,0.38826,154.5
+4.0,0.43792,1.2208,0.35873,156.44
+10.0,0.42515,1.2307,0.34545,157.09
+29.5,0.38353,1.2951,0.29614,160.37
+
+Center of gravity location in body coordinates
+X_cg = 1040.58 in
+Y_cg = -.11 in      [printed "Y_cg =-.11 in": no leading zero, "=" and "-" run together; the ".11" is in a
+                     different (typewriter) font from the rest of the block, looks like a typed-in correction]
+Z_cg = 5.91 in
+Footnote a: "These data were taken from references 23 and 26."
+
+Checks: L/D = C_L/C_D on every row to within 2 in the 5th decimal (C_D has only 4 decimals from M=1.1 on),
+so no misread digit in the table. Mixed precision in alpha (170.8, 153.5, 154.5 have one decimal) and C_D
+(5 decimals for M<=0.9, 4 decimals above) is as printed.
+
+============================================================
+p24-000.png  (printed p. 16)  TABLE I.- SPACECRAFT PARAMETERS - Continued
+(b) Performance
+SPS engine performance^a
+Thrust (steady state), lb = 21 080
+Specific impulse, sec = 312.34
+Propellant flow rate, lb/sec = 67.49
+SPS buildup DeltaT, sec = 0.015
+SPS tailoff DeltaT, sec = 0.54
+SM RCS engine performance^b
+Thrust (4 jet), lb = 399.2
+Specific impulse = 276.0          [no unit printed on this label; seconds implied]
+Propellant flow rate (4 jet), lb/sec = 1.45
+
+(c) Weights^c
+CM (with RCS), lb = 12 384
+SM (with RCS), lb = 10 604
+SLA ring, lb = 91
+Tanked SPS propellant, lb = 9 379
+CSM with propellant, lb = 32 458     [indented as a total; 12384+10604+91+9379 = 32458 exactly]
+
+(d) Earth and atmosphere constants
+Drag coefficient (CSM, LM, CSM/LM docked) = 2.0
+Area (CSM, LM, CSM/LM docked), ft^2 = 129.5
+Earth equatorial radius a, ft = 20 925 741.47
+Earth polar radius b, ft = 20 855 591.48
+Earth rotational rate omega_E, rad/sec = 0.729211506 x 10^-4
+Gravity coefficients for oblate earth model:
+  A_0, ft/sec^2 = 32.146536
+  A_1, ft/sec^2 = 0.0521882775
+  A_2, ft/sec^2 = 3.616483034 x 10^-5
+Footnotes:
+  a: These data were obtained from reference 22.
+  b: These data were obtained from reference 23.
+  c: These data were obtained from reference 24.
+
+Checks: 21080/67.49 = 312.34 (matches Isp). 399.2/276.0 = 1.446 -> 1.45 (matches). a/(a-b) = 298.30
+(flattening 1/298.3; a = 6 378 166 m, b = 6 356 784 m, i.e. the Fischer 1960 ellipsoid).
+A_0 = mu/a^2 and g (p.17) = mu/R_E^2 give the same mu = 1.4076539e16 ft^3/s^2, so the two look
+consistent. A_1/(1.5 A_0) = 1.08230e-3 (J2); A_2/A_0 = 1.1250e-6 (= 5/8 x 1.8e-6, i.e. a J4 term).
+
+============================================================
+p25-000.png  (printed p. 17)  TABLE I.- SPACECRAFT PARAMETERS - Concluded
+(d) Earth and atmosphere constants - Concluded
+Radius of spherical earth R_E, ft = 20 925 738.19
+Gravity at sea level, g, ft/sec^2 = 32.146546
+Number of feet per nautical mile, ft/n. mi. = 6076.11549
+Number of degrees per radian, deg/rad = 57.2957795
+Atmospheric pressure at sea level, P_SL, lb/in^2 = 14.6959722
+Density at sea level, rho_SL (printed as "P" with subscript "inf SL"), slug/ft^3 = 2.3768846 x 10^-3
+Sound speed at sea level, C_SL, fps = 1116.45
+Viscosity at sea level, mu_SL, slug/fps = 3.73717340 x 10^-7   [unit printed "slug/fps"; the physical unit
+                                                                   is slug/(ft-sec); value is right for that]
+Gravity constant for converting mass to weight, g_WM, ft/sec^2 = 32.174049
+
+Checks: 6076.11549 = 1852/0.3048; 32.174049 = 9.80665/0.3048; 14.6959722 psi = 101325 Pa;
+2.3768846e-3 slug/ft^3 = 1.225 kg/m^3; 1116.45 fps = 340.3 m/s. All consistent.
+Note g (32.146546) differs from A_0 (32.146536) in the 5th decimal; this is NOT a misprint: it follows
+from R_E being 3.28 ft smaller than a, with the same mu (see p.16 check).
+
+============================================================
+p110-000.png  (printed p. 102)  TABLE VIII.- TARGET LOADS FOR APOLLO 7, ORBITAL MANEUVERS - Concluded
+(i) Maneuver 8 -- Target
+T_ig, days:hr:min:sec, g.e.t. = 10:19:39:53.8
+DeltaV_x, fps = -191.20
+DeltaV_y, fps = 0.00
+DeltaV_z, fps = 203.05
+Weight, lb = 25886.9           [no thousands space, unlike other tables]
+SPS engine pitch trim setting, deg = -3.0200
+SPS engine yaw trim setting, deg = -0.5126
+
+REFSMMAT:  [X_SM Y_SM Z_SM]^T = M [X_I Y_I Z_I]^T, subscript "MNBY" after the right-hand vector
+row1: 0.47771665, 0.73540939, 0.48058276
+row2: 0.032181752, 0.53202425, -0.84611731
+row3: -0.87792432, 0.41967032, 0.23049008
+  [row3 col2 is printed with a small speck at the upper left of the leading "0" (")0.41967032").
+   It sits above mid-height, so it is not a minus sign. Orthonormality confirms +0.41967032:
+   rows and columns are orthonormal to 1e-7 with "+", and row1 x row2 = (-0.8779243, 0.41967032,
+   0.23049008) = row3. With "-" the matrix would not be orthogonal (r1.r3 = -0.617).]
+  [row2 col1 has 9 significant decimals (0.032181752) vs 8 elsewhere: as printed.]
+
+Gimbal Angles at T_ig
+IGA, deg = 180.0
+MGA, deg = 0.0
+OGA, deg = 180.0
+
+Check: |DeltaV| = sqrt(191.20^2 + 203.05^2) = 278.9 fps.
+
+============================================================
+p111-000.png  (printed p. 103)  TABLE IX.- SPS DEORBIT MANEUVERS TO THE ETR
+(a) Conditions at deorbit
+Earth-fixed position
+  Altitude, ft = "10 430·765"   [printed exactly: "10", space, "430", a small RAISED dot (mid-height, not on
+                                 the baseline), then "765". Digit string 10430765 is certain; the grouping /
+                                 decimal point is not. See SUSPECTED MISPRINT 1.]
+  Longitude, deg = -153         [integer, no decimals, unlike the rest]
+  Geodetic latitude, deg = 11.89
+Inertial velocity vector
+  Velocity, fps = 25262.5       [no thousands space, while (b) has "25 850.3"]
+  Flight-path angle, deg = -1.04
+  Azimuth angle, deg = 60.61
+Spacecraft weight, lb = 25 887
+Retro attitude, deg = 49.3
+
+(b) Conditions at reentry (400 000 ft)
+Earth-fixed position
+  Coast time, sec = 826
+  Longitude, deg = 98.83        [no minus sign printed; see SUSPECTED MISPRINT 2]
+  Geodetic latitude, deg = 31.03
+Inertial velocity vector
+  Velocity, fps = 25 850.3
+  Flight-path angle, deg = -1.759
+  Azimuth angle, deg = 83.64
+  Target latitude, deg = 29.80  [a faint speck above-left of the "2"; not a sign]
+  Target longitude, deg = -67.0
+  [Target latitude/longitude are listed under "Inertial velocity vector": odd grouping, as printed.]
+[A stray hand-drawn "/" mark below the table, centre of page; not data.]
+
+============================================================
+p15-000.png  (printed p. 7)  section 5.1.4 S-IVB/CSM separation
+separation time = 02h55m00.05s g.e.t.   [printed 02^h55^m00.05^s; the left edge of the first "0" of the seconds
+                                         field is clipped by the "m" superscript, but it is a 0]
+location = over Hawaii
+time before entering darkness = approximately 44 minutes
+separation firing duration = 2.6-second
+thrusters = the four SM RCS, positive X-axis
+resultant DeltaV = 1.0 fps
+translate forward approximately = 50 ft
+damp relative velocity to = 0.50 fps   (fire SM RCS negative X-axis thrusters)
+pitch maneuver = 180 deg
+roll left = 60 deg
+remaining relative velocity eliminated = 0.50-fps   (positive X-axis jets)
+references: conditions at separation in reference 5; sequence of events in table VII
+Check: 399.2 lb x 2.6 s / (32 458/32.174 slug) = 1.03 fps -> "1.0 fps" consistent.
+[Outside 5.1.4, same page, 5.1.5: "Over Antigua (03h20m00s g.e.t., the CSM will make a horizontal retrograde
+ RCS maneuver of 7.7 fps" -- the opening parenthesis is never closed.]
+
+============================================================
+p20-000.png, p21-000.png, p22-000.png  (printed pp. 12-14)  section 5.4 Fourth Period of Activities
+
+5.4.1 Eighth SPS burn (deorbit)
+number of scheduled SPS burns = eight
+deorbit burn duration = 10.2-second, GNCS-mode
+targeting in table VIII(i); conditions at deorbit and entry in table IX
+time remaining after burn termination (to verify, separate from SM, orient CM) = approximately 13.75 minutes
+initial attitude = retrograde, pitched down 31.7 deg below the line of sight to the horizon
+eighth SPS burn revolution = 163rd
+eighth SPS burn time = 10d19h39m54s g.e.t.
+touchdown longitude = 67 deg W
+touchdown revolution = 164th
+
+5.4.2 Preentry sequence
+SPS engine cutoff = 10d19h40m04s g.e.t.
+coast to atmospheric entry = 13.75-minute
+SM jettison = approximately 90 seconds following the deorbit burn (CM still in retrograde attitude)
+
+5.4.3 Reentry
+reentry altitude = 400 000-ft
+reentry latitude = 31.03 deg N geodetic
+reentry longitude = 98.83 deg W
+reentry time after SPS retrofire = approximately 13.75 minutes
+landing time = 10d20h09m53s g.e.t.
+landing latitude = 29.8 deg N geodetic
+landing longitude = 67 W   [no degree sign in this instance]
+CM maneuver envelope = figure 6; deorbit point and ground track = figure 5
+
+5.4.4 Reentry targeting
+corridor = figure 7
+bottom line = 10g rolling-reentry undershoot boundary
+next line = SPS target line
+mode I line = lift-vector-up overshoot boundary for normal CMC operation
+mode II line = overshoot boundary, lift-vector-down until 0.2g then lift-vector-up
+mode III line = lift-vector-down until 0.2g, then rolled
+references for overshoot boundaries = 17 and 18
+optimum target = on ground track at the 55 deg bank-angle contour line
+L/D bounds = between 0.42 and 0.26   [printed in that order, upper first]
+cross-range target placement = within approximately 22 n. mi. of the theoretical maneuver envelope lateral boundaries
+references for targeting criteria and monitoring = 19 and 20
+altitude-range profile = figure 8; bank angle, load factor, altitude vs time = figure 9
+maximum load factor = 3.3g
+figures 10 and 11 = data vs reentry-phase time "from the 400 000-ft altitude to reentry interface"
+maximum total heating rate = 59.8 (Btu/ft^2)/sec
+total heat load = 12 649 Btu/ft^2
+gimbal angle histories = figure 12
+blackout regions = figure 13, from reference 21
+P67 DSKY displays = figure 14
+EMS velocity-load factor, velocity and range-to-go = figure 15
+drogue chutes = approximately 53 seconds
+main chutes = 4 minutes 45 seconds
+
+5.4.5 Detailed test objectives
+P1.13 = GNCS DeltaV control
+S20.9 = Manual retrograde attitude and orientation
+
+Section 5.4 checks: T_ig 10:19:39:53.8 (table VIII(i)) + 10.2 s = 10:19:40:04.0 = cutoff time of 5.4.2,
+consistent; 5.4.1 rounds T_ig to 54 s. Coast 826 s (table IX) = 13.77 min ~ "13.75 minutes".
+Entry interface then at ~10:19:53:50; landing 10:20:09:53. Landing 29.8 N / 67 W matches table IX target
+29.80 / -67.0. Weight 25886.9 (VIII(i)) = 25 887 (IX).
+
+============================================================
+SUSPECTED MISPRINTS / INCONSISTENCIES
+
+1. Table IX(a) Altitude "10 430·765" ft. Read literally it is 10 430 765 ft (1717 n mi) or, with the raised
+   dot as a decimal point, 10 430.765 ft (1.7 n mi); neither can be a deorbit altitude. The same digits
+   read as 1 043 076.5 ft (171.67 n mi) fit everything else:
+   - horizon dip at that altitude = acos(R_E/(R_E+h)) = 17.73 deg; 31.7 deg (5.4.1, pitched below the
+     horizon) + 17.73 = 49.4 deg, vs "Retro attitude 49.3 deg";
+   - with the table's 25262.5 fps / -1.04 deg pre-burn state, the pre-burn orbit is about 90 x 224 n mi, and
+     an impulsive burn of the VIII(i) DeltaV (-191.20 along track, +203.05 down) gives entry at 400 000 ft
+     at 25 835 fps / -1.74 deg, vs table IX(b) 25 850.3 fps / -1.759 deg.
+   So the intended value is most likely 1 043 076.5 ft, with the group space and decimal point misplaced.
+2. Table IX(b) reentry Longitude "98.83" has no minus sign, though the table uses signed degrees east
+   (-153, -67.0) and the text (5.4.3) says 98.83 deg W. Propagating the deorbit point (11.89 N, -153,
+   azimuth 60.61) along the great circle to 31.03 N and taking out 826 s of Earth rotation gives about
+   -98 deg. So it should be -98.83.
+3. Table I(a) Y_cg "=-.11 in": no leading zero, "=" and "-" run together, in a different typewriter font
+   (looks like a typed-in correction). It reads as -0.11 in; flagged only for its odd form.
+4. Table VIII(i) REFSMMAT row3 col2: speck before "0.41967032", not a minus. Orthonormality confirms "+".
+5. Table I(b) SM RCS "Specific impulse" has no unit (other lines have ", sec").
+6. Table I(d) concluded: viscosity unit printed "slug/fps" (should be slug/(ft-sec)); density symbol printed
+   as "P" (rho) with subscript "inf SL".
+7. Section 5.4.4 says figures 10-11 run "from the 400 000-ft altitude to reentry interface". In this document
+   the 400 000-ft point IS the reentry interface, so the end point is probably meant to be something else
+   (e.g. landing or drogue deploy). This is a wording inconsistency, not a number problem.
+8. Section 5.1.5 (same page as 5.1.4; outside scope): "(03h20m00s g.e.t., the ..." has no closing parenthesis.
+9. Formatting only: Table IX "25262.5" without a thousands space vs "25 850.3"; Table IX(a) longitude "-153"
+   given as an integer; Table VIII(i) weight "25886.9" without a thousands space.
+
+No digit in the requested values is uncertain: every value was read on zoomed crops (3x to 6x), and the
+table cross-checks above (L/D = C_L/C_D, weight sum, Isp = F/mdot, REFSMMAT orthonormality, T_ig +
+burn time = cutoff) all close.

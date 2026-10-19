@@ -1,0 +1,39 @@
+# Reader A, Apollo 7 MR section 5.21, archive.org raster PDF 239-242 (pp. 5-186..5-189)
+page,system,item,component,fuel_or_h2_lb,oxidizer_or_o2_lb
+5-187,SPS,loaded,in tanks,3632.0,5903.0
+5-187,SPS,loaded,in lines,78.6,123.7
+5-187,SPS,loaded,total,3710.6,6026.7
+5-187,SPS,consumed,,2998.7,4812.4
+5-187,SPS,remaining at separation,,711.9,1214.3
+5-187,SM RCS,loaded,quad A,111.3,223.7
+5-187,SM RCS,loaded,quad B,110.6,223.7
+5-187,SM RCS,loaded,quad C,110.8,225.9
+5-187,SM RCS,loaded,quad D,110.6,225.1
+5-187,SM RCS,loaded,total,443.3,898.4
+5-187,SM RCS,consumed,total (fuel+oxidizer),943.8,
+5-187,SM RCS,remaining at separation,total (fuel+oxidizer),397.9,
+5-188,CM RCS,loaded,system A,44.4,87.6
+5-188,CM RCS,loaded,system B,44.4,87.5
+5-188,CM RCS,loaded,total,88.8,175.1
+5-188,CM RCS,consumed,system A,10.2,18.3
+5-188,CM RCS,consumed,system B,7.4,13.2
+5-188,CM RCS,consumed,total,17.6,31.5
+5-188,CM RCS,remaining at landing,system A,34.2,69.3
+5-188,CM RCS,remaining at landing,system B,34.0,74.3
+5-188,CM RCS,remaining at landing,total,68.2,143.6
+5-188,cryogenics,loaded,tank 1,26.2,318.4
+5-188,cryogenics,loaded,tank 2,25.7,317.1
+5-188,cryogenics,loaded,total,51.9,635.5
+5-188,cryogenics,consumed,tank 1,22.7,227.9
+5-188,cryogenics,consumed,tank 2,22.0,226.3
+5-188,cryogenics,consumed,total,44.7,454.2
+5-189,water,loaded,potable tank,21,
+5-189,water,loaded,waste tank,40,
+5-189,water,produced,fuel cells,394,
+5-189,water,produced,LiOH,59,
+5-189,water,dumped overboard,,359,
+5-189,water,evaporated,,77,
+5-189,water,remaining postflight,potable tank,37,
+5-189,water,remaining postflight,waste tank,30,
+# 5-186: SPS loadings from gaging-system readings and measured densities before lift-off. SM RCS consumption from telemetered helium bottle pressure histories (PVT). CM RCS consumption from PVT.
+# check: CM RCS system B fuel 44.4 - 7.4 = 37.0, printed remaining 34.0 (total 88.8 - 17.6 = 71.2, printed 68.2): the printed fuel rows do not close by 3.0 lb.

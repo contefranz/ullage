@@ -1,0 +1,81 @@
+# Apollo Operations Handbook, Block II Spacecraft, Volume 1, SM2A-03-BLOCK
+# II-(1), basic date 15 April 1969 (pages changed 16 July and 15 October 1969),
+# section 2 subsections 2.4 "Service propulsion system" and 2.5 "Reaction
+# control system", both for CSM 106 and subsequent. Copies read:
+# - https://www.apollojournals.org/afj/aoh/aoh-v1-2-04-sps.pdf
+#   (8,364,581 bytes, sha256 bef220b46be9dc0955dd14843820461d6ebf7c08bd3969e9091f273e87c29cd2);
+# - https://www.apollojournals.org/afj/aoh/aoh-v1-2-05-rcs.pdf
+#   (9,065,472 bytes, sha256 f81b8a786590a919947ecc2f9bcc0732d0540ba84a2e047c26300fec279e5d47);
+# grey scans, one image per page (no text layer). source is the printed page.
+#
+# Neither subsection prints thrust or Isp: both refer to the CSM/LM Spacecraft
+# Operational Data Book SNA-8-D-027 (SD 68-447). Use 68-FM-184 Table I(b).
+# Axes are the spacecraft X, Y, Z (Apollo X_A, Y_A, Z_A). Figure 2.4-3 is drawn
+# looking forward from the aft bulkhead: -Z up, +Y right, +Z down.
+#
+# Read by two independent readers: no disagreement.
+# Grades: H = both readers read the same digits and every check that applies
+# closes; M = both readers agree, but the value needed interpretation or a
+# check does not close; L = uncertain.
+source,item,parameter,value,unit,si,si_unit,grade,note
+2.4-1,SPS,"Propellants","N2O4 (inhibited) / 50:50 UDMH and hydrazine",,,,H,"helium pressurant"
+2.4-1,SPS,"Tanks","oxidizer storage and sump, fuel storage and sump; storage feeds sump in series",,,,H,"helium enters the storage tank; the sump feeds the engine"
+2.4-2,SPS,"Ullage mandatory at or below","22 300 lb (56.4%)",lb,10115.1099,kg,M,"also after any docked LM DPS burn; 22 300 lb is 56.25-56.3% of the 2.4-42 tank figures, not 56.4"
+2.4-7,SM,"Sector 1","no contents labelled",,,,H,"between -Z and +Y"
+2.4-7,SM,"Sector 2","oxidizer sump",,,,H,"around +Y"
+2.4-7,SM,"Sector 3","oxidizer storage",,,,H,"between +Y and +Z, just +Y of the +Z axis"
+2.4-7,SM,"Sector 4","EPS equipment",,,,H,"between +Z and -Y"
+2.4-7,SM,"Sector 5","fuel sump",,,,H,"around -Y"
+2.4-7,SM,"Sector 6","fuel storage",,,,H,"between -Y and -Z, just -Y of the -Z axis"
+2.4-7,SM RCS,"Quad A position","at -Z, offset toward -Y",deg,4.58585261,rad,M,"si: angle from +Y toward +Z, offset 7 deg 15 min (2.5-1); the offset's sense is read from the figure"
+2.4-7,SM RCS,"Quad B position","at +Y, offset toward -Z",deg,6.15664894,rad,M,"as quad A"
+2.4-7,SM RCS,"Quad C position","at +Z, offset toward +Y",deg,1.44425996,rad,M,"as quad A"
+2.4-7,SM RCS,"Quad D position","at -Y, offset toward +Z",deg,3.01505628,rad,M,"as quad A"
+2.4-14,SPS,"Thrust structure tilt about Z","+/-10",deg,0.174532925,rad,H,""
+2.4-14,SPS,"Thrust structure tilt about Y","+/-6",deg,0.104719755,rad,H,""
+2.4-14,SPS gimbal,"Yaw (about Z) travel","+/-4.5 (+0.5, -0.0)",deg,0.0785398163,rad,H,"about the null; plus 1 deg snubbing (2.4-44)"
+2.4-14,SPS gimbal,"Yaw null, SPS thrusting","+1",deg,0.0174532925,rad,H,"thrust vector toward +Y (2.4-15, 2.4-44)"
+2.4-14,SPS gimbal,"Yaw null, not thrusting","0",deg,0,rad,H,""
+2.4-14,SPS gimbal,"Pitch (about Y) travel","+/-4.5 (+0.5, -0.0)",deg,0.0785398163,rad,H,"plus 1 deg snubbing"
+2.4-14,SPS gimbal,"Pitch null, SPS thrusting","+2",deg,0.034906585,rad,H,"toward +Z, for the offset centre of mass (2.4-15)"
+2.4-14,SPS gimbal,"Pitch null, not thrusting","+1.5",deg,0.0261799388,rad,H,"the change is structural and engine deflection under thrust"
+2.4-44,SPS gimbal,"Actuator mounting pad offset","4 deg to +Y",deg,0.0698131701,rad,H,""
+2.4-44,SPS gimbal,"Deflection rate","0.12 (6.87 deg/s) to 0.132 (7.56 deg/s)",rad/s,0.12,rad/s,H,"printed under the overcurrent relays, belongs to the actuators"
+2.4-41,SPS,"Helium tanks (2)","3600 +/- 50 psia, 19.4 ft^3 each, 393 lb each",,,,H,"max 4400 psia; inside diameter 40 in"
+2.4-42,SPS,"Oxidizer storage tank capacity","11284.69",lb,5118.64928,kg,H,"154.47 in high, 45 in inside diameter, 128.52 ft^3"
+2.4-42,SPS,"Oxidizer sump tank capacity","13923.72 (57.0%)",lb,6315.69315,kg,H,"153.8 in high, 51 in diameter, 161.48 ft^3"
+2.4-42,SPS,"Fuel storage tank capacity","7058.36",lb,3201.61824,kg,H,"154.47 in, 45 in, 128.52 ft^3"
+2.4-42,SPS,"Fuel sump tank capacity","8708.10 (57.0%)",lb,3949.92772,kg,H,"153.8 in, 51 in, 161.48 ft^3"
+2.4-42,SPS,"Total oxidizer","25208.41 (103.4%)",lb,11434.3424,kg,H,"= storage + sump"
+2.4-42,SPS,"Total fuel","15766.46 (103.4%)",lb,7151.54596,kg,H,"= storage + sump; oxidizer/fuel 1.599"
+2.4-42,SPS,"Gaugeable oxidizer (99.9%)","24389.10",lb,11062.7097,kg,H,""
+2.4-42,SPS,"Gaugeable fuel (99.9%)","15252.70",lb,6918.50834,kg,H,""
+2.4-43,SPS,"Engine life and restarts","750 s, 36 restarts minimum",s,750,s,H,""
+2.4-43,SPS,"Expansion ratio","6:1 at ablative chamber exit, 62.5:1 at nozzle extension exit",,62.5,1,H,""
+2.4-43,SPS,"Engine length","159.944 max",in,4.0625776,m,H,""
+2.4-43,SPS,"Nozzle extension exit diameter (inside)","98.4",in,2.49936,m,H,""
+2.4-43,SPS,"Engine weight","approximately 650",lb,294.83504,kg,H,""
+2.4-43,SPS,"Oxidizer lead","8",deg,0.13962634,rad,H,""
+2.4-45,SPS,"Minimum impulse control limit (engine design)","0.4",s,0.4,s,H,""
+2.4-44,SPS,"Gauging","needs 4 +/- 1 s of thrust to settle; displays accurate after 25 s",s,,,H,""
+2.5-1,SM RCS,"Quads","4, 90 deg apart around the forward (+X) SM periphery, offset 7 deg 15 min from the Y and Z axes",deg,0.126536371,rad,H,""
+2.5-1,SM RCS,"Engine cant away from the panel","approximately 10",deg,0.174532925,rad,H,"the two roll engines are offset-mounted"
+2.5-1,SM RCS,"Propellants","N2O4 / MMH, helium pressurant",,,,H,""
+2.5-2,SM RCS,"Quad A engines","A1 CW +R, A2 CCW -R, A3 +P, A4 -P",,,,H,"Figure 2.5-1; odd engines = + rotation, even = -"
+2.5-2,SM RCS,"Quad B engines","B1 CW +R, B2 CCW -R, B3 +Y, B4 -Y",,,,H,""
+2.5-2,SM RCS,"Quad C engines","C1 CW +R, C2 CCW -R, C3 +P, C4 -P",,,,H,""
+2.5-2,SM RCS,"Quad D engines","D1 CW +R, D2 CCW -R, D3 +Y, D4 -Y",,,,H,""
+2.5-2,CM RCS,"Engines","subsystem 1: 11 CW +R, 12 CCW -R, 13 +P, 14 -P, 15 +Y, 16 -Y; subsystem 2: 21-26 likewise",,,,H,"+pitch about +Y, +yaw about +Z, +roll about +X"
+2.5-21,SM RCS,"Normal CSM/S-IVB separation","RCS CMD on, +X translation, CSM/LV SEP held 2 s, then neutral",s,2,s,H,"abort case: adapter separation 3.0 s after initiation, RCS latching relay 3.8 s"
+2.5-23,SM RCS,"Primary fuel tank (4), propellant and ullage","69.1",lb,31.3432328,kg,H,"OD 12.62 in, length 23.717 in; 150 psig at 65 F"
+2.5-23,SM RCS,"Primary oxidizer tank (4), propellant and ullage","137.0",lb,62.1421547,kg,H,"OD 12.62 in, length 28.558 in"
+2.5-24,SM RCS,"Secondary fuel tank (4), propellant and ullage","45.2",lb,20.5023751,kg,H,"OD 12.62 in, length 17.329 in"
+2.5-24,SM RCS,"Secondary oxidizer tank (4), propellant and ullage","89.2",lb,40.4604394,kg,H,"OD 12.65 in, length 19.907 in"
+2.5-24,SM RCS,"Engine (16)","1000 s life, 750 s continuous, 10 000 cycles; expansion ratio 40:1",,40,1,H,""
+2.5-24,SM RCS,"Engine nozzle exit diameter","5.6",in,0.14224,m,H,""
+2.5-24,SM RCS,"Engine weight","4.99",lb,2.26342593,kg,H,"length 13.400 in max"
+2.5-47,CM RCS,"Tanks (2 fuel, 2 oxidizer)","as the SM RCS secondary tanks",,,,H,""
+2.5-47,CM RCS,"Engine nominal thrust","93",lbf,413.68461,N,H,"200 s life, 3000 cycles; Isp not given"
+2.5-47,CM RCS,"Engine expansion ratio","9:1",,9,1,H,"ablative cooling, 16-on-16 splash-plate injector"
+2.5-47,CM RCS,"Engine weight","8.3",lb,3.76481667,kg,H,"length 11.65 in max"
+2.5-47,CM RCS,"Engine nozzle exit diameter","2.13",in,0.054102,m,H,""

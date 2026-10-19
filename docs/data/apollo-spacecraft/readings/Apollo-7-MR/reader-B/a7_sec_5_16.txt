@@ -1,0 +1,80 @@
+# Apollo 7 Mission Report, section 5.16 extracts -- reader B
+# Format: page | paragraph | number as printed | context
+
+## p. 5-98 (ia167) -- "Command module/service module separation"
+5-98 | CM/SM separation | -1.56 deg/sec | peak rate excursion, pitch ("minus 1.56")
+5-98 | CM/SM separation | +0.84 deg/sec | peak rate excursion, roll ("plus 0.84")
+5-98 | CM/SM separation | -0.22 deg/sec | peak rate excursion, yaw ("minus 0.22")
+5-98 | CM/SM separation | 1 second | disturbances essentially disappeared after 1 second
+
+## p. 5-98 (ia167) -- "Entry"
+5-98 | Entry | 5.16-26 | figure number: time history of dynamic parameters during entry
+5-98 | Entry | 259:57:26 | spacecraft controlled manually until this time, digital autopilot thereafter
+5-98 | Entry | 259:58:29 | crew switched to dual reaction control system operation
+5-98 | Entry | 11 | "see section 11" (crew reported large pitch disturbance)
+5-98 | Entry | 15 seconds | abnormality (sharp small-amplitude pitch/yaw rate changes) approx. 15 s before switch to dual-system operation
+5-98 | Entry | 3 | "See section 3."
+
+## p. 5-99 (ia168) -- Entry (continued)
+5-99 | Entry, RCS fuel | 2-minute | all excess pitch/yaw damping fuel used in the 2-minute period before drogue deployment (transonic region)
+5-99 | Entry interface | 2.2 ft/sec | entry interface velocity greater than predicted by
+5-99 | Entry interface | 0.009 degree | entry interface flight-path angle greater (steeper) than predicted by
+5-99 | Entry interface | 25844.2 ft/sec | planned velocity at entry interface altitude (printed "25 844.2")
+5-99 | Entry interface | -2.063 degrees | planned flight-path angle ("minus 2.063")
+5-99 | Entry interface | 25846.4 ft/sec | computer-calculated velocity (printed "25 846.4")
+5-99 | Entry interface | -2.072 degrees | computer-calculated flight-path angle ("minus 2.072")
+5-99 | Entry | 5.16-27 | figure number: altitude and range during entry
+5-99 | Entry | 259:53:26 | spacecraft reached the entry interface (initial roll guidance program in operation)
+5-99 | Entry | 1594 n. mi. | computer-indicated inertial range to landing at entry interface
+5-99 | Entry | 0.05g | spacecraft manually held at entry trim conditions predicted for the 0.05g level
+5-99 | Entry | 259:55:38 | computer switched to entry post-0.05g program (final 8 printed light; reads 38)
+5-99 | Entry | 0.05g | after 0.05g, rate damped in pitch and yaw
+5-99 | Entry | 0.2g | crew maintained lift vector up until shortly after 0.2g
+5-99 | Entry | 259:56:06 | computer sensed 0.2g and changed to final phase program
+5-99 | Entry | 10 n. mi. | go/no-go: displayed downrange error vs ground-predicted value differed by approximately 10 n. mi.
+5-99 | Entry | 100 n. mi. | tolerance "plus or minus 100 n. mi." on downrange error
+5-99 | Entry | 55-degree | spacecraft manually rolled to a 55-degree roll-left lift vector orientation (backup)
+5-99 | Entry | 30 seconds | backup lift vector orientation to be held for about 30 s
+5-99 | Entry | -15 degrees | first non-zero roll command from computer ("minus 15 degrees")
+5-99 | Entry | 202000-foot | altitude at which the first non-zero roll command was issued ("about 202 000-foot altitude")
+5-99 | Entry | 5.16-28 | figure number: commanded vs actual bank angle
+5-99 | Entry | 5.16-VII | table number: telemetered navigation data/guidance commands vs reconstructed set
+
+## p. 5-100 (ia169) -- landing-data paragraph
+5-100 | Landing | 5.16-29 | figure number: summary of landing data
+5-100 | Landing | 1 n. mi. | computer display indicated an undershoot of 1 n. mi.
+5-100 | Landing | 64.07 degrees west longitude | recovery forces estimate of landing point
+5-100 | Landing | 27.54 degrees north latitude | recovery forces estimate of landing point
+5-100 | Landing | 7.78 n. mi. | overshoot implied by the recovery forces estimate
+5-100 | Landing | 5.16-VIII | table number: platform errors applied to accelerometer data
+5-100 | Landing | 64.15 degrees west longitude | landing per corrected accelerometer data trajectory (reconstructed)
+5-100 | Landing | 27.64 degrees north latitude | landing per corrected accelerometer data trajectory (reconstructed)
+5-100 | Landing | 1.9 n. mi. | overshoot per reconstructed trajectory
+5-100 | Landing | 5.16-VII | table number: computer navigation data vs reconstructed trajectory
+5-100 | Landing | 2.2 n. mi. | computer downrange navigation error at drogue deployment (approximately)
+5-100 | Landing | 1-sigma | error within the 1-sigma touchdown accuracy predicted before the mission
+
+## p. 5-102 (ia171) -- 5.16.3 Stabilization and Control System Performance
+5-102 | 5.16.3 | 5.16.3 | section number
+5-102 | 5.16.3 GDC drift check | 1 hour 15 minutes | period over which drift values were accumulated
+5-102 | 5.16.3 GDC drift check | 2.96 deg/hr | gyro display coupler drift, pitch
+5-102 | 5.16.3 GDC drift check | 0.80 deg/hr | gyro display coupler drift, yaw
+5-102 | 5.16.3 GDC drift check | 0.0 deg/hr | gyro display coupler drift, roll
+5-102 | 5.16.3 hardware | Two | two hardware problems noted
+5-102 | 5.16.3 hardware | no. 1 | flight director attitude indicator no. 1 did not operate properly in pitch with backup attitude reference displayed
+5-102 | 5.16.3 hardware | 11 | "see section 11"
+
+## p. 5-102 (ia171) -- 5.16.4 Entry Monitor System
+5-102 | 5.16.4 | 5.16.4 | section number
+5-102 | 5.16.4 EMS delta-V counter | 9 | most significant digit of the counter indicated 9 at times during setup for propulsion system firings
+5-102 | 5.16.4 | 11 | "Section 11 contains a discussion of both of these anomalies"
+# (No other numeric values in 5.16.4 on this page. Numbers higher on the same page belong to 5.16.2
+#  "Optical system": 180 degrees of telescope shaft rotation required (counter-clockwise), about 90 degrees for clockwise.)
+
+## p. 5-103 (ia172) -- 5.16.4 continued
+5-103 | 5.16.4 | 5.16-31 | figure number: reproduction of g/velocity trace on the EMS scroll retrieved postflight
+# (No other numbers on this page; rest of page blank.)
+
+## Cross-checks
+# 25846.4 - 25844.2 = 2.2 ft/s and |-2.072| - |-2.063| = 0.009 deg: consistent with the "greater than predicted" sentence.
+# Entry interface 259:53:26 here matches Table 2-I planned (259:53:26); Table 2-I actual is 259:53:27.

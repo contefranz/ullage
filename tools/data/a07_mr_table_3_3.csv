@@ -1,0 +1,132 @@
+# Apollo 7 Mission Report, MSC-PA-R-68-15, NASA Manned Spacecraft Center,
+# December 1968. Copy read: https://archive.org/download/apollo-7-mission-report/apollo-7-mission-report.pdf
+# (14,156,749 bytes, sha256 740743e38fd97898d4f5f221a2671f366abdd943e9c8f3b4e1d59618342d13e0),
+# native 240 dpi bilevel page images (pdfimages -png). The apollojournals.org copy
+# (A07_MissionReport.pdf) is a ClearScan rendering of the same pages whose text
+# layer garbles digits; it was used only to find pages.
+#
+# Table 3-III "Trajectory parameters for maneuvers" (document pages 3-11 to
+# 3-17, PDF pages 44-50; printed sideways). Ignition and cutoff, planned and
+# actual, for the two RCS phasing maneuvers, terminal phase initiation and
+# station-keeping (ignition columns only), the separation maneuver and the
+# eight SPS maneuvers. Latitude is geodetic and altitude is above the
+# reference ellipsoid (the report does not name it; MSC used Fischer 1960,
+# a = 20 925 741.47 ft, 1/f = 298.3, as in 68-FM-184 Table I(d)). Longitude is
+# east-positive. Velocity, flight-path angle and heading are space-fixed
+# (inertial); heading is degrees east of north.
+# Times are ground elapsed time (GET) from range zero, 1968-10-11 15:02:45 UTC.
+# The table has no footnotes. value columns are as printed; the *_si columns
+# convert them (s of GET, rad, m, m/s), with the misprint noted on the row
+# resolved.
+#
+# Read by two independent readers from the rotated page images: 416 cells,
+# no disagreement. The printed ft and n mi altitudes agree within 0.03 n mi.
+# Grades: H = both readers read the same digits on a clean print and every
+# check that applies (a sum, a ratio, a value printed twice) closes; M = both
+# readers agree, but the value needed interpretation (a misprint, a missing
+# sign) or a check does not close; L = uncertain.
+maneuver,condition,unit,ign_planned,ign_actual,cut_planned,cut_actual,si_unit,ign_planned_si,ign_actual_si,cut_planned_si,cut_actual_si,grade,note
+"First phasing maneuver (reaction control system)","Time",h:min:s,03:20:00.0,03:20:09.9,03:20:16.3,03:20:26.2,s,12000,12009.9,12016.3,12026.2,H,""
+"First phasing maneuver (reaction control system)","Geodetic latitude",deg,25.07,24.96,24.68,24.46,rad,0.437554043,0.435634181,0.430747259,0.426907535,H,""
+"First phasing maneuver (reaction control system)","Longitude",deg,-61.72,-61.39,-60.62,-60.02,rad,-1.07721721,-1.07145763,-1.05801859,-1.04754662,H,""
+"First phasing maneuver (reaction control system)","Altitude",ft,789581,789997,790031,791756,m,240664.289,240791.086,240801.449,241327.229,H,""
+"First phasing maneuver (reaction control system)","Altitude",n mi,129.95,130.01,130.00,130.31,m,240667.4,240778.52,240760,241334.12,H,""
+"First phasing maneuver (reaction control system)","Space-fixed velocity",ft/s,25532.2,25531.7,25526.9,25525.0,m/s,7782.21456,7782.06216,7780.59912,7780.02,H,""
+"First phasing maneuver (reaction control system)","Space-fixed flight-path angle",deg,0.234,0.236,0.239,0.244,rad,0.00408407045,0.00411897703,0.00417133691,0.00425860337,H,""
+"First phasing maneuver (reaction control system)","Space-fixed heading angle (E of N)",deg,110.11,110.26,110.60,110.87,rad,1.92178204,1.92440003,1.93033415,1.93504654,H,""
+"Second phasing maneuver (reaction control system)","Time",h:min:s,15:52:00.0,15:52:00.9,15:52:18.5,15:52:18.5,s,57120,57120.9,57138.5,57138.5,H,""
+"Second phasing maneuver (reaction control system)","Geodetic latitude",deg,-31.70,-31.70,-31.74,-31.73,rad,-0.553269373,-0.553269373,-0.553967505,-0.553792972,H,""
+"Second phasing maneuver (reaction control system)","Longitude",deg,-116.36,-119.41,-115.10,-117.10,rad,-2.03086512,-2.08409766,-2.00887397,-2.04378055,M,"actual -119.41 to -117.10 is 2.31 deg in 17.6 s, against 1.26 deg planned and about 1.3 deg from the orbital rate; one actual value is probably 1 deg off"
+"Second phasing maneuver (reaction control system)","Altitude",ft,1004151,1002632,1004169,1002090,m,306065.225,305602.234,306070.711,305437.032,H,""
+"Second phasing maneuver (reaction control system)","Altitude",n mi,165.26,165.00,165.26,164.92,m,306061.52,305580,306061.52,305431.84,H,""
+"Second phasing maneuver (reaction control system)","Space-fixed velocity",ft/s,25281.3,25283.1,25274.8,25277.4,m/s,7705.74024,7706.28888,7703.75904,7704.55152,H,""
+"Second phasing maneuver (reaction control system)","Space-fixed flight-path angle",deg,0.0,0.0,-0.006,-0.007,rad,0,0,-0.000104719755,-0.000122173048,H,""
+"Second phasing maneuver (reaction control system)","Space-fixed heading angle (E of N)",deg,92.26,92.29,91.59,91.19,rad,1.61024077,1.61076437,1.59854706,1.59156574,H,""
+"First service propulsion maneuver","Time",h:min:s,26:24:55.2,26:24:55.7,26:25:04.7,26:25:05.1,s,95095.2,95095.7,95104.7,95105.1,M,"cutoff actual 26:25:05.1 here, 26:25:05.7 in Table 2-I"
+"First service propulsion maneuver","Geodetic latitude",deg,-29.55,-29.56,-29.41,-29.42,rad,-0.515744794,-0.515919327,-0.513301333,-0.513475866,H,""
+"First service propulsion maneuver","Longitude",deg,106.8,107.7,107.5,107.5,rad,1.86401164,1.8797196,1.87622895,1.87622895,M,"ignition actual printed 107.7: east of its own cutoff (107.5) on an eastbound pass; probably 106.7"
+"First service propulsion maneuver","Altitude",ft,990459,990253,988920,988518,m,301891.903,301829.114,301422.816,301300.286,H,""
+"First service propulsion maneuver","Altitude",n mi,163.01,162.98,162.75,162.69,m,301894.52,301838.96,301413,301301.88,H,""
+"First service propulsion maneuver","Space-fixed velocity",ft/s,25289.4,25289.9,25354.2,25354.0,m/s,7708.20912,7708.36152,7727.96016,7727.8992,H,""
+"First service propulsion maneuver","Space-fixed flight-path angle",deg,-0.110,-0.130,-0.557,-0.556,rad,-0.00191986218,-0.00226892803,-0.00972148393,-0.00970403064,H,""
+"First service propulsion maneuver","Space-fixed heading angle (E of N)",deg,77.79,77.81,77.43,77.45,rad,1.35769163,1.35804069,1.35140844,1.35175751,H,""
+"Second service propulsion maneuver","Time",h:min:s,28:00:56.0,28:00:56.5,28:01:03.8,28:01:04.3,s,100856,100856.5,100863.8,100864.3,H,""
+"Second service propulsion maneuver","Geodetic latitude",deg,-22.42,-22.41,-22.19,-22.21,rad,-0.391302818,-0.391128285,-0.387288561,-0.387637627,H,""
+"Second service propulsion maneuver","Longitude",deg,106.77,106.76,107.27,107.24,rad,1.86348804,1.86331351,1.87221469,1.87169109,H,""
+"Second service propulsion maneuver","Altitude",ft,902496,902269,901015,901050,m,275080.781,275011.591,274629.372,274640.04,H,""
+"Second service propulsion maneuver","Altitude",n mi,148.53,148.49,148.29,148.29,m,275077.56,275003.48,274633.08,274633.08,H,""
+"Second service propulsion maneuver","Space-fixed velocity",ft/s,25446.7,25446.5,25354.7,25357.2,m/s,7756.15416,7756.0932,7728.11256,7728.87456,H,""
+"Second service propulsion maneuver","Space-fixed flight-path angle",deg,-0.529,-0.516,-0.196,-0.196,rad,-0.00923279174,-0.00900589894,-0.00342084533,-0.00342084533,H,""
+"Second service propulsion maneuver","Space-fixed heading angle (E of N)",deg,66.94,66.94,66.74,66.75,rad,1.1683234,1.1683234,1.16483274,1.16500728,H,""
+"Terminal phase initiate","Time",h:min:s,29:18:34.0,29:16:33.0,,,s,105514,105393,,,H,""
+"Terminal phase initiate","Geodetic latitude",deg,-31.74,-31.14,,,rad,-0.553967505,-0.543495529,,,H,""
+"Terminal phase initiate","Longitude",deg,35.66,26.45,,,rad,0.622384411,0.461639587,,,H,""
+"Terminal phase initiate","Altitude",ft,934904,931769,,,m,284958.739,284003.191,,,H,""
+"Terminal phase initiate","Altitude",n mi,153.86,153.35,,,m,284948.72,284004.2,,,H,""
+"Terminal phase initiate","Space-fixed velocity",ft/s,25323.4,25327.1,,,m/s,7718.57232,7719.70008,,,H,""
+"Terminal phase initiate","Space-fixed flight-path angle",deg,0.043,0.086,,,rad,0.000750491578,0.00150098316,,,H,""
+"Terminal phase initiate","Space-fixed heading angle (E of N)",deg,91.55,96.63,,,rad,1.59784893,1.68651166,,,H,""
+"Station-keeping initiate","Time",h:min:s,29:53:34.0,29:55:43.0,,,s,107614,107743,,,H,""
+"Station-keeping initiate","Geodetic latitude",deg,23.00,26.06,,,rad,0.401425728,0.454832803,,,H,""
+"Station-keeping initiate","Longitude",deg,162.54,171.29,,,rad,2.83685817,2.98957448,,,H,""
+"Station-keeping initiate","Altitude",ft,775469,764351,,,m,236362.951,232974.185,,,H,""
+"Station-keeping initiate","Altitude",n mi,127.62,125.80,,,m,236352.24,232981.6,,,H,""
+"Station-keeping initiate","Space-fixed velocity",ft/s,25531.7,25546.1,,,m/s,7782.06216,7786.45128,,,H,""
+"Station-keeping initiate","Space-fixed flight-path angle",deg,0.238,-0.206,,,rad,0.00415388362,-0.00359537826,,,H,""
+"Station-keeping initiate","Space-fixed heading angle (E of N)",deg,67.54,71.22,,,rad,1.17879538,1.24302349,,,H,""
+"Separation maneuver","Time",h:min:s,30:20:00.0,30:20:00.0,30:20:05.4,30:20:05.4,s,109200,109200,109205.4,109205.4,H,""
+"Separation maneuver","Geodetic latitude",deg,12.79,12.81,12.63,12.64,rad,0.223227611,0.223576677,0.220435085,0.220609617,H,""
+"Separation maneuver","Longitude",deg,-88.60,-88.63,-88.32,-88.34,rad,-1.54636172,-1.54688532,-1.5414748,-1.54182386,H,""
+"Separation maneuver","Altitude",ft,786642,786598,787157,784351,m,239768.482,239755.07,239925.454,239070.185,H,""
+"Separation maneuver","Altitude",n mi,129.46,129.45,129.55,129.09,m,239759.92,239741.4,239926.6,239074.68,H,""
+"Separation maneuver","Space-fixed velocity",ft/s,25514.1,25514.1,25515.0,25515.1,m/s,7776.69768,7776.69768,7776.972,7777.00248,H,""
+"Separation maneuver","Space-fixed flight-path angle",deg,0.270,0.270,0.271,0.257,rad,0.00471238898,0.00471238898,0.00472984227,0.00448549618,H,""
+"Separation maneuver","Space-fixed heading angle (E of N)",deg,119.21,119.21,119.28,119.28,rad,2.080607,2.080607,2.08182873,2.08182873,H,""
+"Third service propulsion maneuver","Time",h:min:s,75:47:58.6,75:48:00.3,75:48:07.8,75:48:09.3,s,272878.6,272880.3,272887.8,272889.3,H,""
+"Third service propulsion maneuver","Geodetic latitude",deg,-16.97,-16.95,-16.69,-16.68,rad,-0.296182374,-0.295833308,-0.291295452,-0.291120919,H,""
+"Third service propulsion maneuver","Longitude",deg,105.52,105.57,106.06,106.08,rad,1.84167143,1.84254409,1.8510962,1.85144527,H,""
+"Third service propulsion maneuver","Altitude",ft,944885,944663,944297,943708,m,288000.948,287933.282,287821.726,287642.198,H,""
+"Third service propulsion maneuver","Altitude",n mi,155.51,155.47,155.41,155.31,m,288004.52,287930.44,287819.32,287634.12,H,""
+"Third service propulsion maneuver","Space-fixed velocity",ft/s,25326.2,25326.1,25272.2,25273.9,m/s,7719.42576,7719.39528,7702.96656,7703.48472,H,""
+"Third service propulsion maneuver","Space-fixed flight-path angle",deg,-0.140,-0.144,-0.238,-0.237,rad,-0.00244346095,-0.00251327412,-0.00415388362,-0.00413643033,H,""
+"Third service propulsion maneuver","Space-fixed heading angle (E of N)",deg,62.84,62.84,63.46,63.12,rad,1.0967649,1.0967649,1.10758594,1.10165182,H,""
+"Fourth service propulsion maneuver","Time",h:min:s,120:43:00.0,120:43:00.4,120:43:00.4,120:43:00.9,s,434580,434580.4,434580.4,434580.9,M,"ignition actual 120:43:00.4 here, 120:43:00.5 in Table 2-I"
+"Fourth service propulsion maneuver","Geodetic latitude",deg,31.38,31.38,31.38,31.39,rad,0.547684319,0.547684319,0.547684319,0.547858852,H,""
+"Fourth service propulsion maneuver","Longitude",deg,-102.75,-102.78,-102.73,-102.79,rad,-1.79332581,-1.79384941,-1.79297674,-1.79402394,H,""
+"Fourth service propulsion maneuver","Altitude",ft,609937,610161,609948,609848,m,185908.798,185977.073,185912.15,185881.67,H,""
+"Fourth service propulsion maneuver","Altitude",n mi,100.38,100.42,100.38,100.36,m,185903.76,185977.84,185903.76,185866.72,H,""
+"Fourth service propulsion maneuver","Space-fixed velocity",ft/s,25658.9,25661.2,25671.9,25670.6,m/s,7820.83272,7821.53376,7824.79512,7824.39888,H,""
+"Fourth service propulsion maneuver","Space-fixed flight-path angle",deg,-0.383,-0.383,-0.381,-0.382,rad,-0.00668461104,-0.00668461104,-0.00664970445,-0.00666715774,H,""
+"Fourth service propulsion maneuver","Space-fixed heading angle (E of N)",deg,90.77,90.75,90.76,90.75,rad,1.58423536,1.5838863,1.58406083,1.5838863,H,""
+"Fifth service propulsion maneuver","Time",h:min:s,165:00:00.0,165:00:00.5,165:01:05.9,165:01:07.6,s,594000,594000.5,594065.9,594067.6,H,""
+"Fifth service propulsion maneuver","Geodetic latitude",deg,28.57,28.56,29.47,29.41,rad,0.498640567,0.498466034,0.514348531,0.513301333,H,""
+"Fifth service propulsion maneuver","Longitude",deg,-91.09,-91.12,-85.82,-86.24,rad,-1.58982042,-1.59034401,-1.49784156,-1.50517195,H,""
+"Fifth service propulsion maneuver","Altitude",ft,720774,720388,701234,700249,m,219691.915,219574.262,213736.123,213435.895,H,""
+"Fifth service propulsion maneuver","Altitude",n mi,118.62,118.56,115.41,115.24,m,219684.24,219573.12,213739.32,213424.48,H,""
+"Fifth service propulsion maneuver","Space-fixed velocity",ft/s,25518.9,25519.3,25707.4,25714.9,m/s,7778.16072,7778.28264,7835.61552,7837.90152,H,""
+"Fifth service propulsion maneuver","Space-fixed flight-path angle",deg,-0.482,-0.482,-0.902,-0.912,rad,-0.00841248699,-0.00841248699,-0.0157428699,-0.0159174028,H,""
+"Fifth service propulsion maneuver","Space-fixed heading angle (E of N)",deg,75.46,76.46,81.52,82.70,rad,1.31702545,1.33447875,1.42279241,1.44338729,M,"ignition planned 75.46 and actual 76.46 differ by exactly 1 deg while position agrees to 0.03 deg; one is probably misprinted"
+"Sixth service propulsion maneuver","Time",h:min:s,210:08:00.0,210:08:00.5,210:08:00.4,210:08:01.0,s,756480,756480.5,756480.4,756481,H,""
+"Sixth service propulsion maneuver","Geodetic latitude",deg,24.41,24.40,24.42,24.44,rad,0.42603487,0.425860337,0.426209403,0.426558469,H,""
+"Sixth service propulsion maneuver","Longitude",deg,-82.77,-82.81,-82.74,-82.70,rad,-1.44460902,-1.44530715,-1.44408542,-1.44338729,H,""
+"Sixth service propulsion maneuver","Altitude",ft,994614,995944,994225,993943,m,303158.347,303563.731,303039.78,302953.826,H,""
+"Sixth service propulsion maneuver","Altitude",n mi,163.69,163.91,163.63,163.58,m,303153.88,303561.32,303042.76,302950.16,H,""
+"Sixth service propulsion maneuver","Space-fixed velocity",ft/s,25354.1,25354.7,25354.5,25354.6,m/s,7727.92968,7728.11256,7728.0516,7728.08208,H,""
+"Sixth service propulsion maneuver","Space-fixed flight-path angle",deg,-1.169,-1.169,-1.168,-1.168,rad,-0.020402899,-0.020402899,-0.0203854457,-0.0203854457,H,""
+"Sixth service propulsion maneuver","Space-fixed heading angle (E of N)",deg,71.67,71.67,71.73,71.73,rad,1.25087747,1.25087747,1.25192467,1.25192467,H,""
+"Seventh service propulsion maneuver","Time",h:min:s,239:06:11.0,239:06:12.0,239:06:18.8,239:06:19.7,s,860771,860772,860778.8,860779.7,H,""
+"Seventh service propulsion maneuver","Geodetic latitude",deg,15.06,15.05,14.82,14.80,rad,0.262846585,0.262672052,0.258657795,0.258308729,H,""
+"Seventh service propulsion maneuver","Longitude",deg,-66.20,-66.16,-65.72,-65.68,rad,-1.15540796,-1.15470983,-1.14703038,-1.14633225,H,""
+"Seventh service propulsion maneuver","Altitude",ft,545506,545503,545583,544535,m,166270.229,166269.314,166293.698,165974.268,H,""
+"Seventh service propulsion maneuver","Altitude",n mi,89.78,89.78,89.79,89.62,m,166272.56,166272.56,166291.08,165976.24,H,""
+"Seventh service propulsion maneuver","Space-fixed velocity",ft/s,25864.5,25864.6,25865.7,25866.4,m/s,7883.4996,7883.53008,7883.86536,7884.07872,H,""
+"Seventh service propulsion maneuver","Space-fixed flight-path angle",deg,-0.224,-0.207,-0.239,-0.242,rad,-0.00390953752,-0.00361283155,-0.00417133691,-0.00422369679,H,""
+"Seventh service propulsion maneuver","Space-fixed heading angle (E of N)",deg,116.38,116.38,116.30,116.31,rad,2.03121418,2.03121418,2.02981792,2.02999245,H,""
+"Eighth service propulsion maneuver","Time",h:min:s,259:39:15.9,259:31:16.3,259:39:27.9,259:39:28.2,s,934755.9,934756.3,934767.9,934768.2,M,"ignition actual printed 259:31:16.3; si uses 259:39:16.3 (Table 2-I, and 0.4 s after the planned 259:39:15.9 like the position)"
+"Eighth service propulsion maneuver","Geodetic latitude",deg,13.84,13.83,14.20,14.19,rad,0.241553568,0.241379036,0.247836754,0.247662221,H,""
+"Eighth service propulsion maneuver","Longitude",deg,-148.63,-148.65,-147.96,-147.98,rad,-2.59408287,-2.59443193,-2.58238916,-2.58273823,H,""
+"Eighth service propulsion maneuver","Altitude",ft,1143422,1143579,1138667,1137041,m,348515.026,348562.879,347065.702,346570.097,H,""
+"Eighth service propulsion maneuver","Altitude",n mi,188.18,188.21,187.40,187.13,m,348509.36,348564.92,347064.8,346564.76,H,""
+"Eighth service propulsion maneuver","Space-fixed velocity",ft/s,25152.8,25155.3,24966.7,24966.5,m/s,7666.57344,7667.33544,7609.85016,7609.7892,H,""
+"Eighth service propulsion maneuver","Space-fixed flight-path angle",deg,-0.985,-0.988,-1.652,-1.643,rad,-0.0171914931,-0.017243853,-0.0288328392,-0.0286757596,H,""
+"Eighth service propulsion maneuver","Space-fixed heading angle (E of N)",deg,63.21,63.20,63.38,63.38,rad,1.10322262,1.10304809,1.10618968,1.10618968,H,""

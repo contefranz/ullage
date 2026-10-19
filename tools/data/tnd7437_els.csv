@@ -1,0 +1,67 @@
+# NASA TN D-7437, Robert B. West, "Apollo Experience Report - Earth Landing
+# System", November 1973. Copy read:
+# https://ntrs.nasa.gov/api/citations/19740003586/downloads/19740003586.pdf
+# (26,481,429 bytes, sha256 2ca5ab15917d848137bc4b6fa3dc9c553be9387d98eef96902a4063d79cfc91e),
+# native 300 dpi bilevel page images.
+#
+# The Increased Capability Block II earth landing system, which every manned
+# Apollo flight from Apollo 7 (CSM 101) flew (page 7): Figure 2 "Normal
+# recovery sequence" (page 4, PDF 10), the text of pages 4-8 (PDF 10-14),
+# Table I main-parachute design loads (page 7), Figures A-15, A-16 and A-19 and
+# Table A-I (pages A-10 to A-13, PDF 31-34) and page A-14. Drag areas are
+# C_D S per canopy as printed ("average" for the mains). Times are seconds
+# after the event that starts each step (deployment or line stretch).
+# Pressure altitudes are as printed; the baroswitches sense static pressure
+# (US 1976: 24 000 ft = 39.3 kPa, 11 000 ft = 67.0 kPa, 10 000 ft = 69.7 kPa).
+#
+# Read by two independent readers: no disagreement. Checks that close: the
+# drogue and pilot weights sum to their totals; the reefing-line lengths, 264
+# and 780 in, are pi times D_R1 and D_R2; 7.0/83.5 = 8.4 percent and 20.7/83.5
+# = 24.8 percent; the 1.6 s from apex cover to drogues appears in Figures 2 and
+# 3 and the text. The main-parachute weights sum to 138.58 lb, printed 138.5.
+# Grades: H = both readers read the same digits and every check that applies
+# closes; M = both readers agree, but the value needed interpretation or a
+# check does not close; L = uncertain.
+source,item,parameter,value,unit,si,si_unit,grade,note
+Fig. 2,sequence,"Forward heat shield (apex cover) jettisoned","24 000 ft + 0.4 s",,,,H,"baroswitch altitude, then 0.4 s"
+Fig. 2,sequence,"Drogue parachutes deployed, reefed","24 000 ft + 2 s",,,,H,"1.6 s after the apex cover (text, page 4)"
+Fig. 2,sequence,"Drogue single-stage disreef after deployment","10",s,10,s,H,""
+Fig. 2,sequence,"Drogues released, mains deployed by pilot chutes","11 000",ft,3352.8,m,H,"'approximately 11 000 feet' in the text"
+Fig. 2,sequence,"Main first-stage disreef after deployment","6",s,6,s,H,"measured from line stretch (page A-9)"
+Fig. 2,sequence,"VHF recovery antennas and flashing beacon deployed","8",s,8,s,H,""
+Fig. 2,sequence,"Main second-stage disreef after deployment","10",s,10,s,H,"approximately 9 000 ft"
+Fig. 2,sequence,"Altitude at main second-stage disreef","9 000",ft,2743.2,m,H,"approximately"
+Fig. 2,descent,"Splashdown velocity, three main parachutes","32",ft/s,9.7536,m/s,H,""
+Fig. 2,descent,"Splashdown velocity, two main parachutes","36",ft/s,10.9728,m/s,H,""
+p. 8,descent,"Specified maximum rate of descent","33",ft/s,10.0584,m/s,H,"at 5 000 ft pressure altitude"
+Fig. 3,abort,"Pad abort: canards, LES jettison, apex cover, drogues, mains","11 / 14 / 14.4 / 16 / 28",s,,,H,"times after abort initiation"
+p. 7,history,"CM recovery weight design case","13 000",lb,5896.70081,kg,H,"Increased Capability Block II, first flown on CSM 101 (Apollo 7)"
+Fig. A-16,drogue,"Type","conical ribbon, 25 deg",,,,H,"two drogues"
+Fig. A-16,drogue,"Nominal diameter","16.5",ft,5.0292,m,H,""
+Fig. A-16,drogue,"Gores","20",,20,,H,""
+Fig. A-16,drogue,"Constructed porosity","22",percent,0.22,1,H,"Table A-I: total porosity 22.4"
+Fig. A-16,drogue,"Reefed duration","10",s,10,s,H,""
+p. A-11,drogue,"Reefed diameter","42.8",percent of nominal,0.428,1,H,""
+Fig. A-16,drogue,"Drag area reefed (each)","65",ft^2,6.0386976,m^2,H,""
+Fig. A-16,drogue,"Drag area full open (each)","114",ft^2,10.5909466,m^2,H,"Table A-I: 114"
+Fig. A-16,drogue,"Assembly weight","37.4",lb,16.9643546,kg,H,"parts sum to 37.4; Table A-I: 37.4"
+Table A-I,drogue,"Maximum design-limit load","17 200",lb,76509.4118,N,H,"original Block II: 12 600"
+Fig. A-19,pilot,"Type","ringslot",,,,H,"three pilots, one per main"
+Fig. A-19,pilot,"Nominal diameter","7.2",ft,2.19456,m,H,""
+Fig. A-19,pilot,"Drag area","24.4",ft^2,2.26683418,m^2,H,""
+Fig. A-19,pilot,"Weight","5.17",lb,2.34507255,kg,H,""
+p. A-14,apex cover,"Forward-heat-shield parachute","7.2 ft ringslot pilot type with fixed reefing",,,,H,"drag area not given"
+Fig. A-15,main,"Type","ringsail",,,,H,"three mains"
+Fig. A-15,main,"Nominal diameter","83.5",ft,25.4508,m,H,""
+Fig. A-15,main,"Gores","68",,68,,H,""
+Fig. A-15,main,"Calculated total porosity","12",percent,0.12,1,H,""
+Fig. A-15,main,"First-stage reefed diameter D_R1","7.0 ft (8.4 percent midgore)",ft,2.1336,m,H,"reefing line A 264 in = pi x 7.0 ft"
+Fig. A-15,main,"Second-stage reefed diameter D_R2","20.7 ft (24.8 percent midgore)",ft,6.30936,m,H,"reefing line B 780 in = pi x 20.7 ft"
+Fig. A-15,main,"Drag area, first stage (average, each)","285",ft^2,26.4773664,m^2,H,""
+Fig. A-15,main,"Drag area, second stage (average, each)","1080",ft^2,100.335283,m^2,H,""
+Fig. A-15,main,"Drag area, full open (average, each)","4200",ft^2,390.192768,m^2,H,""
+Fig. A-15,main,"Assembly weight","138.5",lb,62.8225432,kg,H,"parts sum to 138.58"
+Table I,main,"Design-limit load, first stage (13 000-lb CM)","22 000",lb,97860.8755,N,H,"footnote: not for direct comparison"
+Table I,main,"Design-limit load, second stage","23 800",lb,105867.674,N,H,""
+Table I,main,"Design-limit load, full open","22 900",lb,101864.275,N,H,""
+Table I,main,"Design-limit load, cluster","37 500",lb,166808.311,N,H,"original Block II, 11 000-lb CM: 21 800 / - / 24 700 / 39 000"

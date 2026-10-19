@@ -1,0 +1,66 @@
+# Apollo 7 Mission Report, MSC-PA-R-68-15, NASA Manned Spacecraft Center,
+# December 1968. Copy read: https://archive.org/download/apollo-7-mission-report/apollo-7-mission-report.pdf
+# (14,156,749 bytes, sha256 740743e38fd97898d4f5f221a2671f366abdd943e9c8f3b4e1d59618342d13e0),
+# native 240 dpi bilevel page images (pdfimages -png). The apollojournals.org copy
+# (A07_MissionReport.pdf) is a ClearScan rendering of the same pages whose text
+# layer garbles digits; it was used only to find pages.
+#
+# Table A.5-I "Spacecraft mass properties" (document page A-47, PDF page 390;
+# printed sideways). Section A.5 (page A-46): "These data represent the
+# conditions as determined from postflight analyses of expendable loadings and
+# usage during the flight ... The weights and center of gravity of the
+# individual command and service modules were measured prior to flight and the
+# inertia values were calculated." The rows are the spacecraft (CSM, with the
+# SLA and launch escape system at lift-off and the SLA at insertion) at each
+# event; an SPS-maneuver row is the mass at that ignition, the following Coast
+# row the mass after it.
+#
+# Axes are the Apollo spacecraft axes X_A, Y_A, Z_A (station inches; X_A
+# along the longitudinal axis towards the apex). Neither page states the sign
+# convention of the products of inertia. The Apollo 11 Mission Report's Table
+# A-I, from the same office in the same format, uses +integral(x y dm) about
+# the CG (its splits recombine only with that sign; a11_mr_table_a_1.csv), so
+# that convention is very likely here too.
+# Printed units: lb, in, slug ft^2. SI columns: mass_kg (0.45359237 kg/lb),
+# x/y/z_m (0.0254 m/in), I_*_kgm2 (1.3558179483 kg m^2 per slug ft^2).
+#
+# Read by two independent readers from the raster page image, every row
+# zoomed: 240 cells, no disagreement. The OCR text layer of the ClearScan copy
+# garbles rows 7-9, 12, 16, 17 and 21 (and others); all were re-read on the
+# image. Notes:
+# - row 2 Y_A is printed ". 1.2": a speck at baseline height left of 1.2, not
+#   a minus sign (a minus sits at mid-height); +1.2 (rows 1-11 are all +).
+# - row 9 weight 29 780: the 8 has a broken lower-left stroke. 29 730 would
+#   make the spacecraft gain 1 lb across SPS-4, and the weight drops across
+#   the eight SPS burns sum to 7 809 lb, against the 7 811.1 lb of SPS
+#   propellant consumed in section 5.21 (with 29 730: 7 759 lb).
+# - row 18 I_yy is 40 971 (the design report's 40 911 came from the text layer).
+# Grades: H = both readers read the same digits on a clean print and every
+# check that applies (a sum, a ratio, a value printed twice) closes; M = both
+# readers agree, but the value needed interpretation (a misprint, a missing
+# sign) or a check does not close; L = uncertain.
+row,event,weight_lb,xa_in,ya_in,za_in,ixx_slugft2,iyy_slugft2,izz_slugft2,ixy_slugft2,ixz_slugft2,iyz_slugft2,mass_kg,xa_m,ya_m,za_m,ixx_kgm2,iyy_kgm2,izz_kgm2,ixy_kgm2,ixz_kgm2,iyz_kgm2,grade
+1,"Lift-off",45295,992.1,1.0,4.4,28874,393235,396846,-2035,84,-324,20545.4664,25.19934,0.0254,0.11176,39147.8874,533155.071,538050.93,-2759.08952,113.888708,-439.285015,H
+2,"Insertion",36419,917.3,1.2,5.4,28036,141839,145517,-1397,2196,-333,16519.3805,23.29942,0.03048,0.13716,38011.712,192307.862,197294.56,-1894.07767,2977.37621,-451.487377,H
+3,"Service propulsion maneuver 1",32356,950.4,1.4,6.0,18129,56210,59982,-1747,595,-32,14676.4347,24.14016,0.03556,0.1524,24579.6236,76210.5269,81324.6722,-2368.61396,806.711679,-43.3861743,H
+4,"Coast",31711,951.6,1.2,6.1,17774,55638,59073,-1628,550,-67,14383.8676,24.17064,0.03048,0.15494,24098.3082,75434.999,80092.2337,-2207.27162,745.699872,-90.8398025,H
+5,"Service propulsion maneuver 2",31595,951.7,1.2,6.2,17781,55655,59084,-1633,560,-69,14331.2509,24.17318,0.03048,0.15748,24107.7989,75458.0479,80107.1477,-2214.05071,759.258051,-93.5514384,H
+6,"Coast",31057,952.7,1.1,6.2,17470,55112,58246,-1550,521,-103,14087.2182,24.19858,0.02794,0.15748,23686.1396,74721.8388,78970.9722,-2101.51782,706.381151,-139.649249,H
+7,"Service propulsion maneuver 3",30671,953.0,1.1,6.2,17446,55085,58219,-1578,559,-90,13912.1316,24.2062,0.02794,0.15748,23653.5999,74685.2317,78934.3651,-2139.48072,757.902233,-122.023615,H
+8,"Coast",30050,954.4,0.9,6.3,17096,54373,57175,-1475,511,-127,13630.4507,24.24176,0.02286,0.16002,23179.0636,73719.8893,77518.8912,-1999.83147,692.822972,-172.188879,H
+9,"Service propulsion maneuver 4",29780,954.5,1.0,6.3,17057,54309,57123,-1495,531,-110,13507.9808,24.2443,0.0254,0.16002,23126.1867,73633.117,77448.3887,-2026.94783,719.939331,-149.139974,H
+10,"Coast",29731,954.7,1.0,6.3,17032,54253,57044,-1487,527,-113,13485.7548,24.24938,0.0254,0.16002,23092.2913,73557.1912,77341.279,-2016.10129,714.516059,-153.207428,H
+11,"Service propulsion maneuver 5",29607,954.7,1.1,6.1,16978,54159,56973,-1500,531,-90,13429.5093,24.24938,0.02794,0.15494,23019.0771,73429.7443,77245.016,-2033.72692,719.939331,-122.023615,H
+12,"Coast",25077,969.7,-0.7,7.0,14632,45675,46274,-505,77,-330,11374.7359,24.63038,-0.01778,0.1778,19838.3282,61926.9848,62739.1197,-684.688064,104.397982,-447.419923,H
+13,"Service propulsion maneuver 6",24975,969.9,-0.7,6.8,14599,45594,46202,-532,111,-314,11328.4694,24.63546,-0.01778,0.17272,19793.5862,61817.1635,62641.5008,-721.295149,150.495792,-425.726836,H
+14,"Coast",24927,970.1,-0.7,6.9,14574,45459,46044,-518,105,-316,11306.697,24.64054,-0.01778,0.17526,19759.6908,61634.1281,62427.2816,-702.313697,142.360885,-428.438472,H
+15,"Service propulsion maneuver 7",24864,970.2,-0.6,6.8,14556,45412,46000,-535,128,-308,11278.1207,24.64308,-0.01524,0.17272,19735.2861,61570.4047,62367.6256,-725.362602,173.544697,-417.591928,H
+16,"Coast",24295,972.9,-0.9,6.9,14268,43773,44090,-368,54,-336,11020.0266,24.71166,-0.02286,0.17526,19344.8105,59348.2191,59778.0133,-498.941005,73.2141692,-455.554831,H
+17,"Service propulsion maneuver 8",24262,973.0,-0.9,6.9,14262,43748,44062,-383,77,-331,11005.0581,24.7142,-0.02286,0.17526,19336.6756,59314.3236,59740.0504,-519.278274,104.397982,-448.775741,H
+18,"Command module/service module separation",23453,977.2,-1.3,7.1,13829,40971,40878,-110,-45,-373,10638.1019,24.82088,-0.03302,0.18034,18749.6064,55549.2172,55423.1261,-149.139974,-61.0118077,-505.720095,H
+19,"CM after separation",12364,1040.8,-0.2,6.0,5799,5213,4745,42,-423,30,5608.21606,26.43632,-0.00508,0.1524,7862.38828,7067.87896,6433.35616,56.9443538,-573.510992,40.6745384,H
+20,"Entry interface (400 000 ft)",12356,1040.8,-0.2,6.0,5795,5208,4744,41,-421,30,5604.58732,26.43632,-0.00508,0.1524,7856.96501,7061.09987,6432.00035,55.5885359,-570.799356,40.6745384,H
+21,"Mach 10",12277,1041.0,-0.2,5.9,5735,5144,4687,42,-417,30,5568.75353,26.4414,-0.00508,0.14986,7775.61593,6974.32753,6354.71872,56.9443538,-565.376084,40.6745384,H
+22,"Drogue deploy",11936,1039.7,-0.1,5.9,5649,4901,4467,42,-392,32,5414.07853,26.40838,-0.00254,0.14986,7659.01559,6644.86376,6056.43878,56.9443538,-531.480636,43.3861743,H
+23,"Main parachute deploy",11855,1039.4,-0.1,6.1,5633,4841,4424,42,-366,32,5377.33755,26.40076,-0.00254,0.15494,7637.3225,6563.51469,5998.1386,56.9443538,-496.229369,43.3861743,H
+24,"Landing",11409,1037.4,-0.1,6.1,5567,4567,4131,40,-371,33,5175.03535,26.34996,-0.00254,0.15494,7547.83852,6192.02057,5600.88394,54.2327179,-503.008459,44.7419923,H
