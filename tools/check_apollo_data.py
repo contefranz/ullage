@@ -333,8 +333,36 @@ def handbook_and_notes():
     check("MSC-03466 Table I: five missions, Apollo 7-11", [r["item"] for r in m] == [f"Apollo {n}" for n in range(7, 12)])
 
 
+# ------------------------------------------------ US Standard Atmosphere 1976
+def us76():
+    def t_model(z):
+        z /= 1000
+        if z <= 91:
+            return 186.8673
+        if z <= 110:
+            return 263.1905 - 76.3232 * math.sqrt(1 - ((z - 91) / -19.9429) ** 2)
+        if z <= 120:
+            return 240 + 12 * (z - 110)
+        xi = (z - 120) * (6356.766 + 120) / (6356.766 + z)
+        return 1000 - 640 * math.exp(-0.01875 * xi)
+
+    t = rows("us76_table1_86_1000km.csv")
+    gas = max(abs(num(r["p_pa"]) / (num(r["rho_kgm3"]) * 8314.32 / 28.9644 * num(r["tm_k"])) - 1) for r in t)
+    check("US 1976: p = rho (R*/M0) T_M on every row", gas < 6e-4, f"worst {gas:.1e} over {len(t)} rows")
+    dt = max(abs(num(r["t_k"]) - t_model(num(r["z_m"]))) for r in t)
+    check("US 1976: T against the standard's analytic profile above 86 km", dt < 0.011, f"worst {dt:.4f} K")
+    z = [num(r["z_m"]) for r in t]
+    p = [num(r["p_pa"]) for r in t]
+    rho = [num(r["rho_kgm3"]) for r in t]
+    check("US 1976: z rises, p and rho fall", all(a < b for a, b in zip(z, z[1:]))
+          and all(a > b for a, b in zip(p, p[1:])) and all(a > b for a, b in zip(rho, rho[1:])))
+    e = {num(r["z_m"]): num(r["rho_kgm3"]) for r in t}
+    check("US 1976: the entry design's spot values (rho 100 km 5.604e-7, 120 km 2.222e-8)",
+          e[100000] == 5.604e-7 and e[120000] == 2.222e-8)
+
+
 if __name__ == "__main__":
-    for fn in (fm184, a7, a11, technical_notes, handbook_and_notes):
+    for fn in (fm184, a7, a11, technical_notes, handbook_and_notes, us76):
         fn()
     print(f"{len(failures)} failure(s)")
     sys.exit(1 if failures else 0)

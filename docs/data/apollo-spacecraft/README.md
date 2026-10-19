@@ -58,6 +58,7 @@ a plan; the Mission Reports describe the flight.
 | MSC-03466 | MSC-03466, *Apollo 11 Mission Anomaly Report No. 3: Service Module Entry* | https://ntrs.nasa.gov/api/citations/19710017109/downloads/19710017109.pdf | 1,196,958 | `4ed78136948d3f48028b4cbf6c13982b624b186e13132e91ef38b68db5cd2285` |
 | AOH 2.4 | SM2A-03-BLOCK II-(1), *Apollo Operations Handbook*, Block II, Vol. 1, §2.4 SPS (15 Apr 1969, changes to 15 Oct 1969) | https://www.apollojournals.org/afj/aoh/aoh-v1-2-04-sps.pdf | 8,364,581 | `bef220b46be9dc0955dd14843820461d6ebf7c08bd3969e9091f273e87c29cd2` |
 | AOH 2.5 | same, §2.5 RCS | https://www.apollojournals.org/afj/aoh/aoh-v1-2-05-rcs.pdf | 9,065,472 | `f81b8a786590a919947ecc2f9bcc0732d0540ba84a2e047c26300fec279e5d47` |
+| US76 | *U.S. Standard Atmosphere, 1976* (NOAA, NASA, USAF; NOAA-S/T 76-1562) | https://ntrs.nasa.gov/api/citations/19770009539/downloads/19770009539.pdf | 18,101,069 | `23eb6b68346d4abc6071fc598872d51c40cf8c613d1a5d1006c6261bcd09dcea` |
 
 All copies retrieved 2026-10-19.
 
@@ -84,6 +85,7 @@ All copies retrieved 2026-10-19.
 | `aoh_block2_sps_rcs.csv` | AOH §2.4-2.5: SPS tanks, gimbal ranges and nulls, ullage rule, engine; SM sectors and quad positions; SM and CM RCS engine maps, tanks and engines; the CSM/LV separation sequence | final |
 | `68fm160_sla_panels.csv` | 68-FM-160: SLA panel jettison requirements (rotation rate, release angle, springs, velocity and attitude), weight, area and drag coefficient | final |
 | `msc03466_sm_jettison.csv` | MSC-03466: the SM jettison controller before and from Apollo 13, the slosh analysis, Table I separation velocities for Apollo 7-11 | final |
+| `us76_table1_86_1000km.csv` | US 1976 Table I, 86-1,000 km: T, T_M, p and ρ, every row to 149 km, then 5-50 km steps (136 rows) | final |
 
 ## 68-FM-184 (Apollo 7 Spacecraft Operational Trajectory)
 
@@ -603,3 +605,37 @@ Mission Reports' remaining propellant:
 
 The report does not say what the column counts, so use the Mission Reports
 for the SM's loads.
+
+## U.S. Standard Atmosphere, 1976 (86-1,000 km)
+
+Table I "Geometric altitude, metric units", printed pages 68-73 (PDF 83-88),
+300 dpi bilevel, printed sideways.
+
+**Rows.** Every row printed from 86 to 149 km (0.5 km steps to 100 km, then
+1 km). Above 150 km the table prints a row every 1 to 5 km; the CSV keeps
+every 5 km to 225 km, every 10 km to 470 km, then 480 to 1,000 km at 10 to
+50 km. That is the 2-5 km below 150 km and 10-50 km above that the entry
+design asks for, 136 rows in all. The columns are T, T_M, p and ρ; H,
+t (°C), p in torr and the ratios are left out.
+
+**Readers.** Readers A and B agree on all 544 cells. Reader B flagged one
+damaged glyph, the last digit of T at 225 km (907.78 or 907.76). Both read
+907.78, and the standard's own profile gives 907.785.
+
+**Checks** (`tools/check_apollo_data.py`):
+- **Gas law.** p = ρ (R*/M0) T_M, with R* = 8,314.32 J/(kmol K) and
+  M0 = 28.9644, holds within 4e-4 on every row, the printed precision. T_M is
+  the molecular-scale temperature, so the varying molecular weight above
+  86 km is already in it.
+- **Temperature.** T agrees within 0.005 K with the standard's analytic
+  profile above 86 km:
+  - isothermal at 186.8673 K to 91 km;
+  - an ellipse to 110 km;
+  - +12 K/km to 120 km;
+  - then the exponential approach to 1,000 K.
+- **The entry design's spot values** hold: ρ is 5.604e-7 kg/m³ at 100 km and
+  2.222e-8 kg/m³ at 120 km, and T is 360.00 K at 120 km.
+
+**Note for track E1.** Between rows, interpolate p and ρ log-linearly and T
+linearly, or evaluate T from the profile. The speed of sound needs the local
+molecular weight: M = M0 T/T_M, from the T and T_M columns.
