@@ -132,6 +132,8 @@ public final class Vessel: Identifiable {
     public internal(set) var heatFlux = 0.0
     /// `heatFlux` integrated over time, J/m^2.
     public internal(set) var heatLoad = 0.0
+    /// Epoch of the last entry-telemetry update, for integrating `heatLoad`.
+    var entryTelemetryEpoch: Epoch?
 
     public init(name: String, parts: [VesselPart], reference: CelestialBody,
                 position: Vec3 = .zero, velocity: Vec3 = .zero,
