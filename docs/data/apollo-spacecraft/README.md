@@ -54,6 +54,10 @@ a plan; the Mission Reports describe the flight.
 | D-5399 | NASA TN D-5399, Hillje, *Entry Aerodynamics at Lunar Return Conditions Obtained from the Flight of Apollo 4 (AS-501)* (Oct 1969) | https://ntrs.nasa.gov/api/citations/19690029435/downloads/19690029435.pdf | 8,466,113 | `8351dea9b708f7801184469b15c19e1e9a18dd8ac9eff2899b8279675541716c` |
 | D-5276 | NASA TN D-5276, DeRose, *Trim Attitude, Lift and Drag of the Apollo Command Module with Offset Center-of-Gravity Positions at Mach Numbers to 29* (Jun 1969) | https://ntrs.nasa.gov/api/citations/19690020179/downloads/19690020179.pdf | 793,607 | `8df77fb79ef04e54a7092fccbe7e0d61396fdc5b8da151423aad6f77296c86b2` |
 | D-7437 | NASA TN D-7437, West, *Apollo Experience Report - Earth Landing System* (Nov 1973) | https://ntrs.nasa.gov/api/citations/19740003586/downloads/19740003586.pdf | 26,481,429 | `2ca5ab15917d848137bc4b6fa3dc9c553be9387d98eef96902a4063d79cfc91e` |
+| 68-FM-160 | MSC Internal Note 68-FM-160, Williamson and Fraley, *SLA Panel Jettison Separation and Recontact Analysis* (3 Jul 1968) | https://ntrs.nasa.gov/api/citations/19700026553/downloads/19700026553.pdf | 4,349,308 | `bda6ebb846e0daa4137fb9e4322cafd89db5facffca6c8bc94123b848f765f5b` |
+| MSC-03466 | MSC-03466, *Apollo 11 Mission Anomaly Report No. 3: Service Module Entry* | https://ntrs.nasa.gov/api/citations/19710017109/downloads/19710017109.pdf | 1,196,958 | `4ed78136948d3f48028b4cbf6c13982b624b186e13132e91ef38b68db5cd2285` |
+| AOH 2.4 | SM2A-03-BLOCK II-(1), *Apollo Operations Handbook*, Block II, Vol. 1, §2.4 SPS (15 Apr 1969, changes to 15 Oct 1969) | https://www.apollojournals.org/afj/aoh/aoh-v1-2-04-sps.pdf | 8,364,581 | `bef220b46be9dc0955dd14843820461d6ebf7c08bd3969e9091f273e87c29cd2` |
+| AOH 2.5 | same, §2.5 RCS | https://www.apollojournals.org/afj/aoh/aoh-v1-2-05-rcs.pdf | 9,065,472 | `f81b8a786590a919947ecc2f9bcc0732d0540ba84a2e047c26300fec279e5d47` |
 
 All copies retrieved 2026-10-19.
 
@@ -77,6 +81,9 @@ All copies retrieved 2026-10-19.
 | `tnd5399_text_apollo4.csv` | TN D-5399 text: reference length and area, RCS use and dead bands, ablator loss, flight trim and L/D | final |
 | `tnd5276_table1_trim_points.csv` | TN D-5276 Table I: 15 free-flight runs, Mach 10-29, trim angle, C_D and L/D at two CG offsets | final |
 | `tnd7437_els.csv` | TN D-7437: the Block II ELS sequence, drogue, pilot and main parachutes (diameters, reefing, drag areas, weights, loads), descent rates | final |
+| `aoh_block2_sps_rcs.csv` | AOH §2.4-2.5: SPS tanks, gimbal ranges and nulls, ullage rule, engine; SM sectors and quad positions; SM and CM RCS engine maps, tanks and engines; the CSM/LV separation sequence | final |
+| `68fm160_sla_panels.csv` | 68-FM-160: SLA panel jettison requirements (rotation rate, release angle, springs, velocity and attitude), weight, area and drag coefficient | final |
+| `msc03466_sm_jettison.csv` | MSC-03466: the SM jettison controller before and from Apollo 13, the slosh analysis, Table I separation velocities for Apollo 7-11 | final |
 
 ## 68-FM-184 (Apollo 7 Spacecraft Operational Trajectory)
 
@@ -478,3 +485,114 @@ rate), 30-35 (Block II mains, drogues, pilots and the apex-cover chute) and
   the specification is 33 ft/s at 5,000 ft. Three mains at 4,200 ft² carrying
   Apollo 7's 11,409 lb give 27.6 ft/s at sea level. The 32 ft/s is the design
   figure for the 13,000 lb CM, with cluster losses.
+
+## Apollo Operations Handbook §2.4 and §2.5
+
+These are grey scans, one image per page, with no text layer. Pages read:
+- §2.4: pages 2.4-1, 2.4-2, 2.4-7, 2.4-14, 2.4-15 and 2.4-41 to 2.4-45;
+- §2.5: pages 2.5-1, 2.5-2, 2.5-21, 2.5-23, 2.5-24 and 2.5-47.
+
+Readers A and B agree on every value. Neither section prints a thrust or an
+Isp: both refer to the CSM/LM Spacecraft Operational Data Book SNA-8-D-027,
+which was not found. 68-FM-184 Table I(b) supplies them.
+
+**Checks.**
+- **Tank totals.** Oxidizer storage + sump = 25,208.41 lb and fuel storage +
+  sump = 15,766.46 lb, the printed totals to the cent. Their ratio, 1.599, is
+  the 1.6 mixture ratio.
+- **The ullage limit.** 22,300 lb is printed as 56.4 % three times, but it is
+  56.27 % of the 100 % that the tanks' 103.4 % implies (graded M; reader B).
+  The two sumps together hold 22,632 lb, so the rule means "the storage tanks
+  are empty".
+
+**Notes for track C.**
+- **The SM layout** (Figure 2.4-3, looking forward from the aft bulkhead: −Z
+  up, +Y right):
+
+  | sector | contents | position |
+  |---|---|---|
+  | 1 | none labelled | between −Z and +Y |
+  | 2 | oxidizer sump | around +Y |
+  | 3 | oxidizer storage | just +Y of the +Z axis |
+  | 4 | EPS equipment | between +Z and −Y |
+  | 5 | fuel sump | around −Y |
+  | 6 | fuel storage | just −Y of the −Z axis |
+
+  The heavy oxidizer is all on the +Y/+Z side, which is where the loaded
+  CSM's CG offset points (Apollo 11 A-I: Y_A +4.0, Z_A +6.5 in).
+- **The quads.** Each sits 7°15′ off its axis (§2.5-1), and all four are
+  displaced the same way, counterclockwise in that view:
+  - A at −Z, toward −Y;
+  - B at +Y, toward −Z;
+  - C at +Z, toward +Y;
+  - D at −Y, toward +Z.
+
+  Measured from +Y toward +Z, C sits at 82.75°, D at 172.75°, A at 262.75°
+  and B at 352.75°. The sense is read from the figure, so these angles are
+  graded M.
+- **The SM RCS engine map** (Figure 2.5-1). Engine 1 of every quad is CW +roll
+  and engine 2 CCW −roll. Engines 3 and 4 are +pitch and −pitch on A and C,
+  +yaw and −yaw on B and D.
+- **The SPS gimbal** travels ±4.5° (+0.5, −0.0) about its nulls, plus 1° of
+  snubbing:
+  - yaw null +1° toward +Y when thrusting, 0° otherwise;
+  - pitch null +2° toward +Z when thrusting, +1.5° otherwise;
+  - rate 0.12-0.132 rad/s;
+  - the actuator mounting pad is offset 4° toward +Y.
+- **Minimum impulse:** 0.4 s.
+- **SM RCS tanks.** The 69.1 / 137.0 lb (primary) and 45.2 / 89.2 lb
+  (secondary) are "combined propellant and ullage volume" capacities, not
+  loads.
+- **Quad loads.** Apollo 7 loaded 110.6-111.3 lb of fuel and 223.7-225.9 lb
+  of oxidizer per quad, Apollo 11 110 and 225 lb (the Mission Report CSVs).
+
+## 68-FM-160 (SLA panel jettison)
+
+Pages read (PDF): 7 (summary), 9-10 (requirements and inputs) and 30 (F and
+G missions, conclusions). Readers A and B agree on every value.
+
+**Requirements:**
+- deployment at 33.5°/s or more;
+- hinge release at 45-60° from the S-IVB +X axis;
+- two springs per panel, about 450 lb preload, 50 lb/in;
+- at least 8 ft/s at 110 ± 20°.
+
+**Inputs:** 593 lb per panel (20 lb of spring growth included), 239 ft²,
+tumbling drag coefficient 1.7.
+
+**Note.** Four 593 lb panels are 1,076 kg, against the 1,166 kg AS-506's FER
+gives (the repo's 291.5 kg per panel). The report's Z points up, so its
+panel 1 (+Z) is the top panel, our −z.
+
+## MSC-03466 (service module entry)
+
+Pages read (PDF): 4-8, the text and Table I. Readers A and B agree on every
+value.
+
+**The SM jettison controller before Apollo 13:**
+- the four −X jets fire from separation until propellant depletion;
+- the four roll jets fire from 2 s for 5.5 s.
+
+**From Apollo 13 on:**
+- −X jets on at 0 s and off at 25 s;
+- roll jets on at 2 s and off at 4 s.
+
+**Table I** (propellant at jettison, expected and derived separation ΔV):
+
+| mission | propellant (lb) | expected ΔV (ft/s) | derived ΔV (ft/s) |
+|---|---|---|---|
+| Apollo 7 | 7,100 | 275 | 30 |
+| Apollo 8 | 9,500 | 78 | — |
+| Apollo 9 | 2,400 | 132 | 134 |
+| Apollo 10 | 3,300 | 345 | 60 |
+| Apollo 11 | 4,500 | 360 | — |
+
+**Inconsistencies inside the report** (reader B):
+- The text calls 8,600 lb "the propellant mass for Apollo 8", while Table I
+  gives 9,500 lb.
+- The text says C-band tracked Apollo 7 and 10, but Table I also gives an
+  Apollo 9 value.
+
+**Note for track C.** Apollo 7's SM left with about 7,100 lb (§5.21:
+1,926 lb of SPS and 398 lb of RCS propellant; the rest is cryogenics and
+residuals). Table I's 7,100 lb is therefore a total load, not the RCS alone.

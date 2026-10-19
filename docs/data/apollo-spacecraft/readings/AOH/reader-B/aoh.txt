@@ -1,0 +1,313 @@
+# Reader B -- Apollo Operations Handbook Block II, SM2A-03-BLOCK II-(1), Systems Data
+# Section 2.4 SPS (CSM 106 and subs), Section 2.5 RCS (CSM 106 and subs). Basic date 15 April 1969.
+# Read from page images only (work/aohimg/*.png), zoomed crops in readers/B/item6crops/.
+# Format: page | item | value | unit | note        ("?" marks an uncertain digit; none needed on these pages)
+
+## sps-000 = page 2.4-1 (change date 16 July 1969)
+2.4-1 | SPS oxidizer | inhibited nitrogen tetroxide | - |
+2.4-1 | SPS fuel | blended hydrazine, approx 50 percent UDMH + 50 percent anhydrous hydrazine | - | "approximately 50 percent unsymmetrical dimethyl hydrazine and 50 percent anhydrous hydrazine"
+2.4-1 | SPS pressurant | helium | - |
+2.4-1 | SPS propellant tanks | 4 similar tanks: oxidizer storage, oxidizer sump, fuel storage, fuel sump; storage and sump of each propellant connected in series by a single transfer line | - | helium enters storage tank, propellant flows storage -> sump standpipe -> sump exit -> propellant retention reservoir
+
+## sps-001 = page 2.4-2 (no change date)
+2.4-2 | ullage rule: restart in 0-g WITHOUT SM RCS ullage allowed when SPS quantity remaining greater than | 22,300 | lb | "(56.4%)"
+2.4-2 | ullage rule: SM RCS ullage maneuver MANDATORY before any SPS burn when SPS quantity remaining is at or less than | 22,300 | lb | "(56.4%)"
+2.4-2 | ullage rule: ullage also mandatory before any SPS burn following all docked LM DPS burns, even if SPS quantity at or greater than | 22,300 | lb | "(56.4%)"
+2.4-2 | ullage threshold as percent | 56.4 | % | stated three times, identical each time
+2.4-2 | propellant utilization valve | in the oxidizer line, powered only during SPS thrusting | - |
+2.4-2 | chamber cooling | ablative; nozzle extension radiation cooled | - |
+2.4-2 | PUGS | primary and auxiliary sensing, powered only during thrust-on periods | - |
+
+## sps-004 = page 2.4-7, Figure 2.4-3 "Service Module Sectors" (P-5038), VIEW LOOKING FORWARD FROM AFT BULKHEAD
+2.4-7 | figure axes | -Z at top, +Z at bottom, -Y at left, +Y at right | - | right-handed view looking along +X
+2.4-7 | Sector 1 | upper right, between -Z and +Y; no contents labelled in this figure | - |
+2.4-7 | Sector 2 | right, around +Y: OXIDIZER SUMP tank (shaded) | - |
+2.4-7 | Sector 3 | lower right, toward +Z: OXIDIZER STORAGE tank (shaded) | - | label "SECTOR 3" sits right of the tank, tank itself straddles just right of the +Z axis
+2.4-7 | Sector 4 | lower left, between +Z and -Y: EPS EQUIPMENT | - |
+2.4-7 | Sector 5 | left, around -Y: FUEL SUMP tank | - |
+2.4-7 | Sector 6 | upper left, toward -Z: FUEL STORAGE tank | - | tank sits just left of (on the -Y side of) the -Z axis
+2.4-7 | center section | central circle, no label | - |
+2.4-7 | Quad A position | near -Z, displaced from the -Z axis toward -Y (top, slightly left) | - | measured on image ~7-8 deg off axis
+2.4-7 | Quad B position | near +Y, displaced from the +Y axis toward -Z (right, slightly up) | - | ~6-7 deg off axis on image
+2.4-7 | Quad C position | near +Z, displaced from the +Z axis toward +Y (bottom, slightly right) | - | ~8 deg off axis on image
+2.4-7 | Quad D position | near -Y, displaced from the -Y axis toward +Z (left, slightly down) | - | ~6 deg off axis on image
+2.4-7 | quad offset sense (derived) | all four quads rotated the same way: counterclockwise in this aft-looking view = a NEGATIVE right-hand rotation about +X of 7 deg 15 min (offset magnitude from page 2.5-1) | deg | with phi measured from +Y toward +Z: C 82.75, D 172.75, A 262.75, B 352.75 (my derivation, not printed)
+2.4-7 | pressurization subsystem | two helium tanks, two helium pressurizing valves, two dual pressure regulator assemblies, two dual check valve assemblies, two pressure relief valves, two heat exchangers | - |
+
+## sps-011 = page 2.4-14 (change date 16 July 1969)
+2.4-14 | SPS line heaters | six heaters, each with a redundant element | - |
+2.4-14 | SPS LINE HTRS switch A/B | powers 12 | elements |
+2.4-14 | SPS LINE HTRS switch A | powers 6 | elements |
+2.4-14 | heaters switched on (A/B or A) when SPS PRPLNT TANKS TEMP reads | +45 | degF | temperature from engine fuel line temperature sensor
+2.4-14 | heaters switched OFF when indicator reads | +75 | degF |
+2.4-14 | indicator red-line markings | +27 and +100 | degF |
+2.4-14 | thrust structure (thrust mount) inclination capability about Z-axis | +/-10 | deg |
+2.4-14 | thrust structure inclination capability about Y-axis | +/-6 | deg |
+2.4-14 | gimbal actuators | dual, servo, electromechanical | - |
+2.4-14 | gimbal control about Z-Z axis (yaw) | +/-4.5 (+0.5, -0.0) | deg | "in either direction from a +1-degree null offset during SPS thrusting periods"
+2.4-14 | yaw null offset, SPS thrusting | +1 | deg |
+2.4-14 | yaw null offset, non-SPS-thrusting | 0 | deg |
+2.4-14 | gimbal control about Y-Y axis (pitch) | +/-4.5 (+0.5, -0.0) | deg | "from a +2-degree null offset during SPS thrusting periods"
+2.4-14 | pitch null offset, SPS thrusting | +2 | deg |
+2.4-14 | pitch null offset, non-SPS-thrusting | +1.5 | deg |
+
+## sps-012 = page 2.4-15 (Figure 2.4-4 SPS Heater Installation, Tank Feed Lines, P-5104A)
+2.4-15 | null offset directions | "+1-degree null offset to the +Y axis and +2-degree offset to the +Z axis during SPS thrusting periods" | deg | reason: offset center of mass
+2.4-15 | reason for thrusting vs non-thrusting null change | structural and engine deflections when thrust-on | - |
+2.4-15 | actuator assembly | four electromagnetic particle clutches, two d-c motors, bull gear, jack-screw and ram, ball nut, two linear position transducers, two velocity generators | - | system No. 1 = one motor + clutch pair, system No. 2 = the other
+2.4-15 | figure 2.4-4 heater labels | S31HR14 (fuel side), S31HR17 (oxidizer side) | - |
+
+## sps-036 = page 2.4-41 (change date 16 July 1969), 2.4.3.1 Design Data
+2.4-41 | Helium Tanks (2) nominal fill pressure | 3600 +/- 50 | psia |
+2.4-41 | Helium Tanks maximum operating pressure | 4400 | psia | printed "4400-maximum operating pressure" (unit implied)
+2.4-41 | Helium Tank capacity | 19.4 | ft^3 each |
+2.4-41 | Helium Tank inside diameter | 40 | in |
+2.4-41 | Helium Tank wall thickness | 0.46 | in |
+2.4-41 | Helium Tank weight | 393 | lb each |
+2.4-41 | Regulator Units (2), working regulator primary | 186 +/- 4 | psig |
+2.4-41 | working regulator secondary | 191 +/- 4 | psig |
+2.4-41 | working regulator primary lockup | 195 | psig |
+2.4-41 | working regulator secondary lockup | 200 | psig |
+2.4-41 | regulator inlet filter | 10 nominal, 25 absolute | micron |
+2.4-41 | normally locked-up (closed) regulators primary | 181 +/- 4 | psig |
+2.4-41 | normally locked-up regulators secondary | 191 +/- 4 | psig |
+2.4-41 | normally locked-up primary lockup | 195 | psig |
+2.4-41 | normally locked-up secondary lockup | 205 | psig |
+2.4-41 | Check Valves - Filters inlet port | 40 nominal, 74 absolute | micron |
+2.4-41 | Check Valves - Filters test ports | 50 nominal, 74 absolute | micron |
+2.4-41 | Pressure Transducers (2) fuel and oxidizer underpressure setting (SPS PRESS light, MDC-2) | 157 | psia |
+2.4-41 | fuel and oxidizer overpressure setting (SPS PRESS light, MDC-2) | 200 | psia |
+2.4-41 | PU valve increase position | approx 3 percent more than nominal flow | % |
+2.4-41 | PU valve decrease position | approx 3.5 percent less than nominal flow | % |
+2.4-41 | PU valve response time (normal <-> increase or normal <-> decrease) | 3.5 | s |
+
+## sps-037 = page 2.4-42 (change date 16 July 1969)
+2.4-42 | quantity sensing accuracy, indicators | +/-0.35 % of full tank plus +0.35 % of propellant remaining | % | to total fuel and oxidizer separately
+2.4-42 | quantity sensing accuracy, TLM | +/-0.35 % of full tank plus +0.35 % of propellant remaining | % |
+2.4-42 | Helium Relief Valve (2) diaphragm rupture | 219 +/- 6 | psig |
+2.4-42 | relief valve filter | 10 nominal, 25 absolute | micron |
+2.4-42 | relief valve relieves at | 212 minimum to 225 maximum | psig |
+2.4-42 | relief valve reseats at | 208 minimum | psig |
+2.4-42 | relief valve flow capacity | 3 lb/min maximum at 60 degF and 225 psig | lb/min |
+2.4-42 | bleed device closes at no greater than | 150 | psig | in cavity, increasing pressure
+2.4-42 | bleed device reopens at no less than | 20 | psig | decreasing pressure
+2.4-42 | Oxidizer Storage Tank #1 total tank capacity | 11284.69 | lb |
+2.4-42 | Oxidizer Storage Tank #1 fill pressure | 110 | psia |
+2.4-42 | Oxidizer Storage Tank #1 height | 154.47 | in |
+2.4-42 | Oxidizer Storage Tank #1 inside diameter | 45 | in |
+2.4-42 | Oxidizer Storage Tank #1 wall thickness | 0.054 | in |
+2.4-42 | Oxidizer Storage Tank #1 volume | 128.52 | ft^3 |
+2.4-42 | Oxidizer Sump Tank #2 total tank capacity | 13923.72 | lb | "= 57.0%"
+2.4-42 | Oxidizer Sump Tank #2 fill pressure | 110 | psia |
+2.4-42 | Oxidizer Sump Tank #2 height | 153.8 | in |
+2.4-42 | Oxidizer Sump Tank #2 diameter | 51 | in |
+2.4-42 | Oxidizer Sump Tank #2 wall thickness | 0.054 | in |
+2.4-42 | Oxidizer Sump Tank #2 volume | 161.48 | ft^3 |
+2.4-42 | Fuel Storage Tank #1 total tank capacity | 7058.36 | lb |
+2.4-42 | Fuel Storage Tank #1 fill pressure | 110 | psia |
+2.4-42 | Fuel Storage Tank #1 height | 154.47 | in |
+2.4-42 | Fuel Storage Tank #1 diameter | 45 | in |
+2.4-42 | Fuel Storage Tank #1 wall thickness | 0.054 | in |
+2.4-42 | Fuel Storage Tank #1 volume | 128.52 | ft^3 |
+2.4-42 | Fuel Sump Tank #2 total tank capacity | 8708.10 | lb | "= 57.0%"
+2.4-42 | Fuel Sump Tank #2 fill pressure | 110 | psia |
+2.4-42 | Fuel Sump Tank #2 height | 153.8 | in |
+2.4-42 | Fuel Sump Tank #2 diameter | 51 | in |
+2.4-42 | Fuel Sump Tank #2 wall thickness | 0.054 | in |
+2.4-42 | Fuel Sump Tank #2 volume | 161.48 | ft^3 |
+2.4-42 | Total Propellant (in tanks), total oxidizer | 25208.41 | lb | "= 103.4%"
+2.4-42 | Total Propellant (in tanks), total fuel | 15766.46 | lb | "= 103.4%"
+2.4-42 | 99.9% oxidizer gaugeable | 24389.10 | lb |
+2.4-42 | 99.9% fuel gaugeable | 15252.70 | lb |
+
+## sps-038 = page 2.4-43 (change date 16 July 1969)
+2.4-43 | All Propellant Tanks pressurized when empty | 10 +/- 5 | psig | helium, to prevent collapse; negative pressure of 0.5 psig will collapse tanks
+2.4-43 | Interface Flange Filter (2) | 500 absolute | micron |
+2.4-43 | GN2 storage vessel pressure | 2500 +/- 50 psi at 68 degF; 2900 psi at 130 degF | psi |
+2.4-43 | GN2 system supports | 43 | valve actuations |
+2.4-43 | GN2 vessel capacity | 120 | in^3 each |
+2.4-43 | GN2 vessel inside diameter | 4.65 | in |
+2.4-43 | GN2 vessel length | 9.6 | in |
+2.4-43 | GN2 regulator | single stage, dynamic 187 psig minimum; lockup 195 to 225 psig | psig |
+2.4-43 | GN2 relief valve | relieves at 350 +/- 15 psi, reseats at not less than 250 psi | psi |
+2.4-43 | GN2 filters (*CSM 108 and subs) | 5 nominal, 18 absolute | micron | one between each GN2 supply tank and injector prevalve; one at each GN2 regulator outlet test port
+2.4-43 | Engine (1) service life | 750 | s |
+2.4-43 | Engine restarts supported | 36 minimum | restarts |
+2.4-43 | expansion ratio at ablative chamber exit area | 6 to 1 | - |
+2.4-43 | expansion ratio at nozzle extension exit area | 62.5 to 1 | - |
+2.4-43 | chamber cooling | ablation and film cooled | - |
+2.4-43 | nozzle extension cooling | radiation cooled | - |
+2.4-43 | injector type | baffled, unlike impingement | - |
+2.4-43 | oxidizer lead | 8 | deg |
+2.4-43 | engine length | 159.944 maximum | in |
+2.4-43 | nozzle extension exit inside diameter | 98.4 | in |
+2.4-43 | engine weight | approximately 650 | lb |
+2.4-43 | SPS FLANGE TEMP HI caution light threshold | 480 | degF | light disconnected and covered with decal on CSM 108 and subs
+2.4-43 | SPS Pc indicator green range | 65 to 125 | % (psia) |
+2.4-43 | SPS Pc normal | 95 to 105 | % (psia) |
+2.4-43 | (thrust, Isp not given on these pages; performance data referred to SNA-8-D-027 CSM (SD 68-447), see 2.4-44) | - | - |
+
+## sps-039 = page 2.4-44 (change date 16 July 1969)
+2.4-44 | Heaters (6) | 6 heaters, 2 elements each | - |
+2.4-44 | fuel side heater elements | 3 elements in series rated 15, 9.4 and 18.8 | W |
+2.4-44 | oxidizer side heater elements | 3 elements in series rated 15, 9.4 and 18.8 | W |
+2.4-44 | heater switch A/B on MDC-3 | 28 vdc to 12 elements | - |
+2.4-44 | heater switch A on MDC-3 | 28 vdc to 6 elements | - |
+2.4-44 | Gimbal Actuators: structural mounting pad offset | 4 deg to +Y | deg |
+2.4-44 | about Z-Z axis (yaw) | +/-4.5 (+0.5, -0.0) deg with additional 1 deg for snubbing | deg |
+2.4-44 | yaw null | 1 deg to +Y (thrust vector) during SPS thrusting; 0 deg during non-SPS thrusting | deg |
+2.4-44 | about Y-Y axis (pitch) | +/-4.5 (+0.5, -0.0) deg with additional 1 deg for snubbing | deg |
+2.4-44 | pitch null | 2 deg to +Z (thrust vector) during SPS thrusting; +1.5 to +Z during non-SPS thrusting | deg |
+2.4-44 | Overcurrent Relays (4) quiescent current | 60 +/- 10 percent | mA |
+2.4-44 | Overcurrent Relays pressurized to | 3 to 5 psi of dry air | psi |
+2.4-44 | deflection rate (printed under Overcurrent Relays) | 0.12 rad/s (low side, 6.87 deg/s) to 0.132 rad/s (high side, 7.56 deg/s) | rad/s |
+2.4-44 | performance data reference | CSM/LM Spacecraft Operational Data Book SNA-8-D-027 CSM (SD 68-447) | - |
+2.4-44 | PUGS: SPS burn required before primary capacitance system updates TLM/displays (PUG MODE PRIM or NORM) | 4 +/- 1 | s |
+2.4-44 | PUGS: displays/unbalance meter not accurate until SPS thrusting for at least | 25 | s |
+2.4-44 | GMBL MOTOR switches on MDC-1: allow between actuations | one-half | s |
+
+## sps-040 = page 2.4-45 (no change date)
+2.4-45 | TVC SERVO PWR switches: not in AC1/MNA + AC2/MNB (or swapped) in excess of | one hour prior to SPS firing | h | preheats actuator clutches
+2.4-45 | gimbal clutch capability: hold during boost phase | 820 | s |
+2.4-45 | followed by SPS abort firing without degradation | 100 | s |
+2.4-45 | gimbal motors placed in operation before S-IVB TLI | 1 | min |
+2.4-45 | S-IVB TLI firing (in the clutch duty example) | 5-1/2 | min |
+2.4-45 | followed by SPS engine firing | 614 | s |
+2.4-45 | idle post fire before motors off | 1 | min |
+2.4-45 | ENGINE DESIGN MINIMUM IMPULSE CONTROL LIMIT | 0.4 | s | "however, mission minimum impulse may be longer"
+
+## rcs-000 = page 2.5-1 (change date 16 July 1969)
+2.5-1 | SM RCS function | S/C rates and rotation in all three axes, minor translation incl. CSM-S-IVB separation, SPS ullage and CM-SM separation maneuvers | - |
+2.5-1 | CM RCS | rates/rotation after CM-SM separation and during entry; no automatic translation capability | - |
+2.5-1 | SM RCS packages | 4 functionally identical "quads", 90 deg apart around forward portion (+X) of SM periphery | - |
+2.5-1 | quad offset from S/C Y and Z axes | 7 deg 15 min | deg | = 7.25 deg; direction of offset only in figure 2.4-3
+2.5-1 | engine combustion chambers canted away from panel structure | approximately 10 | deg |
+2.5-1 | roll engines | the two roll engines on each quad are offset-mounted to accommodate plumbing | - |
+2.5-1 | SM RCS system | pressure-fed, positive-expulsion, pulse-modulated, bipropellant; N2O4 oxidizer, MMH fuel, helium pressurant | - |
+
+## rcs-001 = page 2.5-2, Figure 2.5-1 "CM-SM Engine Locations" (P-4032B), page printed rotated 90 deg
+2.5-2 | SM legend | A = SM RCS quad A, B = quad B, C = quad C, D = quad D; ODD NUMBER ENGINES = +ROTATION MANEUVER 1, 3; EVEN NUMBER ENGINES = -ROTATION MANEUVER 2, 4 | - |
+2.5-2 | Quad A engines | A1 = CW +R ; A2 = CCW -R ; A3 = +P ; A4 = -P | - |
+2.5-2 | Quad B engines | B1 = CW +R ; B2 = CCW -R ; B3 = +Y ; B4 = -Y | - |
+2.5-2 | Quad C engines | C1 = CW +R ; C2 = CCW -R ; C3 = +P ; C4 = -P | - |
+2.5-2 | Quad D engines | D1 = CW +R ; D2 = CCW -R ; D3 = +Y ; D4 = -Y | - |
+2.5-2 | quad placement in drawing | A on the -Z side (top), C on the +Z side (bottom), D on the near/-Y side, B on the far/+Y side | - | consistent with fig 2.4-3
+2.5-2 | CM legend | filled symbol = CM SUBSYSTEM 1, open symbol = CM SUBSYSTEM 2; ODD NUMBER ENGINES = +ROTATION MANEUVER 1, 3, 5; EVEN NUMBER ENGINES = -ROTATION MANEUVER 2, 4, 6 | - |
+2.5-2 | CM subsystem 1 engines | 11 = CW +R ; 12 = CCW -R ; 13 = +P ; 14 = -P ; 15 = +Y ; 16 = -Y | - | labels "CW+R11", "CCW-R12", "+P"->13, "-P"->14, "+Y"->15, "-Y"->16
+2.5-2 | CM subsystem 2 engines | 21 = CW +R ; 22 = CCW -R ; 23 = +P ; 24 = -P ; 25 = +Y ; 26 = -Y | - | labels "CW + R21", "CCW-R22", "+P"->23, "-P"->24, "+Y"->25, "-Y"->26
+2.5-2 | CM engine placement in drawing | 13/23 (+P) near -Z on the CM rim; 11/12 and 15/25 on the rim toward +Y; 16/26 and CCW-R22 toward -Y; 14/24 (-P) and R21 forward, near the +X apex side | - | approximate, isometric drawing
+2.5-2 | figure arrows | +ROLL ROTATION about +X; +PITCH ROTATION about +Y; +YAW ROTATION about +Z; SPS -PITCH GIMBAL DEFLECTION and SPS +YAW GIMBAL DEFLECTION shown on the nozzle | - | no numbers
+
+## rcs-019 = page 2.5-21 (change date 16 July 1969): SM RCS control / CSM-LV separation
+2.5-21 | (a) SPS abort or S-IVB separation with LET jettisoned and translation control rotated counterclockwise | sequence: 1 inform CMC of abort; 2 booster shutdown; 3 inhibit pitch/yaw auto jets and signal SCS-SPS thrust ON-OFF logic; 4 ullage signal to direct manual coils of SM RCS engines (held while T-handle CCW, ends at neutral detent) | - |
+2.5-21 | (a)5 adapter separation occurs after initiation | 3.0 | s | backup: CSM/LV SEPARATION pushbutton on MDC-1 pressed and held
+2.5-21 | (a)6 RCS latching relay energized after abort initiation | 3.8 | s | enables controller reaction jet ON-OFF assembly -> automatic coils; backup RCS CMD switch on MDC-2
+2.5-21 | (a)6 CSM/LV SEPARATION pushbutton held to energize RCS latching relay | approximately 1 | s |
+2.5-21 | (b) normal S-IVB separation | RCS CMD switch (MDC-2) to RCS CMD; translation control to +X (backup of DIRECT ULLAGE pushbutton MDC-1) fires +X SM RCS engines; CSM/LV SEPARATION pushbutton held to initiate adapter separation | - |
+2.5-21 | (b) CSM/LV SEPARATION pushbutton hold time | 2 | s | "held for approximately 2 seconds will also energize the RCS latching relay"
+2.5-21 | DIRECT ULLAGE pushbutton (MDC-1) | pressed and held: direct ullage signal to direct manual coils of the SM RCS engines giving +X translation; ullage ends on release | - |
+
+## rcs-021 = page 2.5-23 (no change date): SM RCS design data
+2.5-23 | Secondary Fuel Pressure Transducers (4) underpressure (SM RCS A/B/C/D light, MDC-2) | 145 | psia nominal |
+2.5-23 | Secondary Fuel Pressure Transducers overpressure | 215 | psia nominal |
+2.5-23 | Check Valve-Filters | 40 nominal, 74 absolute | micron |
+2.5-23 | Helium Relief Valves (8) diaphragm rupture | 228 +/- 8 | psig |
+2.5-23 | relief valve filter | 10 nominal, 25 absolute | micron |
+2.5-23 | relief valve relieves at | 236.5 +/- 11.5 | psig |
+2.5-23 | relief valve reseats at not less than | 220 | psig |
+2.5-23 | relief valve flow capacity | 0.3 lb/min at 248 psig at 60 degF | lb/min |
+2.5-23 | bleed device closes at no more than | 179 | psig | in cavity; and helium flow less than 20 standard cm^3 per hour across bleed device and relief valve combined
+2.5-23 | bleed device reopens at no less than | 20 | psig |
+2.5-23 | Primary Fuel Tank (4) combined propellant and ullage "volume" | 69.1 | lb | printed as "volume of 69.1 lb"
+2.5-23 | Primary Fuel Tank initial condition | 65 degF at 150 psig; no more than 215 psia when heated to 85 degF | - |
+2.5-23 | Primary Fuel Tank outside diameter | 12.62 maximum | in |
+2.5-23 | Primary Fuel Tank length | 23.717 (+0.060, -0.000) | in |
+2.5-23 | Primary Fuel Tank wall thickness | 0.017 to 0.022 | in |
+2.5-23 | Primary Fuel Tank ports | helium inlet 1/4 in; fill and drain 1/2 in | in |
+2.5-23 | Primary Oxidizer Tank (4) combined propellant and ullage "volume" | 137.0 | lb |
+2.5-23 | Primary Oxidizer Tank initial condition | 65 degF at 150 psig; no more than 215 psia when heated to 85 degF | - |
+2.5-23 | Primary Oxidizer Tank outside diameter | 12.62 maximum | in |
+2.5-23 | Primary Oxidizer Tank length | 28.558 (+0.060, -0.000) | in |
+2.5-23 | Primary Oxidizer Tank wall thickness | 0.017 to 0.022 | in |
+
+## rcs-022 = page 2.5-24 (no change date)
+2.5-24 | Secondary Fuel Tank (4) combined propellant and ullage "volume" | 45.2 | lb |
+2.5-24 | Secondary Fuel Tank initial condition | 65 degF at 150 psig; no more than 205 psia when heated to 105 degF | - |
+2.5-24 | Secondary Fuel Tank outside diameter | 12.62 maximum | in |
+2.5-24 | Secondary Fuel Tank length | 17.329 (+0.040, -0.000) | in |
+2.5-24 | Secondary Fuel Tank wall thickness | 0.022 to 0.027 | in |
+2.5-24 | Secondary Oxidizer Tank (4) combined propellant and ullage "volume" | 89.2 | lb |
+2.5-24 | Secondary Oxidizer Tank initial condition | 65 degF at 150 psig; no more than 205 psia when heated to 105 degF | - |
+2.5-24 | Secondary Oxidizer Tank outside diameter | 12.65 maximum | in | NOTE 12.65 here vs 12.62 for the other three SM RCS tanks
+2.5-24 | Secondary Oxidizer Tank length | 19.907 (+0.040, -0.000) | in |
+2.5-24 | Secondary Oxidizer Tank wall thickness | 0.022 to 0.027 | in |
+2.5-24 | Inline Filters (8) | 5 nominal, 15 absolute | micron |
+2.5-24 | SM RCS Engine (16) service life | 1000 | s |
+2.5-24 | SM RCS engine continuous | 750 | s |
+2.5-24 | SM RCS engine operational cycles | 10,000 | cycles |
+2.5-24 | SM RCS engine expansion ratio at nozzle exit | 40 to 1 | - |
+2.5-24 | SM RCS engine cooling | film and radiation | - |
+2.5-24 | SM RCS injector | premix ignitor one on one unlike impingement, 8 fuel annulus for film cooling of premix ignitor; main chamber 8 on 8 unlike impingement; 8 fuel for film cooling of combustion chamber wall | - |
+2.5-24 | SM RCS nozzle exit diameter | 5.6 | in |
+2.5-24 | SM RCS valve sequencing | fuel lead | - |
+2.5-24 | SM RCS automatic coils | connected in parallel | - |
+2.5-24 | SM RCS manual coils | connected in series | - |
+2.5-24 | SM RCS engine weight | 4.99 | lb |
+2.5-24 | SM RCS engine length | 13.400 maximum | in |
+2.5-24 | Filters - each injector valve inlet | 100 nominal, 250 absolute | micron |
+2.5-24 | Package Temperature Transducer (4) light (SM RCS A/B/C/D, MDC-2) below | 75 | degF nominal |
+2.5-24 | Package Temperature Transducer light above | 205 | degF nominal |
+2.5-24 | (SM RCS engine thrust NOT stated on 2.5-23/2.5-24) | - | - |
+
+## rcs-041 = page 2.5-47 (no change date): CM RCS design data (tail)
+2.5-47 | CM Fuel Tanks (2) | see SM RCS secondary fuel tanks | - |
+2.5-47 | CM Oxidizer Tank (2) | see SM RCS secondary oxidizer tanks | - |
+2.5-47 | Valve Isolation Burst Diaphragm (4) rupture | 241 +/- 14 | psig | within 2 s after rupture pressure reached, any temperature 40 to 105 degF
+2.5-47 | burst diaphragm filter | 75 nominal, 100 absolute | micron |
+2.5-47 | CM RCS engine service life | 200 | s |
+2.5-47 | CM RCS engine operational cycles | 3000 | cycles |
+2.5-47 | CM RCS nominal thrust | 93 | lbf | printed "93 pounds"
+2.5-47 | CM RCS expansion ratio | 9 to 1 | - |
+2.5-47 | CM RCS cooling | ablation | - |
+2.5-47 | CM RCS injector type | 16 on 16 splash plate | - |
+2.5-47 | CM RCS combustion chamber | refrasil ablative sleeve and graphite base throat insert | - |
+2.5-47 | CM RCS coils | automatic and manual coils connected in parallel | - |
+2.5-47 | CM RCS engine weight | 8.3 | lb |
+2.5-47 | CM RCS engine length | 11.65 maximum | in |
+2.5-47 | CM RCS nozzle exit diameter | 2.13 | in |
+2.5-47 | CM RCS nozzle extensions | ablative refrasil | - |
+2.5-47 | Oxidizer Blowout Plug | pin shears at approximately 200 | psi |
+2.5-47 | Fuel Blowout Plug | pin shears at approximately 200 | psi |
+2.5-47 | performance data reference | SNA-8-D-027 CSM (SD 68-447) | - |
+
+## EXTRA, not requested: rcs-020 = page 2.5-22 (start of 2.5.3.1 SM RCS design data), read because thrust was absent on 2.5-23/24
+2.5-22 | SM RCS Helium Tanks (4) servicing pressure | 4150 +/- 50 psig at 70 +/- 5 degF | psig |
+2.5-22 | after servicing, setting on launch pad | 70 +/- 10 | degF |
+2.5-22 | SM RCS helium capacity | 1.35 | lb | per tank
+2.5-22 | SM RCS helium tank internal volume | 910 +/- 5 | in^3 |
+2.5-22 | SM RCS helium tank wall thickness | 0.135 | in |
+2.5-22 | SM RCS helium tank weight / diameter | 11.5 lb / 12.37 in | - |
+2.5-22 | Regulator Units (8) primary | 181 +/- 3 psig, normal lockup 183 +/- 5 psig | psig |
+2.5-22 | Regulator secondary lockup | 187 +/- 5 psig; from lockup not to drop below 182 psig or rise above 188 psig | psig |
+2.5-22 | regulator inlet filter | 25 nominal, 40 absolute | micron |
+2.5-22 | (SM RCS thrust not on this page either) | - | - |
+
+## CHECKS AND SUSPECTED INCONSISTENCIES (reader B)
+CHECK | SPS oxidizer sum 11284.69 + 13923.72 = 25208.41 | matches printed total exactly
+CHECK | SPS fuel sum 7058.36 + 8708.10 = 15766.46 | matches printed total exactly
+CHECK | mixture ratio loaded 25208.41/15766.46 = 1.599; gaugeable 24389.10/15252.70 = 1.599 | consistent
+INCONSISTENCY (minor) | sump "= 57.0%" vs total "= 103.4%": if 103.4% is right, 100% = 25208.41/1.034 = 24379.5 lb ox (15248.0 fuel), and the sump is 57.11% (57.1, not 57.0); storage would be 46.29%. Same 57.11% for fuel. If 100% = gaugeable/0.999 (24413.5 / 15268.0) sump = 57.03% (57.0 OK) but total = 103.26% (103.3, not 103.4). No single reference reproduces both 57.0 and 103.4; difference is 0.1 point.
+NOTE | "99.9% ... gaugeable" 24389.10 / 15252.70 lb are only 96.75% of the loaded totals, but are within 0.04% of the 100% reference implied by 103.4% (24379.5 / 15248.0). So "99.9%" reads as the gauge's full-scale reading (indicator tops out at 99.9), and 100% ~= the gaugeable quantity.
+INCONSISTENCY (minor) | ullage threshold 22,300 lb = 56.4% implies 100% = 39,539 lb; the 103.4%-implied 100% for ox+fuel is 39,627.5 lb (22,300 -> 56.27%), gaugeable sum 39,641.8 lb (-> 56.25%). So 56.3% would be expected, or ~22,350-22,360 lb for 56.4%. Sump capacity ox+fuel = 22,631.82 lb (57.1%), so 22,300 lb is ~330 lb below "sump full", consistent with the rule's intent (storage tanks empty below it).
+CHECK | SPS helium sphere ID 40 in -> 19.39 ft^3, matches 19.4 ft^3
+CHECK | SPS tank volumes: hemispherical-end cylinder approx. 128.4 ft^3 (storage) and 161.7 ft^3 (sump) vs printed 128.52 and 161.48 | consistent within end-shape approximation
+CHECK | gimbal rate 0.12 rad/s = 6.875 deg/s (printed 6.87); 0.132 rad/s = 7.563 deg/s (printed 7.56) | consistent
+NOTE | the deflection-rate sentence (0.12 to 0.132 rad/s) is printed under "Overcurrent Relays (4)"; it is evidently a gimbal actuator property (layout slip)
+NOTE | 2.4-14 states yaw null +1 deg (about Z-Z) and pitch null +2 deg (about Y-Y); 2.4-15 and 2.4-44 restate them as "+1 deg to +Y" and "+2 deg to +Z" (thrust vector). Consistent; sign convention is thrust vector direction.
+NOTE | 2.4-14 thrust structure "+/-10 deg about Z-axis and +/-6 deg about Y-axis" is the mount's capability, larger than the actuator range +/-4.5 (+0.5) deg (+1 deg snubbing)
+NOTE | 2.4-44 "Structural mounting pad offset 4 deg to +Y" appears nowhere else on these pages
+INCONSISTENCY (minor) | 2.5-21: pushbutton hold to energize the RCS latching relay is "approximately 1 second" in (a)6 but "approximately 2 seconds" in (b)
+INCONSISTENCY? | 2.5-24 secondary oxidizer tank OD 12.65 in max vs 12.62 in for secondary fuel and both primary tanks (could be a real difference or a typo)
+NOTE | SM RCS tank quantities are printed as "combined propellant and ullage volume of N lb" (a mass, called volume). Per quad: fuel 69.1 + 45.2 = 114.3 lb, ox 137.0 + 89.2 = 226.2 lb, total 340.5 lb; x4 quads = 457.2 fuel, 904.8 ox, 1362.0 lb. Ox/fuel ratio primary 1.983, secondary 1.973.
+NOTE | SM RCS engine thrust and SPS thrust/Isp are not on the requested pages (both refer to SNA-8-D-027 for performance); CM RCS thrust is 93 lb (2.5-47)
+NOTE | figure 2.4-3 offset magnitude measured on the drawing is ~6-8 deg, consistent with 7 deg 15 min of 2.5-1; offset sense is the same rotation for all four quads (counterclockwise in the aft-looking view)

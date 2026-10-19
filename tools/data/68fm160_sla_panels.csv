@@ -1,0 +1,32 @@
+# MSC Internal Note 68-FM-160, Marland L. Williamson and Charles W. Fraley,
+# "SLA Panel Jettison Separation and Recontact Analysis", 3 July 1968.
+# Copy read: https://ntrs.nasa.gov/api/citations/19700026553/downloads/19700026553.pdf
+# (4,349,308 bytes, sha256 bda6ebb846e0daa4137fb9e4322cafd89db5facffca6c8bc94123b848f765f5b),
+# native 200 dpi bilevel page images. Summary (page 1, PDF 7), design
+# requirements from North American Rockwell (section 3.1, page 3, PDF 9),
+# inputs (page 4, PDF 10), F and G missions and conclusions (page 24, PDF 30).
+# The panels were to be jettisoned at CSM/S-IVB separation from Apollo D
+# (CSM-103/LM-3, Apollo 9) on. The report's panel numbering uses Z up: panel
+# 1 pitched up (+Z), 2 pitched down (-Z), 3 yawed right (+Y), 4 yawed left (-Y).
+#
+# Read by two independent readers: no disagreement.
+# Grades: H = both readers read the same digits and every check that applies
+# closes; M = both readers agree, but the value needed interpretation or a
+# check does not close; L = uncertain.
+source,item,parameter,value,unit,si,si_unit,grade,note
+3.1a,requirement,"Minimum panel rotation rate at deployment","33.5",deg/s,0.584685299,rad/s,H,""
+3.1b,requirement,"Hinge release angle from S-IVB +X to the panel centre line","45 to 60",deg,0.785398163,rad,H,"si: lower bound; upper 60 deg"
+3.1c,requirement,"Spring thrusters","two per panel, through its c.g.",,2,,H,""
+3.1d,requirement,"Spring preload","approximately 450",lbf,2001.69973,N,H,"spring constant 50 lb/in"
+3.1d,requirement,"Spring constant","50",lbf/in,8756.34176,N/m,H,""
+3.1e,requirement,"Minimum total jettison velocity (rotation plus springs)","8",ft/s,2.4384,m/s,H,""
+3.1e,requirement,"Jettison attitude from the S-IVB x-axis","110 +/- 20",deg,1.91986218,rad,H,""
+3.2,parametric,"Jettison attitudes studied","90 and 130",deg,,,H,""
+3.2,parametric,"Resultant jettison velocities studied","5, 8 and 15",ft/s,,,H,""
+3.2d,input,"Average panel weight","593",lb,268.980275,kg,H,"includes 20 lb per panel for the spring thrusters; FER 1 166/4 = 291.5 kg for AS-506"
+3.2e,input,"Projected panel reference area","239",ft^2,22.2038266,m^2,H,""
+3.2e,input,"Tumbling drag coefficient","1.7",,1.7,1,H,""
+1,result,"Orbital abort: SPS deorbit after panel jettison, minimum clearance","20 min, 6000 ft",ft,1828.8,m,H,""
+8,result,"F and G: minimum separation at pericynthion","approximately 40",n mi,74080,m,H,"no midcourse corrections assumed"
+8,result,"Bottom panel at 130 deg with 5 ft/s passes in front of the CSM/LM at","approximately 1500",ft,457.2,m,H,""
+9,conclusion,"Adequate separation for D, E, F and G","5 to 15 ft/s at 110 +/- 20 deg",,,,H,""

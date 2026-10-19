@@ -314,8 +314,27 @@ def technical_notes():
           v < 32, f"{v:.1f} ft/s at sea level")
 
 
+# ------------------------------------------- AOH, 68-FM-160 and MSC-03466
+def handbook_and_notes():
+    a = {r["parameter"]: r for r in rows("aoh_block2_sps_rcs.csv")}
+    v = lambda k: num(a[k]["value"].split(" (")[0])
+    for p, s, sp, t in (("oxidizer", "Oxidizer storage tank capacity", "Oxidizer sump tank capacity", "Total oxidizer"),
+                        ("fuel", "Fuel storage tank capacity", "Fuel sump tank capacity", "Total fuel")):
+        check(f"AOH 2.4-42: {p} storage + sump = total", abs(v(s) + v(sp) - v(t)) < 0.005, f"{v(s) + v(sp):.2f} lb")
+    ratio = v("Total oxidizer") / v("Total fuel")
+    check("AOH 2.4-42: tank oxidizer/fuel = the 1.6 mixture ratio", abs(ratio - 1.6) < 0.002, f"{ratio:.4f}")
+    full = v("Total oxidizer") / 1.034 + v("Total fuel") / 1.034
+    check("AOH 2.4-2/2.4-42: the 22 300 lb ullage limit is 56.25-56.4 % of the tanks' 100 % (graded M)",
+          0.5620 < 22300 / full < 0.5645, f"{22300 / full:.2%} of {full:,.0f} lb")
+    panel = num({r["parameter"]: r for r in rows("68fm160_sla_panels.csv")}["Average panel weight"]["value"])
+    check("68-FM-160: four panels against AS-506's FER 1 166 kg of panels (information)",
+          True, f"{4 * panel * 0.45359237:.0f} kg against 1 166 kg")
+    m = [r for r in rows("msc03466_sm_jettison.csv") if r["source"] == "Table I"]
+    check("MSC-03466 Table I: five missions, Apollo 7-11", [r["item"] for r in m] == [f"Apollo {n}" for n in range(7, 12)])
+
+
 if __name__ == "__main__":
-    for fn in (fm184, a7, a11, technical_notes):
+    for fn in (fm184, a7, a11, technical_notes, handbook_and_notes):
         fn()
     print(f"{len(failures)} failure(s)")
     sys.exit(1 if failures else 0)

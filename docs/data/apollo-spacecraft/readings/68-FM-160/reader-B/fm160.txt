@@ -1,0 +1,60 @@
+# Reader B -- MSC IN 68-FM-160, "SLA Panel Jettison Separation and Recontact Analysis",
+# by Marland L. Williamson and Charles W. Fraley. Read from page images work/fm160img/p<N>-000.png only.
+# Format: image (printed page) | item | value | unit | note      ("?" = uncertain digit; none needed)
+
+## p7 (printed page number not shown; section 1 SUMMARY)
+p7 | purpose | jettison of the four spacecraft-LM adapter (SLA) panels, to prevent SM RCS plumes reflecting onto the LM; does it create eventual recontact problems | - |
+p7 | missions for which jettison proposed | D (CSM-103/LM-3), E (CSM-104/LM-4), F (CSM-106/LM-5), G (CSM-107/LM-6) | - |
+p7 | when jettisoned | at CSM/S-IVB separation, immediately following panel deployment | - |
+p7 | assumption | CSM separation and panel jettison under stable and controlled S-IVB conditions | - |
+p7 | result: jettison velocity | 8 | ft/s | "jettisoning the four SLA panels at 8 fps"
+p7 | result: jettison attitude | 110 +/- 20 | deg | with respect to the S-IVB +X-axis
+p7 | adequate clearance for | nominal D, E, F, G missions and orbital, mode II and mode IV aborts | - |
+p7 | open item | mode III abort recontact needs additional analysis | - |
+p7 | mode III: in-plane retrograde SPS deorbit maneuver after abort initiation | about 2 | min | spacecraft flies near or between the four jettisoned panels
+p7 | orbital abort: in-plane retrograde SPS deorbit not performed until after panel jettison | 20 | min |
+p7 | orbital abort minimum clearance when flying between panels | 6000 | ft | "(minimum of 6000 feet)"
+
+## p9 (printed page 3) -- 3. DESIGN REQUIREMENTS AND PARAMETRIC CONSIDERATIONS
+p9 | 3.1 source | meeting with Mr. G. Pape, NR, on April 23, 1968; requirements per reference 2 | - |
+p9 | 3.1a SLA panel minimum deploy rotation rate | 33.5 | deg/s |
+p9 | 3.1b hinge release angle, from S-IVB +X axis to SLA panel center line | 45 to 60 | deg |
+p9 | 3.1c spring thruster assemblies | two per panel, positive separation through panel c.g. | - |
+p9 | 3.1d spring preload | approximately 450 | lb |
+p9 | 3.1d spring constant | 50 | lb/in |
+p9 | 3.1e total resultant jettison velocity (rotation + spring thrusters) minimum | 8 | ft/s |
+p9 | 3.1e attitude | 110 +/- 20 | deg | with respect to the S-IVB x-axis
+p9 | 3.1f | panel jettison velocity and direction to minimize recontact possibility | - |
+p9 | 3.2a parametric jettison attitudes, from S-IVB +x-axis to panel center line | 90 and 130 | deg |
+p9 | 3.2b parametric total resultant jettison velocities (rotation + spring ejection thrusters, two per panel) | 5, 8 and 15 | ft/s |
+p9 | 3.2c | S-IVB attitude with respect to the inertial velocity vector for each case | - |
+
+## p10 (printed page 4)
+p10 | 3.2d average panel weight | 593 | lb | includes estimated net growth increase of 20 lb per panel for the spring thruster assembly (ref. 2)
+p10 | 3.2e projected panel reference area | 239 | ft^2 | (ref. 2)
+p10 | 3.2e tumbling drag coefficient | 1.7 | - | (ref. 3)
+p10 | 4.1 jettison geometry | direction set by panel jettison attitude (theta) and S-IVB attitude (phi) w.r.t. V_i; attitudes measured in S-IVB pitch plane for upper and lower panels (fig. 1a), S-IVB yaw plane for the two lateral panels (fig. 1b) | - |
+p10 | 4.2 Panel 1 | pitched up (+Z) panel | - | figure 1a
+p10 | 4.2 Panel 2 | pitched down (-Z) panel | - | figure 1a
+p10 | 4.2 Panel 3 | yawed right (+Y) panel | - | figure 1b
+p10 | 4.2 Panel 4 | yawed left (-Y) panel | - | figure 1b; front view of all four in figure 1c
+p10 | 4.3 relative motion frame | inertial azimuth system, origin at spacecraft body origin; X down range, positive along spacecraft V_i; Y lateral in local horizontal plane, positive right; Z in orbital plane normal to X, positive up | - |
+
+## p30 (printed page 24) -- 8. APOLLO F AND G MISSIONS; 9. CONCLUSIONS
+p30 | 8 source | preliminary analysis for F and G, ref. 8; assumes no midcourse corrections or maneuvering | - |
+p30 | 8 no recontact for panels jettisoned at | 110 +/- 20 | deg | measured from panel center line to the S-IVB X axis
+p30 | 8 resultant velocity range | 5 to 15 | ft/s |
+p30 | 8 minimum separation ranges | panels jettisoned normal to the orbital plane (right and left panels) | - |
+p30 | 8 ranges increase gradually to approximately, at pericynthion | 40 | n mi |
+p30 | 8 close-in case: bottom panel jettisoned at | 130 | deg |
+p30 | 8 close-in case: delta-V | 5 | ft/s |
+p30 | 8 close-in case: separation clearance as it passes in front of the CSM/LM | approximately 1500 | ft |
+p30 | 9.1 conclusion | jettison at resultant velocities between 5 and 15 fps at theta = 110 +/- 20 deg w.r.t. S-IVB +X-axis gives adequate separation for nominal D, E, F and G | ft/s, deg | further analysis: after simulated LOI burn on E, near midcourse corrections/maneuvering on F and G
+p30 | 9.2 conclusion | aborted mission: no recontact possibility unless the abort includes an in-plane retrograde SPS burn; panels jettisoned in mode II and IV regions will not recontact | - |
+
+## CHECKS AND NOTES (reader B)
+NOTE | Summary (p7) and 3.1e give 8 fps (a minimum requirement); section 8 and conclusion 9.1 cover 5 to 15 fps (the parametric range of 3.2b). Not contradictory, but the summary's "at 8 fps" reads as a single value.
+NOTE | 110 +/- 20 deg is measured "with respect to the S-IVB +X-axis" (p7, p9, 9.1) and "from the panel center line to the S-IVB X axis" (p30 sec. 8); parametric cases 90 and 130 deg are the band edges.
+NOTE | derived: ballistic coefficient W/(Cd A) = 593 / (1.7 x 239) = 1.46 lb/ft^2 (my arithmetic, not printed)
+NOTE | Panel numbering uses the report's relative-motion convention, Z positive UP (4.3), so "pitched up (+Z)" = panel 1. This is opposite to a +Z-down vehicle body axis convention; check before mapping panel numbers onto vehicle axes.
+NOTE | p10 item d has an unbalanced parenthesis "(includes ... assembly, (ref. 2)." -- typographic only.
