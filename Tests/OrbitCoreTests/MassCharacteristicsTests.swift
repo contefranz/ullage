@@ -48,7 +48,7 @@ final class MassCharacteristicsTests: XCTestCase {
     // modules' inner layouts being estimates (datasheet §13.2).
     func testSpacecraftCenterOfMass() {
         let v = VesselLibrary.saturnV()
-        let sc = v.parts.filter { ["SLA", "LM", "CSM", "LES"].contains($0.name) }
+        let sc = v.parts.filter { (SaturnVDataTests.spacecraft + ["LES"]).contains($0.name) }
         let m = sc.reduce(0) { $0 + $1.mass }
         let x = sc.reduce(0) { $0 + ($1.offset.x + $1.centerOfMass.x) * $1.mass } / m - v.structureOrigin.x
         XCTAssertEqual(m, 1_792 + 15_095 + 28_806 + 4_042, accuracy: 1e-6)

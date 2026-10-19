@@ -14,15 +14,23 @@ final class SaturnVDataTests: XCTestCase {
     func part(_ v: Vessel, _ name: String) -> VesselPart { v.parts.first { $0.name == name }! }
     func pounds(_ parts: [VesselPart]) -> Double { parts.reduce(0) { $0 + $1.mass } / lb }
 
+    /// The spacecraft's parts on the stack, bottom to top, without the LES
+    /// (track C: the SLA split, the CSM as the SM and the command module's parts).
+    static let spacecraft = ["SLA ring", "SLA panel 1", "SLA panel 2", "SLA panel 3", "SLA panel 4", "LM", "SM", "CM",
+                             "Apex cover", "Drogue parachutes", "Main parachutes"]
+    /// What stays on the stack in the parking orbit.
+    static let parkingOrbitStack = ["S-IVB", "IU"] + spacecraft
+
     // A13: names are unique (the HUD and the IU item address them), tank names
     // fit the HUD column, and every engine draws from its own stage. Engine
     // layout, gimbals and the S-IVB APS against the TVC datasheet (§7).
     func testNamesFeedsAndStagingRules() {
         let v = VesselLibrary.saturnV()
         XCTAssertEqual(v.parts.map(\.name), ["S-IC", "S-IC/S-II interstage", "S-II", "S-II/S-IVB interstage",
-                                             "S-IVB", "S-IVB ullage rockets", "IU", "SLA", "LM", "CSM", "LES"])
-        XCTAssertEqual(v.parts.map(\.staging), [.event(1), .event(2), .event(4), .event(4),
-                                                .fixed, .event(5), .fixed, .fixed, .fixed, .fixed, .event(3)])
+                                             "S-IVB", "S-IVB ullage rockets", "IU"] + Self.spacecraft + ["LES"])
+        XCTAssertEqual(v.parts.map(\.staging), [.event(1), .event(2), .event(4), .event(4), .event(6), .event(5),
+                                                .event(6)] + Array(repeating: .event(6), count: 6)
+                                                + [.event(7), .fixed, .event(30), .event(31), .event(32), .event(3)])
         // Each solid motor has its own grain, named after its set.
         func times(_ name: String, _ n: Int) -> [String] { Array(repeating: name, count: n) }
         var expected: [String] = ["S-IC LOX", "S-IC RP-1"]
@@ -32,6 +40,8 @@ final class SaturnVDataTests: XCTestCase {
         expected += times("S-II retro", 4)
         expected += ["S-IVB LOX", "S-IVB LH2", "APS I N2O4", "APS I MMH", "APS III N2O4", "APS III MMH"]
         expected += times("S-IVB ullage", 2)
+        expected += ["SPS oxidizer", "SPS fuel"] + Array(repeating: ["SM RCS ox", "SM RCS fuel"], count: 4).flatMap { $0 }
+        expected += ["CM RCS A oxidizer", "CM RCS A fuel", "CM RCS B oxidizer", "CM RCS B fuel"]
         expected += ["Tower jettison"]
         XCTAssertEqual(v.tanks.map(\.name), expected)
         // The solids: retros fire with their own stage's separation, ullage
@@ -59,11 +69,15 @@ final class SaturnVDataTests: XCTestCase {
             XCTAssertEqual(torque.length, 0, accuracy: 1e-9 * Double(count), set)
         }
         // Motors, not springs, separate the S-IC, the S-II with the aft
-        // interstage, and the LES; the interstage and the ullage cases keep
-        // the 1 m/s placeholder.
+        // interstage, and the LES, and the CSM's RCS the S-IVB, IU, SLA and
+        // LM and the SM; the panels' own velocity throws them clear, the
+        // parachutes leave on their own drag and the apex cover at 3 m/s
+        // (track E2's); the interstage and the ullage cases keep the 1 m/s
+        // placeholder.
         for p in v.parts {
-            XCTAssertEqual(p.separationSpeed, ["S-IC", "S-II", "S-II/S-IVB interstage", "LES"].contains(p.name) ? 0 : 1,
-                           p.name)
+            let springs = ["S-IC/S-II interstage", "S-IVB ullage rockets", "CM"].contains(p.name) ? 1.0
+                : p.name == "Apex cover" ? 3 : 0
+            XCTAssertEqual(p.separationSpeed, springs, p.name)
         }
         // The tower-jettison motor: lit by the LES's separation, its thrust
         // 3.784° off the axis towards Position III (-z), crossing the axis
@@ -83,7 +97,8 @@ final class SaturnVDataTests: XCTestCase {
         XCTAssertEqual(tjm.direction.y, 0)
         XCTAssertEqual(tjm.position.y, 0)
         XCTAssertEqual(tjm.position.z, 0)
-        for t in v.tanks { XCTAssertLessThanOrEqual(t.name.count, 14, t.name) }
+        // Track E2's CM RCS tanks' names are longer.
+        for t in v.tanks where !t.name.hasPrefix("CM RCS") { XCTAssertLessThanOrEqual(t.name.count, 14, t.name) }
         let names = v.thrusters.map(\.name)
         XCTAssertEqual(Set(names).count, names.count)
         for p in v.parts {
@@ -95,7 +110,7 @@ final class SaturnVDataTests: XCTestCase {
         }
         let mains = v.thrusters.filter { $0.groups.contains(.main) }
         XCTAssertEqual(mains.map(\.name), (1...5).map { "S-IC engine \($0)" } + (1...5).map { "S-II engine \($0)" }
-                       + ["S-IVB engine"])
+                       + ["S-IVB engine", "SPS"])
         for e in mains { XCTAssertEqual(e.throttleRange, 1...1, e.name) }
         // Engine 5 is the centre engine of both clusters.
         for name in ["S-IC engine 5", "S-II engine 5"] {
@@ -119,7 +134,7 @@ final class SaturnVDataTests: XCTestCase {
         // Transcriptions: F-1 ±5° and 5°/s (EH 8.13); S-II J-2 ±7° and 8°/s
         // (EH 8.20); S-IVB J-2 ±7° (EH 8.30; Haynes) at the S-II rate, a
         // placeholder.
-        for e in mains {
+        for e in mains where e.name != "SPS" {
             let gimballed = e.position.y != 0 || e.position.z != 0 || e.name == "S-IVB engine"
             XCTAssertEqual(e.gimbal.map(\.tilt), gimballed ? [.unitZ, -Vec3.unitY] : [], e.name)
             let (range, rate) = e.name.hasPrefix("S-IC") ? (5.0, 5.0) : (7.0, 8.0)
@@ -142,7 +157,8 @@ final class SaturnVDataTests: XCTestCase {
             XCTAssertEqual(t.maxThrustVacuum, (t.name.hasSuffix("ullage") ? 72 : 147) * lbf, accuracy: 1e-9, t.name)
             XCTAssertTrue(t.gimbal.isEmpty, t.name)
         }
-        XCTAssertEqual(v.thrusters.filter { $0.activeStageOnly }.count, 8)
+        XCTAssertEqual(v.thrusters.filter { $0.activeStageOnly }.map(\.name),
+                       aps.map(\.name) + v.thrusters.filter { $0.name.hasPrefix("SM RCS") }.map(\.name))
         // Roles (datasheet §7.3 table, inferred directions): module I at +z,
         // III at -z. Pure roll fires one tangential engine per module, pure
         // yaw the two that push the same way, pitch a single engine.
@@ -205,7 +221,7 @@ final class SaturnVDataTests: XCTestCase {
         // The aft interstage, 8,076 lb, is its structure and the S-II retros'
         // propellant (3,180 + 484 kg, Table 20-9): 1.7 lb more.
         XCTAssertEqual(pounds([part(v, "S-II/S-IVB interstage")]) - AS506.sIVBAftFrame / lb, 8_076, accuracy: 2)
-        XCTAssertEqual(pounds(["SLA", "LM", "CSM", "LES"].map { part(v, $0) }), 109_646, accuracy: 1)
+        XCTAssertEqual(pounds((Self.spacecraft + ["LES"]).map { part(v, $0) }), 109_646, accuracy: 1)
     }
 
     // B7: stack geometry. None of it is independent: the stations were derived
@@ -739,6 +755,6 @@ final class SaturnVDataTests: XCTestCase {
         set(mains(), 0)
         XCTAssertFalse(burn(to: 699.54))
         mass(135_102, "S-IVB end of thrust decay")
-        XCTAssertEqual(v.parts.map(\.name), ["S-IVB", "IU", "SLA", "LM", "CSM"])
+        XCTAssertEqual(v.parts.map(\.name), Self.parkingOrbitStack)
     }
 }

@@ -67,6 +67,25 @@ extension SaturnIU {
     }
 }
 
+extension SaturnIU {
+    /// The AS-506 program (`program`, `as506()` by default) picked up on `v`
+    /// after the S-IVB's cutoff, at `now`: its time bases at AS-506's own
+    /// (FER Table 2-1: T1 0.63, T2 135.27, T3 161.66, T4 548.24 and T5
+    /// 699.57 s of range time), the space-fixed frame `frame`, the IGM done
+    /// (`SaturnIU.resume`). At parking-orbit insertion (709.33 s) that
+    /// leaves the APS ullage on to T5 + 87 s and the turn to the local
+    /// horizontal at T5 + 19.8 s still to come.
+    public static func as506InParkingOrbit(on v: Vessel, spaceFixed frame: Quat, at now: Epoch,
+                                           program: SaturnIU = .as506()) -> SaturnIU {
+        typealias D = AS506
+        let bases: [TimeBase: Epoch] = [.t1: D.rangeZero + D.liftoff, .t2: D.rangeZero + D.timeBase2,
+                                        .t3: D.rangeZero + D.timeBase3, .t4: D.rangeZero + D.timeBase4,
+                                        .t5: D.rangeZero + D.timeBase5]
+        program.resume(after: bases, spaceFixed: frame, on: v, at: now)
+        return program
+    }
+}
+
 extension VesselLibrary {
     /// LC-39A as Apollo 11 stood on it: geodetic latitude and longitude
     /// (deg) on the WGS-84 Earth, and the vehicle base's height (m) above

@@ -105,4 +105,131 @@ final class StagingTests: XCTestCase {
         check("upper burn")
         XCTAssertEqual(sim.vessels.count, 5)
     }
+
+    /// A program the tests hand from vessel to vessel by its host part.
+    final class Hosted: FlightProgram {
+        let host: String
+        init(_ host: String) { self.host = host }
+        func update(_ vessel: Vessel, in sim: Simulation) {}
+        func timeToNextEvent(at now: Epoch) -> Double? { nil }
+        var status: String { host }
+        var hostPart: String? { host }
+    }
+
+    // One event, several vessels: parts in separation groups leave on their
+    // own, first, each on its `separationVelocity` (relative to what it
+    // leaves, shared by momentum) and tumbling at its `separationRate`; the
+    // ungrouped rest leaves as the main vessel, returned first. Momentum is
+    // conserved and each leaves with the velocity it was given.
+    func testSeparationGroupsLeaveOnTheirOwn() throws {
+        let sim = try Simulation.forTests(perturbations: false)
+        let core = Toy.block("Core", from: 0, to: 10, mass: 10_000, staging: .event(1))
+        core.separationSpeed = 0
+        let left = Toy.block("Left", from: 10, to: 12, mass: 200, staging: .event(1))
+        let right = Toy.block("Right", from: 10, to: 12, mass: 200, staging: .event(1))
+        let top = Toy.block("Top", from: 12, to: 16, mass: 3_000, staging: .fixed)
+        left.separationGroup = "Left"
+        left.separationVelocity = Vec3(0, -2, 0)
+        left.separationRate = Vec3(0, 0, 0.5)
+        right.separationGroup = "Right"
+        right.separationVelocity = Vec3(0, 2, 0)
+        let v = Vessel(name: "Toy", parts: [core, left, right, top], reference: VesselLibrary.placeholderBody)
+        sim.add(v)
+        sim.placeInFreeSpace(v)
+        let p0 = v.velocity * v.mass
+        let all = sim.stageAll(v)
+        XCTAssertEqual(all.map(\.name), ["Toy – Core", "Toy – Left", "Toy – Right"])
+        XCTAssertEqual(v.parts.map(\.name), ["Top"])
+        let p1 = ([v] + all).reduce(Vec3.zero) { $0 + $1.velocity * $1.mass }
+        XCTAssertLessThan((p1 - p0).length, 1e-9)
+        // Each 2 m/s is relative to what its part leaves: Left from the
+        // 13,400 kg stack, Right from the 13,200 kg it left.
+        let l = all[1], r = all[2], rest = 13_000.0
+        let vl = -2 * (rest + 200) / (rest + 400), vr = 2 * 200 / (rest + 400) + 2 * rest / (rest + 200)
+        XCTAssertEqual(l.attitude.inverseRotate(l.velocity - r.velocity).y, vl - vr, accuracy: 1e-9)
+        XCTAssertEqual(l.angularVelocity.z, 0.5, accuracy: 1e-12)
+        XCTAssertEqual(r.angularVelocity.length, 0, accuracy: 1e-12)
+        XCTAssertEqual(all[0].velocity, v.velocity)   // no springs
+    }
+
+    // The crew keeps the vessel: should an event carry the crewed part, the
+    // parts without it leave, and the vessel keeps its identity and its
+    // crew's frame; the triggers act by the event as ever.
+    func testCrewKeepsTheVessel() throws {
+        let sim = try Simulation.forTests(perturbations: false)
+        let booster = Toy.block("Booster", from: 0, to: 10, mass: 10_000, staging: .fixed)
+        let capsule = Toy.block("Capsule", from: 10, to: 13, mass: 3_000, staging: .event(1))
+        capsule.isCrewed = true
+        capsule.crewFrame = ApolloAxes.rotation
+        let v = Vessel(name: "Crew", parts: [booster, capsule], reference: VesselLibrary.placeholderBody)
+        v.controlFrame = ApolloAxes.rotation
+        sim.add(v)
+        sim.placeInFreeSpace(v)
+        let id = v.id
+        let spent = try XCTUnwrap(sim.stage(v))
+        XCTAssertEqual(spent.parts.map(\.name), ["Booster"])
+        XCTAssertEqual(spent.name, "Crew – Booster")
+        XCTAssertTrue(v.id == id && sim.focus === v)
+        XCTAssertEqual(v.parts.map(\.name), ["Capsule"])
+        XCTAssertEqual(v.controlFrame, ApolloAxes.rotation)
+        XCTAssertEqual(spent.controlFrame, .identity)
+    }
+
+    // The flight program, and every control it flies with, goes with its host
+    // part; the vessel left behind starts afresh and takes the standby
+    // program its parts carry. A program whose host stays stays.
+    func testProgramMigratesWithItsHostPart() throws {
+        let sim = try Simulation.forTests(perturbations: false)
+        let v = Toy.stack()
+        sim.add(v)
+        sim.placeInFreeSpace(v)
+        let program = Hosted("Core"), standby = Hosted("Payload")
+        v.parts.first { $0.name == "Payload" }?.standbyProgram = standby
+        v.flightProgram = program
+        v.autopilot = .attitudeHold
+        v.attitudeCommand = AttitudeCommand(attitude: v.attitude)
+        v.phasePlane = AS506.apsLaw
+        v.tvcGains = TVCGains(naturalFrequency: 0.3)
+        v.mainThrottle = 1
+        v.translationInput = Vec3(1, 0, 0)
+        for _ in 0..<3 { sim.stage(v) }   // booster, interstage, tower: the core stays
+        XCTAssertTrue(v.flightProgram === program)
+        let core = try XCTUnwrap(sim.stage(v))
+        XCTAssertEqual(core.parts.map(\.name), ["Core", "Adapter"])
+        XCTAssertTrue(core.flightProgram === program)
+        XCTAssertEqual(core.autopilot, .attitudeHold)
+        XCTAssertNotNil(core.attitudeCommand)
+        XCTAssertEqual(core.phasePlane, AS506.apsLaw)
+        XCTAssertEqual(core.tvcGains, TVCGains(naturalFrequency: 0.3))
+        XCTAssertEqual(core.mainThrottle, 1)
+        XCTAssertEqual(core.translationInput, Vec3(1, 0, 0))
+        XCTAssertTrue(v.flightProgram === standby)
+        XCTAssertNil(v.autopilot)
+        XCTAssertNil(v.attitudeCommand)
+        XCTAssertNil(v.phasePlane)
+        XCTAssertEqual(v.tvcGains, TVCGains())
+        XCTAssertEqual(v.mainThrottle, 0)
+        XCTAssertEqual(v.translationInput, .zero)
+    }
+
+    // A part centred until an event (`centeredUntilEvent`) counts on the
+    // axis, without products of inertia, until that event separates; then
+    // its own distribution, and the vessels re-centre on it.
+    func testCentredUntilAnEvent() {
+        let low = Toy.block("Low", from: 0, to: 10, mass: 10_000, staging: .event(1))
+        let off = Toy.block("Off", from: 10, to: 14, mass: 2_000, staging: .fixed)
+        off.dryCenterOfMass = Vec3(0, 0.3, -0.2)
+        off.dryInertia = Mat3(rows: Vec3(500, 20, 30), Vec3(20, 900, 40), Vec3(30, 40, 900))
+        off.centeredUntilEvent = 1
+        let v = Vessel(name: "Off", parts: [low, off], reference: VesselLibrary.placeholderBody)
+        XCTAssertEqual(off.centerOfMass, Vec3(0, 0, 0))
+        XCTAssertEqual(off.localInertia[0, 1], 0)
+        XCTAssertEqual(v.structuralCenterOfMass.y, 0)
+        v.jettison(event: 1)
+        XCTAssertNil(off.centeredUntilEvent)
+        XCTAssertEqual(off.centerOfMass, Vec3(0, 0.3, -0.2))
+        XCTAssertEqual(off.localInertia[0, 1], 20, accuracy: 1e-9)
+        XCTAssertEqual(v.centerOfMass.length, 0, accuracy: 1e-12)
+        XCTAssertEqual(v.structuralCenterOfMass.y, 0.3, accuracy: 1e-12)
+    }
 }

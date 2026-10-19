@@ -261,6 +261,12 @@ enum AS506 {
     static let sIICenterCutoffTime = 299.0     // s from T3; FER (H)
     /// FER's T3 (S-IC OECO sensed), the base of the S-II's sequence.
     static let timeBase3 = 161.66              // range time, FER Table 2-1 (H)
+    /// The other time bases AS-506's LVDC started (FER Table 2-1, H): T2 on
+    /// the centre engine's cutoff, T4 on the S-II's, T5 on the S-IVB's,
+    /// 0.23 s after its 699.34 s velocity cutoff.
+    static let timeBase2 = 135.27              // range time (H)
+    static let timeBase4 = 548.24              // range time (H)
+    static let timeBase5 = 699.57              // range time (H)
     /// S-II ullage motors lit, and their burn ended (thrust down to 75 %).
     static let sIIUllageIgnitionTime = 0.5     // s from T3; FER Table 2-2 (H)
     static let sIIUllageEndTime = 4.4          // s from T3; FER Table 2-2 (H)
@@ -478,6 +484,10 @@ enum AS506 {
     /// last 478 s and the usable LH2 474 s; burn 1 ends on guidance after 147 s.
     static let sIVBLOXUnusable = 4_229.0         // derived from the model (L)
     static let sIVBLH2Unusable = 5_100.0         // derived from the model (L)
+    /// What burn 1 used, venting included: FER Table 20-5 (H). The
+    /// parking-orbit scenario starts the S-IVB with the rest.
+    static let sIVBBurn1LOXUsed = 25_873.0       // kg (H)
+    static let sIVBBurn1LH2Used = 5_339.0        // kg (H)
 
     static let iu = 4_275.0                      // lb, SP-4029 Ground Ignition Weights (H); FER 1,939 kg
 
@@ -876,6 +886,15 @@ enum AS506 {
     static let slaTop = 838.0                        // Xa, SLA top = SM aft bulkhead (L)
     static let smTop = 1_010.0                       // Xa, SM/CM (L)
     static let cmApex = 1_137.0                      // Xa (L)
+    /// The SLA panels' hinge line: the ring below it is the lower 7 ft of
+    /// the 28 ft adapter (Xa 502-838), the panels the upper 21 ft (L).
+    static let slaHingeStation = 586.0               // Xa (L)
+    /// The SPS gimbal plane, just aft of the SM's aft bulkhead, and its
+    /// nozzle extension's exit (datasheet §4, L).
+    static let spsGimbalStation = 833.0              // Xa (L)
+    static let spsExitStation = 715.0                // Xa (L)
+    /// The SM RCS quads' station (datasheet §4, L).
+    static let smRCSQuadStation = 959.0              // Xa (L)
     static let overallHeight = 363.0                 // ft, base to LES tip, Apollo 11 press kit (M)
     static let lesLength = 33.0                      // ft, Apollo 11 press kit, recalled (L); the BPC overlaps the CM
 
@@ -1074,8 +1093,14 @@ enum AS506 {
     /// linear to about ±2-4°.
     static let crossflow = (coefficient: 0.8, linearAngle: 4.0 * degree)
 
-    /// The Saturn V's aerodynamic models, full stack first.
-    static var aerodynamics: [AerodynamicModel] {
+    /// The Saturn V's aerodynamic models, full stack first, then the
+    /// spacecraft's: the launch models require their stages, so these come
+    /// after them. The CSM's is 68-FM-184 Table I(d)'s drag, 2.0 on 129.5 ft²
+    /// (H), along the wind. The CM's model (track E1's) goes after it.
+    static var aerodynamics: [AerodynamicModel] { launchAerodynamics + [ApolloCSM.dragModel] }
+
+    /// The launch stack's models, full stack first.
+    static var launchAerodynamics: [AerodynamicModel] {
         let perDegree = 1 / degree
         return [
             AerodynamicModel(

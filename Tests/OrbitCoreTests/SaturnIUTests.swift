@@ -580,7 +580,7 @@ final class SaturnIUTests: XCTestCase {
         // of cycles after the shift command.
         let cycles = try (logged("IGM phase 3: steering frozen") - logged("EMR shift command (IGM phase 2)")) / cycle
         XCTAssertEqual(cycles, cycles.rounded(), accuracy: 0.01)
-        XCTAssertEqual(f.v.parts.map(\.name), ["S-IVB", "IU", "SLA", "LM", "CSM"])
+        XCTAssertEqual(f.v.parts.map(\.name), SaturnVDataTests.parkingOrbitStack)
         XCTAssertEqual(f.sim.vessels.map(\.name), ["Apollo 11", "Apollo 11 – S-IC", "Apollo 11 – S-IC/S-II interstage",
                                                   "Apollo 11 – LES", "Apollo 11 – S-II",
                                                   "Apollo 11 – S-IVB ullage rockets"])
@@ -978,7 +978,7 @@ final class SaturnIUTests: XCTestCase {
         if light {
             for t in v.tanks.prefix(2) { t.mass = t.unusableMass }
             v.recenter()
-            v.separate(parts: v.parts.filter { ["SLA", "LM", "CSM"].contains($0.name) }, name: "CSM/LM")
+            v.separate(parts: v.parts.filter { SaturnVDataTests.spacecraft.contains($0.name) }, name: "CSM/LM")
         }
         v.recenter()
         sim.add(v)

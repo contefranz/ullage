@@ -44,7 +44,10 @@ final class SaturnVControlTests: XCTestCase {
         return v
     }
 
-    func gimbalAngles(_ v: Vessel) -> [Double] { v.thrusters.flatMap { $0.gimbal.map(\.angle) } }
+    /// The launch vehicle's gimbal angles (the SPS sits at its nulls).
+    func gimbalAngles(_ v: Vessel) -> [Double] {
+        v.thrusters.filter { $0.name != "SPS" }.flatMap { $0.gimbal.map(\.angle) }
+    }
     func firingAPS(_ v: Vessel) -> Set<String> {
         Set(v.thrusters.filter { $0.name.hasPrefix("APS") && $0.level > 0 }.map(\.name))
     }
