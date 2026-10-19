@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import OrbitCore
+import OrbitInstruments
 
 struct TankInfo: Identifiable, Equatable {
     var id: String
@@ -177,57 +178,57 @@ final class AppModel: ObservableObject {
             // key cancels and then acts as usual.
             if let capture = failureCapture {
                 failureCapture = nil
-                if let n = Int(key) {
+                if let n = key.digit {
                     if (1...capture.engines.count).contains(n) {
                         failEngine(capture.engines[n - 1], of: capture.vessel, sim: sim)
                     }
                     continue
                 }
-                if key == "escape" || key == "f" { continue }
+                if key == .escape || key == .f { continue }
             }
             switch key {
-            case "h": showHelp.toggle()
-            case "m": showOrbit.toggle()
-            case "p": sim.paused.toggle()
-            case ".": setWarp(step: +1, sim: sim)
-            case ",": setWarp(step: -1, sim: sim)
-            case "/": sim.warp = 1
-            case "c": cycleCameraTarget(sim: sim)
-            case "v": cycleCameraFrame()
-            case "[": cycleFocus(sim: sim, by: -1)
-            case "]": cycleFocus(sim: sim, by: +1)
+            case .h: showHelp.toggle()
+            case .m: showOrbit.toggle()
+            case .p: sim.paused.toggle()
+            case .period: setWarp(step: +1, sim: sim)
+            case .comma: setWarp(step: -1, sim: sim)
+            case .slash: sim.warp = 1
+            case .c: cycleCameraTarget(sim: sim)
+            case .v: cycleCameraFrame()
+            case .leftBracket: cycleFocus(sim: sim, by: -1)
+            case .rightBracket: cycleFocus(sim: sim, by: +1)
             default: break
             }
             guard let v = sim.focus, v.status != .crashed else { continue }
             switch key {
-            case "space": sim.stage(v)
-            case "z": v.mainThrottle = 1
-            case "x": v.mainThrottle = 0
-            case "t": v.autopilot = v.autopilot == .killRotation ? nil : .killRotation
-            case "f":
+            case .space: sim.stage(v)
+            case .z: v.mainThrottle = 1
+            case .x: v.mainThrottle = 0
+            case .t: v.autopilot = v.autopilot == .killRotation ? nil : .killRotation
+            case .f:
                 if let stage = Self.failableStage(of: v) { failureCapture = (v, stage.part, stage.engines) }
-            case "1": v.autopilot = .prograde
-            case "2": v.autopilot = .retrograde
-            case "3": v.autopilot = .normal
-            case "4": v.autopilot = .antinormal
-            case "5": v.autopilot = .radialOut
-            case "6": v.autopilot = .radialIn
-            case "7": v.autopilot = .horizonLevel
-            case "8": v.autopilot = .attitudeHold
-            case "0": v.autopilot = nil
+            case .digit1: v.autopilot = .prograde
+            case .digit2: v.autopilot = .retrograde
+            case .digit3: v.autopilot = .normal
+            case .digit4: v.autopilot = .antinormal
+            case .digit5: v.autopilot = .radialOut
+            case .digit6: v.autopilot = .radialIn
+            case .digit7: v.autopilot = .horizonLevel
+            case .digit8: v.autopilot = .attitudeHold
+            case .digit0: v.autopilot = nil
             default: break
             }
         }
 
         guard let v = sim.focus else { return }
-        if input.isHeld("=") { v.mainThrottle = min(1, v.mainThrottle + 0.5 * dt) }
-        if input.isHeld("-") { v.mainThrottle = max(0, v.mainThrottle - 0.5 * dt) }
+        if input.isHeld(.equal) { v.mainThrottle = min(1, v.mainThrottle + 0.5 * dt) }
+        if input.isHeld(.minus) { v.mainThrottle = max(0, v.mainThrottle - 0.5 * dt) }
 
-        func axis(_ plus: String, _ minus: String) -> Double {
+        func axis(_ plus: PhysicalKey, _ minus: PhysicalKey) -> Double {
             (input.isHeld(plus) ? 1 : 0) - (input.isHeld(minus) ? 1 : 0)
         }
-        v.rotationInput = RotationCommand(roll: axis("e", "q"), pitch: axis("s", "w"), yaw: axis("d", "a"))
-        v.translationInput = Vec3(axis("u", "o"), axis("l", "j"), axis("k", "i"))
+        v.setPilotInput(rotation: RotationCommand(roll: axis(.e, .q), pitch: axis(.s, .w), yaw: axis(.d, .a)),
+                        translation: Vec3(axis(.u, .o), axis(.l, .j), axis(.k, .i)))
     }
 
     /// The stage F fails an engine of: the lowest part with a main liquid

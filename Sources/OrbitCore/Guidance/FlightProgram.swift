@@ -14,8 +14,16 @@ public protocol FlightProgram: AnyObject {
     var status: String { get }
     /// Whether the pilot may stage `vessel` now (the Space key).
     func allowsManualStaging(of vessel: Vessel) -> Bool
+    /// Name of the part that carries the program (the Saturn's "IU"); nil
+    /// when it is not tied to one.
+    var hostPart: String? { get }
+    /// The next event the program will act on, for the pilot: its name and
+    /// when it is due; nil when none is known.
+    func nextEvent(at now: Epoch) -> (name: String, at: Epoch)?
 }
 
 extension FlightProgram {
     public func allowsManualStaging(of vessel: Vessel) -> Bool { true }
+    public var hostPart: String? { nil }
+    public func nextEvent(at now: Epoch) -> (name: String, at: Epoch)? { nil }
 }

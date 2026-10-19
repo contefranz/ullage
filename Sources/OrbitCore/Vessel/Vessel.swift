@@ -13,6 +13,18 @@ public enum VesselStatus: Equatable {
     case flying, landed, crashed
 }
 
+/// Largest speed over the surface (m/s) at which a vessel comes to rest on
+/// contact; faster, it crashes.
+public struct ImpactLimits: Equatable {
+    public var water: Double
+    public var land: Double
+    public init(water: Double, land: Double) {
+        self.water = water; self.land = land
+    }
+    /// 5 m/s on any surface.
+    public static let standard = ImpactLimits(water: 5, land: 5)
+}
+
 /// Rotational command per axis, -1...1. x = roll (right +), y = pitch (up +), z = yaw (right +).
 public struct RotationCommand: Equatable {
     public var roll = 0.0, pitch = 0.0, yaw = 0.0
@@ -25,7 +37,7 @@ public struct RotationCommand: Equatable {
 public final class Vessel: Identifiable {
     public let id = UUID()
     public var name: String
-    public private(set) var parts: [VesselPart]
+    public internal(set) var parts: [VesselPart]
 
     // MARK: State (inertial, relative to the reference body's centre, ICRF axes)
     public internal(set) var reference: CelestialBody
@@ -52,6 +64,9 @@ public final class Vessel: Identifiable {
     public var rotationInput = RotationCommand()
     /// Manual translation input, body axes, -1...1.
     public var translationInput = Vec3.zero
+    /// Pilot axes -> body axes: the frame of the pilot's commands
+    /// (`setPilotInput`). The identity flies in body axes.
+    public var controlFrame = Quat.identity
     public var autopilot: AttitudeAutopilot? {
         didSet { if autopilot != oldValue { resetAttitudeReference() } }
     }
@@ -72,6 +87,11 @@ public final class Vessel: Identifiable {
     /// Program aboard (the Saturn's IU), which sequences the flight and
     /// writes `attitudeCommand`; nil when the vessel carries none.
     public var flightProgram: FlightProgram?
+    /// What the entry autopilot holds about the air-relative velocity; nil
+    /// when nothing is commanded. Nothing flies it yet.
+    public var entryCommand: EntryCommand?
+    /// Contact speeds the vessel survives.
+    public var impactLimits = ImpactLimits.standard
     /// Attitude `.attitudeHold` captured (body -> ICRF).
     var heldAttitude: Quat?
     /// Rate-limited reference the gimbal law tracks (body -> ICRF), and its
@@ -98,6 +118,20 @@ public final class Vessel: Identifiable {
     /// air, winds included (rad).
     public internal(set) var angleOfAttack = 0.0
     public internal(set) var thrustAcceleration = 0.0
+    // Entry telemetry, set by `Simulation.updateEntryTelemetry`, which does
+    // not compute it yet: zero, and the bank nil, until it does.
+    /// What an accelerometer at the centre of mass senses (aerodynamic,
+    /// parachute and thrust forces over mass), body axes, m/s^2.
+    public internal(set) var sensedAcceleration = Vec3.zero
+    /// `sensedAcceleration` in standard g.
+    public internal(set) var loadFactor = 0.0
+    /// Angle of the lift vector about the air-relative velocity from the
+    /// local up, positive to the right (rad); nil without a lifting model.
+    public internal(set) var bankAngle: Double?
+    /// Stagnation-point convective heat flux, W/m^2.
+    public internal(set) var heatFlux = 0.0
+    /// `heatFlux` integrated over time, J/m^2.
+    public internal(set) var heatLoad = 0.0
 
     public init(name: String, parts: [VesselPart], reference: CelestialBody,
                 position: Vec3 = .zero, velocity: Vec3 = .zero,
@@ -117,6 +151,7 @@ public final class Vessel: Identifiable {
     public var mass: Double { parts.reduce(0) { $0 + $1.mass } }
     public var thrusters: [Thruster] { parts.flatMap(\.thrusters) }
     public var tanks: [PropellantTank] { parts.flatMap(\.tanks) }
+    public var parachutes: [Parachute] { parts.flatMap(\.parachutes) }
 
     /// Centre of mass in the vessel frame. The simulation keeps it at the
     /// origin: it re-centres after every step that uses propellant.
@@ -183,98 +218,18 @@ public final class Vessel: Identifiable {
         }
     }
 
-    // MARK: Staging
-
-    /// Detach `detached` parts as a new vessel. Both vessels are re-centred on
-    /// their own centre of mass. Returns the new vessel, or nil if nothing matched.
-    @discardableResult
-    public func separate(parts detached: [VesselPart], name: String, separationSpeed: Double = 0) -> Vessel? {
-        let ids = Set(detached.map { ObjectIdentifier($0) })
-        let leaving = parts.filter { ids.contains(ObjectIdentifier($0)) }
-        guard !leaving.isEmpty, leaving.count < parts.count else { return nil }
-        let leavingMass = leaving.reduce(0) { $0 + $1.mass }
-        let leavingCom = leaving.reduce(Vec3.zero) { $0 + ($1.offset + $1.centerOfMass) * $1.mass }
-            / max(leavingMass, 1e-9)
-        let oldLanded = landed
-
-        parts.removeAll { ids.contains(ObjectIdentifier($0)) }
-        for t in leaving.flatMap(\.thrusters) { t.level = 0 }
-
-        // The initialiser re-centres the new vessel on its own centre of mass.
-        let other = Vessel(name: name, parts: leaving, reference: reference, position: position,
-                           velocity: velocity, attitude: attitude, angularVelocity: angularVelocity)
-        other.status = status
-        // Its offsets were in this vessel's frame, so it shares this construction origin.
-        other.structureOrigin += structureOrigin
-        other.aerodynamics = aerodynamics
-        if let l = oldLanded {
-            other.landed = LandedState(body: l.body,
-                                       bodyFixedPosition: l.bodyFixedPosition + l.bodyFixedAttitude.rotate(leavingCom),
-                                       bodyFixedAttitude: l.bodyFixedAttitude)
-        }
-        recenter()
-
-        if separationSpeed > 0, oldLanded == nil {
-            let dir = (other.position - position).normalized
-            let mTotal = mass + other.mass
-            velocity -= dir * (separationSpeed * other.mass / mTotal)
-            other.velocity += dir * (separationSpeed * mass / mTotal)
-        }
-        return other
-    }
-
-    /// Separate the lowest `.bottomOfStack` part (the bottom stage of an M0 stack).
-    @discardableResult
-    public func jettisonBottomPart() -> Vessel? {
-        guard parts.count > 1,
-              let bottom = parts.filter({ $0.staging == .bottomOfStack }).min(by: { $0.offset.x < $1.offset.x })
-        else { return nil }
-        return separate(parts: [bottom], name: "\(name) – \(bottom.name)", separationSpeed: 1.0)
-    }
-
-    /// The Space key: separate every part of the lowest pending `.event(n)` as
-    /// one new vessel; with no events left, fall back to `jettisonBottomPart`.
-    /// `.fixed` parts never separate, and a vessel made only of one event's
-    /// parts (spent debris) does not split again.
-    @discardableResult
-    public func jettisonNextStage() -> Vessel? {
-        let pending = parts.compactMap { p -> Int? in if case .event(let n) = p.staging { return n } else { return nil } }
-        guard let next = pending.min() else { return jettisonBottomPart() }
-        return jettison(event: next)
-    }
-
-    /// Separate every part of staging event `n` as one new vessel, whatever
-    /// events are still pending below it (a flight program staging by
-    /// identity); nil if no part carries it or nothing would remain. The
-    /// separation lights the solids it triggers (`Thruster.trigger`) first:
-    /// the leaving parts' retros burn on with them, and the ullage motors of
-    /// the stack that stays burn on with it. Springs add the parts'
-    /// `separationSpeed`.
-    @discardableResult
-    public func jettison(event n: Int) -> Vessel? {
-        let group = parts.filter { $0.staging == .event(n) }
-        guard let lowest = group.min(by: { $0.offset.x < $1.offset.x }), group.count < parts.count else { return nil }
-        for p in parts {
-            let leaving = p.staging == .event(n)
-            for t in p.thrusters {
-                switch t.trigger {
-                case .ownSeparation?: if leaving { t.ignite() }
-                case .event(let e)?: if e == n && !leaving { t.ignite() }
-                case nil: break
-                }
-            }
-        }
-        return separate(parts: group, name: "\(name) – \(lowest.name)",
-                        separationSpeed: group.map(\.separationSpeed).max() ?? 0)
-    }
-
-    /// Lowest part with main engines, enabled or not: the stage the main
-    /// throttle drives.
-    public var activeStage: VesselPart? {
-        parts.filter { $0.thrusters.contains { $0.groups.contains(.main) } }.min { $0.offset.x < $1.offset.x }
-    }
-
     // MARK: Control allocation
+
+    /// Set the manual rotation and translation inputs from commands in pilot
+    /// axes (`controlFrame`), -1...1 per axis, as the keys give them.
+    public func setPilotInput(rotation: RotationCommand, translation: Vec3) {
+        func clamped(_ v: Vec3) -> Vec3 {
+            Vec3(min(max(v.x, -1), 1), min(max(v.y, -1), 1), min(max(v.z, -1), 1))
+        }
+        let r = clamped(controlFrame.rotate(Vec3(rotation.roll, rotation.pitch, rotation.yaw)))
+        rotationInput = RotationCommand(roll: r.x, pitch: r.y, yaw: r.z)
+        translationInput = clamped(controlFrame.rotate(translation))
+    }
 
     /// Torque authority about each body axis (N m): per axis, the larger of
     /// the gimballed engines' at their current thrust and the rotation

@@ -1,47 +1,54 @@
 import AppKit
 import MetalKit
+import OrbitInstruments
 
 /// Keyboard and mouse state collected by `GameView`, consumed once per frame.
+/// Keys are physical (`PhysicalKey`, from the event's key code), so every
+/// binding sits in the same place on any layout; keys pressed with Shift go
+/// to the MFDs only (`KeyboardState`).
 @MainActor
 final class InputState {
-    /// Keys currently held (lower-cased characters, plus "space").
-    private(set) var held = Set<String>()
-    /// Keys pressed since the last frame (no auto-repeat).
-    private var pressedQueue: [String] = []
+    private var keyboard = KeyboardState()
     var mouseDelta = CGPoint.zero
     var scrollDelta = 0.0
 
-    func isHeld(_ key: String) -> Bool { held.contains(key) }
+    /// Modifier keys held, with the side of Shift.
+    var modifiers: ModifierKeys { keyboard.modifiers }
 
-    func takePressed() -> [String] {
-        defer { pressedQueue.removeAll() }
-        return pressedQueue
-    }
+    func isHeld(_ key: PhysicalKey) -> Bool { keyboard.isHeld(key) }
+
+    /// Keys pressed without Shift since the last frame (no auto-repeat).
+    func takePressed() -> [PhysicalKey] { keyboard.takePressed() }
+
+    /// Keys pressed with Shift since the last call, with the MFD each goes to.
+    func takeMFDKeys() -> [(side: MFDSide, key: PhysicalKey)] { keyboard.takeMFDKeys() }
 
     func takeMouse() -> (dx: Double, dy: Double, scroll: Double) {
         defer { mouseDelta = .zero; scrollDelta = 0 }
         return (Double(mouseDelta.x), Double(mouseDelta.y), scrollDelta)
     }
 
-    static func key(for event: NSEvent) -> String? {
-        if event.keyCode == 49 { return "space" }
-        if event.keyCode == 53 { return "escape" }
-        guard let c = event.charactersIgnoringModifiers?.lowercased(), !c.isEmpty else { return nil }
-        return c
+    static func key(for event: NSEvent) -> PhysicalKey? { PhysicalKey(keyCode: event.keyCode) }
+
+    static func modifiers(of event: NSEvent) -> ModifierKeys {
+        ModifierKeys(eventFlags: event.modifierFlags.rawValue)
     }
 
     func keyDown(_ event: NSEvent) {
         guard let k = Self.key(for: event) else { return }
-        if !event.isARepeat { pressedQueue.append(k) }
-        held.insert(k)
+        keyboard.keyDown(k, modifiers: Self.modifiers(of: event), isRepeat: event.isARepeat)
     }
 
     func keyUp(_ event: NSEvent) {
         guard let k = Self.key(for: event) else { return }
-        held.remove(k)
+        keyboard.keyUp(k)
     }
 
-    func releaseAll() { held.removeAll() }
+    func flagsChanged(_ event: NSEvent) {
+        keyboard.modifiersChanged(Self.modifiers(of: event))
+    }
+
+    func releaseAll() { keyboard.releaseAll() }
 }
 
 /// MTKView that forwards keyboard and mouse input.
@@ -74,6 +81,7 @@ final class GameView: MTKView {
     override func flagsChanged(with event: NSEvent) {
         // AppKit does not deliver key-up for keys released while Cmd is down.
         if event.modifierFlags.contains(.command) { input?.releaseAll() }
+        input?.flagsChanged(event)
         super.flagsChanged(with: event)
     }
 
