@@ -1,4 +1,6 @@
-> Planning document for milestone M1.5, written on 2026-10-19 by a design study (five design reports checked by a planner) and accepted by Franz with the recommended defaults (Italian keyboard confirmed). Track briefs refer to it. Where code has moved on, the code wins.
+> Planning document for milestone M1.5, written on 2026-10-19 by a design study (five design reports checked by a planner) and accepted by Franz with the recommended defaults (US keyboard; see the correction below). Track briefs refer to it. Where code has moved on, the code wins.
+
+> **Correction (2026-10-19): Franz's keyboard is a US (ANSI) layout, not Italian.** Keep physical key positions (`event.keyCode`) for every binding anyway: they make arrows and F-keys bindable, keep Shift-modified keys from leaking into `held`, stop keys sticking when Shift is released first, and let the MFDs use left/right Shift as Orbiter does. Drop the Italian-layout checks; verify on the US layout. The key left of 1 is the backtick (`` ` ``, keyCode 50 on ANSI). `=`, `-`, `/` and `[ ]` are unshifted keys and stay as they are.
 
 # M1.5 plan: a flyable Apollo Earth-orbit mission, from the pad to splashdown
 
