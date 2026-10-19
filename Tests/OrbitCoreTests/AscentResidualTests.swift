@@ -4,8 +4,7 @@ import XCTest
 /// The harness for the ascent residuals against AS-506 as flown
 /// (`AS506Postflight`; datasheet §14): the data reduction, which the tests
 /// below check for self-consistency, and the model's residuals, which they
-/// print without asserting (the WGS-84 pad and the residual closure will
-/// move them).
+/// print and hold to the residual closure's tolerances (datasheet §17).
 ///
 /// - Sensed velocity by stage window, as a vector (FER Table 10-1's measure)
 ///   and as the integral of |a_ng|.
@@ -405,13 +404,13 @@ final class AscentResidualTests: XCTestCase {
         }
     }
 
-    // MARK: The model's residuals (printed, not asserted)
+    // MARK: The model's residuals
 
     // The default flight against AS-506: states at AS-506's event times,
     // sensed velocity by stage window on the PFT's own interval grid (model
     // minus AS-506), the thrust direction's pitch, and the S-IC attitude
-    // error against Figure 11-1. Nothing here is asserted: the WGS-84 pad and
-    // the residual closure (datasheet §14.5) will move these numbers.
+    // error against Figure 11-1. Printed; the stage tests below hold the
+    // residual closure's tolerances (datasheet §17).
     func testModelResidualsAgainstThePFT() throws {
         let m = try ModelTrajectory(NominalFlight.shared)
         print("ascent residuals, model - AS-506 (PFT Table B-II), default flight:")
@@ -455,55 +454,122 @@ final class AscentResidualTests: XCTestCase {
     // The F-1's thrust level is fitted to the whole burn's integral with the
     // 661 kg of frost and purge gas AS-506 had shed by CECO taken off
     // (`AS506.sICThrustScale`), so the model, whose S-IC carries them to its
-    // separation, is about 1.3 m/s short over the burn; the windows are not
-    // fitted: the thrust's shape is FER Figure 5-3's and the mass the FER's
-    // tanks'.
-    // Provisional tolerances: the residual closure's re-baseline (datasheet
-    // §17) sets them.
+    // separation, is 1.3 m/s short over the burn (-1.26 m/s); the windows are
+    // not fitted (the thrust's shape is FER Figure 5-3's and the mass the
+    // FER's tanks') and are within 1.7 m/s.
     func testSICSensedVelocityAgainstThePFT() throws {
         let m = try ModelTrajectory(NominalFlight.shared)
         let total = m.sensedVelocity(from: P.firstMotion, to: 161.63).integral
             - P.sensedVelocity(from: P.firstMotion, to: 161.63).integral
-        XCTAssertEqual(total, -1.3, accuracy: 1)
+        XCTAssertEqual(total, -1.3, accuracy: 0.5)
         for (a, b) in [(1.0, 20.0), (20, 60), (60, 100), (100, 135.2), (135.2, 140), (140, 161.63)] {
             let d = m.sensedVelocity(from: a, to: b).integral - P.sensedVelocity(from: a, to: b).integral
             XCTAssertEqual(d, 0, accuracy: 2, "\(a)-\(b) s")
         }
     }
 
+    // The S-II's sensed velocity against AS-506's, the integral of |a_ng|.
+    // - From AS-506's state at T3, from separation (162.30 s) to OECO: within
+    //   1 m/s (-0.04 m/s). By window, the EMR shift (490-500 s) within 1 m/s
+    //   (it was -5.1 m/s on a step at the valve; the ramp, datasheet §17), the
+    //   low-EMR phase (500-548.22 s) -3.7 +- 1 m/s (the PFT's acceleration
+    //   runs up to 1 % above Figure 6-3's in the first 10 s after the step),
+    //   and the S-II's first 40 s (164-200 s) +2.3 +- 1 m/s (3-6.5 % above
+    //   the PFT at 166-172 s, unexplained; datasheet §14.4).
+    // - At the model's T4, from AS-506's T3 state: speed within 1.5 m/s
+    //   (-0.72 m/s) and flight-path angle within 0.15° (+0.117°; its thrust
+    //   runs 0.2° nearer the vertical than AS-506's, datasheet §14.3) of
+    //   AS-506's state carried to that instant.
+    // - In the default flight, 161.63-548.22 s: within 2 m/s (+1.58 m/s; it
+    //   also takes the S-IC's OECO, 0.02 s after AS-506's).
+    func testSIISensedVelocityAgainstThePFT() throws {
+        let f = InjectedFlight.fromT3, m = try ModelTrajectory(f)
+        func d(_ a: Double, _ b: Double) -> Double {
+            m.sensedVelocity(from: a, to: b).integral - P.sensedVelocity(from: a, to: b).integral
+        }
+        XCTAssertEqual(d(162.3, 548.22), 0, accuracy: 1)
+        XCTAssertEqual(d(490, 500), 0, accuracy: 1)
+        XCTAssertEqual(d(500, 548.22), -3.7, accuracy: 1)
+        XCTAssertEqual(d(164, 200), 2.3, accuracy: 1)
+        let s2 = try XCTUnwrap(f.beforeT4)
+        let pft = P.row(at: 548.22)!, dt = s2.range - 548.22
+        let r = pft.position + pft.velocity * dt, v = pft.velocity + P.gravity(at: pft.position) * dt
+        XCTAssertEqual(s2.velocity.length - v.length, 0, accuracy: 1.5)
+        XCTAssertEqual(flightPathAngle(s2.position, s2.velocity) - flightPathAngle(r, v), 0, accuracy: 0.15)
+        let nominal = try ModelTrajectory(NominalFlight.shared)
+        XCTAssertEqual(nominal.sensedVelocity(from: 161.63, to: 548.22).integral
+                       - P.sensedVelocity(from: 161.63, to: 548.22).integral, 0, accuracy: 2)
+    }
+
+    // The S-IVB's sensed velocity against AS-506's, the integral of |a_ng|.
+    // - From AS-506's state at T4: each mainstage window (560-600, 600-640,
+    //   640-680, 680-690 s) within 0.25 % (+0.08 to -0.08 %: the thrust is
+    //   fitted to their sum, datasheet §17), and over AS-506's 151.11 s from
+    //   its S-II cutoff to its guidance cutoff within 1 m/s (+0.61 m/s).
+    // - In the default flight, 548.22-699.33 s: within 2 m/s (-1.24 m/s; the
+    //   model cuts off 0.5 s before AS-506).
+    func testSIVBSensedVelocityAgainstThePFT() throws {
+        let f = InjectedFlight.fromT4, m = try ModelTrajectory(f)
+        for (a, b) in [(560.0, 600.0), (600, 640), (640, 680), (680, 690)] {
+            let as506 = P.sensedVelocity(from: a, to: b).integral
+            XCTAssertEqual(m.sensedVelocity(from: a, to: b).integral, as506, accuracy: as506 * 2.5e-3, "\(a)-\(b) s")
+        }
+        let t4 = try XCTUnwrap(f.injections.first).range
+        XCTAssertEqual(m.sensedVelocity(from: t4, to: t4 + 699.33 - 548.22).integral,
+                       P.sensedVelocity(from: 548.22, to: 699.33).integral, accuracy: 1)
+        let nominal = try ModelTrajectory(NominalFlight.shared)
+        XCTAssertEqual(nominal.sensedVelocity(from: 548.22, to: 699.33).integral,
+                       P.sensedVelocity(from: 548.22, to: 699.33).integral, accuracy: 2)
+    }
+
+    // The S-IVB's velocity cutoff against AS-506's 699.34 s (FER Table 2-2),
+    // within 1 s: from AS-506's state at T4 (699.47 s; the S-IVB alone),
+    // from its state at T3 (699.06 s; the S-II and the S-IVB), and in the
+    // default flight (698.83 s; the whole ascent).
+    func testVelocityCutoffWithinASecondOfAS506() throws {
+        XCTAssertEqual(try XCTUnwrap(InjectedFlight.fromT4.cutoff), 699.34, accuracy: 1)
+        XCTAssertEqual(try XCTUnwrap(InjectedFlight.fromT3.cutoff), 699.34, accuracy: 1)
+        XCTAssertEqual(try XCTUnwrap(NominalFlight.shared.time(of: "S-IVB velocity cutoff (IGM)")), 699.34, accuracy: 1)
+    }
+
     // The S-II and the S-IVB, each from AS-506's state: the stack flown
     // again, with AS-506's postflight state (rotated from PACSS 13 into the
     // model's space-fixed frame, carried with gravity alone from the event
     // row to the model's own instant) put in place of the model's at its T3
-    // and again at its T4. The S-II is judged at T4 before the second
-    // injection, the S-IVB at its cutoff. Asserted: only that the injections
-    // put AS-506's state in place; the residuals are printed.
+    // (`InjectedFlight.fromT3`) or at its T4 (`fromT4`). The S-II is judged
+    // at T4, the S-IVB at its cutoff. Asserted here: that the injections put
+    // AS-506's state in place; the residuals are printed, and the stage
+    // tests above hold them.
     func testStageInjectionAtT3AndT4() throws {
-        let flight = try InjectedFlight.fly(injectAtT3: true, injectAtT4: true)
-        for i in flight.injections {
+        let fromT3 = InjectedFlight.fromT3, fromT4 = InjectedFlight.fromT4
+        for i in fromT3.injections + fromT4.injections {
             let row = try XCTUnwrap(P.row(at: i.event))
             XCTAssertEqual(i.range - i.event, 0.03, accuracy: 0.04)   // T3, T4 sensed 1-3 steps after the cutoff
             XCTAssertEqual((i.position - row.position).length, row.velocity.length * (i.range - i.event), accuracy: 2)
             XCTAssertEqual((i.velocity - row.velocity).length, 0, accuracy: 0.5)
         }
-        XCTAssertEqual(flight.injections.count, 2)
-        let m = try ModelTrajectory(flight)
-        print(String(format: "stage injection: AS-506's PFT state at the model's T3 (%.2f s) and T4 (%.2f s):",
-                     flight.injections[0].range, flight.injections[1].range))
-        let s2 = try XCTUnwrap(flight.beforeT4)
+        XCTAssertEqual(fromT3.injections.map(\.event), [P.Event.sICCutoff.time])
+        XCTAssertEqual(fromT4.injections.map(\.event), [P.Event.sIICutoff.time])
+        print(String(format: "stage injection: AS-506's PFT state at the model's T3 (%.2f s), and at its T4 (%.2f s):",
+                     fromT3.injections[0].range, fromT4.injections[0].range))
+        let m = try ModelTrajectory(fromT3)
+        let s2 = try XCTUnwrap(fromT3.beforeT4)
         let pft = P.row(at: 548.22)!, dt = s2.range - 548.22
         let r = pft.position + pft.velocity * dt, v = pft.velocity + P.gravity(at: pft.position) * dt
         print(String(format: "  S-II from T3, at the model's T4: speed %+.2f m/s, flight-path angle %+.3f deg, "
                      + "radius %+.0f m (model - AS-506)", s2.velocity.length - v.length,
                      flightPathAngle(s2.position, s2.velocity) - flightPathAngle(r, v), s2.position.length - r.length))
-        printSensedVelocity(m, windows: [("S-II", flight.injections[0].range, flight.injections[1].range - 0.02)],
-                            pftWindow: (161.63, 548.22))
-        if let c = flight.cutoff {
+        printSensedVelocity(m, windows: [("S-II", fromT3.injections[0].range, 548.22)], pftWindow: (161.63, 548.22))
+        printSensedVelocity(m, windows: [("S-II from separation", 162.3, 548.22)])
+        if let c = fromT3.cutoff {
+            print(String(format: "  from T3: velocity cutoff at %.2f s, %+.2f s after AS-506's 699.34 s", c, c - 699.34))
+        }
+        if let c = fromT4.cutoff {
             // over AS-506's 151.11 s from its S-II cutoff to its guidance cutoff
-            let t4 = flight.injections[1].range
-            printSensedVelocity(m, windows: [("S-IVB", t4, t4 + 699.33 - 548.22)], pftWindow: (548.22, 699.33))
-            print(String(format: "  S-IVB from T4: velocity cutoff at %.2f s, %+.2f s after AS-506's 699.34 s",
-                         c, c - 699.34))
+            let t4 = fromT4.injections[0].range
+            printSensedVelocity(try ModelTrajectory(fromT4), windows: [("S-IVB", t4, t4 + 699.33 - 548.22)],
+                                pftWindow: (548.22, 699.33))
+            print(String(format: "  from T4: velocity cutoff at %.2f s, %+.2f s after AS-506's 699.34 s", c, c - 699.34))
         } else {
             print("  S-IVB from T4: no velocity cutoff")
         }
@@ -692,6 +758,12 @@ struct ModelTrajectory {
 /// in place of the model's at the model's own T3 and T4, and optionally with
 /// another pitch program; the stack's state recorded after every step.
 final class InjectedFlight {
+    /// From AS-506's state at the model's T3 (the S-II, then the S-IVB), and
+    /// at its T4 (the S-IVB), to the velocity cutoff: flown once each and
+    /// shared by the tests that read them.
+    static let fromT3 = try! InjectedFlight.fly(injectAtT3: true, injectAtT4: false)
+    static let fromT4 = try! InjectedFlight.fly(injectAtT3: false, injectAtT4: true)
+
     struct Injection {
         /// The PFT event row's range time and the model's instant (s).
         let event: Double, range: Double

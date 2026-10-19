@@ -223,13 +223,14 @@ final class SaturnIUTests: XCTestCase {
     //   (datasheet §17); the headings check the space-fixed frame, flight
     //   azimuth and roll program in particular.
     // - Mach 1 at 66.3 s and max Q of 35.2 kPa at 83.0 s (FER Table 4-1; the
-    //   model: 66.7 s, 34.9 kPa at 83.3 s), within 1 s and 2 %; the dynamic
+    //   model: 66.3 s, 35.3 kPa at 83.1 s), within 1 s and 2 %; the dynamic
     //   pressure every 10 s from 40 to 120 s within 5 % of FER Figure 4-4
     //   (digitised, M; the model is within 3 %).
     // - The climb above the pad and the Earth-fixed speed every 20 s against
     //   the postflight trajectory (PFT Table B-III, H; 59 m on the pad, the
-    //   model's centre of mass 59 m): within 100 m and 2 %. The model runs
-    //   about 1 % slow in speed, the S-IC's deficit (datasheet §9.5).
+    //   model's centre of mass 59 m): within 150 m and 0.5 % (the model is 2
+    //   to 41 m high to 100 s and 125 m at 120 s, on AS-506's command without
+    //   its late trim, and within 0.26 % in speed; datasheet §17).
     // - The aerodynamic axial force peaks at 1.36-1.38 MN near 72-75 s, as
     //   D5-15796-1's method gives along AS-506's trajectory (inferred, M).
     // - The thrust acceleration (ambient pressure included) against AS-506's
@@ -292,11 +293,9 @@ final class SaturnIUTests: XCTestCase {
         let pftRows: [(climb: Double, v: Double)] = [(537 - 59, 53.0), (2_364 - 59, 136.5), (6_153 - 59, 267.0),
                                                      (12_404 - 59, 466.0), (21_341 - 59, 768.0),
                                                      (33_115 - 59, 1_195.9)]
-        // The climb: widened from 100 m with AS-506's pitch program and the
-        // F-1's thrust; see datasheet §17.
         for (model, ref) in zip(pftModel, pftRows) {
             XCTAssertEqual(model.climb, ref.climb, accuracy: 150)
-            XCTAssertEqual(model.v, ref.v, accuracy: ref.v * 0.02)
+            XCTAssertEqual(model.v, ref.v, accuracy: ref.v * 5e-3)
         }
         XCTAssertEqual(peakAxial.f, 1.37e6, accuracy: 0.08e6)
         XCTAssertEqual(peakAxial.t, 73.5, accuracy: 3)
@@ -308,10 +307,10 @@ final class SaturnIUTests: XCTestCase {
         XCTAssertEqual(ceco.heading, 76.315, accuracy: 0.5)
         XCTAssertEqual(oeco.alt, 66_100, accuracy: 2_500)
         XCTAssertEqual(oeco.v, 2_764.1, accuracy: 40)
-        // AS-506's command leaves the S-IC 0.2-0.3° steep at OECO: the model's
-        // thrust flies 0.4-0.6° nose-up of AS-506's after 85 s, part of it
-        // AS-506's late trim, which the model lacks (datasheet §14.1).
-        // Widened from 0.2° (fitted then); see §17.
+        // AS-506's command leaves the S-IC 0.29° steep at OECO (19.407°): the
+        // model's thrust flies 0.4-0.6° nose-up of AS-506's after 85 s, part
+        // of it AS-506's late trim, which the model lacks (datasheet §14.1,
+        // §17.3 item 1).
         XCTAssertEqual(oeco.gamma, 19.114, accuracy: 0.35)
         XCTAssertEqual(oeco.heading, 75.439, accuracy: 0.5)
         XCTAssertEqual(accelerations.count, 4)
@@ -476,12 +475,12 @@ final class SaturnIUTests: XCTestCase {
     // sees the cutoff, one or two steps after it (the LVDC took 0.03-0.23 s);
     // the IGM's own events come on its 1.7 s cycles, so within a cycle. The
     // propellant model puts the S-IC burnout at 161.64 s and the S-II's within
-    // the step before 548.24 s (its J-2s start at 164.04 s; from 164.00 they
-    // would run dry at 548.16 s), so the S-IVB lights at about 552.24 s. The
-    // IGM commands the EMR shift on its cycle that holds AS-506's 494.83 s
-    // (its preset is AS-506's, from the PFT), the PU valve step following 2.8 s
-    // later, and cuts the S-IVB off on velocity about 3.5 s after AS-506 did,
-    // the model reaching the S-IVB slower (datasheet §10): the IGM's phase 3
+    // the step before 548.24 s (the S-II's flow is fitted to AS-506's 548.22
+    // s), so the S-IVB lights at about 552.24 s. The IGM commands the EMR
+    // shift on its cycle that holds AS-506's 494.83 s (its preset is
+    // AS-506's, from the PFT), the PU valve step following 2.8 s later, and
+    // cuts the S-IVB off on velocity within 1 s of AS-506 (0.42 s earlier;
+    // datasheet §17): the IGM's phase 3
     // is timed from the model's own T4, and its terminal events and those
     // after the cutoff from the model's own cutoff and T5, as the FER's are
     // from AS-506's. The
@@ -560,7 +559,7 @@ final class SaturnIUTests: XCTestCase {
             ("S-IVB ullage case jettison", t4 + 12.8, 0.1),        // FER 561.0
             ("terminal guidance", cutoff - 34.19, cycle),          // FER 665.15, 34.19 s before the cutoff
             ("chi freeze: high-speed cutoff loop", cutoff - 7.70, cycle),  // FER 691.64, 7.70 s before
-            ("S-IVB velocity cutoff (IGM)", 699.34, 6),            // FER 699.34
+            ("S-IVB velocity cutoff (IGM)", 699.34, 1),            // FER 699.34
             ("T5: S-IVB cutoff sensed", cutoff, 0.03),             // the next step (FER: 0.23 s)
             ("APS ullage on", t5 + 0.3, 0.1),                      // FER T5 + 0.3
             ("orbital guidance: local horizontal", t5 + 19.8, 0.1),  // FER T5 + 19.8
@@ -734,16 +733,15 @@ final class SaturnIUTests: XCTestCase {
         }
         XCTAssertEqual(c.pitch / deg, -112.4, accuracy: 2)   // OT at cutoff (LVDC -113.6)
         func gamma(_ r: Vec3, _ v: Vec3) -> Double { asin(r.normalized.dot(v.normalized)) / deg }
-        // S-II OECO: AS-506's 6,559,961 m, 6,915.96 m/s, 0.614°. The model is
-        // about 8 m/s slower and 0.08° steeper since §17's S-IC (30 m/s and
-        // 0.2° before it, with the WGS-84 pad of §15): the S-II's own deficit
-        // at the EMR shift (§14.2). Widened from 30 m/s and 0.15° with the
-        // pad; see §17, which closes the residuals.
+        // S-II OECO: AS-506's 6,559,961 m, 6,915.96 m/s, 0.614°. With the
+        // residuals closed (datasheet §17) the model is 395 m higher, 0.26
+        // m/s faster and 0.07° steeper: the S-IC's 0.29° at OECO, which the
+        // IGM takes out over the S-II.
         XCTAssertEqual(s2.r.length, 6_559_961, accuracy: 1_000)
-        XCTAssertEqual(s2.v.length, 6_915.96, accuracy: 35)
-        XCTAssertEqual(gamma(s2.r, s2.v), 0.614, accuracy: 0.25)
+        XCTAssertEqual(s2.v.length, 6_915.96, accuracy: 5)
+        XCTAssertEqual(gamma(s2.r, s2.v), 0.614, accuracy: 0.15)
         // Cutoff: on V_T - ΔV_B; the LVDC's radius and flight-path angle, and
-        // its speed to the two cutoff biases' difference (1.45 m/s here, 1.6
+        // its speed to the two cutoff biases' difference (1.46 m/s here, 1.6
         // on AS-506).
         XCTAssertEqual(c.v.length, try XCTUnwrap(cutoffSpeed), accuracy: 0.01)
         XCTAssertEqual(c.r.length, 6_563_335, accuracy: 50)

@@ -718,7 +718,8 @@ enum AS506 {
     /// linear rise over the last 1.11 s of those 2.2 s. The OECO cutoff
     /// impulse to 5 % thrust was 581,916 N s (§6.4), from 2,783,479 N after
     /// the LOX starvation that the model does not have: 0.19 s of the
-    /// model's 3,072,000 N, a decay over 0.38 s.
+    /// model's 3,056,000 N at OECO (`sIILowMixtureRatioDecline`), a decay
+    /// over 0.38 s.
     static let sIIJ2Transients = EngineTransients(startDelay: 1.09, startRise: 1.11, shutdown: 0.38)   // FER (shape L)
 
     /// S-IVB burn 1 (PU null): the thrust AS-506's measured acceleration

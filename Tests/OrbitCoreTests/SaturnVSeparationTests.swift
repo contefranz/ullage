@@ -194,9 +194,9 @@ final class SaturnVSeparationTests: XCTestCase {
     // altitudes over the Fischer-1960 ellipsoid; M as simulations). The
     // model's apexes are converted to the same ellipsoid
     // (`Ellipsoid.fischer1960`, on WGS 84's centre and axis; datasheet §15).
-    // The S-II leaves 0.2° steeper than AS-506's (0.81° against 0.61°), so
-    // it peaks 8 s later (189.1 km at 595.0 s): widened from 5 s with the
-    // WGS-84 pad; see §17, which closes the S-II OECO residual.
+    // The S-IC peaks 1.2 km higher, at 116.2 km at 270.1 s; the S-II, which
+    // leaves 0.07° steeper than AS-506's (0.68° against 0.61°), at 189.8 km
+    // at 589.2 s (datasheet §17).
     func testSpentStagesClimbAsPredicted() throws {
         let pole = flight.sim.snapshot.orientation(flight.sim.system.earth).pole
         /// Height over Fischer 1960 of an ICRF position.
@@ -218,7 +218,7 @@ final class SaturnVSeparationTests: XCTestCase {
         XCTAssertEqual(sIC.range, 269.1, accuracy: 3)
         XCTAssertEqual(sIC.height, 115_000, accuracy: 1_500)
         let sII = try apex("\(stack) – S-II")
-        XCTAssertEqual(sII.range, 587.0, accuracy: 10)
+        XCTAssertEqual(sII.range, 587.0, accuracy: 5)
         XCTAssertEqual(sII.height, 188_800, accuracy: 1_500)
     }
 }
