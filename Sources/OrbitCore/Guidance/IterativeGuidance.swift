@@ -118,8 +118,10 @@ public struct IGMNavigation {
 /// over those left: GE504 Fig 4-6's 5/4 generalised to AS-506's planned S-II
 /// centre engine cutoff (4/3 for an outboard J-2, 1 for the centre engine,
 /// which the presettings already leave out), with T1 left to the
-/// characteristic velocity (datasheet §16). Not modelled: the steering
-/// misalignment correction and direct staging.
+/// characteristic velocity (datasheet §16); T3 is held 1 s inside (0, τ3),
+/// which GE504 leaves unbounded, so an S-IVB that cannot reach the target
+/// still gets a finite time to go and finite commands. Not modelled: the
+/// steering misalignment correction and direct staging.
 public struct IterativeGuidance {
     public enum Stage: Equatable { case first, second, coast, third }
 
@@ -321,8 +323,18 @@ public struct IterativeGuidance {
 
     // MARK: Chi-tilde and K calculations
 
+    /// T3 is held this far inside the logarithm's domain, (0, τ3), s.
+    static let stage3TimeMargin = 1.0
+
     /// GE504 Table 4-IV: the stage integrals, two passes of range angle 1,
     /// terminal frame and time-to-go, then χ̃ and the K terms.
+    ///
+    /// GE504 prints no bound on T3. The model keeps T3′, and the T3 it
+    /// returns, 1 s inside the logarithm's domain (0, τ3), as Fig 4-5 holds
+    /// T1, T2 and Tc at 0: a ΔT3 that would take T3 out of it (an S-IVB that
+    /// cannot reach the target, where the linearised ΔT3 overshoots τ3) puts
+    /// T3 on the bound, with ΔL3 the change in L3 to there (datasheet §10.2).
+    /// A flight that reaches the target never meets the bounds.
     private mutating func steer(_ nav: IGMNavigation, t1c: Double) {
         let p = presettings, vex = p.exhaustVelocity
         let s1 = Self.integrals(vex.0, tau1, t1), s2 = Self.integrals(vex.1, tau2, t2)
@@ -334,9 +346,12 @@ public struct IterativeGuidance {
         let p12 = s1.p + s2.p + t1v * (2 * s2.j + s2.l * t1v)
         let u12 = s1.u + s2.u + t1v * (2 * s2.q + s2.s * t1v) + t2v * s1.p
         let tau3v = tau3
-        var t3p = min(t3, tau3v - 1)
+        let margin = Self.stage3TimeMargin
+        func bounded(_ t: Double) -> Double { max(margin, min(t, tau3v - margin)) }
+        func l3At(_ t: Double) -> Double { vex.2 * log(tau3v / (tau3v - t)) }
+        var t3p = bounded(t3)
         var ttp = t1c + t3p
-        var l3p = vex.2 * log(tau3v / (tau3v - t3p))
+        var l3p = l3At(t3p)
         var j3p = l3p * tau3v - vex.2 * t3p
         var lyp = l12 + l3p
         let r = nav.position, v = nav.velocity, speed = v.length
@@ -364,6 +379,12 @@ public struct IterativeGuidance {
             dl3 = (dv.lengthSquared / lyp - lyp) / 2
             dt3 = dl3 * (tau3v - t3p) / vex.2
             t3n = t3p + dt3
+            if t3n != bounded(t3n) {
+                // Out of range: T3 on the bound, and ΔL3 the change in L3 to there.
+                t3n = bounded(t3n)
+                dt3 = t3n - t3p
+                dl3 = l3At(t3n) - l3p
+            }
             ttn = ttp + dt3
             if pass == 0 {
                 t3p = t3n
