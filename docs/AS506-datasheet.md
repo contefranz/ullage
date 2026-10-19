@@ -1207,6 +1207,8 @@ Compiled on 2026-10-17 to apply §8.7. Values come from the FER (MPR-SAT-FE-69-9
 
 **How the engines work in the core** (`Components.swift`, `PropulsionModelTests` A6–A9). A `PerformanceSchedule` scales an engine's rating, thrust and flow by factors and sets its mixture ratio, piecewise linear on the engine's burn clock, which runs from its start; the exit area stays. `EngineTransients` add a start delay with a linear rise and a linear shutdown. Ramps are sampled at the middle of each step. A cutoff commanded before a step starts the decay with that step; an engine whose tank runs dry within a step runs to its end, then decays. Every engine's step is fixed before any draws, so engines sharing a tank that runs dry within a step are treated alike. A cut engine runs its decay to the end before a new command can start it, and the simulation keeps 0.02 s steps from a start command, through the delay, so the ramps are the same at any time warp. The IU senses an engine's cutoff, not the end of its decay, and the HUD's stage Δv follows the schedule and ignores the ramps.
 
+**Rating ramps** (2026-10-18, `PropulsionModelTests` A10). A change of rating can take time: the IU's `.rating(part:_:ramp:)` action, through `Thruster.setRating(_:ramp:)`, moves vacuum thrust, mass flow, mixture ratio and nozzle exit area linearly from the rating in effect to the new one over `ramp` s. The ramp runs in equal cells of at most 0.02 s, each at the value of its middle, and the IU ends steps on the cells' ends, so each step lies within one cell: the ramp's impulse, (F0 + F1)/2 over its length, its propellant and the propellant's split are the same at any step size and warp. The exceptions are the epoch's resolution (1.2e-7 s in 1969) and the simulation's 1 ms minimum step, which can stretch a step that starts just before a cell's end past it, so that it runs at most 1 ms at the earlier cell's value. The S-II's shifts keep a ramp of 0 (a step at the PU valve step, §9.2's table), so the flight is unchanged; the residual closure (§17) sizes AS-506's (§14.5 item 5: its effective EMR step came about 1.2 s after the valve step).
+
 ### 9.3 Fitted values
 
 | value | fitted to | result |
@@ -1276,6 +1278,7 @@ The S-IC's propellant is the FER's, so from OECO on the differences are the uppe
 | test | checks | depends on |
 |---|---|---|
 | `PropulsionModelTests` A6–A9 | schedule on the burn clock; start ramp; shutdown ramp after a cutoff and after depletion; a relight waits for the decay to end; scheduled stage Δv | mechanism only |
+| `PropulsionModelTests` A10 (`testRatingRampImpulseIsIndependentOfStepAndWarp`) | a rating ramp through a minimal IU plan, in fixed 0.02 s and 0.007 s steps and the app's frames at 1×, 10× and 1,000×: its impulse (F0 + F1)/2 over it, its propellant and their split the same in every run, within 1e-6 and a cell's change for 1 ms per step the 1 ms minimum stretches; steps that ignore the cells' ends err by over 1e-4 | mechanism only |
 | `SaturnVDataTests.testFirstMotionMassesMatchTheFER` (B3) | 2,899,008 kg at first motion to 1 kg, the ground-ignition 6,477,875 lb, every part, and the FER's interstage and spacecraft items against SP-4029's rows | FER Tables 20-1, 20-7, 20-9 (H); GIW (H) |
 | `testEngineRatings` (B1, B2) | the F-1's flight rating and its schedule against Figure 5-3 at liftoff, CECO and 160 s; against Betts' rating; the J-2 settings; the S-II's high EMR against the J-2 rating and Table 6-1's flow; the S-IVB's thrust and Isp against Table 7-1 | FER (H tables, M figures), Betts, NTRS 20100032986 |
 | `testTransientImpulsesMatchTheFER` (B2) | every start and shutdown ramp's impulse (or the S-II start's propellant), run through the engines, within 1 % of the FER's | FER §5.4, §6.4, §7.2, §7.4, Table 20-9 (H) |
@@ -2184,7 +2187,7 @@ The next item replaces `pitchScale` with AS-506's pitch program and adds the unm
    - **S-IVB F/m:** −8.4 m/s, about 1.25 s. This is a choice between the FER's thrust reconstruction (Figure 7-2, Table 20-5) and its measured acceleration (Table 4-1, the PFT, the platform). Record the choice. R5 shows that 0.7 % is worth 0.94 s.
    - **S-IC F/m:** −8.1 m/s. It is 0.4–0.8 % low in the first 20 s (liftoff thrust 34.11 against 34.35 MN) and 0.2–0.35 % low after that.
    - **S-II:**
-     - AS-506's effective EMR step came about 1.2 s after the valve step, which costs −5.1 m/s.
+     - AS-506's effective EMR step came about 1.2 s after the valve step, which costs −5.1 m/s. *The core can now ramp a rating (§9.2, "Rating ramps"); the ramp's length is still to size.*
      - Figure 6-3's declining low-EMR thrust, in place of a constant 3.072 MN, explains part of −5.0 m/s.
    - **In the model's favour, to keep in view:**
      - the F-1 tail-off through S-II start: +1.1 to +1.5 m/s against the PFT;

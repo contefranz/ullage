@@ -98,8 +98,9 @@ public final class SaturnIU: FlightProgram {
         case mainThrottle(Double)
         /// Separate the staging event of the named part, if still attached.
         case separate(String)
-        /// New operating setting for the main engines of the named part.
-        case rating(part: String, EngineRating)
+        /// New operating setting for the main engines of the named part,
+        /// reached over `ramp` s (0: at once; `Thruster.setRating`).
+        case rating(part: String, EngineRating, ramp: Double = 0)
         /// Start ramping the outboard cant of the named part's engines.
         case startCant(String)
         case gains(FCCGains?)
@@ -306,6 +307,8 @@ public final class SaturnIU: FlightProgram {
     private var cutoffAt: Epoch?
     /// Events the IGM set off: (when, name, action).
     private var pending: [(at: Epoch, name: String, action: Action)] = []
+    /// The rating ramps started (when, and how long): their cells' ends end steps.
+    private var ratingRamps: [(start: Epoch, duration: Double)] = []
 
     /// The failures scheduled, and those that have happened (by index).
     public private(set) var failureSchedule: [EngineFailure] = []
@@ -419,6 +422,16 @@ public final class SaturnIU: FlightProgram {
             next = min(next ?? (at - now), at - now)
         }
         if let c = cutoffAt, c > now { next = min(next ?? (c - now), c - now) }
+        // The ends of a rating ramp's cells (`Thruster.setRating`): each step
+        // then lies in one cell, and the ramp's impulse does not depend on
+        // the steps, at any warp.
+        for r in ratingRamps {
+            let n = Thruster.rampCells(r.duration), cell = r.duration / Double(n), elapsed = now - r.start
+            guard elapsed < r.duration - 1e-6 else { continue }
+            let k = min(Double(n), ((elapsed + 1e-6) / cell).rounded(.down) + 1)
+            let dt = r.start + k * cell - now
+            if dt > 0 { next = min(next ?? dt, dt) }
+        }
         // The next IGM cycle ends a step, so the cycles stay `cycle` s apart
         // at any time warp (within the gate's slack, no step is needed).
         if let last = lastCycle, let g = plan.guidance, let igm = guidance, !igm.highSpeedLoop {
@@ -560,9 +573,10 @@ public final class SaturnIU: FlightProgram {
                 return false
             }
             sim.stage(v, event: n)
-        case let .rating(name, rating):
+        case let .rating(name, rating, ramp):
             guard let part = v.parts.first(where: { $0.name == name }) else { return false }
-            for t in part.thrusters where t.groups.contains(.main) { t.rating = rating }
+            for t in part.thrusters where t.groups.contains(.main) { t.setRating(rating, ramp: ramp) }
+            if ramp > 0 { ratingRamps.append((sim.time, ramp)) }
         case .startCant(let name):
             guard v.parts.contains(where: { $0.name == name }) else { return false }
             cantStart = (name, at)
