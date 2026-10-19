@@ -108,10 +108,13 @@ final class DynamicsTests: XCTestCase {
         let ll = v.latitudeLongitude(snapshot: sim.snapshot)
         XCTAssertEqual(ll.lat * 180 / Double.pi, 28.6083, accuracy: 1e-9)
         XCTAssertEqual(ll.lon * 180 / Double.pi, -80.6041, accuracy: 1e-9)
-        let expected = EarthOrientation.rotationRate * (sim.system.earth.radius + base) * cos(28.6083 * Double.pi / 180)
+        // Carried round the axis at (N + h) cos φ from it.
+        let earth = sim.system.earth, lat = 28.6083 * Double.pi / 180
+        let expected = EarthOrientation.rotationRate * (earth.figure.primeVerticalRadius(latitude: lat) + base) * cos(lat)
         XCTAssertEqual(v.velocity.length, expected, accuracy: 0.05)
-        // Nose points up.
-        XCTAssertGreaterThan(v.attitude.rotate(.unitX).dot(v.position.normalized), 0.999999)
+        // Nose points up, along the ellipsoid's normal.
+        let up = earth.vertical(at: v.position, orientation: sim.snapshot.orientation(earth))
+        XCTAssertGreaterThan(v.attitude.rotate(.unitX).dot(up), 0.999999)
     }
 
     func testLiftoffAndClimb() throws {

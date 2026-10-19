@@ -57,14 +57,15 @@ public final class Simulation {
     public func atmosphere(of body: CelestialBody) -> Atmosphere? { atmospheres[body.id] ?? body.atmosphere }
 
     /// Velocity of a point at `r` moving at `v` relative to the air of `body`
-    /// (its rotating atmosphere and the wind), ICRF axes.
+    /// (its rotating atmosphere and the wind, which blows in the local
+    /// horizontal), ICRF axes.
     func airVelocity(r: Vec3, v: Vec3, body: CelestialBody, atmosphere: Atmosphere, altitude: Double,
                      snapshot s: SystemSnapshot) -> Vec3 {
         let o = s.orientation(body)
         var air = v - o.angularVelocity.cross(r)
         let w = atmosphere.wind(altitude: altitude)
         if w.east != 0 || w.north != 0 {
-            let up = r.normalized, east = o.pole.cross(up).normalized, north = up.cross(east)
+            let up = body.vertical(at: r, orientation: o), east = o.pole.cross(up).normalized, north = up.cross(east)
             air -= east * w.east + north * w.north
         }
         return air
@@ -213,8 +214,9 @@ public final class Simulation {
         }
     }
 
+    /// Geodetic altitude at `r` and the air there.
     func environment(_ v: Vessel, r: Vec3, snapshot s: SystemSnapshot) -> (alt: Double, atm: AtmosphereState) {
-        let alt = r.length - v.reference.radius
+        let alt = v.reference.geodetic(r, orientation: s.orientation(v.reference)).height
         guard let atm = atmosphere(of: v.reference), alt < atm.ceiling else { return (alt, .vacuum) }
         return (alt, atm.state(altitude: alt))
     }
@@ -242,7 +244,7 @@ public final class Simulation {
             a += s.q.rotate(thrustBody) / mass
             var torque = torqueBody
             if let atm = atmosphere {
-                let alt = s.r.length - ref.radius
+                let alt = ref.geodetic(s.r, orientation: snap.orientation(ref)).height
                 if alt < atm.ceiling {
                     let state = atm.state(altitude: alt)
                     let air = airVelocity(r: s.r, v: s.v, body: ref, atmosphere: atm, altitude: alt, snapshot: snap)
@@ -286,7 +288,7 @@ public final class Simulation {
         let p0 = atmosphere(of: v.reference)?.seaLevelPressure ?? 0
         let thrust = v.attitude.rotate(v.thrustForceAndTorque(ambientPressure: env.atm.pressure, seaLevelPressure: p0).force)
         let g = system.acceleration(relativeTo: v.reference, at: v.position, snapshot: s0)
-        let up = v.position.normalized
+        let up = v.reference.vertical(at: v.position, orientation: s0.orientation(v.reference))
         if (thrust + g * v.mass).dot(up) > 0 {
             v.landed = nil
             v.status = .flying
@@ -330,10 +332,9 @@ public final class Simulation {
         guard v.altitude < clearance * 0.9 else { return }
         let speed = v.surfaceVelocity(snapshot: s).length
         let o = s.orientation(v.reference)
-        let up = v.position.normalized
-        // Put the vessel back on the surface.
-        let surfacePos = up * (v.reference.radius + clearance)
-        let bf = o.toBody(surfacePos)
+        // Put the vessel back on the surface, along the normal.
+        let g = v.reference.geodetic(v.position, orientation: o)
+        let bf = v.reference.figure.bodyFixed(latitude: g.latitude, longitude: g.longitude, height: clearance)
         let icrfToBodyQ = Quat(matrix: o.icrfToBody)
         let landed = LandedState(body: v.reference, bodyFixedPosition: bf,
                                  bodyFixedAttitude: (icrfToBodyQ * v.attitude).normalized)
@@ -384,19 +385,23 @@ public final class Simulation {
 
     // MARK: Placement helpers
 
-    /// Stand `v` upright on the surface at `lat`/`lon` (degrees). The vessel's
-    /// -z axis (its "up" for the crew) faces `azimuth` degrees from north.
+    /// Stand `v` upright on the surface at geodetic `latitude`/`longitude`
+    /// (degrees), its base `elevation` metres above the body's figure,
+    /// along the normal. The vessel's -z axis (its "up" for the crew) faces
+    /// `azimuth` degrees from north.
     public func placeLanded(_ v: Vessel, on body: CelestialBody, latitude: Double, longitude: Double,
                             azimuth: Double = 90, elevation: Double = 0) {
         let deg = Double.pi / 180
         let lat = latitude * deg, lon = longitude * deg, az = azimuth * deg
-        let up = Vec3(cos(lat) * cos(lon), cos(lat) * sin(lon), sin(lat))
+        let up = body.figure.normal(latitude: lat, longitude: lon)
         let east = Vec3(-sin(lon), cos(lon), 0)
         let north = up.cross(east)
         let dir = north * cos(az) + east * sin(az)
         let x = up, z = -dir, y = z.cross(x)
         let att = Quat(matrix: Mat3(columns: x, y, z))
-        let l = LandedState(body: body, bodyFixedPosition: up * (body.radius + elevation + v.baseHeight),
+        let l = LandedState(body: body,
+                            bodyFixedPosition: body.figure.bodyFixed(latitude: lat, longitude: lon,
+                                                                     height: elevation + v.baseHeight),
                             bodyFixedAttitude: att)
         v.landed = l
         v.status = .landed

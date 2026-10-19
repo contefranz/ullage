@@ -10,8 +10,9 @@ struct Scenario: Identifiable {
 
     static let all: [Scenario] = [pad39A, saturnVPad, lowEarthOrbit, lunarOrbit]
 
-    /// Launch Complex 39A, Kennedy Space Center (pad centre).
-    static let lc39A = (latitude: 28.60822, longitude: -80.60411)
+    /// Launch Complex 39A, Kennedy Space Center, where Apollo 11 stood:
+    /// geodetic, on the WGS-84 Earth, with the pad's elevation.
+    static let lc39A = VesselLibrary.lc39A
 
     static let pad39A = Scenario(
         id: "pad39a",
@@ -22,23 +23,22 @@ struct Scenario: Identifiable {
             let rocket = VesselLibrary.testRocket()
             sim.add(rocket)
             sim.placeLanded(rocket, on: system.earth, latitude: lc39A.latitude, longitude: lc39A.longitude,
-                            azimuth: 72)
+                            azimuth: 72, elevation: lc39A.elevation)
             return sim
         })
 
     /// Apollo 11's Saturn V at first motion (range time 0.30 s), standing as
-    /// it did: Position I east (the 90° pad azimuth), at LC-39A's geocentric
-    /// latitude, which the datasheet's orbit targets assume (on the map it
-    /// sits 18 km south of the pad), with the IU's flight program aboard. It
-    /// opens paused with the F-1s at full thrust, so the first step after P
-    /// is first motion and the IU's events fall on Apollo 11's UTC times.
+    /// it did on LC-39A: Position I east (the 90° pad azimuth), its base at
+    /// the pad's elevation above the WGS-84 ellipsoid and its axis along the
+    /// normal (datasheet §15), with the IU's flight program aboard. It opens
+    /// paused with the F-1s at full thrust, so the first step after P is
+    /// first motion and the IU's events fall on Apollo 11's UTC times.
     static let saturnVPad = Scenario(
         id: "as506-pad",
         name: "Saturn V (AS-506) on LC-39A",
         summary: "Apollo 11 at first motion, 16 July 1969, 13:32:00.3 UTC, paused: P releases the hold-down arms. The IU flies the ascent: tower-clearance yaw, roll and pitch programs, staging, and iterative guidance (IGM) through the S-II and S-IVB burns to a 100 n mi parking orbit.",
         build: { system in
-            let sim = Simulation(system: system, time: Epoch(utcYear: 1969, month: 7, day: 16, hour: 13, minute: 32,
-                                                             second: 0.3))
+            let sim = Simulation(system: system, time: VesselLibrary.apollo11FirstMotion)
             let v = VesselLibrary.apollo11OnPad(in: sim)
             v.mainThrottle = 1
             sim.paused = true

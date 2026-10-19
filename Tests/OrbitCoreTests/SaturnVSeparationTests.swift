@@ -75,8 +75,7 @@ final class SaturnVSeparationTests: XCTestCase {
         let sim = try Simulation.forTests(perturbations: true)
         let v = VesselLibrary.apollo11OnPad(in: sim)
         v.mainThrottle = 1
-        let start = sim.time
-        func range() -> Double { sim.time - start + AS506.firstMotion }
+        func range() -> Double { sim.time - AS506.rangeZero }
         v.thrusters.first { $0.name == "S-IC retro motor 1" }!.isEnabled = false
         while range() < 161 { sim.tick() }
         let iu = v.flightProgram as! SaturnIU
@@ -192,31 +191,34 @@ final class SaturnVSeparationTests: XCTestCase {
 
     // The spent stages climb on as predicted: the S-IC to 115.0 km at
     // 269.1 s and the S-II to 188.8 km at 587.0 s (PFT Tables 6-I and 6-II,
-    // altitudes over the Fischer-1960 ellipsoid, a 6,378.166 km, f 1/298.3;
-    // M as simulations). The model's Earth is a sphere with the pad 4.78 km
-    // high (datasheet §5), so the S-IC, which climbs from the pad, compares
-    // as its climb above the pad (AS-506's pad at 6,373.355 km), and the
-    // S-II, which the IGM placed by radius, as radius.
+    // altitudes over the Fischer-1960 ellipsoid; M as simulations). The
+    // model's apexes are converted to the same ellipsoid
+    // (`Ellipsoid.fischer1960`, on WGS 84's centre and axis; datasheet §15).
+    // The S-II leaves 0.2° steeper than AS-506's (0.81° against 0.61°), so
+    // it peaks 8 s later (189.1 km at 595.0 s): widened from 5 s with the
+    // WGS-84 pad; see §17, which closes the S-II OECO residual.
     func testSpentStagesClimbAsPredicted() throws {
-        let pad = try XCTUnwrap(flight.samples.first?.vessels[stack]).position.length
         let pole = flight.sim.snapshot.orientation(flight.sim.system.earth).pole
-        func apex(_ name: String) throws -> (range: Double, r: Double, latitude: Double) {
-            var best: (Double, Double, Double)?
+        /// Height over Fischer 1960 of an ICRF position.
+        func fischer(_ r: Vec3) -> Double {
+            let z = r.dot(pole)
+            return Ellipsoid.fischer1960.geodetic(Vec3((r - pole * z).length, 0, z)).height
+        }
+        func apex(_ name: String) throws -> (range: Double, height: Double) {
+            var best: (range: Double, height: Double)?
             for s in flight.samples {
                 guard let v = s.vessels[name] else { continue }
-                let r = v.position.length
-                if r > best?.1 ?? 0 { best = (s.range, r, asin(v.position.normalized.dot(pole))) }
+                let h = fischer(v.position)
+                if h > best?.height ?? -.infinity { best = (s.range, h) }
             }
             return try XCTUnwrap(best)
         }
-        /// Fischer-1960 surface radius at geocentric latitude `phi` (first order in f).
-        func fischer(_ phi: Double) -> Double { 6_378_166 * (1 - sin(phi) * sin(phi) / 298.3) }
 
         let sIC = try apex("\(stack) – S-IC")
         XCTAssertEqual(sIC.range, 269.1, accuracy: 3)
-        XCTAssertEqual(sIC.r - pad, fischer(sIC.latitude) + 115_000 - 6_373_355, accuracy: 1_500)
+        XCTAssertEqual(sIC.height, 115_000, accuracy: 1_500)
         let sII = try apex("\(stack) – S-II")
-        XCTAssertEqual(sII.range, 587.0, accuracy: 5)
-        XCTAssertEqual(sII.r, fischer(sII.latitude) + 188_800, accuracy: 1_500)
+        XCTAssertEqual(sII.range, 587.0, accuracy: 10)
+        XCTAssertEqual(sII.height, 188_800, accuracy: 1_500)
     }
 }

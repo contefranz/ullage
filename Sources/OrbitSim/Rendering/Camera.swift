@@ -49,7 +49,7 @@ struct OrbitCamera {
             minDistance = v.boundingRadius * 1.2
             switch frame {
             case .horizon:
-                up = v.position.normalized
+                up = v.reference.vertical(at: v.position, orientation: snap.orientation(v.reference))
                 let pole = snap.orientation(v.reference).pole
                 var north = pole - up * pole.dot(up)
                 if north.length < 1e-6 { north = Vec3.unitX - up * up.x }
@@ -78,13 +78,13 @@ struct OrbitCamera {
         let offset = (horizontal * cos(pitch) + up * sin(pitch)) * distance
         position = targetPosition + offset
 
-        // Keep the camera above the ground near a surface.
+        // Keep the camera 2 m above the ground (the body's figure) near a surface.
         if case .vessel(let id) = target, let v = sim.vessels.first(where: { $0.id == id }) {
-            let center = snap.position(v.reference)
-            let fromCenter = position - center
-            let minRadius = v.reference.radius + 2
-            if fromCenter.length < minRadius {
-                position = center + fromCenter.normalized * minRadius
+            let center = snap.position(v.reference), o = snap.orientation(v.reference)
+            let g = v.reference.geodetic(position - center, orientation: o)
+            if g.height < 2 {
+                position = center + o.toInertial(v.reference.figure.bodyFixed(latitude: g.latitude,
+                                                                               longitude: g.longitude, height: 2))
             }
         }
 

@@ -14,7 +14,8 @@ public struct SystemSnapshot {
 }
 
 /// The bodies of the simulation and their constants. GM values follow DE421;
-/// radii and rotation elements follow the IAU WGCCRE reports.
+/// radii and rotation elements follow the IAU WGCCRE reports. The Earth's
+/// figure is WGS 84's ellipsoid; the other bodies are spheres.
 public final class SolarSystem {
     public let ephemeris: ChebyshevEphemeris
     public let bodies: [CelestialBody]
@@ -43,7 +44,7 @@ public final class SolarSystem {
         let venus = CelestialBody(id: 299, name: "Venus", gm: 3.24859e14, radius: 6_051_800,
                                   rotation: uniform(272.76, 67.16, 160.20, -1.4813688), soiRadius: 6.16e8)
         earth = CelestialBody(id: 399, name: "Earth", gm: 3.986004418e14, radius: 6_378_137,
-                              j2: 1.08262668e-3, rotation: .earth,
+                              j2: 1.08262668e-3, figure: .wgs84, rotation: .earth,
                               atmosphere: USStandardAtmosphere1976(), soiRadius: 9.24e8)
         moon = CelestialBody(id: 301, name: "Moon", gm: 4.9028e12, radius: 1_737_400,
                              j2: 2.0330e-4, rotation: .moonDE421, soiRadius: 6.61e7)

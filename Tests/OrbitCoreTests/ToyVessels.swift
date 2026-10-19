@@ -107,7 +107,8 @@ enum Toy {
 }
 
 extension Simulation {
-    /// Simulation at the Apollo 11 launch epoch. Without perturbations only
+    /// Simulation at Apollo 11's first motion, 1969-07-16 13:32:00.3 UTC,
+    /// where the app's Saturn V scenario opens. Without perturbations only
     /// Earth's central field acts.
     static func forTests(perturbations: Bool) throws -> Simulation {
         let system = try SolarSystem.bundled()
@@ -115,7 +116,7 @@ extension Simulation {
             system.perturbers = []
             system.earth.j2 = 0
         }
-        return Simulation(system: system, time: Epoch(utcYear: 1969, month: 7, day: 16, hour: 13, minute: 32))
+        return Simulation(system: system, time: AS506.rangeZero + AS506.firstMotion)
     }
 
     /// Put `v` at rest 500 000 km from Earth, opposite the Moon, with its +x

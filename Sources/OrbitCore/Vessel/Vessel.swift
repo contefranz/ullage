@@ -410,10 +410,10 @@ public final class Vessel: Identifiable {
         velocity - snapshot.orientation(reference).angularVelocity.cross(position)
     }
 
-    /// Geodetic-free (spherical) latitude/longitude in radians.
+    /// Geodetic latitude and longitude on the reference body's figure, radians.
     public func latitudeLongitude(snapshot: SystemSnapshot) -> (lat: Double, lon: Double) {
-        let bf = snapshot.orientation(reference).toBody(position)
-        return (asin(bf.z / bf.length), atan2(bf.y, bf.x))
+        let g = reference.geodetic(position, orientation: snapshot.orientation(reference))
+        return (g.latitude, g.longitude)
     }
 
     /// Δv available from the active stage's main engines (rocket equation, vacuum

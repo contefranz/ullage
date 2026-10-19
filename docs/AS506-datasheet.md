@@ -2,7 +2,7 @@
 
 Compiled on 2026-10-15 for M1 item 1 (the Saturn V stack) from web research in four categories: launch-vehicle masses and timeline, propulsion, geometry and aero, and spacecraft. Each category was independently re-verified, then reconciled here. `Sources/OrbitCore/Vessel/AS506Data.swift` holds the values the simulator uses, with the same sources and confidence grades.
 
-**Limits.** The NASA documents could not be fetched directly; values come from search extracts of them, from arithmetic on those values, or (marked **recalled**) from memory without a check against the source. The SP-4029 S-II and S-IVB propellant-usage rows and the FER mass tables are still unread; they are the most valuable follow-up. *Update (§8, 2026-10-16): the FER was then read directly; §8.7 lists its values that bear on §1–§7. Update (§9, 2026-10-17): the model's propulsion and masses are now calibrated to the FER. §9 supersedes, for the model, the derived masses of §1.1, the S-II and S-IVB engine rows of §1.2 and §1.3 and §1.7's decision 7, all of §2, the flight rows of §3 and targets A and B of §5, which stay here as the pre-FER record. Update (§10, 2026-10-17): the IU now flies the S-II and S-IVB on iterative guidance (IGM), which commands the EMR shift and the S-IVB cutoff in place of §8's timed stand-ins. Update (§11, 2026-10-17): the launch stack now has sourced aerodynamics (axial and normal force, centre of pressure) and flies through the launch day's measured air and winds; §11 supersedes §1.6's placeholder drag. Update (§12, 2026-10-17): the retros and ullage motors are solid motors that separate the stages, and the LES's tower-jettison motor throws the tower clear; §12 supersedes §3's solid-motor rows. Update (§13, 2026-10-18): the mass distribution is sourced: each stage's dry CG and inertias from FER Table 20-10, the tank loads from the station diagram and the tank drawings, the J-2 gimbal stations, the LM's CG; liquids have no roll inertia, and the S-IC flies REF504's roll filter. §13 supersedes §4's tank extents and J-2 rows and the dry-CG remarks of §4. Update (§14, 2026-10-18): three diagnostics against AS-506's postflight trajectory place the remaining ascent residuals by stage; they answer §8.5's and §11.5's open causes and break down §10.5's cutoff delay. Update (§16, 2026-10-18): engines can fail in flight; the IU senses an engine out, freezes the S-IC's pitch program (GE504) and stretches the S-II's stage 2 for the IGM; the nominal flight is unchanged.*
+**Limits.** The NASA documents could not be fetched directly; values come from search extracts of them, from arithmetic on those values, or (marked **recalled**) from memory without a check against the source. The SP-4029 S-II and S-IVB propellant-usage rows and the FER mass tables are still unread; they are the most valuable follow-up. *Update (§8, 2026-10-16): the FER was then read directly; §8.7 lists its values that bear on §1–§7. Update (§9, 2026-10-17): the model's propulsion and masses are now calibrated to the FER. §9 supersedes, for the model, the derived masses of §1.1, the S-II and S-IVB engine rows of §1.2 and §1.3 and §1.7's decision 7, all of §2, the flight rows of §3 and targets A and B of §5, which stay here as the pre-FER record. Update (§10, 2026-10-17): the IU now flies the S-II and S-IVB on iterative guidance (IGM), which commands the EMR shift and the S-IVB cutoff in place of §8's timed stand-ins. Update (§11, 2026-10-17): the launch stack now has sourced aerodynamics (axial and normal force, centre of pressure) and flies through the launch day's measured air and winds; §11 supersedes §1.6's placeholder drag. Update (§12, 2026-10-17): the retros and ullage motors are solid motors that separate the stages, and the LES's tower-jettison motor throws the tower clear; §12 supersedes §3's solid-motor rows. Update (§13, 2026-10-18): the mass distribution is sourced: each stage's dry CG and inertias from FER Table 20-10, the tank loads from the station diagram and the tank drawings, the J-2 gimbal stations, the LM's CG; liquids have no roll inertia, and the S-IC flies REF504's roll filter. §13 supersedes §4's tank extents and J-2 rows and the dry-CG remarks of §4. Update (§14, 2026-10-18): three diagnostics against AS-506's postflight trajectory place the remaining ascent residuals by stage; they answer §8.5's and §11.5's open causes and break down §10.5's cutoff delay. Update (§15, 2026-10-18): the Earth has WGS 84's figure, with geodetic altitude, latitude and vertical, and the pad stands at AS-506's geodetic latitude, 4.85 km lower than on the sphere; §15 supersedes the model fact "Spherical Earth", §1.6's pad rows and §5's frame notes, and re-baselines the flight (§15.3). Update (§16, 2026-10-18): engines can fail in flight; the IU senses an engine out, freezes the S-IC's pitch program (GE504) and stretches the S-II's stage 2 for the IGM; the nominal flight is unchanged.*
 
 ## Conventions
 
@@ -31,7 +31,7 @@ Compiled on 2026-10-15 for M1 item 1 (the Saturn V stack) from web research in f
 
 ## OrbitSim model facts that drive the choices below
 
-Read from `Sources/OrbitCore` as of M0, before the stack was built. Since then the core has gained bipropellant feeds, engine ratings that can be switched (for the EMR shift), placed tanks with a centre of mass that moves as they drain, and staging events, so the first, third, fifth and seventh points below no longer hold:
+Read from `Sources/OrbitCore` as of M0, before the stack was built. Since then the core has gained bipropellant feeds, engine ratings that can be switched (for the EMR shift), placed tanks with a centre of mass that moves as they drain, and staging events, and since §15 a WGS-84 Earth, so the first, third, fifth, seventh and eighth points below no longer hold:
 
 - **One tank per thruster.** `Thruster.tank` is a single tank, so LOX and fuel can only be modelled as separate tanks after a bipropellant-thruster feature exists. Until then, use one combined tank per stage; the LOX and fuel split is given for that later feature.
 - **Constant mass flow.** mdot = F_vac/(Isp_vac × g0) at every pressure, and F(p) = F_vac × (1 − (1 − Isp_SL/Isp_vac) × p/p0). A stage's burn time is therefore exactly usable mass ÷ Σ mdot.
@@ -40,7 +40,7 @@ Read from `Sources/OrbitCore` as of M0, before the stack was built. Since then t
 - **Fixed part CoM.** A part's centre of mass (`offset`) does not move as its tanks drain, and tanks have no position. Tank stations in §4 are informational only.
 - **Drag area.** `dragArea` is the maximum over parts of πr²·Cd. The drag coefficient is constant, with no Mach dependence. *(Since §11 only separated stages fly this; the stack has its own aerodynamics.)*
 - **Staging.** `jettisonBottomPart` drops the part with the lowest x. Only the lowest part that has `.main` thrusters responds to the throttle. The LES is at the top, so it needs `separate(parts:)`.
-- **Spherical Earth.** R = 6,378,137 m, with the US-1976 atmosphere indexed by r − R. The real pad is at a geocentric radius of 6,373.355 km, so a pad placed on the sim sphere is 4.78 km "too high" in radius (4,815 m between the model's centre of mass and the PFT's at first motion, §14). Validate radii, not published altitudes (§5). *(The Apollo 11 scenario now flies §11's launch-day sounding instead of US-1976.)*
+- **Spherical Earth.** R = 6,378,137 m, with the US-1976 atmosphere indexed by r − R. The real pad is at a geocentric radius of 6,373.355 km, so a pad placed on the sim sphere is 4.78 km "too high" in radius (4,815 m between the model's centre of mass and the PFT's at first motion, §14). Validate radii, not published altitudes (§5). *(The Apollo 11 scenario now flies §11's launch-day sounding instead of US-1976. Since §15 the Earth is WGS 84's ellipsoid, altitude is geodetic, and the pad's centre of mass is 30 m from the PFT's radius.)*
 
 ---
 
@@ -178,8 +178,8 @@ Read from `Sources/OrbitCore` as of M0, before the stack was built. Since then t
 | cross-sections, S-IVB / CSM | 34.25 m² / 12.02 m² | geometry | M | |
 | CA(M) / Cd(M), centre of pressure, CN_α | **superseded by §11** (sourced) | — | — | Pre-§11 placeholder only, for the S-IC/S-II parts on 79.46 m², to be replaced: 0.30 (M ≤ 0.6), 0.45 (M 0.9), 0.60 (M 1.1–1.3), 0.45 (M 2), 0.35 (M 3), 0.28 (M ≥ 4). This is an unsourced engineering shape; tests must not depend on it. With today's constant-Cd model, use 0.45 on every 33 ft part, because `dragArea` takes the maximum over parts. |
 | max Q | 35,200 Pa at 83.0 s, 13,567 m geodetic, V_rel 503.96 m/s | SP-4029 | H | US-1976 gives about 30,970 Pa at that state; the real July Cape atmosphere was about 14% denser (verifier). 503.96 m/s is the Earth-fixed speed; through the air, winds removed, it was 500.7 m/s, and §11's launch-day atmosphere gives 35.16 kPa there. |
-| pad (LC-39A) | geocentric latitude 28.4470° N, longitude 80.6041° W; r = 6,373.355 km | AP; Fischer-1960 radius derived | H / M | Place the sim pad at **geocentric** 28.447° so that Earth-rotation speed and inclination geometry match. |
-| liftoff inertial velocity | 408.64 m/s (1,340.7 ft/s), heading 90° | AP | H | This is Earth rotation. The sim sphere gives 408.94 m/s. |
+| pad (LC-39A) | geodetic latitude 28.6084° N (geocentric 28.4470° N), longitude 80.6041° W; r = 6,373.355 km | FER, GE504; AP; Fischer-1960 radius derived | H / M | Since §15 the sim pad stands at the **geodetic** 28.6084° on WGS 84, its base 26 m above the ellipsoid (§15.1). On the spherical Earth before it, it stood at the geocentric 28.447° so that Earth-rotation speed and inclination geometry matched. |
+| liftoff inertial velocity | 408.64 m/s (1,340.7 ft/s), heading 90° | AP | H | This is Earth rotation. The WGS-84 pad gives 408.636 m/s (§15.2); the sim sphere gave 408.95 m/s. |
 | flight azimuth | 72.058° | SP-4029 ("rolled from a launch pad azimuth of 90° to a flight azimuth of 72.058°"); FER text; AFJ | H | Verified in §7.1. |
 
 ### 1.7 Where verifiers disagreed with researchers (or flagged an issue): decisions
@@ -433,7 +433,7 @@ Set each part's `offset.x` to its CoM in the vessel frame. Midpoints are accepta
 
 **Reference frames for validation:**
 
-- Compare **geocentric radius**, not altitude. AP altitudes are above the Fischer-1960 ellipsoid (a = 6,378.166 km, f = 1/298.3). The parking-orbit apogee and perigee are above a sphere of radius 6,378.166 km. Sim altitude is r − 6,378,137 m.
+- AP altitudes are above the Fischer-1960 ellipsoid (a = 6,378.166 km, f = 1/298.3). The parking-orbit apogee and perigee are above a sphere of radius 6,378.166 km. Sim altitude is geodetic above WGS 84 (§15), whose surface lies 30 m below Fischer's at the Cape; tests convert published altitudes with `Ellipsoid.fischer1960`. *(Before §15 sim altitude was r − 6,378,137 m on a spherical Earth with the pad 4.8 km high, so radii, not altitudes, were compared.)*
 - Velocities are **space-fixed (inertial)**, which matches the ICRF state.
 - The "sim expectation" column comes from the §2/§3 definition.
 
@@ -470,7 +470,7 @@ Set each part's `offset.x` to its CoM in the vessel frame. Midpoints are accepta
 
 | event (t) | quantity | published | tolerance | why |
 |---|---|---|---|---|
-| pad (0) | inertial velocity | 408.64 m/s | ±0.5 m/s | The sim sphere gives 408.94 m/s. |
+| pad (0) | inertial velocity | 408.64 m/s | ±0.5 m/s | The WGS-84 pad gives 408.636 m/s, tested within ±0.05 (§15.2); the sphere gave 408.95 m/s. |
 | Mach 1 (66.3) | time | 66.3 s | ±3 s | US-1976 versus July sound speed (Mach 1.04 in US-1976 at the published state). |
 | max Q (83.0) | time; value | 83.0 s; 35,200 Pa | ±5 s; 28–36 kPa | US-1976 under-predicts by about 12%; sim Cd is a placeholder. |
 | S-IC CECO (135.2) | V_inertial; altitude | 1,979.0 m/s; 44.0 km (geodetic) | ±50 m/s; ±2.5 km | Pitch-program dependent. |
@@ -479,7 +479,7 @@ Set each part's `offset.x` to its CoM in the vessel frame. Midpoints are accepta
 | S-II CECO (460.62) | V_inertial; r; γ | 5,707.5 m/s; 6,552.65 km; 0.897° | ±50 m/s; ±3 km; ±0.5° | Guidance. |
 | S-II OECO (548.22) | V_inertial; r; γ | 6,916.2 m/s; 6,559.55 km; 0.619° | ±50 m/s; ±3 km; ±0.5° | Guidance; the published value is 22.8 m/s below the AS-506 nominal. |
 | insertion (709.33) | V_inertial; r; γ | 7,793.1 m/s; 6,563.05 km; 0.012° | ±3 m/s; ±1.5 km; ±0.05° | Guidance closes the loop. The table's altitude noise is about 0.05 n mi. |
-| parking orbit | a; e; r_apo / r_peri; i; period | 6,562.87 km; 0.00021; 6,564.26 / 6,561.49 km (the published 100.4 / 98.9 n mi; sim altitudes 186.12 / 183.35 km); 32.521°; 88.186 min (5,291.2 s) | ±2 km; e ≤ 0.001; ±2 km; ±0.05°; ±6 s | Pad at geocentric 28.447°; the J2/μ model shifts the period by about 0.5 s. |
+| parking orbit | a; e; r_apo / r_peri; i; period | 6,562.87 km; 0.00021; 6,564.26 / 6,561.49 km (the published 100.4 / 98.9 n mi; sim altitudes 186.12 / 183.35 km); 32.521°; 88.186 min (5,291.2 s) | ±2 km; e ≤ 0.001; ±2 km; ±0.05°; ±6 s | Pad at geodetic 28.6084° on WGS 84 (§15; before it, geocentric 28.447° on the sphere); the J2/μ model shifts the period by about 0.5 s. |
 
 ---
 
@@ -1011,7 +1011,7 @@ AS-506's own guidance presettings (its *Operational Trajectory* and *Flight Sequ
 
 | id | value | source | conf | notes |
 |---|---|---|---|---|
-| space_fixed_frame | X_S up (opposite local gravity at GRR), Z_S along the flight azimuth, Y_S completing a right-handed set; fixed at guidance reference release | GE504 Fig. 1-1 | H | Earth-centred, non-rotating. The model takes the plumb line at the pad at T1, opposite its J2 gravity plus the Earth's centrifugal term, and turns it back by the Earth's rotation over T1 − GRR = 17.60 s (0.065° in the vertical). On the model's spherical Earth, with the pad at the geocentric latitude 28.447°, the plumb line is at 28.608°, 0.161° north of the radial: AS-506's geodetic vertical, which X_S was. |
+| space_fixed_frame | X_S up (opposite local gravity at GRR), Z_S along the flight azimuth, Y_S completing a right-handed set; fixed at guidance reference release | GE504 Fig. 1-1 | H | Earth-centred, non-rotating. The model takes the plumb line at the pad at T1, opposite its J2 gravity plus the Earth's centrifugal term, and turns it back by the Earth's rotation over T1 − GRR = 17.60 s (0.065° in the vertical). On the model's WGS-84 Earth the stack stands along the normal at the geodetic 28.6084° and the plumb line is at 28.6082°, 0.161° north of the radial: AS-506's geodetic vertical, which X_S was, to the 0.0002° of J4 the model's gravity leaves out (§15). On the spherical Earth before §15, with the pad at the geocentric 28.447°, the plumb line was at 28.608° too. |
 | euler_sequence | chi_Y (pitch), then chi_Z (yaw), then chi_X (roll), about the vehicle-fixed axes; positive counterclockwise | GE504 §5.1 symbol list | H | With Saturn (X, Y, Z) = OrbitSim (x, y, z) (§7.1), the pitch polynomial is negative downrange and the tower yaw positive towards +Y_S (azimuth 162°, away from the tower to the north). |
 | initial_roll | chi_X = A_Z − 90° = −17.942° | GE504 Table 4-I | H | The model measures it from the stack's attitude at T1 (Position I east). |
 | command_rate_limit | 1.0 deg/s on each of chi_X, chi_Y, chi_Z | GE504 §2.1.2, Table 5-I | H (SA-504), M (AS-506) | The AS-506 roll, 17.94° from T1 + 12.6 to T1 + 30.5 s (FER), is flown at this limit. |
@@ -1147,7 +1147,7 @@ The propulsion and mass model of §1–§3 was calibrated without the FER. These
 
 | test | checks | depends on |
 |---|---|---|
-| `testOnThePad` | geocentric pad, nose up, Position I east, IU idle until liftoff; Space refused | §1.6, §7.1 (M) |
+| `testOnThePad` | geodetic pad on WGS 84, checked against SP-4029's geocentric latitude, the PFT's radius and the 408.64 m/s inertial velocity (§15.2); nose up along the normal, Position I east, IU idle until liftoff; Space refused | §1.6, §7.1 (M), §15 (H) |
 | `testPitchPolynomialTranscription` | GE504 segments join, start near 0, rates under 1°/s, −66.59° at 153 s; unscaled within 2° of MAN506 Fig. 2-2; the IU's = 1.025 × SA-504 to 159.37 s | GE504 (H for SA-504), MAN506 (figure reading) |
 | `testTowerYawAndRollProgram` | yaw to 1.25° at ≤ 1°/s and away from the tower; start at 137 m; roll peaks 1.38 ± 0.2°/s and 0.92 ± 0.2° (FER Table 11-2; the model's start is more damped, §13.4 item 9); lag a1/a0 = 0.61° late in the ramp; Position I on 72.058° | GE504, FER (H), REF504 (roll gains L) |
 | `testSICAscentMatchesApollo11` | the §8.4 table, except the fitted angle (±0.2°); Mach 1, max Q, the q history, the climb and Earth-fixed speed against the PFT and the peak axial force (§11.6); thrust acceleration within 1 % of FER Figure 4-3 at 10.3, 147.4, 152.3 and 158.8 s, where drag is under 0.3 % of thrust | FER Table 4-1/4-2 (H), Figure 4-3 (M), PFT (H); `pitchScale` (fitted) |
@@ -1313,7 +1313,7 @@ AS-506's own IGM presettings (its operational trajectory and flight-sequence ICD
 
 | id | value | source | conf | notes |
 |---|---|---|---|---|
-| space-fixed frame | X_S, Y_S, Z_S of §8.1 (PACSS 13): X_S up at GRR, Z_S along the 72.058° azimuth | GE504 Fig. 1-1; FER, PFT | H | X_S is the plumb line at the pad: 28.608° on the model's Earth, as AS-506's geodetic vertical (§8.1). The IGM's [A] (Table 4-I) takes the latitude of X_S from the Earth's pole in the IU's frame. |
+| space-fixed frame | X_S, Y_S, Z_S of §8.1 (PACSS 13): X_S up at GRR, Z_S along the 72.058° azimuth | GE504 Fig. 1-1; FER, PFT | H | X_S is the plumb line at the pad: 28.6082° on the model's WGS-84 Earth (28.608° on the sphere before §15), as AS-506's geodetic vertical (§8.1). The IGM's [A] (Table 4-I) takes the latitude of X_S from the Earth's pole in the IU's frame. |
 | [G] = [B][A] | X_4 along the descending node, Z_4 90° on in the orbit plane, Y_4 against the orbit normal | GE504 Table 4-I | H | [B] from i and θ_N. |
 | R_T | 6,563,365 m: 100 n mi above the 6,378,165 m sphere | GE504 Table 5-I (SA-504's −μ/C3); MAN506 and TIS "100 n mi" | H | AS-506's LVDC cut off at 6,563,335 m (FER Table 10-2). |
 | V_T, γ_T | √(μ/R_T) (circular: e = 0, C3 = −μ/R_T), 0° | GE504 Table 5-I | H | 7,793.02 m/s with the model's μ, 3.986004418 × 10¹⁴ m³/s² (SA-504: 3.986032 × 10¹⁴). |
@@ -2209,6 +2209,102 @@ The next item replaces `pitchScale` with AS-506's pitch program and adds the unm
      - On the spherical pad, a full-flight cutoff within ±1 s would rest partly on the pad's 0.9–1.9 s head start. Set the full-flight tolerance after the WGS-84 pad.
    - **Yaw.** Compare with the PFT's thrust direction. From AS-506's state the model stays within 0.35° outside 548–560 s.
    - **Point mass.** Record the point-mass test's cutoff time in its output (§14.4).
+
+---
+
+## 15. Earth figure and pad (M1 item: WGS-84 Earth ellipsoid)
+
+Compiled on 2026-10-18. Until now the model's Earth was a sphere of the equatorial radius, 6,378,137 m, with altitude r − R. To keep the Earth's rotation speed and the inclination geometry right, the pad stood at LC-39A's geocentric latitude, which put it 4.8 km further from the centre than the real pad (§1.6, §5, §14). The Earth now has WGS 84's figure: altitude, latitude and the local vertical are geodetic, and the pad stands where AS-506 stood. The section also takes the core half of the "real launch scenario" item: range zero, and first motion at 13:32:00.3 UTC in the tests as in the app.
+
+**Sources.**
+- **NIMA TR8350.2** (WGS 84, 3rd ed., 2000): a = 6,378,137 m and 1/f = 298.257223563 (Table 3.1); b = 6,356,752.3142 m and e² = 6.69437999014 × 10⁻³ (Table 3.3); Somigliana's normal gravity, γe = 9.7803253359 and γp = 9.8321849378 m/s² (eq. 4-1, Table 3.4) (H).
+- **IOGP Publication 373-7-2** (Geomatics Guidance Note 7, part 2), §4.1.1: the geographic/geocentric conversion (EPSG 9602) and its worked example on WGS 84 (H).
+- **Vermeille**, "An analytical method to transform geocentric into geodetic coordinates", J. Geod. 85:105–117 (2011): the closed form, valid everywhere, inside the evolute included (H).
+- **Fischer 1960** (a = 6,378,166 m, 1/f = 298.3): the ellipsoid of Apollo's trajectory altitudes (§5) (H).
+- **FER** §10 and **GE504**: AS-506's space-fixed X_S was the geodetic vertical at the launch site, 28.6084° (GE504's sin φ_L = 0.478814) (H); **SP-4029** Ascent Phase: the pad at geocentric 28.4470° N, 80.6041° W, and the liftoff inertial velocity, 408.64 m/s (1,340.7 ft/s) (H).
+- **PFT Table B-III** (AS-506 postflight trajectory): 59 m altitude at first motion; Table B-II: radius 6,373,355 m (H).
+
+### 15.1 The model
+
+| item | model | source | conf |
+|---|---|---|---|
+| figure | `Ellipsoid`: a, f; `bodyFixed(lat, lon, h)`; the closed-form `geodetic(position)`; the surface `normal`. `CelestialBody.figure` is a sphere of `radius` unless given; the Earth's is `.wgs84`. `radius` stays J2's reference radius, a | TR8350.2 | H |
+| `geodetic` | Vermeille's k = 1 − e² + h/N, the root of p/(k + e²)² + q/k² = 1, from the positive root of u²(u − 3r) = e⁴pq/2: Cardano outside the evolute, the trigonometric form inside it, k in its cancellation-free form. Inside the evolute (the 43 km about the centre where several normals cross) it returns the nearest surface point; at the centre a pole, h = −b. A sphere (f = 0) returns the geocentric latitude and r − R | Vermeille 2011 | H |
+| altitude | geodetic: the atmosphere and winds (the launch-day sounding is indexed by it), the aerodynamics' base pressure, the telemetry and the HUD, the surface contact | — | — |
+| vertical | the normal through the point: the lift-off test (thrust against weight along it), the winds' horizontal, a landed vessel's axis, the surface contact's placement, the camera's horizon frame and its 2 m floor | — | — |
+| latitude, longitude | geodetic (`Vessel.latitudeLongitude`, the HUD) | — | — |
+| orbits | apsides stay radii less a; the IGM's targets are radii (§10.1) | — | — |
+| pad | geodetic 28.6084° N, 80.6041° W, the base 26 m above the ellipsoid, the axis along the normal | FER, GE504, SP-4029; PFT (derived, M) | H / M |
+| range zero | 1969-07-16 13:32:00 UTC (`AS506.rangeZero`); first motion, range 0.30 s (`VesselLibrary.apollo11FirstMotion`), opens the app's scenario and the tests' `Simulation.forTests`, and range time is read off range zero | SP-4029 | H |
+| renderer | the planet is ray-traced as an ellipsoid: in body axes stretched along z by a/b it is the sphere of radius a, and the ray keeps its parameter t; |o|² − a² comes from the CPU in double. The texture and the grid take the normal's (geodetic) latitude | — | — |
+
+**The pad's elevation.** The PFT's 59 m at first motion less the model's 33 m from the base to its centre of mass gives 26 m, taken above WGS 84. The PFT's altitudes are over the Fischer ellipsoid, whose surface is 30 m higher at the Cape: read so, the base is at 56 m and the centre of mass exactly at the PFT's radius, 6,373,355 m. The two readings differ by 0.55 m/s at CECO and OECO, 1.16 m/s at S-II OECO and 0.18 s at the velocity cutoff (56 m earlier). 26 m was chosen; which point of the vehicle the PFT's state refers to was not established.
+
+### 15.2 Checks (`EllipsoidTests`, `SaturnIUTests.testOnThePad`)
+
+| check | model | reference | tolerance |
+|---|---|---|---|
+| IOGP §4.1.1: 53°48'33.820" N, 2°07'46.380" E, h 73.000 m | X 3,771,793.968, Y 140,253.342, Z 5,124,304.349 m, both ways | IOGP 373-7-2 | 1 mm |
+| b, e² | 6,356,752.3142 m; 6.69437999014 × 10⁻³ | TR8350.2 Table 3.3 | 0.1 mm; 10⁻¹⁴ |
+| Somigliana against the model's GM, J2 and the centrifugal term, on the ellipsoid | within 8.2 × 10⁻⁶ to 75°, 1.2 × 10⁻⁵ at the poles (the model has no J4: 5 J4 = 1.2 × 10⁻⁵ there); direction within 0.0004° | TR8350.2 | 10⁻⁵ to 75°, 1.3 × 10⁻⁵ beyond; 0.001° |
+| the pad's centre of mass, geocentric latitude | 28.4469° | SP-4029 28.4470° | 0.0002° |
+| the pad's centre of mass, radius | 6,373,325 m | PFT 6,373,355 m | 40 m |
+| the pad's inertial velocity, east | 408.636 m/s (the sphere: 408.946) | SP-4029 408.64 m/s | 0.05 m/s |
+| the plumb line (X_S) at T1 | 28.6082° (the normal: 28.6084°; the difference is J4's) | FER, GE504 28.6084° | 0.001° |
+
+### 15.3 Results (the IU flight, 0.02 s steps)
+
+Before: main at e473acc, on the sphere, the tests starting at 13:32:00.0. After: this section, starting at first motion. Both flown with steps of at most 0.02 s ending on the IU's events, as `NominalFlight` steps.
+
+| event | quantity | sphere (before) | WGS 84 (after) | AS-506 |
+|---|---|---|---|---|
+| first motion | centre-of-mass radius; inertial speed | 6,378,170 m; 408.946 m/s | 6,373,325 m; 408.636 m/s | 6,373,355 m (PFT); 408.64 m/s |
+| CECO, 135.19 s | r; v; γ; altitude | 6,422,141 m; 1,966.71 m/s; 23.158°; 44.00 km over the sphere | 6,417,204 m; 1,965.54 m/s; 23.129°; 43.98 km geodetic | v 1,979.0 m/s; γ 22.957°; 44.0 km over Fischer (FER Tables 4-1, 4-2) |
+| OECO, 161.65 s | r; v; γ; altitude | 6,444,216 m; 2,750.71 m/s; 19.097°; 66.08 km | 6,439,238 m; 2,749.50 m/s; 19.067°; 66.05 km | r 6,439.33 km; v 2,764.1 m/s; γ 19.114°; 66.1 km |
+| S-II OECO, 548.25 s | r; v; γ | 6,560,310 m; 6,900.77 m/s; 0.697° | 6,559,085 m; 6,885.84 m/s; 0.813° | 6,559,961 m; 6,915.96 m/s; 0.614° (FER Table 10-2) |
+| velocity cutoff | t; r; v; γ | 702.632 s; 6,563,329 m; 7,791.567 m/s; −0.0009° | 704.977 s; 6,563,330 m; 7,791.567 m/s; −0.0007° | 699.33 s (SP-4029); LVDC 6,563,335 m, 7,791.43 m/s, −0.0015° |
+| insertion, cutoff + 10 s | r; v; γ | 6,563,329 m; 7,793.021 m/s; −0.0002° | 6,563,330 m; 7,793.027 m/s; −0.0002° | 6,563,335 m (LVDC) |
+| orbit | i; θ_N; over the 6,378,165 m sphere | 32.5309°; 123.0975°; 185.171 × 185.098 km | 32.5309°; 123.0975°; 185.175 × 185.120 km | 32.532°; 123.102°; 186.0 × 185.2 km (LVDC) |
+
+**What moved and why.**
+1. **The S-IC flies from 4.85 km lower.** OECO's radius is now 92 m from the FER's 6,439.33 km, where it was 4.9 km above it. Altitudes over the ellipsoid compare directly with the FER's over Fischer, about 30 m apart at the Cape. The stronger gravity (0.15 %) and the 0.31 m/s less Earth rotation cost 1.2 m/s by OECO and 0.03° of flight-path angle: at its OECO the model is now 14.6 m/s below the FER's speed, against 13.4 m/s on the sphere (the S-IC's deficit, §9.5, §14.4 item 3).
+2. **The S-II arrives at OECO 1,225 m lower and 14.9 m/s slower, 0.12° steeper.** The IGM has the same target radius and the S-II must climb the 4.85 km the pad no longer gives it. The S-II OECO speed is now 30.1 m/s below AS-506's, against 15.2 before.
+3. **The velocity cutoff comes 2.35 s later, at 704.98 s:** 5.65 s after AS-506's, against 3.30 s on the sphere. §14 put 0.9–1.9 s of the old delay's S-IC share on the spherical pad's head start (§14.4 item 7; the work budget's −0.91 s); the head start is gone, so the whole stage deficit now shows. Closing it is §17's.
+4. **The orbit is unchanged within 22 m** (perigee), and the plane within 0.0001°: the IGM closes the loop.
+5. **In the app**, the scenario flown from the pad at 1,000× (Release, the 40 ms frame budget, about 160× achieved): the velocity cutoff at 704.977 s, as in 0.02 s steps, and a 186.26 × 185.16 km orbit over the 6,378,165 m sphere, i 32.531°, as the sphere's warp flights gave (about 186.2 × 185.15 km, the time warp's spread). At first motion the stack stands upright with its base 26 m above the drawn ellipsoid (neither the mobile launcher nor the terrain is drawn); the HUD shows 28.608°, −80.604°, 59.2 m and 408.6 m/s.
+
+### 15.4 Known deviations
+
+1. **The geoid is not modelled.** Heights are above the ellipsoid. At the Cape the geoid lies about 28 m below WGS 84 (EGM96; recalled), so the model reads the sounding, which is by height above sea level, about 28 m too low: its air is about 0.3 % too dense at the pad, and less above.
+2. **Fischer 1960 against WGS 84.** Published altitudes are over Fischer 1960 with its own datum. The tests convert through `Ellipsoid.fischer1960` on WGS 84's centre and axes; the datum shift (tens of metres) is not modelled.
+3. **The pad's elevation, 26 m, rests on reading the PFT's 59 m as above WGS 84** (§15.1); 56 m is the other reading.
+4. **The gravity field is J2 only.** The plumb line at the pad is 0.0002° from the normal: J4's share.
+5. **The pre-IGM pitch program was not refitted** (`pitchScale` 1.025, §8.4), and the §8.4 and §10.4 tables were not regenerated: they are the sphere's. §17 refits and re-baselines.
+
+### 15.5 Tests
+
+| test | checks | depends on |
+|---|---|---|
+| `EllipsoidTests.testWGS84DerivedConstants` | b and e² | TR8350.2 (H) |
+| `testIOGPGeocentricExample` | the worked example both ways, to 1 mm | IOGP 373-7-2 (H) |
+| `testRoundTrips` | geodetic → body-fixed → geodetic from 6,000 km below the surface to 10⁹ m, at every 7.5° of latitude, poles included | self-consistency |
+| `testEdgeCases` | the centre (a pole, h = −b), the poles, the axis inside and outside the evolute, the equatorial plane inside it, a sphere, a vanishing flattening | Vermeille 2011 |
+| `testNormal` | the normal is the gradient of the ellipsoid's equation; heights are along it | geometry |
+| `testSomiglianaNormalGravity` | §15.2 | TR8350.2 (H) |
+| `SaturnIUTests.testOnThePad` | the geodetic pad, its elevation, the axis along the normal; §15.2's three cross-checks; first motion at 13:32:00.3 UTC | FER, GE504, SP-4029, PFT (H) |
+| `DynamicsTests.testVesselOnPadRotatesWithEarth`, `SaturnVFlightTests.testStandsOnPad` | a landed vessel keeps its geodetic place, height and axis along the normal; it turns at (N + h) cos φ from the axis | geometry |
+
+Pins widened by this section, each marked "see §17" in its test; nothing else was loosened, and `pitchScale` and the §8.4 and §10.4 tables were left for §17:
+
+| test | pin | before | now | model, in the test |
+|---|---|---|---|---|
+| `SaturnIUTests.testIGMFliesApollo11ToItsParkingOrbit` | S-II OECO speed against AS-506's 6,915.96 m/s | ±30 m/s | ±35 m/s | 6,885.4 m/s |
+| same | S-II OECO flight-path angle against 0.614° | ±0.15° | ±0.25° | 0.814° |
+| `SaturnVSeparationTests.testSpentStagesClimbAsPredicted` | the spent S-II's apex time against the PFT's 587.0 s | ±5 s | ±10 s | 595.0 s |
+
+Two tests changed what they measure, not their tolerances:
+- `testSICAscentMatchesApollo11` takes the climb from the pad's geodetic altitude (the sphere's r − R would carry the 4.8 km), and its CECO and OECO altitudes, now geodetic, compare with the FER's directly: 43.98 and 66.05 km against 44.0 and 66.1 km.
+- `testSpentStagesClimbAsPredicted` compares the apexes as heights over Fischer 1960 (`Ellipsoid.fischer1960`) instead of as climbs above the pad: the S-IC 113.6 km at 267.5 s (PFT 115.0 km at 269.1 s), the S-II 189.1 km (188.8 km), both within 1.5 km.
 
 ---
 

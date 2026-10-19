@@ -571,7 +571,7 @@ struct ModelTrajectory {
     init(_ f: NominalFlight) throws {
         let s = f.samples.compactMap { x in x.vessels["Apollo 11"].map { (x.range, $0) } }
         self.init(times: s.map(\.0), positions: s.map(\.1.position), velocities: s.map(\.1.velocity),
-                  sim: f.sim, start: f.start, frame: try XCTUnwrap(f.iu.spaceFixed))
+                  sim: f.sim, start: AS506.rangeZero + AS506.firstMotion, frame: try XCTUnwrap(f.iu.spaceFixed))
     }
 
     init(_ f: InjectedFlight) throws {

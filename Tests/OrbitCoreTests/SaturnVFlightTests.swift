@@ -8,8 +8,8 @@ final class SaturnVFlightTests: XCTestCase {
     let lb = 0.45359237, lbf = 4.4482216152605, g0 = 9.80665
     let deg = Double.pi / 180
 
-    /// The stack on LC-39A at its geocentric latitude (as the datasheet's orbit
-    /// targets assume), nose up, crew's "up" towards the 72° azimuth.
+    /// The stack on LC-39A (geodetic, on the WGS-84 Earth), nose up along the
+    /// normal, crew's "up" towards the 72° azimuth.
     func onPad(_ sim: Simulation) -> Vessel {
         let v = VesselLibrary.saturnV()
         sim.add(v)
@@ -31,7 +31,8 @@ final class SaturnVFlightTests: XCTestCase {
         sim.advance(by: 6)
         XCTAssertEqual(v.status, .landed)
         XCTAssertEqual(v.altitude, v.baseHeight, accuracy: 1e-3)
-        XCTAssertGreaterThan(v.attitude.rotate(.unitX).dot(v.position.normalized), 0.999999)
+        let up = sim.system.earth.vertical(at: v.position, orientation: sim.snapshot.orientation(sim.system.earth))
+        XCTAssertGreaterThan(v.attitude.rotate(.unitX).dot(up), 0.999999)
         XCTAssertEqual(v.mass, m)
     }
 

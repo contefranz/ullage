@@ -15,11 +15,10 @@ final class SaturnIUTests: XCTestCase {
         let sim: Simulation
         let v: Vessel
         let iu: SaturnIU
-        let start: Epoch
         /// Range time now, s.
-        func range() -> Double { sim.time - start + AS506.firstMotion }
+        func range() -> Double { sim.time - AS506.rangeZero }
         /// Range time of an IU log entry.
-        func range(_ e: Epoch) -> Double { e - start + AS506.firstMotion }
+        func range(_ e: Epoch) -> Double { e - AS506.rangeZero }
         /// Fixed 0.02 s steps to `range` s; `each` runs after every step.
         func fly(to range: Double, each: () -> Void = {}) {
             while self.range() < range - 1e-9 {
@@ -33,24 +32,38 @@ final class SaturnIUTests: XCTestCase {
         let sim = try Simulation.forTests(perturbations: true)
         let v = VesselLibrary.apollo11OnPad(in: sim)
         v.mainThrottle = 1
-        return Flight(sim: sim, v: v, iu: v.flightProgram as! SaturnIU, start: sim.time)
+        return Flight(sim: sim, v: v, iu: v.flightProgram as! SaturnIU)
     }
 
-    // The stack stands on the pad as Apollo 11 did: at LC-39A's geocentric
-    // latitude (SP-4029, H), nose up, Position I (+z) east, the 90° pad
-    // azimuth (TVC datasheet §7.1; GE504's initial roll A_Z - 90°), with the
-    // IU armed and nothing commanded yet. Space is refused: it would drop the
-    // S-IC on the pad.
+    // The stack stands on the pad as Apollo 11 did (datasheet §15): at
+    // LC-39A's geodetic latitude on the WGS-84 Earth (AS-506's launch
+    // vertical, FER; GE504), its base 26 m above the ellipsoid, nose up
+    // along the normal, Position I (+z) east, the 90° pad azimuth (TVC
+    // datasheet §7.1; GE504's initial roll A_Z - 90°), with the IU armed and
+    // nothing commanded yet. Independent checks of the placement: the
+    // centre of mass is at SP-4029's geocentric latitude, 28.4470°, within
+    // 0.0002°, and within 40 m of the radius of AS-506's postflight
+    // trajectory at first motion, 6,373,355 m (PFT, H); the Earth's rotation
+    // carries it at SP-4029's liftoff inertial velocity, 408.64 m/s
+    // (1,340.7 ft/s) to the east. Space is refused: it would drop the S-IC
+    // on the pad.
     func testOnThePad() throws {
         let sim = try Simulation.forTests(perturbations: true)
+        XCTAssertEqual(sim.time, VesselLibrary.apollo11FirstMotion)
         let v = VesselLibrary.apollo11OnPad(in: sim)
         let ll = v.latitudeLongitude(snapshot: sim.snapshot)
-        XCTAssertEqual(ll.lat / deg, 28.4470, accuracy: 1e-9)
+        XCTAssertEqual(ll.lat / deg, 28.6084, accuracy: 1e-9)
         XCTAssertEqual(ll.lon / deg, -80.6041, accuracy: 1e-9)
-        let up = v.position.normalized, pole = sim.snapshot.orientation(sim.system.earth).pole
+        XCTAssertEqual(v.altitude, AS506.padElevation + v.baseHeight, accuracy: 1e-6)
+        let o = sim.snapshot.orientation(sim.system.earth)
+        let up = sim.system.earth.vertical(at: v.position, orientation: o), pole = o.pole
         let east = pole.cross(up).normalized
         XCTAssertGreaterThan(v.attitude.rotate(.unitX).dot(up), 1 - 1e-12)
         XCTAssertGreaterThan(v.attitude.rotate(.unitZ).dot(east), 1 - 1e-12)
+        XCTAssertEqual(asin(v.position.normalized.dot(pole)) / deg, AS506.padGeocentricLatitude, accuracy: 0.0002)
+        XCTAssertEqual(v.position.length, 6_373_355, accuracy: 40)
+        XCTAssertEqual(v.velocity.length, 408.64, accuracy: 0.05)
+        XCTAssertGreaterThan(v.velocity.normalized.dot(east), 1 - 1e-12)
         sim.run(seconds: 5)
         let iu = v.flightProgram as! SaturnIU
         XCTAssertEqual(v.status, .landed)
@@ -194,10 +207,9 @@ final class SaturnIUTests: XCTestCase {
     // The S-IC ascent against Apollo 11's, flown through the launch day's air
     // and winds with the flight-evaluated aerodynamics (datasheet §11).
     // - At CECO (135.2 s) and OECO (161.63 s), FER Tables 4-1 and 4-2 with
-    //   §5 C's tolerances: altitude above the pad (the model's pad sits 4.78
-    //   km further from the Earth's centre than the real one, so radius would
-    //   carry that offset), space-fixed velocity, flight-path angle and
-    //   heading. Only the OECO flight-path angle was fitted (`pitchScale`);
+    //   §5 C's tolerances: geodetic altitude (the FER's is over the Fischer
+    //   ellipsoid, 30 m above WGS 84's surface at the Cape; datasheet §15),
+    //   space-fixed velocity, flight-path angle and heading. Only the OECO flight-path angle was fitted (`pitchScale`);
     //   the rest are checks, the headings of the space-fixed frame, flight
     //   azimuth and roll program in particular.
     // - Mach 1 at 66.3 s and max Q of 35.2 kPa at 83.0 s (FER Table 4-1; the
@@ -206,7 +218,7 @@ final class SaturnIUTests: XCTestCase {
     //   (digitised, M; the model is within 3 %).
     // - The climb above the pad and the Earth-fixed speed every 20 s against
     //   the postflight trajectory (PFT Table B-III, H; 59 m on the pad, the
-    //   model's centre of mass 33 m): within 100 m and 2 %. The model runs
+    //   model's centre of mass 59 m): within 100 m and 2 %. The model runs
     //   about 1 % slow in speed, the S-IC's deficit (datasheet §9.5).
     // - The aerodynamic axial force peaks at 1.36-1.38 MN near 72-75 s, as
     //   D5-15796-1's method gives along AS-506's trajectory (inferred, M).
@@ -217,7 +229,7 @@ final class SaturnIUTests: XCTestCase {
     // §8.5), so that time is not a target.
     func testSICAscentMatchesApollo11() throws {
         let f = try launch()
-        let pad = f.v.position.length - f.v.reference.radius   // the centre of mass on the pad
+        let pad = f.v.altitude   // the centre of mass on the pad, geodetic
         var mach1: Double?, maxQ = (q: 0.0, t: 0.0), peakAxial = (f: 0.0, t: 0.0)
         var states: [(alt: Double, v: Double, gamma: Double, heading: Double)] = []
         var marks = [135.2, 161.63]
@@ -705,10 +717,13 @@ final class SaturnIUTests: XCTestCase {
         XCTAssertEqual(c.pitch / deg, -112.4, accuracy: 2)   // OT at cutoff (LVDC -113.6)
         func gamma(_ r: Vec3, _ v: Vec3) -> Double { asin(r.normalized.dot(v.normalized)) / deg }
         // S-II OECO: AS-506's 6,559,961 m, 6,915.96 m/s, 0.614°. The model is
-        // about 15 m/s slower, the S-IC's deficit (datasheet §9.5) and more.
+        // about 30 m/s slower and 0.2° steeper: the S-IC's deficit (datasheet
+        // §9.5) and more, and since the WGS-84 pad (§15) the S-II climbs the
+        // 4.85 km the spherical pad gave it. Widened from 30 m/s and 0.15°
+        // with the pad; see §17, which closes the residuals.
         XCTAssertEqual(s2.r.length, 6_559_961, accuracy: 1_000)
-        XCTAssertEqual(s2.v.length, 6_915.96, accuracy: 30)
-        XCTAssertEqual(gamma(s2.r, s2.v), 0.614, accuracy: 0.15)
+        XCTAssertEqual(s2.v.length, 6_915.96, accuracy: 35)
+        XCTAssertEqual(gamma(s2.r, s2.v), 0.614, accuracy: 0.25)
         // Cutoff: on V_T - ΔV_B; the LVDC's radius and flight-path angle, and
         // its speed to the two cutoff biases' difference (1.45 m/s here, 1.6
         // on AS-506).

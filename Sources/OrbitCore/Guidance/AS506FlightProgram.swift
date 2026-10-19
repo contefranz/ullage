@@ -67,11 +67,20 @@ extension SaturnIU {
 }
 
 extension VesselLibrary {
-    /// Apollo 11 as it stood on LC-39A at first motion: `saturnV()` at the
-    /// pad's geocentric latitude, with Position I (+z) east (the 90° pad
-    /// azimuth) and the IU's flight program aboard, engines off, under the
-    /// launch day's measured air and winds. Full throttle lights the F-1s;
-    /// the IU takes over at liftoff.
+    /// LC-39A as Apollo 11 stood on it: geodetic latitude and longitude
+    /// (deg) on the WGS-84 Earth, and the vehicle base's height (m) above
+    /// the ellipsoid (datasheet §15).
+    public static let lc39A = (latitude: AS506.padLatitude, longitude: AS506.padLongitude,
+                               elevation: AS506.padElevation)
+    /// Apollo 11's first motion, range time 0.30 s: 1969-07-16 13:32:00.3 UTC.
+    public static let apollo11FirstMotion = AS506.rangeZero + AS506.firstMotion
+
+    /// Apollo 11 as it stood on LC-39A at first motion: `saturnV()` on the
+    /// pad (`lc39A`, its base at the pad's elevation, its axis along the
+    /// normal), with Position I (+z) east (the 90° pad azimuth) and the IU's
+    /// flight program aboard, engines off, under the launch day's measured
+    /// air and winds. Full throttle lights the F-1s; the IU takes over at
+    /// liftoff.
     @discardableResult
     public static func apollo11OnPad(in sim: Simulation, program: SaturnIU = .as506()) -> Vessel {
         let v = saturnV()
@@ -79,8 +88,8 @@ extension VesselLibrary {
         // The day's air and winds (datasheet §11).
         sim.atmospheres[sim.system.earth.id] = AS506.launchDayAtmosphere()
         // `placeLanded` points -z at the azimuth it is given.
-        sim.placeLanded(v, on: sim.system.earth, latitude: AS506.padLatitude, longitude: AS506.padLongitude,
-                        azimuth: AS506.padAzimuth + 180)
+        sim.placeLanded(v, on: sim.system.earth, latitude: lc39A.latitude, longitude: lc39A.longitude,
+                        azimuth: AS506.padAzimuth + 180, elevation: lc39A.elevation)
         v.flightProgram = program
         return v
     }
