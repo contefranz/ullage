@@ -62,7 +62,8 @@ extension SaturnIU {
             stages: ("S-IC", "S-II", "S-IVB"), centreEngine: "S-IC engine 5",
             guidance: Guidance(presettings: D.igmPresettings(gm: 0), cycle: D.igmCycle,
                                shift: (D.sIIMixtureRatioShiftDelay, "S-II low EMR (PU valve step)",
-                                       .rating(part: "S-II", D.sIIJ2LowEMR)))))
+                                       .rating(part: "S-II", D.sIIJ2LowEMR, ramp: D.sIIMixtureRatioRamp,
+                                               schedule: D.sIILowMixtureRatioDecline)))))
     }
 }
 

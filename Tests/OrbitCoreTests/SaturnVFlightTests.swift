@@ -102,8 +102,8 @@ final class SaturnVFlightTests: XCTestCase {
         // Bookkeeping, given the FER's first-motion mass and LOX residual and
         // the fitted RP-1 residual: the vehicle at OECO is 664 kg above FER
         // Table 20-1's 827,292 kg, the S-IC's frost and purges (312 kg) and
-        // the upper stages' frost and purge gas (349 kg), which the model
-        // does not shed.
+        // the upper stages' frost and purge gas (349 kg), which the model's
+        // S-IC carries to its separation.
         XCTAssertEqual(v.mass - 827_292, 664, accuracy: 10)
         // Independent: 38.61 m/s^2 just before OECO (FER Table 4-1, the S-IC's
         // maximum total inertial acceleration; drag is negligible there).
@@ -181,9 +181,10 @@ final class SaturnVFlightTests: XCTestCase {
         for i in [0, 1, 3, 4] { XCTAssertLessThan(ahead[i], 0) }
         // Bookkeeping: S-IVB 262,613 and IU 4,275 lb (SP-4029 Ground Ignition
         // Weights) less the S-IVB's ullage motors and aft frame, which left
-        // with their parts (53 + 61 + 23 kg, FER Table 20-9), and the
-        // spacecraft after LET jettison, 45,693 kg (FER Table 20-9).
-        XCTAssertEqual(v.mass, (262_613 + 4_275) * lb - 53 - 61 - 23 + 45_693, accuracy: 1e-6)
+        // with their parts (53 + 61 + 23 kg, FER Table 20-9), and its frost,
+        // which left with the S-IC (90 kg, Table 20-1), and the spacecraft
+        // after LET jettison, 45,693 kg (FER Table 20-9).
+        XCTAssertEqual(v.mass, (262_613 + 4_275) * lb - 53 - 61 - 23 - 90 + 45_693, accuracy: 1e-6)
     }
 
     // C5: gimbal authority at each stage's full thrust (vacuum), from the

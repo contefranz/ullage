@@ -207,6 +207,15 @@ public struct PerformanceSchedule: Equatable {
         return (lerp(a.thrustFactor, b.thrustFactor), lerp(a.flowFactor, b.flowFactor),
                 a.mixtureRatio.flatMap { ma in b.mixtureRatio.map { lerp(ma, $0) } })
     }
+
+    /// The same schedule `dt` s later on the burn clock: one that starts
+    /// partway into a burn.
+    public func delayed(by dt: Double) -> PerformanceSchedule {
+        PerformanceSchedule(knots.map {
+            Knot(time: $0.time + dt, thrustFactor: $0.thrustFactor, flowFactor: $0.flowFactor,
+                 mixtureRatio: $0.mixtureRatio)
+        })
+    }
 }
 
 /// Start and shutdown transients, as linear ramps of thrust and flow. Once

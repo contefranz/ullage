@@ -96,6 +96,11 @@ enum AS506 {
     /// Tables 2-2, 2-3, 6-2). 9.5 s later than the final prediction.
     static let sIIMixtureRatioShiftCommand = 494.8   // FER Table 2-2 (H)
     static let sIIMixtureRatioShift = 497.60         // FER Table 6-2, "PU valve step" (H)
+    /// Where AS-506's thrust stepped down, impulse for impulse: a single
+    /// step fitted to the postflight trajectory's sensed velocity falls at
+    /// 498.7-498.9 s (PFT Table B-II, H; datasheet §14.2), 1.2 s after the
+    /// valve step. FER Figure 6-3's reconstruction (M) steps at 496.8 s.
+    static let sIIEffectiveMixtureRatioShift = 498.8 // PFT, datasheet §14.2 (H)
     static let sIIOutboardCutoff = 548.22      // SP-4029 Apollo 11 Summary; Mission Report (H). LOX depletion
     static let sIISeparation = 549.00          // SP-4029 Apollo 11 Ascent Phase (H)
     static let sIVBIgnition = 552.20           // Mission Report; SP-4029 Propellant Usage (H)
@@ -261,8 +266,9 @@ enum AS506 {
     static let sIIUllageEndTime = 4.4          // s from T3; FER Table 2-2 (H)
     /// High EMR Select (S-II PU system activated): ESC + 5.5 s, 168.5 s.
     static let sIIHighMixtureRatioTime = 6.9   // s from T3; FER Table 2-2 and §6.5 (H)
-    /// The PU valve step, the model's shift to low EMR, follows the IGM's
-    /// EMR shift command by as long as on AS-506 (494.8 to 497.60 s).
+    /// The PU valve step, where the model's ramp to low EMR starts
+    /// (`sIIMixtureRatioRamp`), follows the IGM's EMR shift command by as
+    /// long as on AS-506 (494.8 to 497.60 s).
     static let sIIMixtureRatioShiftDelay = sIIMixtureRatioShift - sIIMixtureRatioShiftCommand   // s
     /// From T4, S-II outboard cutoff sensed: separation command and S-IVB
     /// ignition (STDV open, range 552.2; FER Table 2-2, H). The IGM cuts the
@@ -296,11 +302,13 @@ enum AS506 {
     /// GE504's nominal IGM computation cycle (Table 5-I Δt).
     static let igmCycle = 1.7                  // s; GE504 (H for SA-504)
     /// τ2 at the EMR shift command and τ3 at S-IVB 90 % thrust: the model's
-    /// stack mass then over the flow of four low-EMR J-2s and of the S-IVB
-    /// J-2 (from the model's flight before the solid motors, rounded to
-    /// 0.5 s; τ3 would now be 773.1 s, and the IGM measures it once the
-    /// S-IVB thrusts).
-    static let igmTau2 = 347.5                 // s, model
+    /// stack mass then over the flow of four low-EMR J-2s (at the valve
+    /// step: 254,002 kg over 735.34 kg/s, 345.42 s) and of the S-IVB J-2
+    /// (from the model's flight before the solid motors; it would now be
+    /// 772.7 s, and the IGM measures it once the S-IVB thrusts), rounded to
+    /// 0.5 s. Vex2, the low EMR's thrust over flow, is its Isp, which the
+    /// decline keeps (`igmPresettings`).
+    static let igmTau2 = 345.5                 // s, model
     static let igmTau3 = 773.5                 // s, model
     /// T2 from the shift command to S-II OECO, Tc from S-II cutoff (T4) to
     /// S-IVB 90 % thrust, and the first T3′ estimate: AS-506's (494.8 to
@@ -309,11 +317,17 @@ enum AS506 {
     static let igmCoastTime = 6.3              // s, FER Table 2-2 and the model's start ramp (inferred)
     static let igmStage3Time = 144.8           // s, FER Table 2-2 (inferred preset)
     /// The S-II characteristic velocity (sensed velocity gained from engine
-    /// start) at which the IGM commands the EMR shift (T1 = 0): fitted so the
-    /// model commands it on the cycle at AS-506's 494.8 s. AS-506's own
-    /// preset is not known; its LVDC's sum ran about 92 m/s low through a
-    /// scaling error (FER §10.2.1), which the fit absorbs.
-    static let igmShiftVelocity = 3_906.0      // m/s, fitted (model)
+    /// start) at which the IGM commands the EMR shift (T1 = 0). AS-506's IGM
+    /// commanded it at 494.8 s, 171 cycles of 1.7 s after its 204.1 s start
+    /// (FER Table 10-4), so its preset lay between the S-II's characteristic
+    /// velocity a cycle before, at 493.1 s, and at 494.8 s: 3,894-3,921 m/s
+    /// on the postflight trajectory (its integral of |a_ng| from engine
+    /// start, 164.0 s; PFT Table B-II, H). The model takes the middle. Its
+    /// S-II, 3 m/s ahead of AS-506's there, reaches it at 493.75 s and
+    /// commands the shift on its cycle at 494.75 s. The preset in the LVDC's
+    /// own terms is not known: its sum ran about 92 m/s low through a
+    /// scaling error (FER §10.2.1).
+    static let igmShiftVelocity = 3_908.0      // m/s, the middle of AS-506's window, PFT (H)
     /// Artificial tau after the EMR shift command and after S-IVB ignition:
     /// AS-506 ran them for 9.33 s and 6.86 s (FER Table 10-4); with 1.7 s
     /// cycles these durations fit both (SA-504: none after the shift, 25 s
@@ -334,10 +348,11 @@ enum AS506 {
     /// (GE504: "thrust decay at shutdown and the expected post-cutoff vents";
     /// SA-504's was 2.0275 m/s). AS-506's LVDC cut off at 7,791.43 m/s and
     /// inserted at 7,793.28 m/s 10 s later, a 1.85 m/s gain (FER Table
-    /// 10-2). The model, which has no vents, gains 1.45 m/s: 1.40 from the
-    /// J-2's thrust decay and 0.05 from the APS ullage burn. That is its bias,
-    /// so it inserts at circular speed.
-    static let igmCutoffVelocityBias = 1.45    // m/s, the model's (FER Table 10-2: 1.85 on AS-506)
+    /// 10-2). The model, which has no vents, gains 1.46 m/s in those 10 s
+    /// (1.45 at Figure 7-2's 903 kN): the J-2's thrust decay, 191,520 N s
+    /// on 135,170 kg, and the APS ullage burn. That is its bias, so it
+    /// inserts at circular speed.
+    static let igmCutoffVelocityBias = 1.46    // m/s, the model's (FER Table 10-2: 1.85 on AS-506)
     /// The target: a 100 n mi circular orbit above the 6,378,165 m sphere
     /// (GE504's SA-504 R_T; AS-506's LVDC cut off 30 m below it, FER Table
     /// 10-2), in AS-506's nominal plane (FER Tables 4-5 and 10-5: i and the
@@ -387,6 +402,17 @@ enum AS506 {
     static let sICDry = 287_531.0                // lb, SP-4029 Ground Ignition Weights (H); FER 130,422 kg
     /// Not itemised: frost, GN2 and helium, lubricants.
     static let sICOther = 5_442.0                // lb, SP-4029 Ground Ignition Weights (H)
+    /// Frost and purge gas aboard the upper stages at first motion, all of
+    /// it gone by CECO (FER Table 20-1, first-motion and CECO columns, read
+    /// from the page images, H): the S-II stage 479,964 to 479,706 kg, its
+    /// frost 204 kg and purge gas 54 kg; the S-IVB stage 119,119 to 119,029
+    /// kg, its frost 90 kg. The model books them on the S-IC part, at their
+    /// stages' stations, so they leave with the S-IC rather than ride to the
+    /// S-II's and S-IVB's cutoffs. The S-IC's own (frost 635 to 340 kg, N2
+    /// purge gas 36 to 20 kg; its helium moves into the RP-1 tank's ullage,
+    /// net 0) are in its first-motion mass, and leave with it too.
+    static let sIIFrostAndPurge = 204.0 + 54.0   // kg, FER Table 20-1 (H)
+    static let sIVBFrost = 90.0                  // kg, FER Table 20-1 (H)
     static let sICLOXLoad = 3_305_786.0          // lb, SP-4029 Ground Ignition Weights; FER Table 5-2 (H)
     static let sICRP1Load = 1_424_889.0          // lb, SP-4029 Ground Ignition Weights; FER Table 5-2 (H)
     /// The S-IC stage at holddown release (first motion), and its tanks then:
@@ -515,7 +541,8 @@ enum AS506 {
     /// The vehicle at CECO is then 661 kg above Table 20-1's 1,110,189 kg:
     /// the frost and purge gas shed by then (S-IC frost 295 kg and N2 purge
     /// 16 kg, S-II frost 204 and purge 54 kg, S-IVB frost 90 kg; Table 20-1),
-    /// which the model does not shed. Before, one scale on the whole burn
+    /// which the model's S-IC carries to its separation (`sIIFrostAndPurge`,
+    /// `sIVBFrost`). Before, one scale on the whole burn
     /// (0.99896, 0.99965) left the tanks 761 kg too full at CECO.
     static let sICFlowScale = (fiveEngines: 0.999385, fourEngines: 0.996609)          // fitted (model)
     static let sICMixtureRatioScale = (fiveEngines: 0.999840, fourEngines: 0.998441)  // fitted (model)
@@ -568,9 +595,9 @@ enum AS506 {
     /// thrust and flow panels disagree with its own Isp panel by 0.6 % at
     /// liftoff. The scale is fitted to the nearest 0.0001 on the PFT's S-IC
     /// integral of |a_ng| with the 661 kg of frost and purge gas AS-506 shed
-    /// by CECO taken off (linearly to CECO; worth 1.3 m/s), which the model
-    /// does not shed yet (datasheet §17): until it does, the model's S-IC is
-    /// 1.3 m/s short. At 1 the figure's thrust stands as printed.
+    /// by CECO taken off (linearly to CECO; worth 1.3 m/s), which the model's
+    /// S-IC carries to its separation (datasheet §17), so the model's S-IC
+    /// is 1.3 m/s short. At 1 the figure's thrust stands as printed.
     static let sICThrustScale = 1.0022               // fitted (model) to the PFT (H): M
     /// Exit area that gives the stage's site Isp at liftoff on the figure's
     /// flow, about 2,594 N s/kg at 100.6 kPa (FER Figure 5-3), from its
@@ -634,9 +661,10 @@ enum AS506 {
     /// AS-506's S-II J-2s at their three settings (FER §6), per engine. The
     /// flows carry a scale that closes the FER's S-II budget: from the
     /// ignition loads to the OECO residuals with LOX depletion at 548.22 s
-    /// (fitted to the model's burn, start and tail-off included; -0.25 %,
-    /// within the FER's flow reconstruction, which matches acceptance Isp).
-    static let sIIFlowScale = 0.99749                // fitted (model)
+    /// (fitted to the model's flight, the start, the EMR ramp and the
+    /// tail-off included; -0.32 %, within the FER's flow reconstruction,
+    /// which matches acceptance Isp).
+    static let sIIFlowScale = 0.996784               // fitted (model)
     /// Start: the PU valve at null until High EMR Select, ESC + 5.5 s. Thrust
     /// 861,496 to 895,080 N per engine (FER §6.2); EMR about 5.0 (MSFC-MAN-506,
     /// L) and Isp assumed between the S-IVB's and the S-II's (L).
@@ -648,33 +676,67 @@ enum AS506 {
     /// N, 246.9 kg/s, 4,164.9 N s/kg = 424.7 s, engine EMR 5.564). The
     /// mixture ratio is fitted to the FER's LH2 residual at OECO; it is the
     /// stage ratio's mean over this phase (Figure 6-3: 5.55 falling to 5.45).
-    static let sIIHighMixtureRatio = 5.5006          // fitted (model); FER Figure 6-3 (M)
+    static let sIIHighMixtureRatio = 5.49765         // fitted (model); FER Figure 6-3 (M)
     static let sIIJ2 = EngineRating.fixedNozzle(
         name: "J-2 S-II high EMR", thrustVacuum: 1_028_303, ispVacuum: 4_164.9 / 9.80665 / sIIFlowScale,
         exitArea: j2ExitArea, mixtureRatio: sIIHighMixtureRatio)
-    /// Low EMR, from the PU valve step to OECO: the four engines delivered
-    /// 3,082,769 N at ESC + 351 s and 3,059,402 N at ESC + 381 s (FER §6.3),
-    /// 768,000 N each on average, at about 183 kg/s (Figure 6-3: 4,181-4,190
-    /// N s/kg), and an average EMR of 4.34 (§6.5; predicted 4.33). AS-506 ran
-    /// 7-8 % below the 828 kN the datasheet had assumed at EMR 4.7.
+    /// Low EMR, from the PU valve step to OECO: the stage thrust of FER
+    /// Figure 6-3 (reconstructed, digitised: M, 0.0036 MN a pixel), a line
+    /// fitted to its traced samples from 499.5 to 538 s (2.7 kN rms), from
+    /// 3,091,000 N at the valve step falling 694 N/s (0.022 % a second),
+    /// which `sIILowMixtureRatioDecline` carries. The line is 0.10 % below
+    /// FER §6.3's 3,082,769 N at ESC + 351 s and 0.02 % below its 3,059,402
+    /// N at ESC + 381 s; the figure's last 8 s, traced 0.016 MN below it
+    /// where the solid curve runs within a few pixels of the dashed
+    /// prediction, are left out. Isp about 4,190 N s/kg (Figure 6-3:
+    /// 4,181-4,190), so about 184 kg/s an engine, and an average EMR of 4.34
+    /// (§6.5; predicted 4.33; Figure 6-3 4.29-4.31). AS-506 ran 7-8 % below
+    /// the 828 kN the datasheet had assumed at EMR 4.7.
     static let sIILowMixtureRatio = 4.34             // FER §6.5 (H)
+    static let sIILowMixtureRatioThrust = (atStep: 3_091_000.0, rate: -694.0)   // N, N/s, stage; FER Figure 6-3 (M)
     static let sIIJ2LowEMR = EngineRating.fixedNozzle(
-        name: "J-2 S-II low EMR", thrustVacuum: 768_000, ispVacuum: 4_190 / 9.80665 / sIIFlowScale,
-        exitArea: j2ExitArea, mixtureRatio: sIILowMixtureRatio)
+        name: "J-2 S-II low EMR", thrustVacuum: sIILowMixtureRatioThrust.atStep / 4,
+        ispVacuum: 4_190 / 9.80665 / sIIFlowScale, exitArea: j2ExitArea, mixtureRatio: sIILowMixtureRatio)
+    /// Figure 6-3's decline from the valve step to OECO (50.62 s on AS-506),
+    /// held after: thrust and flow together, at the rating's Isp and EMR.
+    /// The IU's shift action sets it, so it runs from the shift whenever the
+    /// IGM commands it.
+    static var sIILowMixtureRatioDecline: PerformanceSchedule {
+        let span = sIIOutboardCutoff - sIIMixtureRatioShift
+        let end = 1 + sIILowMixtureRatioThrust.rate * span / sIILowMixtureRatioThrust.atStep
+        return PerformanceSchedule([.init(time: 0, thrustFactor: 1, flowFactor: 1),
+                                    .init(time: span, thrustFactor: end, flowFactor: end)])
+    }
+    /// From high to low EMR the J-2s move along a linear ramp from the valve
+    /// step, as long as puts its middle, where a step of the same impulse
+    /// would fall, on AS-506's effective step: 2.4 s, 1.2 s each side of
+    /// 498.8 s. The FER's low EMR "by 498.0 s" (Table 6-2) is the valve's;
+    /// the thrust followed later.
+    static let sIIMixtureRatioRamp = 2 * (sIIEffectiveMixtureRatioShift - sIIMixtureRatioShift)   // s, PFT (H)
     /// Start and tail-off. Between STDV open (164.0 s) and mainstage (166.2
     /// s) the stage burned 582 kg (FER Table 20-9), 0.56 s of full flow: a
     /// linear rise over the last 1.11 s of those 2.2 s. The OECO cutoff
     /// impulse to 5 % thrust was 581,916 N s (§6.4), from 2,783,479 N after
     /// the LOX starvation that the model does not have: 0.19 s of the
-    /// model's 3,072,000 N, a decay over 0.38 s.
+    /// model's 3,056,000 N at OECO (`sIILowMixtureRatioDecline`), a decay
+    /// over 0.38 s.
     static let sIIJ2Transients = EngineTransients(startDelay: 1.09, startRise: 1.11, shutdown: 0.38)   // FER (shape L)
 
-    /// S-IVB burn 1 (PU null): the flight values of FER Figure 7-2 (thrust
-    /// 902-906 kN; the standardised Table 7-1 value is 901,223 N), the
-    /// mainstage flow of Table 20-9 (31,152 kg in 144.64 s, venting included)
-    /// and the tanks' consumption ratio (Table 20-5: LOX 25,873 kg, LH2 5,339
-    /// kg; the engine's own EMR was about 4.96).
-    static let sIVBJ2ThrustVacuum = 903_000.0        // N, FER Figure 7-2 (M)
+    /// S-IVB burn 1 (PU null): the thrust AS-506's measured acceleration
+    /// needs, the mainstage flow of Table 20-9 (31,152 kg in 144.64 s,
+    /// venting included) and the tanks' consumption ratio (Table 20-5: LOX
+    /// 25,873 kg, LH2 5,339 kg; the engine's own EMR was about 4.96). The
+    /// postflight trajectory's sensed acceleration over the mainstage,
+    /// 560-690 s (PFT Table B-II, H), flown from AS-506's state at T4 on the
+    /// model's mass (the FER's within 34 kg: Tables 20-5, 20-9), needs 912
+    /// kN, fitted to the nearest kN; FER Table 4-1's 6.73 m/s^2 at cutoff
+    /// agrees. On the flow that is an Isp of 431.8 s, high for a J-2: FER
+    /// Table 7-1's standardised engine has 901,223 N and 4,204 N s/kg (428.7
+    /// s, on the engine's own flow). The alternative is the FER's thrust
+    /// reconstruction, Figure 7-2's 902-906 kN (903 kN, 427.6 s): over the
+    /// same mass it gives 1.0 % less acceleration than measured, and from
+    /// AS-506's T4 state a cutoff 1.46 s late (datasheet §17).
+    static let sIVBJ2ThrustVacuum = 912_000.0        // N, from AS-506's measured acceleration, PFT (H); M
     static let sIVBJ2MassFlow = 215.37               // kg/s, FER Table 20-9 (H)
     static let sIVBMixtureRatio = 4.85               // FER Table 20-5 (H)
     static let sIVBJ2Burn1 = EngineRating.fixedNozzle(
@@ -683,7 +745,9 @@ enum AS506 {
         mixtureRatio: sIVBMixtureRatio)
     /// Start: 857,243 N s from STDV open to STDV + 2.5 s (FER §7.2), 0.95 s of
     /// full thrust: a rise over 1.9 s after a 0.6 s delay. Cutoff: 188,302 N
-    /// s (§7.4), 0.21 s: a decay over 0.42 s.
+    /// s (§7.4), 0.21 s: a decay over 0.42 s. The FER reconstructs both at
+    /// Figure 7-2's level; at the measured acceleration's the shapes give
+    /// 1.0 % more.
     static let sIVBJ2Transients = EngineTransients(startDelay: 0.6, startRise: 1.9, shutdown: 0.42)   // FER (shape L)
 
     /// The four S-II ullage motors on the S-IC/S-II interstage: 23,000 lbf

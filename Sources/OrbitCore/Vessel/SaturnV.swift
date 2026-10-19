@@ -145,11 +145,14 @@ extension VesselLibrary {
         // grains, with the small interstage ring that leaves with it. The
         // retros, not springs, separate it.
         // Its CG and inertia are the FER's dry stage with the ring at its
-        // middle, at the body radius.
+        // middle, at the body radius. It also carries the upper stages' frost
+        // and purge gas, at their stages' CGs on the skin, to its separation.
+        let upperFrost = [(mass: D.sIIFrostAndPurge, x: D.station(D.sIIStageDry.station), radius: body),
+                          (mass: D.sIVBFrost, x: D.station(D.sIVBStageDry.station), radius: upper)]
         let sICDry = D.sICAtFirstMotion - D.sICLOXAtFirstMotion - D.sICRP1AtFirstMotion - D.sICRetroPropellant
-            + D.sICSIIInterstageSmall
+            + D.sICSIIInterstageSmall + D.sIIFrostAndPurge + D.sIVBFrost
         let ring = (mass: D.sICSIIInterstageSmall, x: D.station((D.sICTop + D.sICSIISeparationPlane) / 2), radius: body)
-        let sICMass = dryProperties(D.sICStageDry, [ring], total: sICDry)
+        let sICMass = dryProperties(D.sICStageDry, [ring] + upperFrost, total: sICDry)
         let sIC = part("S-IC", D.station(D.baseStation), D.station(D.sICTop), radius: body, dryMass: sICDry,
                        dryCenterOfMass: sICMass.com, dragCoefficient: D.bodyDragCoefficient, staging: .event(1))
         sIC.dryInertia = sICMass.inertia
@@ -194,10 +197,11 @@ extension VesselLibrary {
                trigger: .event(1))
 
         // S-II: LOX aft, LH2 forward over a common bulkhead. Its J-2s hang
-        // into the interstage below.
-        let sIIMass = dryProperties(D.sIIStageDry, total: (D.sIIDry + D.sIIOther) * lb)
+        // into the interstage below. Its frost and purge gas ride on the S-IC.
+        let sIIDry = (D.sIIDry + D.sIIOther) * lb - D.sIIFrostAndPurge
+        let sIIMass = dryProperties(D.sIIStageDry, total: sIIDry)
         let sII = part("S-II", D.station(D.sIIAftSkirt), D.station(D.sIITop), radius: body,
-                       dryMass: (D.sIIDry + D.sIIOther) * lb, dryCenterOfMass: sIIMass.com,
+                       dryMass: sIIDry, dryCenterOfMass: sIIMass.com,
                        dragCoefficient: D.bodyDragCoefficient, staging: .event(4))
         sII.dryInertia = sIIMass.inertia
         let sIILOX = tank("S-II LOX", in: sII, load: D.sIILOXLoad * lb, unusable: D.sIILOXAtCutoff,
@@ -238,9 +242,10 @@ extension VesselLibrary {
         // ullage motors (grains and cases) and the aft frame move to their
         // own parts.
         // The FER's dry stage less the aft frame and the ullage motors'
-        // cases, which leave with their own parts.
+        // cases, which leave with their own parts, and its frost, which
+        // rides on the S-IC.
         let sIVBDry = (D.sIVBDry + D.sIVBOther - 2 * (D.apsOxidizerLoad + D.apsFuelLoad)) * lb
-            - D.sIVBUllageMotorPropellant - D.sIVBUllageMotorCases - D.sIVBAftFrame
+            - D.sIVBUllageMotorPropellant - D.sIVBUllageMotorCases - D.sIVBAftFrame - D.sIVBFrost
         let sIVBMass = dryProperties(D.sIVBStageDry, [
             (-aftFrame.mass, aftFrame.x, 0),
             (-D.sIVBUllageMotorCases, D.height(D.sIVBUllageMotorHeight), D.sIVBUllageMotorRadius)],

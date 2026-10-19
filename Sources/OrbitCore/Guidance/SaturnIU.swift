@@ -99,8 +99,11 @@ public final class SaturnIU: FlightProgram {
         /// Separate the staging event of the named part, if still attached.
         case separate(String)
         /// New operating setting for the main engines of the named part,
-        /// reached over `ramp` s (0: at once; `Thruster.setRating`).
-        case rating(part: String, EngineRating, ramp: Double = 0)
+        /// reached over `ramp` s (0: at once; `Thruster.setRating`), and,
+        /// if given, the change of its performance over the rest of the
+        /// burn, its times from this event (in place of the engines'
+        /// schedule; nil keeps theirs).
+        case rating(part: String, EngineRating, ramp: Double = 0, schedule: PerformanceSchedule? = nil)
         /// Start ramping the outboard cant of the named part's engines.
         case startCant(String)
         case gains(FCCGains?)
@@ -573,9 +576,12 @@ public final class SaturnIU: FlightProgram {
                 return false
             }
             sim.stage(v, event: n)
-        case let .rating(name, rating, ramp):
+        case let .rating(name, rating, ramp, schedule):
             guard let part = v.parts.first(where: { $0.name == name }) else { return false }
-            for t in part.thrusters where t.groups.contains(.main) { t.setRating(rating, ramp: ramp) }
+            for t in part.thrusters where t.groups.contains(.main) {
+                t.setRating(rating, ramp: ramp)
+                if let s = schedule { t.schedule = s.delayed(by: t.burnTime) }
+            }
             if ramp > 0 { ratingRamps.append((sim.time, ramp)) }
         case .startCant(let name):
             guard v.parts.contains(where: { $0.name == name }) else { return false }

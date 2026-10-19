@@ -12,22 +12,23 @@ final class MassCharacteristicsTests: XCTestCase {
     /// and pitch moments of inertia about the CG (kg m^2 x 10^6).
     typealias Row = (event: String, mass: Double, station: Double, roll: Double, pitch: Double)
 
-    // Each event's mass within 0.2 % (the model carries the 74-776 kg that
-    // AS-506 had lost to frost, venting and purges by then: datasheet §9.4);
-    // its CG within 8 in (the worst is the S-IVB cutoff's +7.4; the S-IC's
+    // Each event's mass within 0.1 % while the S-IC is aboard (it carries
+    // the 661 kg of frost and purge gas AS-506 had shed by CECO to its
+    // separation: the model is 662 and 783 kg heavy at OECO and separation)
+    // and within 50 kg after it (the model is 27 kg light to 34 kg heavy);
+    // its CG within 8 in (the worst is the S-IVB cutoff's +7.5; the S-IC's
     // residual LOX, in the suction lines that the engines empty last, puts
     // OECO within 1 in, where it was 8.2 in high at the column's bottom); its
-    // roll inertia
-    // within 3 % (the dry structure's: no liquid spins with the tanks); its
-    // pitch inertia within 7 % (the S-IVB stack is +6.5 %: the spacecraft's
-    // inner layout, L). Before the tanks' sourced geometry and the FER's dry
-    // rows, the CG was 1.7 m high in the S-II burn and the roll inertia up to
-    // 9.5 times too large.
+    // roll inertia within 3 % (the dry structure's: no liquid spins with the
+    // tanks); its pitch inertia within 7 % (the S-IVB stack is +6.5 %: the
+    // spacecraft's inner layout, L). Before the tanks' sourced geometry and
+    // the FER's dry rows, the CG was 1.7 m high in the S-II burn and the
+    // roll inertia up to 9.5 times too large.
     func testMassCharacteristicsMatchTheFER() {
         let rows = flyTheEvents()
         XCTAssertEqual(rows.count, 12)
-        for (model, fer) in rows {
-            XCTAssertEqual(model.mass, fer.mass, accuracy: 2e-3 * fer.mass, fer.event)
+        for (i, (model, fer)) in rows.enumerated() {
+            XCTAssertEqual(model.mass, fer.mass, accuracy: i < 3 ? 1e-3 * fer.mass : 50, fer.event)
             XCTAssertEqual(model.station, fer.station, accuracy: 8, fer.event)
             XCTAssertEqual(model.roll, fer.roll, accuracy: 0.03 * fer.roll, fer.event)
             XCTAssertEqual(model.pitch, fer.pitch, accuracy: 0.07 * fer.pitch, fer.event)
@@ -141,7 +142,10 @@ final class MassCharacteristicsTests: XCTestCase {
         burn(to: AS506.sIICenterCutoff)
         engine("S-II engine 5").isEnabled = false
         burn(to: AS506.sIIMixtureRatioShift)
-        for e in mains() { e.rating = AS506.sIIJ2LowEMR }
+        for e in mains() {
+            e.setRating(AS506.sIIJ2LowEMR, ramp: AS506.sIIMixtureRatioRamp)
+            e.schedule = AS506.sIILowMixtureRatioDecline.delayed(by: e.burnTime)
+        }
         burn(to: 560)
         check(("2nd flight stage at cutoff signal", 213_890, 2_795.8, 0.871, 44.932))
         set(mains(), 0)
