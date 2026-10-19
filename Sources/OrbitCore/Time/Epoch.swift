@@ -5,7 +5,8 @@ import Foundation
 /// TDB is the time argument of the JPL ephemerides. UTC is converted via
 /// TAI-UTC (leap seconds, and before 1972 the official rubber-second
 /// expressions) and TT = TAI + 32.184 s; TDB is taken equal to TT (the
-/// periodic difference is below 2 ms). UT1 is approximated by UTC.
+/// periodic difference is below 2 ms). UT1, the Earth's rotation, is UTC +
+/// DUT1 from the IERS's EOP C04 series (`UT1Table`).
 public struct Epoch: Comparable, Hashable, Codable, CustomStringConvertible {
     public var tdb: Double
 
@@ -24,6 +25,10 @@ public struct Epoch: Comparable, Hashable, Codable, CustomStringConvertible {
 
     /// Julian centuries of TDB past J2000.
     public var centuriesTDB: Double { tdb / (Epoch.secondsPerDay * 36525) }
+
+    /// TT as a two-part Julian date, (J2000, days past it), as ERFA takes
+    /// dates (`EarthOrientation`); TT is taken equal to TDB.
+    public var tt: (Double, Double) { (Epoch.j2000JD, tdb / Epoch.secondsPerDay) }
 
     // MARK: UTC conversions
 
@@ -53,8 +58,24 @@ public struct Epoch: Comparable, Hashable, Codable, CustomStringConvertible {
         return jd
     }
 
-    /// UT1 Julian date, approximated as UTC.
-    public var julianDateUT1: Double { julianDateUTC }
+    // MARK: UT1
+
+    /// UT1-TAI (s), from the IERS's daily UT1-UTC less TAI-UTC, interpolated
+    /// linearly in the UTC date. Outside the table (before 1962, after its
+    /// last day) the nearest day's value is held.
+    public var ut1MinusTAI: Double { UT1Table.bundled.ut1MinusTAI(mjdUTC: julianDateUTC - 2400000.5) }
+
+    /// DUT1 = UT1-UTC (s).
+    public var ut1MinusUTC: Double { ut1MinusTAI + Epoch.taiMinusUTC(julianDateUTC: julianDateUTC) }
+
+    /// UT1 as a two-part Julian date, (J2000, days past it): TAI + (UT1-TAI),
+    /// which is UTC + DUT1 and, unlike UTC, steps at no leap second.
+    public var ut1: (Double, Double) {
+        (Epoch.j2000JD, (tdb - 32.184 + ut1MinusTAI) / Epoch.secondsPerDay)
+    }
+
+    /// UT1 Julian date: UTC + DUT1.
+    public var julianDateUT1: Double { ut1.0 + ut1.1 }
 
     public struct Calendar: Equatable {
         public var year: Int, month: Int, day: Int, hour: Int, minute: Int
@@ -158,5 +179,49 @@ public struct Epoch: Comparable, Hashable, Codable, CustomStringConvertible {
     public static func taiMinusUTC(julianDateUTC jd: Double) -> Double {
         guard let s = offsets.last(where: { jd >= $0.start }) else { return offsets[0].seconds(offsets[0].start) }
         return s.seconds(jd)
+    }
+}
+
+/// UT1 from the IERS's EOP 20 C04 series: its UT1-UTC at 0h UTC each day from
+/// 1962-01-01 (`Resources/ut1.txt`, written by `tools/make_ut1.py`, whose
+/// header names the file and its retrieval), held as UT1-TAI with `Epoch`'s
+/// TAI-UTC. UT1-TAI changes by at most 4.3 ms a day and has no steps.
+struct UT1Table {
+    let firstMJD: Double
+    /// UT1-TAI (s) on consecutive days from `firstMJD`.
+    let ut1MinusTAI: [Double]
+
+    static let bundled: UT1Table = {
+        guard let url = Bundle.module.url(forResource: "ut1", withExtension: "txt"),
+              let text = try? String(contentsOf: url, encoding: .utf8),
+              let table = UT1Table(text: text) else {
+            fatalError("OrbitCore's UT1 table (Resources/ut1.txt) is missing or malformed")
+        }
+        return table
+    }()
+
+    /// Parses `MJD UT1-UTC` lines; `#` starts a comment line. Nil unless the
+    /// days are consecutive.
+    init?(text: String) {
+        var first: Double?, values: [Double] = []
+        for line in text.split(separator: "\n") where !line.hasPrefix("#") {
+            let f = line.split(separator: " ")
+            guard f.count == 2, let mjd = Double(f[0]), let dut1 = Double(f[1]),
+                  mjd == (first ?? mjd) + Double(values.count) else { return nil }
+            if first == nil { first = mjd }
+            values.append(dut1 - Epoch.taiMinusUTC(julianDateUTC: mjd + 2400000.5))
+        }
+        guard let first, values.count > 1 else { return nil }
+        firstMJD = first
+        ut1MinusTAI = values
+    }
+
+    /// UT1-TAI (s) at a UTC modified Julian date.
+    func ut1MinusTAI(mjdUTC mjd: Double) -> Double {
+        let x = mjd - firstMJD
+        guard x > 0 else { return ut1MinusTAI[0] }
+        let i = Int(x)
+        guard i < ut1MinusTAI.count - 1 else { return ut1MinusTAI[ut1MinusTAI.count - 1] }
+        return ut1MinusTAI[i] + (ut1MinusTAI[i + 1] - ut1MinusTAI[i]) * (x - Double(i))
     }
 }
