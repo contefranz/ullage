@@ -17,8 +17,10 @@
 #
 # Axes are the Apollo spacecraft axes X_A, Y_A, Z_A (station inches; X_A
 # along the longitudinal axis towards the apex). Neither page states the sign
-# convention of the products of inertia (I_xy = +sum m x y or -sum m x y):
-# compare them with a model qualitatively until it is settled.
+# convention of the products of inertia. The Apollo 11 Mission Report's Table
+# A-I, from the same office in the same format, uses +integral(x y dm) about
+# the CG (its splits recombine only with that sign; a11_mr_table_a_1.csv), so
+# that convention is very likely here too.
 # Printed units: lb, in, slug ft^2. SI columns: mass_kg (0.45359237 kg/lb),
 # x/y/z_m (0.0254 m/in), I_*_kgm2 (1.3558179483 kg m^2 per slug ft^2).
 #

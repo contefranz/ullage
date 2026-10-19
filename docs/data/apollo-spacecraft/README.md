@@ -245,7 +245,8 @@ Reader B also noted, without a misprint to resolve:
 **Notes for the tracks.**
 - **Mass properties.** Table A.5-I is in Apollo axes (X_A, Y_A, Z_A, station
   inches). The report does not say whether its products of inertia are
-  +Σ m x y or −Σ m x y, so compare them qualitatively until that is settled.
+  +∫xy dm or −∫xy dm. Apollo 11's Table A-I, in the same format, proves
+  +∫xy dm (below), which is very likely the convention here too.
   An SPS-maneuver row is the mass at ignition; the Coast row after it is the
   mass after the burn.
 - **The CM rows for E2:**
