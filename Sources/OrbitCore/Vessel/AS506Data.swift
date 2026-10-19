@@ -652,9 +652,10 @@ enum AS506 {
     /// AS-506's S-II J-2s at their three settings (FER §6), per engine. The
     /// flows carry a scale that closes the FER's S-II budget: from the
     /// ignition loads to the OECO residuals with LOX depletion at 548.22 s
-    /// (fitted to the model's burn, start and tail-off included; -0.25 %,
-    /// within the FER's flow reconstruction, which matches acceptance Isp).
-    static let sIIFlowScale = 0.99749                // fitted (model)
+    /// (fitted to the model's flight, the start, the EMR ramp and the
+    /// tail-off included; -0.33 %, within the FER's flow reconstruction,
+    /// which matches acceptance Isp).
+    static let sIIFlowScale = 0.996709               // fitted (model)
     /// Start: the PU valve at null until High EMR Select, ESC + 5.5 s. Thrust
     /// 861,496 to 895,080 N per engine (FER §6.2); EMR about 5.0 (MSFC-MAN-506,
     /// L) and Isp assumed between the S-IVB's and the S-II's (L).
