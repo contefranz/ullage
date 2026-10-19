@@ -7,6 +7,8 @@ public struct LandedState {
     public var bodyFixedPosition: Vec3
     /// Vessel attitude relative to the body-fixed frame (vessel -> body-fixed).
     public var bodyFixedAttitude: Quat
+    /// What it rests on: afloat on water, or on land.
+    public var surface = SurfaceKind.land
 }
 
 public enum VesselStatus: Equatable {
