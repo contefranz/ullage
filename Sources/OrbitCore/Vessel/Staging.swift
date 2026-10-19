@@ -34,7 +34,7 @@ extension Vessel {
         if let l = oldLanded {
             other.landed = LandedState(body: l.body,
                                        bodyFixedPosition: l.bodyFixedPosition + l.bodyFixedAttitude.rotate(leavingCom),
-                                       bodyFixedAttitude: l.bodyFixedAttitude)
+                                       bodyFixedAttitude: l.bodyFixedAttitude, surface: l.surface)
         }
         recenter()
 

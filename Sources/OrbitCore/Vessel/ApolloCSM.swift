@@ -364,7 +364,8 @@ extension VesselLibrary {
 
     /// The Apollo CSM alone (`apolloCSMParts`), as it flies after the
     /// CSM/LV separation: its SCS (`ApolloSCS`) aboard, the crew's control
-    /// frame, the CM's impact limits and the CSM's drag. Place it with
+    /// frame, the CM's impact limits, the CSM's drag and the CM's
+    /// aerodynamics for once the SM has gone. Place it with
     /// `Simulation.place`.
     public static func apolloCSM(_ mission: ApolloCSM.Mission, name: String? = nil) -> Vessel {
         let parts = apolloCSMParts(mission)
@@ -373,11 +374,11 @@ extension VesselLibrary {
         let v = Vessel(name: name ?? mission.rawValue, parts: parts, reference: placeholderBody)
         v.controlFrame = ApolloAxes.rotation
         v.impactLimits = ApolloCM.impactLimits
-        v.aerodynamics = [ApolloCSM.dragModel]
+        v.aerodynamics = [ApolloCSM.dragModel, .apolloCommandModule()]
         v.flightProgram = scs
         v.phasePlane = ApolloCSM.phasePlaneLaw(deadband: ApolloCSM.narrowDeadband)
         v.tvcGains = ApolloCSM.spsTVCGains
-        dressSaturnV(v)
+        dressApollo(v)
         return v
     }
 

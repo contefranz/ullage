@@ -10,7 +10,7 @@ final class NavballTests: XCTestCase {
     typealias P = AS506Postflight
 
     /// Crew axes on a vessel built in Saturn construction axes, as track C
-    /// will set `controlFrame` (owner decision 6).
+    /// sets `controlFrame` on every vessel carrying the CM (owner decision 6).
     let crew = ApolloAxes.rotation
 
     /// A seeded generator, so the random angles are the same every run.
@@ -85,7 +85,7 @@ final class NavballTests: XCTestCase {
     func testSaturnOnThePadInCrewAxes() throws {
         let sim = try Simulation.forTests(perturbations: true)
         let v = VesselLibrary.apollo11OnPad(in: sim)
-        v.controlFrame = crew
+        XCTAssertEqual(v.controlFrame, crew)
         var (ball, heading, pitch, roll) = angles(v, sim)
         XCTAssertEqual(pitch, 90, accuracy: 1e-9)
         XCTAssertEqual(heading, 90, accuracy: 1e-9)
@@ -270,6 +270,7 @@ final class NavballTests: XCTestCase {
         let sim = try Simulation.forTests(perturbations: false)
         let v = VesselLibrary.saturnV()
         _ = v.jettisonNextStage()   // the S-IC
+        v.controlFrame = .identity   // body axes (a separation sets the crew's again)
         sim.add(v)
         sim.placeInFreeSpace(v)
         v.mainThrottle = 1
@@ -357,6 +358,7 @@ final class NavballTests: XCTestCase {
         let atmosphere = AS506.launchDayAtmosphere()
         sim.atmospheres[earth.id] = atmosphere
         let v = VesselLibrary.saturnV()
+        v.controlFrame = .identity   // body axes first
         sim.add(v)
         sim.place(v, geodeticLatitude: 28.75, longitude: -80.3, height: 12_000, inertialSpeed: 900,
                   flightPathAngle: 35, azimuth: 76, attitude: Quat(axis: Vec3(0.3, 0.5, 0.8), angle: 0.08))

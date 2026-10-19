@@ -266,7 +266,7 @@ final class CSMSeparationTests: XCTestCase {
         let sim = try Simulation.forTests(perturbations: false)
         let v = VesselLibrary.apolloCSM(.apollo11)
         sim.add(v)
-        let x = sim.placeInFreeSpace(v)
+        sim.placeInFreeSpace(v)
         ApolloCSM.setLoads(v, spsOxidizer: 3_106, spsFuel: 1_958, rcs: 780)   // Apollo 11 at separation (§8.11)
         let sm = try XCTUnwrap(sim.stage(v, event: 7))
         XCTAssertEqual(sm.name, "Apollo 11 – SM")

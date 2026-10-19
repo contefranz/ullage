@@ -1096,8 +1096,11 @@ enum AS506 {
     /// The Saturn V's aerodynamic models, full stack first, then the
     /// spacecraft's: the launch models require their stages, so these come
     /// after them. The CSM's is 68-FM-184 Table I(d)'s drag, 2.0 on 129.5 ft²
-    /// (H), along the wind. The CM's model (track E1's) goes after it.
-    static var aerodynamics: [AerodynamicModel] { launchAerodynamics + [ApolloCSM.dragModel] }
+    /// (H), along the wind; the CM's, once the SM has gone, track E1's
+    /// capsule model.
+    static var aerodynamics: [AerodynamicModel] {
+        launchAerodynamics + [ApolloCSM.dragModel, .apolloCommandModule()]
+    }
 
     /// The launch stack's models, full stack first.
     static var launchAerodynamics: [AerodynamicModel] {
