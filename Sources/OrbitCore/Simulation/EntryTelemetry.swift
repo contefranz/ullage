@@ -20,8 +20,11 @@ extension Simulation {
     ///   Nil without a capsule, or with the air velocity along the vertical.
     /// - Heat flux, for a capsule: Sutton-Graves convective heating at the
     ///   stagnation point of the capsule's `noseRadius`, at the air-relative
-    ///   speed. Telemetry only: nothing ablates.
+    ///   speed. Telemetry only: nothing ablates. The heat load integrates it
+    ///   by the trapezoid rule from one update to the next
+    ///   (`Vessel.entryTelemetryEpoch`).
     func updateEntryTelemetry(_ v: Vessel, snapshot s: SystemSnapshot) {
+        defer { v.entryTelemetryEpoch = s.time }
         let body = v.reference, o = s.orientation(body)
         let atm = atmosphere(of: body)
         var air = v.surfaceVelocity(snapshot: s)
@@ -52,15 +55,19 @@ extension Simulation {
         v.loadFactor = v.sensedAcceleration.length / 9.80665
 
         // Bank angle and heating, for a capsule.
-        guard let capsule = model?.capsule else {
+        var flux = 0.0
+        if let capsule = model?.capsule {
+            v.bankAngle = Self.bankAngle(of: v, air: air, up: body.vertical(at: v.position, orientation: o),
+                                         liftSide: v.liftSide(capsule))
+            let speed = air.length
+            flux = Self.suttonGravesAir * (v.atmosphere.density / capsule.noseRadius).squareRoot() * speed * speed * speed
+        } else {
             v.bankAngle = nil
-            v.heatFlux = 0
-            return
         }
-        v.bankAngle = Self.bankAngle(of: v, air: air, up: body.vertical(at: v.position, orientation: o),
-                                     liftSide: v.liftSide(capsule))
-        let speed = air.length
-        v.heatFlux = Self.suttonGravesAir * (v.atmosphere.density / capsule.noseRadius).squareRoot() * speed * speed * speed
+        if let last = v.entryTelemetryEpoch, s.time - last > 0 {
+            v.heatLoad += 0.5 * (v.heatFlux + flux) * (s.time - last)
+        }
+        v.heatFlux = flux
     }
 
     /// The bank angle (rad, -π...π) of a vessel whose lift side is

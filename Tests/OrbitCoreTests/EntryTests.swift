@@ -130,6 +130,17 @@ final class EntryTests: XCTestCase {
         XCTAssertEqual(v.heatFlux, 1.7415e-4 * (rho / 4.69392).squareRoot() * pow(air.length, 3), accuracy: 1e-6)
         let reference = 1.7415e-4 * (8.283e-5 / 4.69392).squareRoot() * pow(7_500, 3)
         XCTAssertEqual(reference, 308_627, accuracy: 1)
+        // The heat load integrates the flux step by step (the trapezoid
+        // rule): over 20 s of flight it is the sum of the samples (to the
+        // 1e-7 s an epoch resolves in each step).
+        var expected = v.heatLoad, last = v.heatFlux
+        for _ in 0..<1000 {
+            sim.step(0.02)
+            expected += 0.5 * (last + v.heatFlux) * 0.02
+            last = v.heatFlux
+        }
+        XCTAssertGreaterThan(v.heatLoad, 20 * 200_000)
+        XCTAssertEqual(v.heatLoad, expected, accuracy: 1e-5 * expected)
         // Out of the air there is none.
         sim.place(v, geodeticLatitude: 30, longitude: -90, height: 1_100_000, inertialSpeed: 7_300, flightPathAngle: 0,
                   azimuth: 90)

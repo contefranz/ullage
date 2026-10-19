@@ -127,12 +127,12 @@ Computed at the end of every step, after the air and altitude telemetry:
 | `loadFactor` | `sensedAcceleration` / g0, g0 = 9.80665 m/s² | – |
 | `bankAngle` | for a vessel flying a capsule model: the angle about the air-relative velocity from the local up (the ellipsoid normal) projected across it, to the lift side (the CoM's offset from the axis, `Vessel.liftSide`) projected across it; positive with the lift right of the velocity looking along it. Nil without a capsule, or with the air velocity vertical | – |
 | `heatFlux` | Sutton-Graves convective stagnation heating, 1.7415e-4 √(ρ/R_n) V³ W/m², V the air-relative speed (TR R-376, H). R_n = 184.8 in, the heat-shield radius (L: neither 68-FM-184 nor TN D-5399 gives the radius behind its heating). Telemetry only | constant H, R_n L |
-| `heatLoad` | `heatFlux` integrated over time | – |
+| `heatLoad` | `heatFlux` integrated over time, by the trapezoid rule from one update to the next (`Vessel.entryTelemetryEpoch`, track E2's PR 1) | – |
 
 **Checks** (`EntryTests`):
 - Bank geometry at Apollo 7's entry interface: 0 lift up, ±180° lift down, +90° lift right, at α' 0 and 0.4 rad, all to 1e-9. A 10° turn about the air velocity reads +10°. Lift up is heads down. Table I(a)'s −0.11 in Y_A puts the lift side 1.07° left.
 - Load factor: zero coasting above the air; thrust over mass in a burn (to 1e-9); WGS-84 normal gravity at rest at 28.6° N (9.79217 m/s², within 1e-4); C_D = 1.2307 and C_R q S/m at Mach 18 on the flight-consistent calibration.
-- Heat flux at 70 km and 7.9 km/s matches Sutton-Graves on the 1976 density, and is zero above the air.
+- Heat flux at 70 km and 7.9 km/s matches Sutton-Graves on the 1976 density, and is zero above the air. Over 20 s of flight the heat load is the trapezoid sum of the fluxes.
 - Flown uncontrolled through `Simulation` from Apollo 7's entry interface, the CM holds its trim within 2° through peak deceleration. When a lift-down CM has fallen to 40 km, a lift-up one is still above 60 km. This pins the lift side in the full integration.
 
 ## 4. To come (track E1's PR 2)
