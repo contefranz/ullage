@@ -1,0 +1,62 @@
+page,subsection,system,category,item,column,value,unit,note
+5-186,5.21,,text,electrical power discussed in section,,5.8,section,"5.21 intro: usage of all liquid consumables incl. cryogenics; electrical power in section 5.8"
+5-187,5.21.1 Service Propulsion System Propellants,SPS,Loaded,In tanks,Fuel,3632.0,lb,"loadings from gaging system readings and measured densities prior to lift-off"
+5-187,5.21.1 Service Propulsion System Propellants,SPS,Loaded,In tanks,Oxidizer,5903.0,lb,
+5-187,5.21.1 Service Propulsion System Propellants,SPS,Loaded,In lines,Fuel,78.6,lb,
+5-187,5.21.1 Service Propulsion System Propellants,SPS,Loaded,In lines,Oxidizer,123.7,lb,
+5-187,5.21.1 Service Propulsion System Propellants,SPS,Loaded,Total (unlabeled sum line),Fuel,3710.6,lb,sum checks
+5-187,5.21.1 Service Propulsion System Propellants,SPS,Loaded,Total (unlabeled sum line),Oxidizer,6026.7,lb,sum checks
+5-187,5.21.1 Service Propulsion System Propellants,SPS,Consumed,,Fuel,2998.7,lb,
+5-187,5.21.1 Service Propulsion System Propellants,SPS,Consumed,,Oxidizer,4812.4,lb,
+5-187,5.21.1 Service Propulsion System Propellants,SPS,Remaining at separation,,Fuel,711.9,lb,3710.6-2998.7 = 711.9 checks
+5-187,5.21.1 Service Propulsion System Propellants,SPS,Remaining at separation,,Oxidizer,1214.3,lb,"printed '1214:3' (speck beside the decimal point makes it look like a colon); 6026.7-4812.4 = 1214.3 checks"
+5-187,5.21.2 Reaction Control System Propellants,SM RCS,Loaded,Quad A,Fuel,111.3,lb,"consumption calculated from telemetered helium bottle pressure histories (P-V-T)"
+5-187,5.21.2 Reaction Control System Propellants,SM RCS,Loaded,Quad A,Oxidizer,223.7,lb,
+5-187,5.21.2 Reaction Control System Propellants,SM RCS,Loaded,Quad B,Fuel,110.6,lb,
+5-187,5.21.2 Reaction Control System Propellants,SM RCS,Loaded,Quad B,Oxidizer,223.7,lb,
+5-187,5.21.2 Reaction Control System Propellants,SM RCS,Loaded,Quad C,Fuel,110.8,lb,
+5-187,5.21.2 Reaction Control System Propellants,SM RCS,Loaded,Quad C,Oxidizer,225.9,lb,
+5-187,5.21.2 Reaction Control System Propellants,SM RCS,Loaded,Quad D,Fuel,110.6,lb,
+5-187,5.21.2 Reaction Control System Propellants,SM RCS,Loaded,Quad D,Oxidizer,225.1,lb,
+5-187,5.21.2 Reaction Control System Propellants,SM RCS,Loaded,Total (unlabeled sum line),Fuel,443.3,lb,sum checks
+5-187,5.21.2 Reaction Control System Propellants,SM RCS,Loaded,Total (unlabeled sum line),Oxidizer,898.4,lb,sum checks
+5-187,5.21.2 Reaction Control System Propellants,SM RCS,Consumed,,Fuel+Oxidizer (single value centred between columns),943.8,lb,"not split by fuel/oxidizer or by quad"
+5-187,5.21.2 Reaction Control System Propellants,SM RCS,Remaining at separation,,Fuel+Oxidizer (single value centred between columns),397.9,lb,"943.8+397.9 = 1341.7 = 443.3+898.4 checks"
+5-188,5.21.2 Reaction Control System Propellants,CM RCS,Loaded,System A,Fuel,44.4,lb,"consumption calculated from P-V-T relationships"
+5-188,5.21.2 Reaction Control System Propellants,CM RCS,Loaded,System A,Oxidizer,87.6,lb,
+5-188,5.21.2 Reaction Control System Propellants,CM RCS,Loaded,System B,Fuel,44.4,lb,
+5-188,5.21.2 Reaction Control System Propellants,CM RCS,Loaded,System B,Oxidizer,87.5,lb,
+5-188,5.21.2 Reaction Control System Propellants,CM RCS,Loaded,Total (unlabeled sum line),Fuel,88.8,lb,sum checks
+5-188,5.21.2 Reaction Control System Propellants,CM RCS,Loaded,Total (unlabeled sum line),Oxidizer,175.1,lb,sum checks
+5-188,5.21.2 Reaction Control System Propellants,CM RCS,Consumed,System A,Fuel,10.2,lb,
+5-188,5.21.2 Reaction Control System Propellants,CM RCS,Consumed,System A,Oxidizer,18.3,lb,
+5-188,5.21.2 Reaction Control System Propellants,CM RCS,Consumed,System B,Fuel,7.4,lb,
+5-188,5.21.2 Reaction Control System Propellants,CM RCS,Consumed,System B,Oxidizer,13.2,lb,
+5-188,5.21.2 Reaction Control System Propellants,CM RCS,Consumed,Total (unlabeled sum line),Fuel,17.6,lb,sum checks
+5-188,5.21.2 Reaction Control System Propellants,CM RCS,Consumed,Total (unlabeled sum line),Oxidizer,31.5,lb,sum checks
+5-188,5.21.2 Reaction Control System Propellants,CM RCS,Remaining at landing,System A,Fuel,34.2,lb,44.4-10.2 = 34.2 checks
+5-188,5.21.2 Reaction Control System Propellants,CM RCS,Remaining at landing,System A,Oxidizer,69.3,lb,87.6-18.3 = 69.3 checks
+5-188,5.21.2 Reaction Control System Propellants,CM RCS,Remaining at landing,System B,Fuel,34.0,lb,"INCONSISTENT: loaded 44.4 - consumed 7.4 = 37.0, printed 34.0 (clearly '34.0' at 220% zoom). Totals are self-consistent with the printed parts (34.2+34.0 = 68.2; 10.2+7.4 = 17.6) but loaded-consumed total 88.8-17.6 = 71.2 vs printed remaining 68.2"
+5-188,5.21.2 Reaction Control System Propellants,CM RCS,Remaining at landing,System B,Oxidizer,74.3,lb,87.5-13.2 = 74.3 checks
+5-188,5.21.2 Reaction Control System Propellants,CM RCS,Remaining at landing,Total (unlabeled sum line),Fuel,68.2,lb,see System B fuel note
+5-188,5.21.2 Reaction Control System Propellants,CM RCS,Remaining at landing,Total (unlabeled sum line),Oxidizer,143.6,lb,"sum checks; 175.1-31.5 = 143.6 checks"
+5-188,5.21.3 Cryogenics,Cryogenics,Loaded,Tank 1,Hydrogen,26.2,lb,
+5-188,5.21.3 Cryogenics,Cryogenics,Loaded,Tank 1,Oxygen,318.4,lb,
+5-188,5.21.3 Cryogenics,Cryogenics,Loaded,Tank 2,Hydrogen,25.7,lb,
+5-188,5.21.3 Cryogenics,Cryogenics,Loaded,Tank 2,Oxygen,317.1,lb,
+5-188,5.21.3 Cryogenics,Cryogenics,Loaded,Total (unlabeled sum line),Hydrogen,51.9,lb,sum checks
+5-188,5.21.3 Cryogenics,Cryogenics,Loaded,Total (unlabeled sum line),Oxygen,635.5,lb,sum checks
+5-188,5.21.3 Cryogenics,Cryogenics,Consumed,Tank 1,Hydrogen,22.7,lb,
+5-188,5.21.3 Cryogenics,Cryogenics,Consumed,Tank 1,Oxygen,227.9,lb,
+5-188,5.21.3 Cryogenics,Cryogenics,Consumed,Tank 2,Hydrogen,22.0,lb,
+5-188,5.21.3 Cryogenics,Cryogenics,Consumed,Tank 2,Oxygen,226.3,lb,
+5-188,5.21.3 Cryogenics,Cryogenics,Consumed,Total (unlabeled sum line),Hydrogen,44.7,lb,sum checks
+5-188,5.21.3 Cryogenics,Cryogenics,Consumed,Total (unlabeled sum line),Oxygen,454.2,lb,"sum checks; no 'remaining' row printed for cryogenics"
+5-189,5.21.4 Water,Water,Loaded,Potable water tank,Water,21,lb,
+5-189,5.21.4 Water,Water,Loaded,Waste water tank,Water,40,lb,
+5-189,5.21.4 Water,Water,Produced inflight,Fuel cells,Water,394,lb,
+5-189,5.21.4 Water,Water,Produced inflight,LiOH,Water,59,lb,
+5-189,5.21.4 Water,Water,Dumped overboard,,Water,359,lb,
+5-189,5.21.4 Water,Water,Evaporated,,Water,77,lb,
+5-189,5.21.4 Water,Water,Remaining postflight,Potable water tank,Water,37,lb,
+5-189,5.21.4 Water,Water,Remaining postflight,Waste water tank,Water,30,lb,"balance: in 21+40+394+59 = 514; out 359+77+37+30 = 503; 11 lb unaccounted (presumably crew consumption, which the text mentions but the table does not list)"

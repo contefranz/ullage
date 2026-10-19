@@ -18,7 +18,7 @@ how it was read, and how the two readers' results were reconciled.
 - Two independent readers read every page: reader A (the session that wrote
   this log) and reader B (a separate agent given only the page images, with
   no access to reader A's file or to any text layer). Their raw readings are
-  kept under `readings/<document>/reader-A.txt` and `reader-B.txt`.
+  kept under `readings/<document>/reader-A/` and `reader-B/`.
 - Disagreements were settled on an enlarged crop of the cell, then by the
   document's own arithmetic (totals, ratios, a value printed twice). Where the
   print itself is wrong, the CSV keeps the printed value and gives the
@@ -27,10 +27,10 @@ how it was read, and how the two readers' results were reconciled.
   print `0 failure(s)`.
 
 **Grades.** Every CSV row carries one:
-- **H**: both readers read the same digits and an internal check closes (a
-  sum, a ratio, a second statement elsewhere in the document);
+- **H**: both readers read the same digits on a clean print, and every check
+  that applies (a sum, a ratio, a value printed twice) closes;
 - **M**: both readers agree, but the value needed interpretation (a misprint,
-  a missing sign or unit), or nothing checks it;
+  a missing sign or unit), or a check does not close;
 - **L**: uncertain.
 
 The grades rate the transcription. Preflight documents (68-FM-184) describe
@@ -47,6 +47,8 @@ a plan; the Mission Reports describe the flight.
 | key | document | copy read | bytes | sha256 |
 |---|---|---|---|---|
 | 68-FM-184 | MSC Internal Note 68-FM-184, *Apollo 7 Spacecraft Operational Trajectory*, Rev. 1, Vol. I (31 Jul 1968) | https://ibiblio.org/apollo/Documents/HSI-209546.pdf | 7,862,903 | `68d0f62b3851bf08f6517600610a9141144f61a4f211abc7b7805584f4b13d1d` |
+| A7 MR | MSC-PA-R-68-15, *Apollo 7 Mission Report* (Dec 1968) | https://archive.org/download/apollo-7-mission-report/apollo-7-mission-report.pdf (raster, read) | 14,156,749 | `740743e38fd97898d4f5f221a2671f366abdd943e9c8f3b4e1d59618342d13e0` |
+| | same, ClearScan copy (pages found with it, no values read) | https://www.apollojournals.org/alsj/a410/A07_MissionReport.pdf | 8,768,701 | `c06d973032b9ca19eea672a96f97b195b0e0a21d1d32675b9cddb1c6f3ad529f` |
 
 All copies retrieved 2026-10-19.
 
@@ -58,6 +60,11 @@ All copies retrieved 2026-10-19.
 | `68fm184_table1bcd_csm.csv` | Table I(b)-(d): SPS and SM RCS performance, CSM weights, drag coefficient and area, Earth and atmosphere constants | final |
 | `68fm184_table8i_9_deorbit_entry.csv` | Table VIII(i): the deorbit burn's target load (T_ig, ΔV, weight, trims, REFSMMAT); Table IX: conditions at deorbit and at 400,000 ft | final |
 | `68fm184_sec5_events.csv` | §5.1.4 (CSM/S-IVB separation) and §5.4 (deorbit, preentry, entry, targeting, heating, parachute times) | final |
+| `a07_mr_table_a5_1.csv` | Apollo 7 Table A.5-I: weight, CG and full inertia tensor at 24 events, lift-off to landing | final |
+| `a07_mr_table_2_1.csv` | Apollo 7 Table 2-I: sequence of events, planned and actual GET | final |
+| `a07_mr_table_3_3.csv` | Apollo 7 Table 3-III: ignition and cutoff states of the 13 maneuvers, planned and actual | final |
+| `a07_mr_sec5_16_entry.csv` | Apollo 7 §5.16: CM/SM separation rates, entry interface, 0.05 g and 0.2 g, bank, landing points; EMS ΔV counter | final |
+| `a07_mr_sec5_21_consumables.csv` | Apollo 7 §5.21: SPS, SM RCS (per quad), CM RCS (per system), cryogenics and water: loaded, consumed, remaining | final |
 
 ## 68-FM-184 (Apollo 7 Spacecraft Operational Trajectory)
 
@@ -130,3 +137,125 @@ misprints in Table IX independently.
   826 s to EI, to landing at 10:20:09:53.
 - This is the preflight plan. Apollo 7 flew SPS-8 at 259:39:16.3-28.2 GET,
   from 188 n mi, not this table's 171.7 n mi (the Mission Report CSVs).
+
+## Apollo 7 Mission Report (MSC-PA-R-68-15)
+
+**The copy.** The apollojournals.org PDF named in the design reports is an
+Acrobat ClearScan file: its pages are synthesised fonts traced from the scan,
+and its text layer garbles digits. The design reports' "garbled rows" of Table
+A.5-I come from that layer; the traced glyphs mostly look right. The
+archive.org copy holds the raster scan itself, 240 dpi bilevel, and every
+value here was read from it. Its page numbering matches the ClearScan copy.
+
+Pages read (PDF): 29-30 (Table 2-I), 44-50 (Table 3-III, sideways), 167-169
+and 171-172 (§5.16), 239-242 (§5.21), 389-390 (§A.5 and Table A.5-I,
+sideways). Pages 31-33 hold Table 2-II, which was not read.
+
+**Readers.** Readers A and B agree on every value:
+- Table A.5-I: 240 cells;
+- Table 2-I: 92 times;
+- Table 3-III: 416 cells (13 maneuver blocks);
+- §5.16 and §5.21: every number.
+
+**The rows the design report asked to re-read** (A.5-I rows 7-9, 12, 16, 17
+and 21, garbled in the text layer). On the image, both readers read:
+- row 7: I_xx 17,446;
+- row 8: Y 0.9, Z 6.3;
+- row 9: weight 29,780, Z 6.3;
+- row 12: weight 25,077, Y −0.7, Z 7.0;
+- row 16: X 972.9, Z 6.9;
+- row 17: I_yy 43,748;
+- row 21: Z 5.9.
+
+Two cells differ from the values the design reports carried:
+- **Row 18 I_yy is 40,971**, not 40,911.
+- **Row 9's weight is 29,780.** The 8 has a broken lower-left stroke. 29,730
+  would make the spacecraft gain 1 lb across SPS-4, and the weight drops
+  across the eight SPS burns sum to 7,809 lb against the 7,811.1 lb of SPS
+  propellant §5.21 says was consumed (7,759 lb with 29,730).
+
+Row 2's Y_A has a speck at baseline height before 1.2; it is not a minus sign,
+which sits at mid-height.
+
+**Checks** (`tools/check_apollo_data.py`):
+- **Table A.5-I:**
+  - The weight never increases down the table.
+  - Each SPS burn longer than 5 s drops 64.5-73.9 lb/s of Table 2-I burn
+    time, around 68-FM-184's 67.49 lb/s; the excess is RCS ullage.
+  - The drops across the eight SPS burns sum to 7,809 lb, against 7,811.1 lb
+    consumed (§5.21).
+- **The SM at CM/SM separation.** Row 18 − row 19 = 11,089 lb. 68-FM-184's
+  preflight SM, less the SM RCS and cryogenics consumed and plus the SPS
+  propellant remaining (§5.21), gives 11,087.5 lb.
+- **§5.21:** every sum line closes, and loaded − consumed = remaining for
+  the SPS, the SM RCS and CM RCS system A. The exception is below.
+- **Table 3-III:** the ft and n mi altitudes agree within 0.022 n mi. Its SPS
+  times agree with Table 2-I except the two listed below.
+- **§5.16:** 25,846.4 − 25,844.2 = the stated 2.2 ft/s, and −2.072 against
+  −2.063 is the stated 0.009°.
+
+**Misprints and disagreements inside the report** (values kept as printed):
+1. **SPS-8 actual ignition.** Table 3-III prints 259:31:16.3; it is
+   259:39:16.3 (Table 2-I, and the position matches the planned 259:39:15.9).
+   The `si` column uses 259:39:16.3 (M).
+2. **SPS-1 actual ignition longitude.** Table 3-III prints 107.7, east of its
+   own cutoff (107.5) on an eastbound pass; probably 106.7 (M).
+3. **Second phasing maneuver actual longitudes.** −119.41 to −117.10 is 2.31°
+   in 17.6 s, against 1.26° planned and about 1.3° from the orbital rate. One
+   of the two is probably 1° off (M; reader B's catch).
+4. **SPS-5 ignition heading.** Planned 75.46 and actual 76.46 differ by
+   exactly 1° while the position agrees to 0.03° (M).
+5. **Times that differ between Table 2-I and Table 3-III** (M in both
+   tables):
+   - SPS-1 actual cutoff: 26:25:05.7 against 26:25:05.1;
+   - SPS-4 actual ignition: 120:43:00.5 against 120:43:00.4.
+6. **CM RCS system B fuel.** Loaded 44.4 − consumed 7.4 = 37.0, but the
+   remaining fuel is printed 34.0, and the totals (88.8 − 17.6 = 71.2 against
+   68.2) inherit the gap. The four rows involved are graded M.
+7. **Water.** In (514 lb) and out (503 lb) differ by 11 lb, presumably what
+   the crew drank; the table lists no consumption.
+8. **The ClearScan text layer** prints the 0.05 g time as `259:55:31\`; the
+   image reads 259:55:38.
+
+Reader B also noted, without a misprint to resolve:
+- the separation maneuver's actual altitude falls 2,247 ft in 5.4 s with a
+  positive flight-path angle;
+- SPS-6's actual ignition altitude is about 1,300 ft above the planned value
+  and both cutoffs.
+
+**Notes for the tracks.**
+- **Mass properties.** Table A.5-I is in Apollo axes (X_A, Y_A, Z_A, station
+  inches). The report does not say whether its products of inertia are
+  +Σ m x y or −Σ m x y, so compare them qualitatively until that is settled.
+  An SPS-maneuver row is the mass at ignition; the Coast row after it is the
+  mass after the burn.
+- **The CM rows for E2:**
+
+  | event | weight (lb) |
+  |---|---|
+  | after separation | 12,364 |
+  | entry interface | 12,356 |
+  | Mach 10 | 12,277 |
+  | drogue deploy | 11,936 |
+  | main deploy | 11,855 |
+  | landing | 11,409 |
+
+- **As flown (Table 2-I actuals).**
+  - EI at 259:53:27;
+  - 0.05 g at 259:55:38 (§5.16), 131 s after EI;
+  - 0.2 g at 259:56:06;
+  - drogues at 260:03:23, 596 s after EI;
+  - mains at 260:04:13, so 50 s on the drogues;
+  - landing at 260:09:03, so 290 s on the mains and 936 s from EI to landing.
+
+  68-FM-184's plan had 53 s, 285 s and 963 s.
+- **Entry interface.** The last pre-entry plan for EI was 25,844.2 ft/s and
+  −2.063°; the onboard computer gave 25,846.4 ft/s and −2.072°. That is not
+  68-FM-184's preflight 25,850.3 ft/s and −1.759°: the deorbit was flown from
+  188 n mi, not 171.7.
+- **Bank.** The crew flew a 55° roll-left backup bank until the CMC's first
+  non-zero command (−15°) at about 202,000 ft.
+- **Landing.** The recovery forces put it at 27.54° N, 64.07° W, and the
+  reconstruction at 27.64° N, 64.15° W.
+- **The EMS ΔV counter** measured X-axis ΔV for every maneuver and cut off
+  the SPS burns flown under SCS control (§5.16.4): the device track C models.

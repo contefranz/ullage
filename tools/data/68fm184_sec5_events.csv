@@ -11,10 +11,10 @@
 # elapsed time from Apollo 7's range zero (planned lift-off), written by the
 # document as days:hours:minutes:seconds; si gives it in seconds.
 # Read by two independent readers: no disagreement.
-# Grades: H = both readers read the same digits and an internal check closes
-# (sum, ratio, orthonormality, a second statement elsewhere in the document);
-# M = both readers agree but the value needed interpretation (a misprint, a
-# missing sign or unit) or nothing checks it; L = uncertain. This is a preflight
+# Grades: H = both readers read the same digits on a clean print and every
+# check that applies (a sum, a ratio, a value printed twice) closes; M = both
+# readers agree, but the value needed interpretation (a misprint, a missing
+# sign or unit) or a check does not close; L = uncertain. This is a preflight
 # operational trajectory: the grades rate the transcription, not how well the
 # plan matches what Apollo 7 flew (the Mission Report CSVs hold that).
 section,parameter,value,unit,si,si_unit,grade,note

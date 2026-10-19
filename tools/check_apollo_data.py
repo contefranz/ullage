@@ -96,8 +96,81 @@ def fm184():
           abs(31.7 + dip - 49.3) < 0.2, f"dip {dip:.2f} deg")
 
 
+# -------------------------------------------------- Apollo 7 Mission Report
+def a7():
+    a5 = rows("a07_mr_table_a5_1.csv")
+    w = [num(r["weight_lb"]) for r in a5]
+    check("A7 A.5-I: the weight never increases from row to row", all(x >= y for x, y in zip(w, w[1:])))
+
+    t21 = {r["event"]: r for r in rows("a07_mr_table_2_1.csv")}
+    ordinal = ("First", "Second", "Third", "Fourth", "Fifth", "Sixth", "Seventh", "Eighth")
+    drops = 0.0
+    for n, o in enumerate(ordinal):
+        before, after = a5[2 + 2 * n], a5[3 + 2 * n]          # SPS-n ignition row and the coast row after it
+        dur = float(t21[f"{o} service propulsion cutoff"]["actual_s"]) - float(t21[f"{o} service propulsion ignition"]["actual_s"])
+        d = num(before["weight_lb"]) - num(after["weight_lb"])
+        drops += d
+        if dur > 5:
+            check(f"A7 A.5-I: SPS-{n + 1} weight drop / Table 2-I burn time near 68-FM-184's 67.49 lb/s (RCS ullage included)",
+                  0.95 < d / dur / 67.49 < 1.12, f"{d:.0f} lb in {dur:.1f} s = {d / dur:.1f} lb/s")
+    c = {(r["system"], r["item"], r["component"], r["substance"]): num(r["value_lb"])
+         for r in rows("a07_mr_sec5_21_consumables.csv")}
+    sps = c[("SPS", "consumed", "", "fuel")] + c[("SPS", "consumed", "", "oxidizer")]
+    check("A7 A.5-I against 5.21: the weight drops across the eight SPS burns = SPS propellant consumed",
+          abs(drops - sps) < 0.002 * sps, f"{drops:.0f} lb against {sps:.1f} lb")
+
+    # The SM left at CM/SM separation (rows 18 - 19) against 68-FM-184's
+    # preflight SM (with RCS, without SPS propellant) less the SM RCS and
+    # cryogenics consumed, plus the SPS propellant remaining (5.21).
+    sm = num(a5[17]["weight_lb"]) - num(a5[18]["weight_lb"])
+    fm = {r["parameter"]: num(r["value"]) for r in rows("68fm184_table1bcd_csm.csv")}
+    est = (fm["SM (with RCS)"] - c[("SM RCS", "consumed", "total", "fuel+oxidizer")]
+           - c[("cryogenics", "consumed", "total", "hydrogen")] - c[("cryogenics", "consumed", "total", "oxygen")]
+           + c[("SPS", "remaining at separation", "", "fuel")] + c[("SPS", "remaining at separation", "", "oxidizer")])
+    check("A7 A.5-I SM at separation = 68-FM-184 SM - RCS and cryogenics used + SPS remaining (5.21)",
+          abs(sm - est) < 25, f"{sm:.0f} lb against {est:.1f} lb")
+
+    # 5.21: sum lines and loaded - consumed = remaining.
+    for system, subs in (("SPS", ("fuel", "oxidizer")), ("SM RCS", ("fuel", "oxidizer")), ("CM RCS", ("fuel", "oxidizer")),
+                         ("cryogenics", ("hydrogen", "oxygen"))):
+        for s in subs:
+            parts = [v for (sy, it, co, su), v in c.items() if sy == system and it == "loaded" and su == s and co != "total"]
+            check(f"A7 5.21 {system} {s}: loaded parts sum to the total", abs(sum(parts) - c[(system, "loaded", "total", s)]) < 0.05)
+    for s in ("fuel", "oxidizer"):
+        left = c[("SPS", "loaded", "total", s)] - c[("SPS", "consumed", "", s)] - c[("SPS", "remaining at separation", "", s)]
+        check(f"A7 5.21 SPS {s}: loaded - consumed = remaining", abs(left) < 0.05)
+        for sysn in ("system A", "system B"):
+            left = c[("CM RCS", "loaded", sysn, s)] - c[("CM RCS", "consumed", sysn, s)] - c[("CM RCS", "remaining at landing", sysn, s)]
+            known = (sysn, s) == ("system B", "fuel")
+            check(f"A7 5.21 CM RCS {sysn} {s}: loaded - consumed = remaining"
+                  + (" (known not to close as printed: graded M)" if known else ""),
+                  abs(left - (3.0 if known else 0)) < 0.05, f"{left:+.1f} lb")
+    rcs = c[("SM RCS", "loaded", "total", "fuel")] + c[("SM RCS", "loaded", "total", "oxidizer")]
+    left = rcs - c[("SM RCS", "consumed", "total", "fuel+oxidizer")] - c[("SM RCS", "remaining at separation", "total", "fuel+oxidizer")]
+    check("A7 5.21 SM RCS: loaded - consumed = remaining", abs(left) < 0.05)
+
+    # Table 3-III: the ft and n mi altitudes, and its times against Table 2-I.
+    t33 = rows("a07_mr_table_3_3.csv")
+    alts = [r for r in t33 if r["condition"] == "Altitude"]
+    worst = max(abs(float(a[k + "_si"]) - float(b[k + "_si"])) / 1852
+                for a, b in zip(alts[0::2], alts[1::2]) for k in ("ign_planned", "ign_actual", "cut_planned", "cut_actual") if a[k])
+    check("A7 3-III: ft and n mi altitudes agree", worst < 0.03, f"worst {worst:.3f} n mi")
+    mismatch = []
+    for n, o in enumerate(ordinal):
+        r = next(r for r in t33 if r["maneuver"] == f"{o} service propulsion maneuver" and r["condition"] == "Time")
+        for col, ev in (("ign_actual", "ignition"), ("cut_actual", "cutoff")):
+            if abs(float(r[col + "_si"]) - float(t21[f"{o} service propulsion {ev}"]["actual_s"])) > 0.05:
+                mismatch.append(f"SPS-{n + 1} {ev}")
+    check("A7 3-III against 2-I: SPS actual times agree except SPS-1 cutoff and SPS-4 ignition (printed so; graded M)",
+          mismatch == ["SPS-1 cutoff", "SPS-4 ignition"], ", ".join(mismatch))
+
+    e = {r["parameter"]: r for r in rows("a07_mr_sec5_16_entry.csv")}
+    dv = num(e["Entry interface velocity, onboard computer"]["value"]) - num(e["Entry interface velocity, planned"]["value"])
+    check("A7 5.16: entry velocity 2.2 ft/s above the plan", abs(dv - 2.2) < 1e-6, f"{dv:.1f} ft/s")
+
+
 if __name__ == "__main__":
-    for fn in (fm184,):
+    for fn in (fm184, a7):
         fn()
     print(f"{len(failures)} failure(s)")
     sys.exit(1 if failures else 0)
