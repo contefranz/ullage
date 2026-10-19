@@ -22,11 +22,11 @@ extension VesselLibrary {
     /// x 0.0254 m), whose y and z are the Saturn Y and Z: +z towards Position
     /// I, +y towards Position IV. Engines 1-4 are outboard under fins A-D, on
     /// the diagonals between Positions I-II, II-III, III-IV and IV-I, and
-    /// engine 5 is the centre engine.
+    /// engine 5 is the centre engine. `dressSaturnV` gives the parts their
+    /// shapes.
     public static func saturnV(name: String = "Apollo 11") -> Vessel {
         typealias D = AS506
         let lb = D.pound
-        let white = (0.9, 0.9, 0.88), dark = (0.25, 0.25, 0.27), grey = (0.72, 0.72, 0.74)
 
         /// A part spanning construction x `bottom...top` (m), placed at its
         /// middle. Its dry CoM is at `dryCenterOfMass` (construction x) if
@@ -60,10 +60,6 @@ extension VesselLibrary {
         func local(_ p: VesselPart, _ x: Double, _ y: Double = 0, _ z: Double = 0) -> Vec3 {
             Vec3(x - p.offset.x, y, z)
         }
-        func frustum(_ p: VesselPart, _ bottom: Double, _ top: Double, _ r0: Double, _ r1: Double,
-                     _ color: (Double, Double, Double), y: Double = 0, z: Double = 0) -> VisualShape {
-            .frustum(from: local(p, bottom, y, z), length: top - bottom, baseRadius: r0, topRadius: r1, color: color)
-        }
         /// A settled column holding `load` kg, whose full-load centroid is at
         /// `centroid` (STA, in). Any `lines` (kg at a station on the axis) are
         /// part of the load, below the tank proper, which the engines empty
@@ -81,12 +77,11 @@ extension VesselLibrary {
         }
         /// Five engines on one bipropellant feed, gimballed at `gimbal`: engines
         /// 1-4 at `radius` on the diagonals under fins A-D, with `actuators`;
-        /// engine 5 fixed on the axis. Nozzle shapes run from the exit plane
-        /// `exit` to the gimbal.
+        /// engine 5 fixed on the axis.
         func cluster(_ p: VesselPart, rating: EngineRating, schedule: PerformanceSchedule? = nil,
-                     transients: EngineTransients, gimbal: Double, exit: Double, radius: Double,
-                     exitArea: Double, oxidizer: PropellantTank, fuel: PropellantTank, actuators: [GimbalActuator]) {
-            let d = radius / 2.squareRoot(), exitRadius = (exitArea / Double.pi).squareRoot()
+                     transients: EngineTransients, gimbal: Double, radius: Double,
+                     oxidizer: PropellantTank, fuel: PropellantTank, actuators: [GimbalActuator]) {
+            let d = radius / 2.squareRoot()
             for (i, (y, z)) in [(-d, d), (-d, -d), (d, -d), (d, d), (0, 0)].enumerated() {
                 let e = Thruster(name: "\(p.name) engine \(i + 1)", position: local(p, gimbal, y, z),
                                  direction: .unitX, rating: rating,
@@ -95,7 +90,6 @@ extension VesselLibrary {
                 e.schedule = schedule
                 e.transients = transients
                 p.thrusters.append(e)
-                p.shapes.append(frustum(p, exit, gimbal, exitRadius, 0.3 * exitRadius, dark, y: y, z: z))
             }
         }
         /// Solid motors at construction x `x`, at `radius` in the directions
@@ -162,10 +156,9 @@ extension VesselLibrary {
         let sICRP1 = tank("S-IC RP-1", in: sIC, load: D.sICRP1AtFirstMotion, centroid: D.sICRP1Centroid,
                           density: D.rp1Density, lines: D.sICRP1Lines)
         sIC.tanks = [sICLOX, sICRP1]
-        sIC.shapes = [frustum(sIC, D.station(D.f1GimbalStation), D.station(D.sICTop), body, body, white)]
         cluster(sIC, rating: D.f1, schedule: D.f1Schedule, transients: D.f1Transients,
-                gimbal: D.station(D.f1GimbalStation), exit: D.station(D.baseStation),
-                radius: D.f1OutboardRadius * D.inch, exitArea: D.f1ExitArea, oxidizer: sICLOX, fuel: sICRP1,
+                gimbal: D.station(D.f1GimbalStation), radius: D.f1OutboardRadius * D.inch,
+                oxidizer: sICLOX, fuel: sICRP1,
                 actuators: actuators(range: D.f1GimbalRange, rate: D.f1GimbalRate))
         // Eight retros, a pair in each fairing, side by side about its fin.
         let pair = D.sICRetroPairOffset * D.degree
@@ -189,7 +182,6 @@ extension VesselLibrary {
                               dryMass: D.sICSIIInterstageLarge, dryCenterOfMass: interstageMass.com,
                               dragCoefficient: D.bodyDragCoefficient, staging: .event(2))
         interstage.dryInertia = interstageMass.inertia
-        interstage.shapes = [frustum(interstage, D.station(D.sICTop), D.station(D.sIIAftSkirt), body, body, white)]
         solids("S-II ullage", on: interstage, at: positions, x: D.station(D.sIIUllageMotorStation),
                radius: D.sIIUllageMotorRadius,
                thrust: D.sIIUllageMotorThrust * D.poundForce, burn: D.sIIUllageMotorBurnTime,
@@ -209,11 +201,10 @@ extension VesselLibrary {
         let sIILH2 = tank("S-II LH2", in: sII, load: D.sIILH2Load * lb, centroid: D.sIILH2Centroid,
                           density: D.lh2Density)
         sII.tanks = [sIILOX, sIILH2]
-        sII.shapes = [frustum(sII, D.station(D.sIIAftSkirt), D.station(D.sIITop), body, body, white)]
         // The J-2s start at PU null; the IU steps them to high and low EMR.
         cluster(sII, rating: D.sIIJ2Start, transients: D.sIIJ2Transients,
-                gimbal: D.station(D.sIIJ2GimbalStation), exit: D.station(D.sIIJ2ExitStation),
-                radius: D.sIIOutboardCircle / 2 * D.foot, exitArea: D.j2ExitArea, oxidizer: sIILOX, fuel: sIILH2,
+                gimbal: D.station(D.sIIJ2GimbalStation), radius: D.sIIOutboardCircle / 2 * D.foot,
+                oxidizer: sIILOX, fuel: sIILH2,
                 actuators: actuators(range: D.sIIJ2GimbalRange, rate: D.sIIJ2GimbalRate))
 
         // The aft interstage leaves with the S-II, with the S-IVB's aft frame
@@ -229,8 +220,6 @@ extension VesselLibrary {
                                  dryCenterOfMass: aftInterstageMass.com,
                                  dragCoefficient: D.bodyDragCoefficient, staging: .event(4))
         aftInterstage.dryInertia = aftInterstageMass.inertia
-        aftInterstage.shapes = [frustum(aftInterstage, D.station(D.sIITop), D.station(D.sIVBAftSkirt), body, upper,
-                                        white)]
         sII.separationSpeed = 0
         aftInterstage.separationSpeed = 0
         solids("S-II retro", on: aftInterstage, at: diagonals, x: D.station(D.sIIRetroStation), radius: body,
@@ -258,7 +247,6 @@ extension VesselLibrary {
         let sIVBLH2 = tank("S-IVB LH2", in: sIVB, load: D.sIVBLH2Load * lb, unusable: D.sIVBLH2Unusable * lb,
                            centroid: D.sIVBLH2Centroid, density: D.lh2Density)
         sIVB.tanks = [sIVBLOX, sIVBLH2]
-        let j2ExitRadius = (D.j2ExitArea / Double.pi).squareRoot()
         let j2 = Thruster(name: "S-IVB engine", position: local(sIVB, D.station(D.sIVBJ2GimbalStation)),
                           direction: .unitX, rating: D.sIVBJ2Burn1,
                           feed: .bipropellant(oxidizer: sIVBLOX, fuel: sIVBLH2), groups: [.main],
@@ -266,9 +254,6 @@ extension VesselLibrary {
                           gimbal: actuators(range: D.sIVBJ2GimbalRange, rate: D.sIVBJ2GimbalRate))
         j2.transients = D.sIVBJ2Transients
         sIVB.thrusters.append(j2)
-        sIVB.shapes = [frustum(sIVB, D.station(D.sIVBAftSkirt), D.station(D.sIVBTop), upper, upper, white),
-                       frustum(sIVB, D.station(D.sIVBJ2ExitStation), D.station(D.sIVBJ2GimbalStation), j2ExitRadius,
-                               0.3 * j2ExitRadius, dark)]
         // APS groups follow the sign of each engine's torque about a point on
         // the axis 8 m ahead of the modules, near the CoM of the S-IVB stack
         // (h 80.1 at ignition, 81.1 at insertion).
@@ -294,13 +279,10 @@ extension VesselLibrary {
         let iu = part("IU", D.station(D.sIVBTop), D.station(D.iuTop), radius: upper, dryMass: D.iu * lb,
                       dryCenterOfMass: iuMass.com, staging: .fixed)
         iu.dryInertia = iuMass.inertia
-        iu.shapes = [frustum(iu, D.station(D.sIVBTop), D.station(D.iuTop), upper, upper, grey)]
 
         let sla = part("SLA", D.station(D.iuTop), D.apolloStation(D.slaTop), radius: upper, dryMass: D.sla,
                        staging: .fixed)
-        sla.shapes = [frustum(sla, D.station(D.iuTop), D.apolloStation(D.slaTop), upper, csmRadius, white)]
 
-        // Inside the SLA, so it has no shapes.
         let lm = part("LM", D.height(D.lmBottomHeight), D.height(D.lmTopHeight), radius: D.lmRadius,
                       dryMass: D.lm, dryCenterOfMass: D.station(D.lmCenterOfMass), staging: .fixed)
 
@@ -311,10 +293,6 @@ extension VesselLibrary {
         let csm = part("CSM", D.apolloStation(D.slaTop), D.apolloStation(D.cmApex), radius: csmRadius,
                        dryMass: D.csm,
                        dryCenterOfMass: ((D.csm - cm) * smMid + cm * cmMid) / D.csm, staging: .fixed)
-        csm.shapes = [frustum(csm, D.apolloStation(D.slaTop), D.apolloStation(D.smTop), csmRadius, csmRadius,
-                              (0.7, 0.72, 0.75)),
-                      frustum(csm, D.apolloStation(D.smTop), D.apolloStation(D.cmApex), csmRadius,
-                              D.cmApexDiameter / 2, (0.8, 0.8, 0.8))]
 
         // LES with the boost protective cover; tower, motor and nose are crude.
         // Its tower-jettison motor, not a spring, throws it clear: the thrust
@@ -347,9 +325,6 @@ extension VesselLibrary {
         tjm.trigger = .ownSeparation
         tjm.transients = D.towerJettisonStart
         les.thrusters = [tjm]
-        les.shapes = [frustum(les, lesBottom, lesBottom + 3.5, 0.66, 0.33, grey),
-                      frustum(les, lesBottom + 3.5, lesTop - 1, 0.33, 0.33, white),
-                      frustum(les, lesTop - 1, lesTop, 0.33, 0.05, white)]
 
         let stack = Vessel(name: name, parts: [sIC, interstage, sII, aftInterstage, sIVB, ullageRockets, iu, sla, lm,
                                                csm, les],
@@ -357,6 +332,7 @@ extension VesselLibrary {
         // The IU's APS switching logic flies the APS in every mode but kill rotation.
         stack.phasePlane = D.apsLaw
         stack.aerodynamics = D.aerodynamics
+        dressSaturnV(stack)
         return stack
     }
 
