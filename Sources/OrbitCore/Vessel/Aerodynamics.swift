@@ -42,7 +42,8 @@ public struct LinearTable: Equatable {
 ///   planform centroid of the vessel's parts.
 ///
 /// Roll is symmetric, the centre of mass is on the axis, and there is no
-/// damping derivative.
+/// damping derivative. A capsule (`capsule`) flies its own model instead,
+/// with the centre of mass off the axis.
 public struct AerodynamicModel {
     public var name: String
     /// The model applies while all these parts are aboard.
@@ -65,6 +66,14 @@ public struct AerodynamicModel {
     /// A drag coefficient along the relative wind instead (`forebodyAxial`
     /// on S): no lift and no moment, as for a body in free-molecular flow.
     public var dragAlongWind: Bool
+    /// A blunt capsule's lifting aerodynamics in place of all the above, on
+    /// its own reference area and diameter (the Apollo command module).
+    public var capsule: CapsuleAerodynamics?
+    /// Where the vessel's construction origin sits in its frame
+    /// (`Vessel.structureOrigin`), so that a capsule's axis is placed
+    /// relative to a centre of mass off it. `Vessel.activeAerodynamics`
+    /// sets it.
+    public var structureOrigin = Vec3.zero
 
     public struct BaseFlow {
         /// Effective base area as a fraction of S.
@@ -117,6 +126,9 @@ public struct AerodynamicModel {
     /// `planform` is the vessel's side area and its centroid's x.
     public func loads(air u: Vec3, atmosphere: AtmosphereState, altitude: Double, powered: Bool,
                       centerOfPressureX: (Double) -> Double, planform: (area: Double, x: Double)) -> Loads {
+        if let capsule {
+            return capsule.loads(air: u, atmosphere: atmosphere, structureOrigin: structureOrigin)
+        }
         var out = Loads()
         let speed = u.length
         guard speed > 1e-6, atmosphere.density > 0 else { return out }
@@ -154,11 +166,14 @@ public struct AerodynamicModel {
 }
 
 extension Vessel {
-    /// The first of `aerodynamics` whose parts are all aboard; nil flies the
-    /// generic drag of `dragArea`.
+    /// The first of `aerodynamics` whose parts are all aboard, placed on the
+    /// vessel's construction origin; nil flies the generic drag of
+    /// `dragArea`.
     public var activeAerodynamics: AerodynamicModel? {
         let names = Set(parts.map(\.name))
-        return aerodynamics.first { $0.requiredParts.allSatisfy(names.contains) }
+        guard var model = aerodynamics.first(where: { $0.requiredParts.allSatisfy(names.contains) }) else { return nil }
+        model.structureOrigin = structureOrigin
+        return model
     }
 
     /// Side area of the parts' bounding cylinders (m^2) and its centroid's

@@ -133,9 +133,10 @@ final class AtmosphereTests: XCTestCase {
         var last = Double.infinity
         for km in stride(from: 0.0, through: 1000, by: 5) {
             let rho = atm.state(altitude: km * 1000).density
-            XCTAssertLessThan(rho, last * 1.12, "density jump at \(km) km")   // allow the 86 km model seam
+            XCTAssertLessThan(rho, last, "density jump at \(km) km")
             last = rho
         }
-        XCTAssertEqual(atm.state(altitude: 400_000).density, 3.725e-12, accuracy: 1e-14)
+        // U.S. Standard Atmosphere 1976, Table I (UpperAtmosphereTests has the rest).
+        XCTAssertEqual(atm.state(altitude: 400_000).density, 2.803e-12, accuracy: 1e-16)
     }
 }
