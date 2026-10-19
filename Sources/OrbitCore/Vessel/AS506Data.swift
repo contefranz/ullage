@@ -302,11 +302,13 @@ enum AS506 {
     /// GE504's nominal IGM computation cycle (Table 5-I Δt).
     static let igmCycle = 1.7                  // s; GE504 (H for SA-504)
     /// τ2 at the EMR shift command and τ3 at S-IVB 90 % thrust: the model's
-    /// stack mass then over the flow of four low-EMR J-2s and of the S-IVB
-    /// J-2 (from the model's flight before the solid motors, rounded to
-    /// 0.5 s; τ3 would now be 773.1 s, and the IGM measures it once the
-    /// S-IVB thrusts).
-    static let igmTau2 = 347.5                 // s, model
+    /// stack mass then over the flow of four low-EMR J-2s (at the valve
+    /// step: 254,002 kg over 735.34 kg/s, 345.42 s) and of the S-IVB J-2
+    /// (from the model's flight before the solid motors; it would now be
+    /// 772.7 s, and the IGM measures it once the S-IVB thrusts), rounded to
+    /// 0.5 s. Vex2, the low EMR's thrust over flow, is its Isp, which the
+    /// decline keeps (`igmPresettings`).
+    static let igmTau2 = 345.5                 // s, model
     static let igmTau3 = 773.5                 // s, model
     /// T2 from the shift command to S-II OECO, Tc from S-II cutoff (T4) to
     /// S-IVB 90 % thrust, and the first T3′ estimate: AS-506's (494.8 to
