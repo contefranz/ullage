@@ -14,6 +14,7 @@ var targets: [Target] = [
         resources: [
             .copy("Resources/ephem.bin"),
             .copy("Resources/stars.bin"),
+            .copy("Resources/ut1.txt"),
         ]
     ),
     .testTarget(

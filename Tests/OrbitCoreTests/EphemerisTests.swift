@@ -85,31 +85,3 @@ final class EphemerisTests: XCTestCase {
         XCTAssertEqual(dR[0, 1], 2.4682369763316187e-06, accuracy: 1e-13)
     }
 }
-
-final class EarthOrientationTests: XCTestCase {
-    func testGMSTAtJ2000() {
-        let g = EarthOrientation.gmst(julianDateUT1: 2451545.0) * 180 / Double.pi
-        XCTAssertEqual(g, 280.46061837, accuracy: 1e-7)
-    }
-
-    func testPrecessionIsIdentityAtJ2000AndGrows() {
-        let p0 = EarthOrientation.precession(centuries: 0)
-        XCTAssertEqual(p0[0, 0], 1, accuracy: 1e-15)
-        // After one century the pole has moved by theta(T=1).
-        let p1 = EarthOrientation.precession(centuries: 1)
-        let pole = p1.transposed * Vec3.unitZ
-        let angle = acos(pole.z) * 180 / Double.pi * 3600
-        XCTAssertEqual(angle, 2004.3109 - 0.42665 - 0.041833, accuracy: 0.01)
-    }
-
-    func testEarthRotationRate() {
-        let s = try! SolarSystem.bundled()
-        let t = Epoch(utcYear: 1969, month: 7, day: 16, hour: 13, minute: 32)
-        let o0 = s.earth.orientation(at: t, ephemeris: s.ephemeris)
-        let o1 = s.earth.orientation(at: t + 86164.0905, ephemeris: s.ephemeris)
-        // One sidereal day later the body frame is back where it was (to < 1 arcsec plus precession).
-        let x0 = o0.toInertial(.unitX), x1 = o1.toInertial(.unitX)
-        XCTAssertLessThan(angleBetween(x0, x1), 1e-5)
-        XCTAssertEqual(o0.angularVelocity.length, 7.2921151e-5, accuracy: 1e-11)
-    }
-}

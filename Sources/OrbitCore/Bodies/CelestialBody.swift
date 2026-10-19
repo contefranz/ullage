@@ -2,8 +2,10 @@ import Foundation
 
 /// How a body's body-fixed frame is oriented in ICRF.
 public enum RotationModel {
-    /// Earth: IAU 1976 precession + GMST (IAU 1982). Nutation and polar motion
-    /// are ignored (errors below ~20 arcsec).
+    /// Earth: IAU 2006 precession and frame bias, IAU 2000B nutation and
+    /// apparent sidereal time on UT1 (`EarthOrientation`). The body frame is
+    /// the CIP's: polar motion is not modelled (8.5 m at the surface on
+    /// 16 July 1969).
     case earth
     /// Moon: DE421 principal-axis libration from the ephemeris, rotated into the
     /// mean-Earth/polar-axis (ME) frame used for lunar coordinates.
@@ -42,6 +44,8 @@ public final class CelestialBody: Identifiable, CustomStringConvertible {
     public let soiRadius: Double
     /// Parent body for the SOI hierarchy (nil for the Sun).
     public weak var parent: CelestialBody?
+    /// The Earth's precession and nutation, evaluated every 10 minutes.
+    let precessionNutation = EarthOrientation.PrecessionNutation.Cache()
 
     public init(id: Int, name: String, gm: Double, radius: Double, j2: Double = 0, figure: Ellipsoid? = nil,
                 rotation: RotationModel, atmosphere: Atmosphere? = nil, soiRadius: Double) {
@@ -85,37 +89,12 @@ public final class CelestialBody: Identifiable, CustomStringConvertible {
 
 // MARK: - Orientation
 
-public enum EarthOrientation {
-    /// IAU 1976 precession matrix, J2000 mean equator -> mean equator of date.
-    public static func precession(centuries t: Double) -> Mat3 {
-        let as2r = Double.pi / (180 * 3600)
-        let zeta = (2306.2181 * t + 0.30188 * t * t + 0.017998 * t * t * t) * as2r
-        let z = (2306.2181 * t + 1.09468 * t * t + 0.018203 * t * t * t) * as2r
-        let theta = (2004.3109 * t - 0.42665 * t * t - 0.041833 * t * t * t) * as2r
-        return Mat3.frameZ(-z) * Mat3.frameY(theta) * Mat3.frameZ(-zeta)
-    }
-
-    /// Greenwich mean sidereal time (rad), IAU 1982, from a UT1 Julian date.
-    public static func gmst(julianDateUT1 jd: Double) -> Double {
-        let t = (jd - 2451545.0) / 36525
-        var seconds = 67310.54841 + (876600 * 3600 + 8640184.812866) * t + 0.093104 * t * t - 6.2e-6 * t * t * t
-        seconds = seconds.truncatingRemainder(dividingBy: 86400)
-        if seconds < 0 { seconds += 86400 }
-        return seconds / 86400 * 2 * Double.pi
-    }
-
-    /// Mean sidereal rotation rate (rad/s).
-    public static let rotationRate = 7.292115146706979e-5
-}
-
 extension CelestialBody {
     public func orientation(at t: Epoch, ephemeris: ChebyshevEphemeris) -> BodyOrientation {
         switch rotation {
         case .earth:
-            let p = EarthOrientation.precession(centuries: t.centuriesTDB)
-            let gmst = EarthOrientation.gmst(julianDateUT1: t.julianDateUT1)
-            let m = Mat3.frameZ(gmst) * p
-            // Angular velocity along the true-of-date pole, expressed in ICRF.
+            let m = precessionNutation.terms(ttSecondsPastJ2000: t.tdb).celestialToTerrestrial(ut1: t.ut1, tt: t.tt)
+            // The Earth rotation angle's rate about the CIP, expressed in ICRF.
             return BodyOrientation(icrfToBody: m, angularVelocity: m.r2 * EarthOrientation.rotationRate)
         case .moonDE421:
             let (pa, omega) = ephemeris.lunarPrincipalAxes(at: t)
