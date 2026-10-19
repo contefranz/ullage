@@ -315,11 +315,17 @@ enum AS506 {
     static let igmCoastTime = 6.3              // s, FER Table 2-2 and the model's start ramp (inferred)
     static let igmStage3Time = 144.8           // s, FER Table 2-2 (inferred preset)
     /// The S-II characteristic velocity (sensed velocity gained from engine
-    /// start) at which the IGM commands the EMR shift (T1 = 0): fitted so the
-    /// model commands it on the cycle at AS-506's 494.8 s. AS-506's own
-    /// preset is not known; its LVDC's sum ran about 92 m/s low through a
-    /// scaling error (FER §10.2.1), which the fit absorbs.
-    static let igmShiftVelocity = 3_906.0      // m/s, fitted (model)
+    /// start) at which the IGM commands the EMR shift (T1 = 0). AS-506's IGM
+    /// commanded it at 494.8 s, 171 cycles of 1.7 s after its 204.1 s start
+    /// (FER Table 10-4), so its preset lay between the S-II's characteristic
+    /// velocity a cycle before, at 493.1 s, and at 494.8 s: 3,894-3,921 m/s
+    /// on the postflight trajectory (its integral of |a_ng| from engine
+    /// start, 164.0 s; PFT Table B-II, H). The model takes the middle. Its
+    /// S-II, 3 m/s ahead of AS-506's there, reaches it at 493.75 s and
+    /// commands the shift on its cycle at 494.75 s. The preset in the LVDC's
+    /// own terms is not known: its sum ran about 92 m/s low through a
+    /// scaling error (FER §10.2.1).
+    static let igmShiftVelocity = 3_908.0      // m/s, the middle of AS-506's window, PFT (H)
     /// Artificial tau after the EMR shift command and after S-IVB ignition:
     /// AS-506 ran them for 9.33 s and 6.86 s (FER Table 10-4); with 1.7 s
     /// cycles these durations fit both (SA-504: none after the shift, 25 s

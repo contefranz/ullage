@@ -479,7 +479,7 @@ final class SaturnIUTests: XCTestCase {
     // the step before 548.24 s (its J-2s start at 164.04 s; from 164.00 they
     // would run dry at 548.16 s), so the S-IVB lights at about 552.24 s. The
     // IGM commands the EMR shift on its cycle that holds AS-506's 494.83 s
-    // (its preset was fitted to that), the PU valve step following 2.8 s
+    // (its preset is AS-506's, from the PFT), the PU valve step following 2.8 s
     // later, and cuts the S-IVB off on velocity about 3.5 s after AS-506 did,
     // the model reaching the S-IVB slower (datasheet §10): the IGM's phase 3
     // is timed from the model's own T4, and its terminal events and those
@@ -547,7 +547,7 @@ final class SaturnIUTests: XCTestCase {
             ("S-II flight control gains", t3 + 61.4, 0.1),         // SA-507 ICD switch point 3
             ("S-II flight control gains", t3 + 191.4, 0.1),        // switch point 4
             ("S-II centre engine cutoff", 460.6, 0.1),             // FER 460.6
-            ("EMR shift command (IGM phase 2)", 494.83, cycle),    // FER Table 10-4: on the cycle (fitted)
+            ("EMR shift command (IGM phase 2)", 494.83, cycle),    // FER Table 10-4: on the cycle (the PFT's preset)
             ("S-II low EMR (PU valve step)", 497.6, cycle),        // FER Table 6-2, 497.60: 2.8 s later
             ("T4: S-II outboard engine cutoff sensed", 548.24, 0.1),  // FER Table 2-1
             ("S-II outboard engine cutoff", t4, 0.1),

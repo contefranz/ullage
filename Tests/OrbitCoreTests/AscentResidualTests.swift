@@ -221,6 +221,30 @@ final class AscentResidualTests: XCTestCase {
         XCTAssertEqual(step(P.sIIMixtureRatio.map { ($0.time, $0.ratio) }, 4.9), 498, accuracy: 1.5)
     }
 
+    // The IGM's EMR shift preset against AS-506's (`AS506.igmShiftVelocity`):
+    // AS-506's IGM commanded the shift at 494.8 s, exactly 171 of its 1.7 s
+    // cycles after its 204.1 s start (FER Table 10-4), so the S-II's
+    // characteristic velocity, its integral of |a_ng| from engine start at
+    // 164.0 s, had reached the preset by then but not a cycle before:
+    // 3,894.1 to 3,921.4 m/s on the PFT (trapezoids between the 2 s rows'
+    // accelerations within the last interval). The model's preset is that
+    // window's middle.
+    func testShiftVelocityIsInAS506sWindow() {
+        XCTAssertEqual((494.8 - 204.1) / AS506.igmCycle, 171, accuracy: 1e-9)
+        func aNG(_ t: Double) -> Double {
+            let row = P.row(at: t)!
+            return (row.acceleration - P.gravity(at: row.position)).length
+        }
+        func characteristic(_ t: Double) -> Double {
+            let row = 2 * (t / 2).rounded(.down), u = t - row
+            return P.sensedVelocity(from: 164, to: row).integral + u * aNG(row) + (aNG(row + 2) - aNG(row)) * u * u / 4
+        }
+        let before = characteristic(493.1), at = characteristic(494.8)
+        XCTAssertEqual(before, 3_894.1, accuracy: 0.05)
+        XCTAssertEqual(at, 3_921.4, accuracy: 0.05)
+        XCTAssertEqual(AS506.igmShiftVelocity, (before + at) / 2, accuracy: 0.5)
+    }
+
     // The pitch program the IU flies, AS-506's fitted in GE504's form
     // (tools/fit_as506_pitch.py), against its reconstructed command, chi_thr
     // less Figure 11-1's error, on 5 s boxcars from the program start to the
