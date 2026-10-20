@@ -43,7 +43,7 @@ M2 (lunar mission profile) is next; see docs/ROADMAP.md.
 
 ```sh
 swift build                 # OrbitCore and OrbitInstruments everywhere; also the app on macOS
-swift test                  # both test suites (must stay green; about 20 min on the Mac)
+swift test                  # both test suites (must stay green; about 15 min on the Mac)
 swift test --filter OrbitInstrumentsTests   # the MFD pages and keys alone
 swift run -c release OrbitSim   # macOS only: launch the app
 ```
