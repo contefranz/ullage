@@ -254,8 +254,10 @@ final class EntryTests: XCTestCase {
         sim.add(v)
         sim.atmospheres[sim.system.earth.id] = AS506.launchDayAtmosphere()
         let ei = Self.apollo7EntryInterface
+        // Retrograde, heat shield first and heads down, as after the deorbit
+        // burn.
         sim.place(v, geodeticLatitude: ei.latitude, longitude: ei.longitude, height: 160_000, inertialSpeed: 7_800,
-                  flightPathAngle: -1.6, azimuth: ei.azimuth)
+                  flightPathAngle: -1.6, azimuth: ei.azimuth, attitude: Quat(w: 0, x: 0, y: 0, z: 1))
         let program = CMEntryProgram(mode: .bankHold(0))
         v.flightProgram = program
         sim.run(seconds: 1)
@@ -274,10 +276,12 @@ final class EntryTests: XCTestCase {
         XCTAssertEqual(v.autopilot, .attitudeHold)
         XCTAssertFalse(program.allowsManualStaging(of: v))
         XCTAssertTrue(program.status.hasPrefix("ENTRY hold lift up | ELS armed"), program.status)
-        // From the separation attitude the hold turns it to trim, lift up.
+        // From the separation attitude the hold turns it to trim, lift up,
+        // inside its 2° dead band on each axis.
         sim.run(seconds: 60)
         let goal = CMEntryProgram.trimAttitude(of: v, capsule: v.activeAerodynamics!.capsule!, bank: 0, in: sim)!
-        XCTAssertLessThan(rotationVector(v.attitude.conjugate * goal).length, 2 * Double.pi / 180)
+        XCTAssertLessThan(rotationVector(v.attitude.conjugate * goal).length, 3.5 * Double.pi / 180)   // 2° per axis
+        XCTAssertEqual(v.phasePlane, CMEntryProgram.holdLaw)
         XCTAssertEqual(v.bankAngle!, 0, accuracy: 4 * Double.pi / 180)
         XCTAssertNotNil(program.prediction)
 
@@ -297,8 +301,10 @@ final class EntryTests: XCTestCase {
     /// 0.2 g: the program senses 0.05 g and 0.2 g within 6 s of the flight's
     /// program changes, 132 s and 160 s after entry interface (259:55:38
     /// and 259:56:06 against 259:53:26 GET); and the landing-point
-    /// predictor, run from entry interface at a constant 55°, lands within
-    /// 50 km of where the flight at 55° reaches the drogues' 24,000 ft.
+    /// predictor, at a constant 55° from 68-FM-184's entry interface,
+    /// converges on where the flight at 55° reaches the drogues' 24,000 ft:
+    /// within 100 km at entry interface (the 6-DOF flight's bank wanders in
+    /// its 4° dead band), 50 km 300 s on and 5 km 450 s on (Mach 11).
     func testPointZeroFiveGAndThePredictor() throws {
         let sim = try Simulation.forTests(perturbations: true)
         let v = apollo7CM(.operational)
@@ -333,15 +339,25 @@ final class EntryTests: XCTestCase {
         cm.attitude = CMEntryProgram.trimAttitude(of: cm, capsule: cm.activeAerodynamics!.capsule!, bank: bank, in: flight)!
         flight.updateTelemetry(cm, snapshot: flight.snapshot)
         flight.tick()
-        let predicted = try XCTUnwrap(entry.prediction)
-        while cm.altitude > LandingPointPredictor().endAltitude && flight.time - t0 < 1_500 {
+        let start = flight.time
+        var predictions = [try XCTUnwrap(entry.prediction)], due = [300.0, 450]
+        while cm.altitude > LandingPointPredictor().endAltitude && flight.time - start < 1_500 {
             for x in flight.vessels { flight.prepareControls(x) }
             flight.step(min(1, flight.maxStep()))
+            if let next = due.first, flight.time - start >= next, let p = entry.prediction {
+                predictions.append(p)
+                due.removeFirst()
+            }
         }
         let ll = cm.latitudeLongitude(snapshot: flight.snapshot)
-        let miss = acos(sin(ll.lat) * sin(predicted.latitude)
-                        + cos(ll.lat) * cos(predicted.latitude) * cos(ll.lon - predicted.longitude)) * 6_371
-        XCTAssertLessThan(miss, 50, "predicted \(predicted.latitude * 180 / .pi), \(predicted.longitude * 180 / .pi)")
-        XCTAssertGreaterThan(predicted.peakLoadFactor, 3)
+        let misses = predictions.map { p in
+            acos(min(1, sin(ll.lat) * sin(p.latitude) + cos(ll.lat) * cos(p.latitude) * cos(ll.lon - p.longitude))) * 6_371
+        }
+        print("predictor at EI, 300 s and 450 s, km from the flight at 24,000 ft:", misses)
+        XCTAssertEqual(misses.count, 3)
+        XCTAssertLessThan(misses[0], 100)
+        XCTAssertLessThan(misses[1], 50)
+        XCTAssertLessThan(misses[2], 5)
+        XCTAssertGreaterThan(predictions[0].peakLoadFactor, 3)
     }
 }

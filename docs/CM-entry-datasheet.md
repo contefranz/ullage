@@ -160,16 +160,19 @@ It rolls the CM about its stability axis to fly `Vessel.entryCommand` (`.bank(φ
 | Phase | When | What it does |
 |---|---|---|
 | dormant | an "SM" part is aboard | nothing; the pilot's Space key stages as usual |
-| pre-entry | from the first step without the SM | turns on the CM RCS (once: E2's ELS turns it off under the mains), arms the ELS, removes the reference body's launch-day sounding (`Simulation.atmospheres`, owner decision 13), and holds the trim attitude about the air velocity at the mode's bank (`.attitudeHold`; lift up for manual and rolling) |
+| pre-entry | from the first step without the SM | turns on the CM RCS (once: E2's ELS turns it off under the mains), arms the ELS, removes the reference body's launch-day sounding (`Simulation.atmospheres`, owner decision 13), and holds the trim attitude about the air velocity at the mode's bank (`.attitudeHold`; lift up for manual and rolling) on `holdLaw` |
 | entry | sensed load factor ≥ 0.05 g (the EMS light; logged "0.05 g") | the entry autopilot flies the mode: `.bankHold(φ)`, `.rolling(rate)`, or `.manual` (`pilotRoll` −1…1 rolls at up to 20°/s; let go, it holds the bank) |
 | drogues | E2's ELS has deployed them | rate damping (`.killRotation`) |
 | mains, landed | E2's ELS (RCS off) | lets go |
 
+- **`holdLaw`**, the pre-entry hold's law on the CM RCS (L): a phase plane with a 2° dead band (half the bank dead band), turning at 2°/s at most on a 2.5 s switching line, with 14 ms pulses. The turn and the pulse are the CSM's (`ApolloCSM.phasePlaneLaw`).
+  - It replaces the CSM's law the CM inherits at CM/SM separation.
+  - The CM's pitch and yaw jets fire alone, so a proportional law's steady trickle of thrust would also push it off its trajectory. On Apollo 7's coast to entry interface that trickle cost about 4 m/s and 5 s of entry time.
 - The ELS (E2's `EarthLandingSystem`, on baroswitch pressure) runs inside the program from pre-entry on. `advanceELS` is the crew's Space-key backup, for track I to wire: awake, the program refuses manual staging.
 - Status line, for example: "ENTRY bank 55°L 3.3 g | ELS drogues reefed 1 | 29.6N 65.7W".
 
 **Checks** (`EntryTests`):
-- `testEntryProgramWakesWhenTheServiceModuleLeaves`: dormant with an SM aboard (sounding kept, RCS off, Space allowed). After event 7 it wakes: sounding dropped, CM RCS on, ELS armed, hold on. Within 60 s it is at trim lift up (2°, bank within 4°). Manual mode rolls and holds.
+- `testEntryProgramWakesWhenTheServiceModuleLeaves`: dormant with an SM aboard (sounding kept, RCS off, Space allowed). After event 7 it wakes: sounding dropped, CM RCS on, ELS armed, hold on. From the retrograde, heads-down separation attitude it is at trim lift up within 60 s (inside the 2° dead band on each axis, bank within 4°). Manual mode rolls and holds.
 - `testPointZeroFiveGAndThePredictor`: from Apollo 7's entry interface as flown (25,846.4 ft/s at −2.072°, Mission Report §5.16, H; position and azimuth from Table IX(b)), lift up. The model senses 0.05 g at 127 s and 0.2 g at 160 s after EI. The flight's computer changed programs at 132 s (post-0.05 g) and 160 s (0.2 g, final phase). The test band is ±6 s.
 
 ### 4.3 The landing-point predictor (`LandingPointPredictor`, display only)
@@ -177,30 +180,62 @@ It rolls the CM about its stability axis to fly `Vessel.entryCommand` (`.bank(φ
 - A point mass with the capsule's trim drag and lift at the current CoM and mass, at a constant bank (none for rolling).
 - 1 s RK4 steps, the reference body's standard atmosphere rotating with it, central gravity with J2.
 - It ends at the drogues' 24,000 ft. Run every 2 s before the drogues; `CMEntryProgram.prediction`.
-- **Check:** from Table IX(b)'s EI at a constant 55°, its prediction made at EI is 28 km from where the 6-DOF flight passes 24,000 ft (test: 50 km).
+- **Displays:** B2's ENTRY and MAP pages show it through `LandingPointPredicting`. The conformances of `CMEntryProgram` and `ApolloSCS` (which forwards its successor's) are in OrbitInstruments/EntryProgramHooks.swift, with no app change. The ENTRY page's ELS line now reads the program's landing system (`ApolloMission.landingSystem`).
+- **Check:** from Table IX(b)'s EI at a constant 55°, it converges on where the 6-DOF flight passes 24,000 ft: 57 km away at EI, 28 km 300 s later, 0.7 km 450 s later (Mach 11). The tests allow 100, 50 and 5 km. The 6-DOF bank wanders in its 4° dead band, which the prediction cannot know.
 
-### 4.4 Apollo 7 from entry interface to splashdown (`Apollo7EntryTests`)
+### 4.4 Apollo 7 from the planned entry interface (`Apollo7EntryTests.testFromThePlannedEntryInterface`)
 
 Setup:
 - E2's Apollo 7 CM, with the operational calibration (MSC's tables, as 68-FM-184 flew them).
 - Table IX(b)'s entry interface: 31.03° N, 98.83° W, 400,000 ft, 25,850.3 ft/s at −1.759° and 83.64° (geocentric horizontal, geodetic position).
-- 55° bank, starting with a left roll. §5.4.4 places the target on the 55° bank contour "if L/D is between 0.42 and 0.26". The crew reverses the bank whenever the CM is more than 10 n mi off the ground track to the target. Held to one side, 55° carries it about 95 n mi across.
+- 55° bank, starting with a left roll. §5.4.4 places the target on the 55° bank contour "if L/D is between 0.42 and 0.26". The crew reverses the bank whenever the CM is more than 10 n mi off the ground track from its 0.05 g point to the target. Held to one side, 55° carries it about 95 n mi across.
 
 | Quantity | Model | 68-FM-184 / Mission Report | Test |
 |---|---|---|---|
-| Peak load factor | 3.29 g | 3.3 g (§5.4.4) | ±0.3 g |
-| Landing | 29.49° N, 65.71° W: 69.6 n mi beyond the target | 29.8° N, 67.0° W (§5.4.3) | 75 n mi |
-| EI to splashdown | 995 s | 963 s (landing 10:20:09:53, cutoff 10:19:40:04 + 826 s) | ±40 s |
-| On the drogues / mains | 53.1 s / 271.3 s | 53 s / 285 s (§5.4.4) | ±5 s / ±20 s |
-| Peak heating / heat load | 57.9 BTU/ft²·s / 13,116 BTU/ft² | 59.8 / 12,649 (§5.4.4) | ±10 % (R_n fitted to both) |
-| CM RCS propellant | 49.0 lb | Apollo 7 flew 49.1 lb (Mission Report §5.21) | within a factor of 2 |
+| Peak load factor | 3.39 g | 3.3 g (§5.4.4) | ±0.3 g |
+| Landing | 29.33° N, 65.54° W: 81.4 n mi beyond the target | 29.8° N, 67.0° W (§5.4.3) | 90 n mi |
+| EI to splashdown | 998 s | 963 s (landing 10:20:09:53, cutoff 10:19:40:04 + 826 s) | ±40 s |
+| On the drogues / mains | 53.0 s / 271.2 s | 53 s / 285 s (§5.4.4) | ±5 s / ±20 s |
+| Peak heating / heat load | 57.7 BTU/ft²·s / 13,188 BTU/ft² | 59.8 / 12,649 (§5.4.4) | ±10 % (R_n fitted to both) |
+| CM RCS propellant | 39.4 lb | Apollo 7 flew 49.1 lb (Mission Report §5.21) | within a factor of 2 |
 
-**The landing miss.** The constant-bank range is very sensitive to the entry flight-path angle: about 700 n mi per degree. The same flight entering at −1.80° lands 36 n mi from the target, and at −1.85° 7 n mi. The 70 n mi corresponds to 0.09° of γ, or about 0.03 of vertical L/D (15 % of it at 55°). That is the size of the conventions between 68-FM-184's trajectory program and this one:
+**The landing miss.** The constant-bank range is very sensitive to the entry flight-path angle: about 700 n mi per degree. The same flight entering at −1.80° lands 36 n mi from the target, and at −1.85° 7 n mi. The 70-80 n mi corresponds to 0.1° of γ, or about 0.03 of vertical L/D (15 % of it at 55°). That is the size of the conventions between 68-FM-184's trajectory program and this one:
 - Fischer 1960 against WGS-84;
 - a geodetic or geocentric horizontal for γ (0.02° here);
 - the 1962 against the 1976 atmosphere;
 - E2's Mission Report CoM (Z 6.0 in) against the table's 5.91 in (9 n mi).
 
-The flight-consistent calibration (L/D about 10 % higher at hypersonic speed) lands 118 n mi beyond.
+How the backup is flown moves it by about 10 n mi:
+- the pre-entry hold's law: 69.6 n mi with M0's law, 75.0 with `holdLaw`;
+- where the crew's reversal line starts: 75.0 from entry interface, 81.4 from 0.05 g.
 
-**Still to come:** `Guidance/ApolloMission.swift`, which wires the program in as `ApolloSCS.successor`, and the same flight from the deorbit burn (SPS-8, Mission Report Table 3-III). Both come after track C.
+The flight-consistent calibration (L/D about 10 % higher at hypersonic speed) lands about 120 n mi beyond.
+
+### 4.5 Apollo 7 as flown, from the deorbit burn (`Apollo7EntryTests.testFromTheDeorbitBurn`)
+
+Steps:
+- Track C's CSM before SPS-8 (`apollo7BeforeDeorbit`, on Mission Report Table 3-III's ignition state), flown through the crew's steps of Table 2-I: U for 15 s from 259:39:01.3, Z at 259:39:16.3, the EMS counter's cutoff, CM/SM separation at 259:43:33.8.
+- CM/SM separation wakes the CM's entry program through the SCS (`ApolloMission`, §4.6).
+- 55° from 0.05 g, with reversals about the line to where Apollo 7 came down.
+
+| Quantity | Model | Mission Report | Test |
+|---|---|---|---|
+| Entry interface | 259:53:31.9 GET | 259:53:27 (Table 2-I) | ±6 s |
+| Peak load factor | 3.38 g | the computer-flown entry; 68-FM-184 planned 3.3 g | ±0.3 g |
+| Landing | 27.24° N, 63.30° W: 51.5 n mi beyond | 27.64° N, 64.15° W reconstructed (§5.16; the recovery forces' estimate 27.54° N, 64.07° W) | 60 n mi |
+| EI to splashdown | 950 s | 936 s (260:09:03, Table 2-I) | ±40 s |
+| On the drogues / mains | 53.0 s / 271.3 s | 53 s / 285 s planned | ±5 s / ±20 s |
+| Heating | 64.5 BTU/ft²·s, 12,653 BTU/ft² | – (steeper than planned: −2.07° against −1.76°) | – |
+| CM RCS propellant | 42.7 lb | 49.1 lb (§5.21) | within a factor of 2 |
+
+**The landing.**
+- **Against the flight:** the flight's computer flew lift up to 0.2 g, then its own guidance to the target. A constant-55° backup from the same entry interface lands 51.5 n mi beyond, the same way as from the planned entry interface: this model's 55° flies a little further than MSC's.
+- **Against the plan:** the preflight 29.8° N, 67.0° W is about 250 n mi away. The flight entered steeper than 68-FM-184 planned (−2.072° against −1.759°, its ignition 37 s early), and its target had moved east.
+- **So:** "within about 30 n mi of 29.8° N 67.0° W" can only be tested from the planned entry interface (§4.4).
+
+### 4.6 The mission wiring (`Guidance/ApolloMission.swift`)
+
+- `ApolloMission.spacecraftControl(separationUllage:entryMode:)` builds the CSM's SCS (track C's `ApolloSCS`) with a `CMEntryProgram` (lift up by default) as its `successor`. Track C's two SCSs use it: the Saturn V's standby one and `apolloCSM`'s.
+- `entryProgram(of:)` finds the entry program flying a vessel, its own or through the SCS; `landingSystem(of:)` finds its ELS.
+- `ApolloSCS` now also forwards its successor's status line once the SM has gone. Before, the HUD kept showing the SCS's last line.
+- E2's standalone `commandModule(_:)` now carries `AerodynamicModel.apolloCommandModule()`. E2's ParachuteTests and SplashdownTests are unchanged and pass, including the 32/36 ft/s descent rates.
