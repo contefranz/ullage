@@ -4,16 +4,27 @@ A native Apple Silicon space flight simulator in Swift and Metal, aimed at
 procedurally realistic Apollo and Space Shuttle missions.
 
 Milestones **M0** (the physics core and a Metal viewer, flown with a generic
-two-stage test rocket and capsule) and **M1** (Saturn V to Earth parking orbit)
-are done. M1 is Apollo 11's Saturn V stack, with its propulsion and masses
-calibrated to AS-506's flight evaluation report, its engine gimballing and
-thrust vector control, and its Instrument Unit flight program, which flies the
-S-IC's attitude programs, the staging sequence and the iterative guidance of
-the S-II and S-IVB to the parking orbit, through the launch day's measured air
-and winds with the stack's sourced aerodynamics, and senses and flies through
-an engine out. It stands on LC-39A on a WGS-84 Earth, and its ascent closes on
-AS-506's postflight trajectory. See [docs/ROADMAP.md](docs/ROADMAP.md) for the
-path to Apollo and the Shuttle; M2, the lunar mission profile, is next.
+two-stage test rocket and capsule), **M1** (Saturn V to Earth parking orbit)
+and **M1.5** (an Apollo Earth-orbit mission, from the pad to splashdown) are
+done.
+
+- M1 is Apollo 11's Saturn V stack, with its propulsion and masses calibrated
+  to AS-506's flight evaluation report, its engine gimballing and thrust vector
+  control, and its Instrument Unit flight program, which flies the S-IC's
+  attitude programs, the staging sequence and the iterative guidance of the
+  S-II and S-IVB to the parking orbit, through the launch day's measured air and
+  winds with the stack's sourced aerodynamics, and senses and flies through an
+  engine out. It stands on LC-39A on a WGS-84 Earth, and its ascent closes on
+  AS-506's postflight trajectory.
+- M1.5 flies the Apollo spacecraft home from that orbit, as if translunar
+  injection were no-go: CSM separation with the SLA panels, the SPS deorbit
+  burn cut off by an EMS-style ΔV counter, CM/SM separation, the command
+  module's lifting entry, its earth landing system and splashdown. It is flown
+  on a KSP-style navball and Orbiter-style MFDs, and checked against Apollo 7's
+  deorbit and entry.
+
+See [docs/ROADMAP.md](docs/ROADMAP.md) for the path to Apollo and the Shuttle;
+M2, the lunar mission profile, is next.
 
 ## Build and run
 
@@ -28,7 +39,8 @@ open Package.swift          # opens in Xcode
 In Xcode, choose the **OrbitSim** scheme with **My Mac** as the destination and
 press Run. From a terminal, `swift run -c release OrbitSim` works too.
 
-The physics core has its own test suite, which also runs on Linux:
+The physics core (`OrbitCore`) and the instrument pages and keys
+(`OrbitInstruments`) have their own test suites, which also run on Linux:
 
 ```sh
 swift test
@@ -48,42 +60,102 @@ grid. For real imagery, put equirectangular maps (8192×4096 or smaller) in
 
 | Key | Action |
 | --- | --- |
-| Z / X | Full throttle / cut engines |
+| Z / X | Full throttle / cut engines (on the CSM, Z lights the SPS and the ΔV counter cuts it off) |
 | = / - (hold) | Throttle up / down |
 | W S A D Q E | Pitch down / up, yaw left / right, roll left / right |
 | I K J L U O | Translate up / down / left / right / forward / back |
-| Space | Next staging event (on the Saturn V, only after the S-IC cutoff) |
+| Space | Next staging event: on the Saturn V only after the S-IC cutoff; CM/SM separation takes two presses within 2 s; on the CM once the SM has gone, the backup of the earth landing system (apex cover and drogues, then mains), below 40,000 ft |
 | T | Kill rotation (toggle; damps rates only) |
 | 1–7 | Prograde, retrograde, normal, anti-normal, radial out, radial in, hold level |
 | 8, 0 | Hold attitude (on the Saturn V, gives the attitude back to the IU); autopilot off |
+| 9 | CM entry mode: manual (Q/E roll the lift about the air velocity), bank hold (the bank flown), rolling |
 | F, then 1–5 | Fail engine n of the stage now firing (S-IC and S-II: 5 is the centre engine); Esc cancels |
 | . , / | Time warp up / down / reset to 1× |
 | P | Pause |
+| N | Navball speed mode: orbit / surface (automatic: surface below 40 km, orbit above 50 km) |
+| F2 or ` | HUD: full / instruments only / off |
+| Left/right Shift + F1 or Tab | Left/right MFD: mode select (then the mode's letter: O, S, M, D, E) |
+| Left/right Shift + ` / Esc | Left/right MFD: menu / power |
+| Left/right Shift + letter | The MFD's button (the buttons also take clicks) |
 | Mouse drag, scroll | Orbit and zoom the camera |
 | C / V | Cycle camera target / camera frame (horizon, vessel, inertial) |
 | [ ] | Switch vessel |
-| M / H | Toggle orbit line / help |
+| M / H | Toggle orbit line / help (with the scenario's summary) |
 
 Keys are bound by their place on the keyboard (labelled above as on a US
 layout), so they sit in the same place on any layout. Keys pressed with Shift
-do not fly the vessel: they are kept for the MFDs to come, left Shift for the
-left one and right Shift for the right one.
+do not fly the vessel: they go to the MFDs, left Shift to the left one and
+right Shift to the right one.
 
-Scenarios are in the **Scenario** menu: the test rocket on LC-39A on
-16 July 1969; Apollo 11's Saturn V (AS-506) on the same pad at first motion;
-the same stack with Apollo 13's S-II centre engine out, and with S-IC engine 1
-out at 60 s; a capsule in low Earth orbit; and a capsule in lunar orbit. LC-39A
-is geodetic, at 28.6084° N on the WGS-84 ellipsoid, the vehicle's base 26 m
-above it, so the HUD reads the Saturn's centre of mass at about 59 m. On the
-Saturn V the HUD's MET is Apollo 11's ground elapsed time (GET), zero at range
-zero, 13:32:00 UTC, and the event log reads it to a tenth of a second against
-the flight's published times; on the test vehicles MET starts at liftoff.
+### Scenarios
 
-The Saturn V opens paused at first motion, 13:32:00.3 UTC, with the F-1s at
+In the **Scenario** menu:
+
+- **Pathfinder on LC-39A**: the two-stage test rocket on 16 July 1969.
+- **Saturn V (AS-506) on LC-39A**: Apollo 11 at first motion, flown by its IU
+  to the parking orbit.
+- **Apollo 11: pad to splashdown (TLI no-go)**: the same stack, flown on from
+  the parking orbit back to the Atlantic (see *The Earth-orbit mission*).
+- **Apollo 11 in parking orbit**: the stack at orbit insertion, GET 00:11:49,
+  at AS-506's postflight state.
+- **Apollo 13: S-II centre engine out** and **S-IC engine 1 out at 60 s**:
+  Apollo 11's stack with an engine failure.
+- **Apollo 7: deorbit and entry**: CSM-101 at GET 259:38:00, before its
+  deorbit burn, in the burn's attitude with the ΔV counter loaded; the crew's
+  steps are in the help panel.
+- **Apollo 7 CM at entry interface**: the command module at 68-FM-184's
+  planned entry interface, holding the 55° bank the plan targets.
+- **Capsule in low Earth orbit** and **Capsule in lunar orbit**: the M0 test
+  capsule.
+
+LC-39A is geodetic, at 28.6084° N on the WGS-84 ellipsoid, the vehicle's base
+26 m above it, so the HUD reads the Saturn's centre of mass at about 59 m. On
+the Apollo scenarios the HUD's MET is the mission's ground elapsed time (GET),
+zero at range zero (Apollo 11: 13:32:00 UTC on 16 July 1969; Apollo 7: 15:02:45
+UTC on 11 October 1968), and the event log reads it to a tenth of a second
+against the flight's published times; on the test vehicles MET starts at
+liftoff.
+
+### The HUD
+
+- **Top bar**: vessel and status, MET and UTC, geodetic altitude and its
+  rate, time warp (with the warp achieved when a frame cannot keep up), the
+  reference body and the camera.
+- **Event log** (top left) and **vehicle panel** (top right): the flight
+  program's line (the IU, the CSM's SCS, the CM's entry program and ELS), what
+  Space does next, the stage's Δv, mass, thrust-to-weight, gimbal, engine
+  failures and tanks.
+- **Navball and instrument cluster** (bottom): the ball in the crew's axes,
+  heads down in orbit, with the speed markers (prograde, normal, radial ±r̂ as
+  the autopilot flies them), the green command marker (the IU's attitude
+  command, or the autopilot's target) and the thrust marker; around it the
+  throttle, the speed tape (orbit or surface, Mach and q), heading, pitch and
+  roll, body rates, α/β in the air, the altitude tape with the apsides, the
+  vertical speed and the autopilot column.
+- **Two MFDs** (bottom corners; one in narrow windows), after Orbiter:
+  - ORBIT: the elements, apsides and their times, and the orbit drawn from the
+    equator or the vessel's plane;
+  - SURFACE: altitude, speeds, Mach, q, angles of attack and flight path,
+    sensed g, position and the air;
+  - MAP: Natural Earth coastlines, the night side, the track flown and the
+    track predicted (J2), the horizon circle, the entry interface ahead and
+    the predicted landing point;
+  - DEORBIT: the burn to a target entry flight-path angle or perigee, its
+    TIG, Δv (P30's local-vertical components), burn time, the orbit after it
+    and the entry interface it gives; SET loads the Δv into the CSM's ΔV
+    counter;
+  - ENTRY: after the Entry Monitor System, g and its peak, the 0.05 g light,
+    the g–V scroll, bank, heating, the landing point and range, and the ELS.
+
+## The Earth-orbit mission
+
+**Ascent.** The Saturn V opens paused at first motion, 13:32:00.3 UTC, with the F-1s at
 full thrust: P releases it, and the Instrument Unit takes over at liftoff: the
 tower-clearance yaw, the roll to the 72.058° flight azimuth, the pitch
 program, the engine cutoffs, every separation and ignition on Apollo 11's
-times, and the turn to the local horizontal after the S-IVB cutoff. The stages
+times, and the turn to the local horizontal after the S-IVB cutoff. The crew
+flies heads down, so the navball reads 090 on the pad, 072 after the roll
+program and roll 180 once pitched over. The stages
 separate on their solid motors: the retros back each spent stage away, burning
 on with it, the ullage motors push the stack that stays, and the tower's
 jettison motor pitches the escape tower over and throws it clear; the HUD's
@@ -116,6 +188,44 @@ scenario has scheduled. In the Apollo 13 scenario the S-II's centre engine
 fails at T3 + 167 s as on AS-508, and the S-II cuts off about 33 s late and
 the S-IVB about 45 s late, into the same parking orbit.
 
+**Return from Earth orbit.** In the parking orbit:
+
+1. **Space separates the CSM.** The four SLA panels tumble away, the S-IVB, IU
+   and LM leave under the IU, and the crew keeps the vessel: the CM's
+   stabilization and control system (SCS) takes over and fires the SM RCS's
+   +X jets for 3 s.
+2. **2 turns the CSM retrograde** on the SM RCS (the SCS's phase-plane law,
+   0.5° dead band): its nose against the direction of flight, so that the SPS
+   thrusts against it.
+3. **The DEORBIT MFD plans the burn**: the Δv to the target entry
+   flight-path angle (−1.75° by default), its time of ignition, and the entry
+   interface it gives; its SET loads the Δv into the ΔV counter.
+4. **Z at TIG lights the SPS**, which the SCS trims through the centre of
+   mass; the counter counts the Δv sensed along the CSM's axis and cuts the
+   SPS off at zero.
+5. **Space twice (within 2 s) separates the SM.** Its jettison controller
+   fires its −X jets and roll jets, and the command module's entry program
+   wakes: it arms the CM RCS and the earth landing system and holds the trim
+   attitude lift up (the crew heads down).
+6. **Entry.** At 0.05 g the program flies the entry mode: lift up by
+   default, or (key 9) manual, where Q and E roll the lift about the air
+   velocity, bank hold, or rolling. The ENTRY MFD shows the g–V scroll and
+   the predicted landing point; the heat shield glows near peak heating.
+7. **Landing.** At 24,000 ft the upper baroswitch jettisons the apex cover
+   and fires the drogues; at 10,000 ft the lower one deploys the three mains,
+   reefed. Space is the crew's backup for each step, below 40,000 ft. The log
+   reads "splashdown at x m/s" on water (a Natural Earth land mask; land
+   above 5 m/s or water above 15 m/s is a crash) and the MAP shows where.
+
+The same flow starts later in **Apollo 11 in parking orbit**, and Apollo 7's
+own deorbit and entry are scenarios too. The test suite flies Apollo 7 from its
+SPS-8 burn (Mission Report Table 3-III): the counter's cutoff, an entry
+interface 5 s from the flight's, a 3.4 g peak and a splashdown 52 n mi beyond
+where Apollo 7 came down; and from 68-FM-184's planned entry interface at the
+55° backup bank: 3.4 g, 53 s on the drogues and 4.5 min on the mains, landing
+81 n mi beyond the planned point. The landing miss is an accepted deviation:
+see [docs/CM-entry-datasheet.md](docs/CM-entry-datasheet.md).
+
 ## How it works
 
 ```
@@ -124,16 +234,21 @@ Sources/OrbitCore      Pure Swift + Foundation (builds on Linux too)
   Time/                TDB/UTC epochs with leap seconds, UT1 from the IERS C04 table
   Ephemeris/           JPL DE421 Chebyshev reader, lunar libration, star catalogue
   Bodies/              Bodies, the WGS-84 figure, Earth (IAU 2006/2000B, UT1) and Moon orientation,
-                       J2 gravity, US Std Atmosphere 1976, soundings
+                       J2 gravity, US Std Atmosphere 1976 to 1,000 km, soundings, eclipse, land mask
   Orbit/               Osculating elements
+  Navigation/          Kepler propagation, ground track, entry interface, deorbit planner
+  Instruments/         Local horizon and the navball (attitude, markers, speed modes)
   Vessel/              Parts, tanks, thrusters, staging, gimballed engines, TVC and RCS/APS autopilots,
-                       launch-stack aerodynamics
-  Guidance/            Flight programs: the Saturn V Instrument Unit (time bases, programs, sequence)
-  Simulation/          RK4 rigid-body integration, time warp, landing, SOI switching
-Sources/OrbitInstruments  Pure Swift + Foundation: physical keys and the keyboard state
-Sources/OrbitSim       macOS app: SwiftUI shell, Metal renderer, input, HUD
-Tests/OrbitCoreTests   Validation against JPL/SPICE reference values and physics checks
-Tests/OrbitInstrumentsTests  Key codes and the keyboard state
+                       launch-stack and capsule aerodynamics, the CSM and CM, parachutes, shapes
+  Guidance/            Flight programs: the Saturn V Instrument Unit, the CSM's SCS, the CM's entry
+                       program and landing-point predictor, the earth landing system
+  Simulation/          RK4 rigid-body integration, time warp, landing and splashdown, entry telemetry
+Sources/OrbitInstruments  Pure Swift + Foundation: physical keys, the keyboard state and the MFD
+                       pages (ORBIT, SURFACE, MAP, DEORBIT, ENTRY) as display lists
+Sources/OrbitSim       macOS app: SwiftUI shell, Metal renderer, input, HUD (navball), MFD panels
+Tests/OrbitCoreTests   Validation against JPL/SPICE reference values, published vehicle data and
+                       physics checks
+Tests/OrbitInstrumentsTests  Key codes, the keyboard state, MFD key routing and page content
 tools/                 Scripts that build the bundled data files
 ```
 
@@ -182,9 +297,16 @@ Some design notes:
   V = 7, built with `tools/make_stars.py`.
 - `ut1.txt`: UT1−UTC from the IERS EOP 20 C04 series (IERS, Paris
   Observatory), daily from 1962, built with `tools/make_ut1.py`.
+- `landmask.bin`: Natural Earth 1:10m land (public domain), a 0.25° land/water
+  mask for splashdown, built with `tools/make_landmask.py` (provenance in its
+  docstring).
+- `coastlines.bin` (the app's MAP MFD): Natural Earth 1:110m coastlines
+  (public domain), built with `tools/make_coastlines.py`.
 - AS-506's postflight trajectory and flight evaluation report tables, which the
   tests check the ascent against, are transcribed in `docs/data/as506/` and
-  `tools/data/`.
+  `tools/data/`; the Apollo spacecraft's (68-FM-184, the Apollo 7 and 11
+  Mission Reports, TN D-5399, TN D-5276, TN D-7437, 68-FM-160, MSC-03466, the
+  AOH), in `docs/data/apollo-spacecraft/` and `tools/data/`.
 
 ## License
 

@@ -39,10 +39,11 @@ struct ContentView: View {
             if let error = model.loadError {
                 Text(error).foregroundStyle(.red).padding().background(.black.opacity(0.7))
             } else {
+                // Only the MFDs take clicks (their buttons); elsewhere the
+                // mouse reaches the Metal view (camera).
                 FlightHUD(model: model, instruments: model.instruments)
-                    .allowsHitTesting(false)
                 if model.showHelp {
-                    HelpView()
+                    HelpView(scenario: model.scenario)
                         .allowsHitTesting(false)
                 }
             }
@@ -123,19 +124,23 @@ struct FlightHUD: View {
             let l = HUDLayout(size: geo.size)
             ZStack(alignment: .topLeading) {
                 if instruments.visibility == .full {
-                    TopBar(hud: model.hud)
-                        .frame(width: l.topBar.width, height: l.topBar.height)
-                    EventLog(events: model.hud.events)
-                        .frame(width: l.log.width, height: l.log.height, alignment: .topLeading)
-                        .offset(x: l.log.minX, y: l.log.minY)
-                    VehiclePanel(hud: model.hud)
-                        .frame(width: l.vehicle.width, height: l.vehicle.height, alignment: .topTrailing)
-                        .offset(x: l.vehicle.minX, y: l.vehicle.minY)
+                    Group {
+                        TopBar(hud: model.hud)
+                            .frame(width: l.topBar.width, height: l.topBar.height)
+                        EventLog(events: model.hud.events)
+                            .frame(width: l.log.width, height: l.log.height, alignment: .topLeading)
+                            .offset(x: l.log.minX, y: l.log.minY)
+                        VehiclePanel(hud: model.hud)
+                            .frame(width: l.vehicle.width, height: l.vehicle.height, alignment: .topTrailing)
+                            .offset(x: l.vehicle.minX, y: l.vehicle.minY)
+                    }
+                    .allowsHitTesting(false)
                     MFDPanelsView(model: model, slots: l.mfds)
                 }
                 if instruments.visibility != .off {
                     InstrumentCluster(instruments: instruments, ball: l.ballSize)
                         .offset(x: l.cluster.minX, y: l.cluster.minY)
+                        .allowsHitTesting(false)
                 }
             }
             .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
@@ -251,7 +256,7 @@ struct VehiclePanel: View {
 
     func panel(tanks: [TankInfo]) -> some View {
         HUDPanel {
-            if let p = hud.program { HUDRow("IU", p) }
+            if let p = hud.program { HUDRow(hud.programLabel, p) }
             HUDRow("Space", hud.nextStage)
             HUDRow("Stage Δv", String(format: "%.0f m/s", hud.deltaV))
             HUDRow("Mass", String(format: "%.1f t", hud.mass / 1000))
@@ -275,19 +280,26 @@ struct VehiclePanel: View {
     }
 }
 
+/// The keys, under the scenario's name and summary (what to do in it).
 struct HelpView: View {
-    let lines: [(String, String)] = [
-        ("Z / X", "full throttle / cut"),
+    var scenario: Scenario?
+
+    static let lines: [(String, String)] = [
+        ("Z / X", "full throttle / cut (CSM: Z lights the SPS, the ΔV counter cuts it off)"),
         ("= / -", "throttle up / down (hold)"),
         ("W S A D Q E", "pitch down/up, yaw left/right, roll left/right"),
         ("I K J L U O", "translate up/down/left/right/fwd/back"),
-        ("Space", "next staging event (Saturn V: after the S-IC cutoff)"),
+        ("Space", "next staging event (Saturn V: after the S-IC cutoff; CM/SM: press twice within 2 s)"),
+        ("", "CM after the SM has gone: ELS backup (apex cover and drogues, mains), below 40,000 ft"),
         ("T", "kill rotation   1-7 prograde, retro, normal, anti-normal, radial±, level   0 off"),
         ("8", "hold attitude (Saturn V: hands the attitude back to the IU)"),
+        ("9", "entry mode: manual (Q/E roll the lift) / bank hold / rolling"),
         ("F, then 1-5", "fail engine n of the stage now firing (S-IC, S-II: 5 is the centre)   Esc cancels"),
         (". , /", "time warp up / down / reset     P pause"),
         ("N", "navball speed: orbit / surface (automatic at 50 km up, 40 km down until then)"),
         ("F2 or `", "HUD: full / instruments only / off"),
+        ("L/R Shift + F1, Tab", "left/right MFD: mode select   Shift + ` menu   Shift + Esc power"),
+        ("L/R Shift + key", "MFD button (or click it)"),
         ("Mouse drag / scroll", "orbit / zoom camera"),
         ("C / V", "camera target / camera frame"),
         ("[ ]", "switch vessel     M orbit line     H this help"),
@@ -295,16 +307,25 @@ struct HelpView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
+            if let scenario {
+                Text(scenario.name).font(.system(size: 13, weight: .bold, design: .monospaced))
+                Text(scenario.summary)
+                    .font(.system(size: 11, design: .monospaced))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .opacity(0.85)
+                    .padding(.bottom, 6)
+            }
             Text("Controls").font(.system(size: 13, weight: .bold, design: .monospaced))
-            ForEach(lines.indices, id: \.self) { i in
-                HStack(spacing: 10) {
-                    Text(lines[i].0).frame(width: 150, alignment: .leading).fontWeight(.semibold)
-                    Text(lines[i].1)
+            ForEach(Self.lines.indices, id: \.self) { i in
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Text(Self.lines[i].0).frame(width: 160, alignment: .leading).fontWeight(.semibold)
+                    Text(Self.lines[i].1)
                 }
             }
         }
         .font(.system(size: 12, design: .monospaced))
         .foregroundStyle(.white)
+        .frame(maxWidth: 820, alignment: .leading)
         .padding(14)
         .background(Color.black.opacity(0.7))
         .clipShape(RoundedRectangle(cornerRadius: 8))
