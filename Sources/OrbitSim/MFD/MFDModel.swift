@@ -60,6 +60,8 @@ final class MFDModel: ObservableObject {
         }
         RunLoop.main.add(t, forMode: .common)
         timer = t
+        // The navball's manoeuvre marker: the burn DEORBIT's SET loaded.
+        app.instruments.maneuverSource = { [weak self] v in self?.controller.activeManeuver(for: v) }
         refresh()
     }
 

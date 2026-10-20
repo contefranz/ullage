@@ -7,14 +7,50 @@ public enum VelocityFrame: String, CaseIterable, Sendable {
     case orbit
     /// Relative to the reference body's rotating surface.
     case surface
+    /// Relative to the target vessel.
+    case target
 
     /// Short label for the speed readout.
     public var label: String {
         switch self {
         case .orbit: "ORB"
         case .surface: "SRF"
+        case .target: "TGT"
         }
     }
+}
+
+/// A vessel's state relative to a target vessel, from their barycentric
+/// states, so the two may have different reference bodies. The bodies'
+/// offset is taken first, so the relative state keeps the precision of the
+/// vessels' own states (barycentric positions are ~1e11 m, whose last bit
+/// is ~3e-5 m).
+public struct TargetRelative: Equatable {
+    /// The vessel's position and velocity relative to the target (ICRF, m
+    /// and m/s): the velocity is target mode's.
+    public let position: Vec3
+    public let velocity: Vec3
+
+    public init(position: Vec3, velocity: Vec3) {
+        self.position = position
+        self.velocity = velocity
+    }
+
+    /// `vessel` relative to `target` at `snap`.
+    public init(of v: Vessel, to target: Vessel, snapshot snap: SystemSnapshot) {
+        let a = v.reference, b = target.reference
+        let r = a.id == b.id ? Vec3.zero : snap.position(a) - snap.position(b)
+        let w = a.id == b.id ? Vec3.zero : snap.velocity(a) - snap.velocity(b)
+        position = r + (v.position - target.position)
+        velocity = w + (v.velocity - target.velocity)
+    }
+
+    /// Distance between the two, m.
+    public var range: Double { position.length }
+    /// Rate of `range`, m/s: positive opening, negative closing.
+    public var rangeRate: Double { range > 0 ? position.dot(velocity) / range : velocity.length }
+    /// The direction from the vessel to the target (ICRF).
+    public var towardTarget: Vec3 { -position }
 }
 
 /// A direction marked on the navball.
@@ -70,18 +106,25 @@ public struct Navball {
     public private(set) var attitudeError: Vec3?
     /// Nil out of the air.
     public private(set) var aero: AeroAngles?
+    /// The target vessel relative to this one; nil without a target.
+    public private(set) var target: TargetRelative?
 
-    /// Below this speed (m/s) in the frame there are no prograde markers.
+    /// Below this speed (m/s) in the frame there are no prograde markers;
+    /// in target mode below `minimumTargetSpeed`, as docking speeds are a
+    /// few cm/s.
     public static let minimumSpeed = 0.1
+    public static let minimumTargetSpeed = 0.001
 
     /// The ball for an attitude (pilot axes -> the frame of the vectors) in
     /// `horizon`: the trajectory markers from `position` and the inertial
     /// `velocity` (normal and radial), and prograde from `frameVelocity`,
     /// the velocity in `frame`. Radial is ±r̂, as the autopilot flies it.
+    /// With a `target`, the target and anti-target markers.
     public init(attitude: Quat, horizon: LocalHorizon, position: Vec3, velocity: Vec3,
-                frame: VelocityFrame, frameVelocity: Vec3) {
+                frame: VelocityFrame, frameVelocity: Vec3, target: TargetRelative? = nil) {
         self.frame = frame
         self.horizon = horizon
+        self.target = target
         bodyToNED = horizon.nedToInertial.transposed * attitude.matrix
         angles = HorizonAttitude(bodyToNED: bodyToNED)
         speed = frameVelocity.length
@@ -90,7 +133,7 @@ public struct Navball {
         func add(_ kind: NavballMarker.Kind, _ d: Vec3) {
             m.append(NavballMarker(kind: kind, body: attitude.inverseRotate(d.normalized)))
         }
-        if speed >= Self.minimumSpeed {
+        if speed >= (frame == .target ? Self.minimumTargetSpeed : Self.minimumSpeed) {
             add(.prograde, frameVelocity)
             add(.retrograde, -frameVelocity)
         }
@@ -103,19 +146,32 @@ public struct Navball {
             add(.radialOut, position)
             add(.radialIn, -position)
         }
+        if let t = target, t.range > 0 {
+            add(.target, t.towardTarget)
+            add(.antitarget, -t.towardTarget)
+        }
         markers = m
     }
 
     /// The ball for `vessel`, with its command and thrust markers, rates,
-    /// attitude error and aerodynamic angles; `maneuver` is a burn's Δv
-    /// direction (ICRF).
+    /// attitude error and aerodynamic angles; `target` is the vessel target
+    /// mode refers to, and `maneuver` a burn's Δv direction (ICRF). The
+    /// target frame without a target is the orbit's.
     public init(vessel v: Vessel, in sim: Simulation, snapshot snap: SystemSnapshot, frame: VelocityFrame,
-                maneuver: Vec3? = nil) {
+                target: Vessel? = nil, maneuver: Vec3? = nil) {
         let body = v.reference, o = snap.orientation(body)
         let pilot = (v.attitude * v.controlFrame).normalized
+        let relative = target.flatMap { $0 === v ? nil : TargetRelative(of: v, to: $0, snapshot: snap) }
+        let frame = frame == .target && relative == nil ? .orbit : frame
+        let frameVelocity: Vec3
+        switch frame {
+        case .orbit: frameVelocity = v.velocity
+        case .surface: frameVelocity = v.surfaceVelocity(snapshot: snap)
+        case .target: frameVelocity = relative!.velocity
+        }
         self.init(attitude: pilot, horizon: .geodetic(at: v.position, body: body, orientation: o),
-                  position: v.position, velocity: v.velocity, frame: frame,
-                  frameVelocity: frame == .surface ? v.surfaceVelocity(snapshot: snap) : v.velocity)
+                  position: v.position, velocity: v.velocity, frame: frame, frameVelocity: frameVelocity,
+                  target: relative)
         altitude = v.altitude
         rates = v.controlFrame.inverseRotate(v.angularVelocity)
 

@@ -453,6 +453,48 @@ public final class SaturnIU: FlightProgram {
         return next
     }
 
+    /// The next event for the pilot: liftoff before T1, then the earliest of
+    /// the sequence's events still to come on the time bases started (and
+    /// any the IGM set off), the S-II cutoff the IGM expects (its T1 + T2)
+    /// and its S-IVB cutoff (`predictedCutoff`). Not the IGM's cycles or
+    /// the ramps' cells, which only end steps, nor the gain switches, the
+    /// cant, the engine ratings (EMR) and log notes, nor scheduled failures.
+    /// The S-IC's outboard cutoff and the S-II's are sensed, not timed, so
+    /// before the IGM starts nothing is shown from the S-IC centre cutoff to
+    /// T3.
+    public func nextEvent(at now: Epoch) -> (name: String, at: Epoch)? {
+        var events: [(name: String, at: Epoch)] = []
+        if timeBases[.t1] == nil, let m = firstMotion { events.append(("liftoff", m + plan.liftoffDelay)) }
+        for (i, e) in plan.sequence.enumerated() where !done.contains(i) && Self.isShown(e.action) {
+            guard let base = timeBases[e.base] else { continue }
+            events.append((e.name, base + e.offset))
+        }
+        for e in pending where Self.isShown(e.action) { events.append((e.name, e.at)) }
+        if let igm = guidance, !igm.highSpeedLoop, let last = lastCycle, timeBases[.t4] == nil,
+           igm.stage == .first || igm.stage == .second {
+            events.append(("S-II cutoff (IGM)", last + igm.t1 + igm.t2))
+        }
+        if let c = predictedCutoff { events.append(("S-IVB cutoff (IGM)", c)) }
+        return events.filter { $0.at > now }.min { $0.at < $1.at }
+    }
+
+    /// When the IGM expects to cut the S-IVB off: in the high-speed loop
+    /// from the speed's rate, before it at its last cycle's total time to
+    /// go (T_T′, from the S-II burn on); nil while it does not guide.
+    public var predictedCutoff: Epoch? {
+        if let c = cutoffAt { return c }
+        guard let igm = guidance, !igm.highSpeedLoop, let last = lastCycle, igm.totalTime > 0 else { return nil }
+        return last + igm.totalTime
+    }
+
+    /// Whether `nextEvent` shows an event doing `action`.
+    static func isShown(_ action: Action) -> Bool {
+        switch action {
+        case .gains, .startCant, .rating, .note: false
+        default: true
+        }
+    }
+
     // MARK: Sequencing
 
     private func startT1(at t1: Epoch, _ v: Vessel, _ sim: Simulation) {

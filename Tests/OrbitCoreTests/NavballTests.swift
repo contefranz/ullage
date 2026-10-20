@@ -406,4 +406,121 @@ final class NavballTests: XCTestCase {
         XCTAssertEqual(auto(nil, 185, -1), .orbit)
         XCTAssertEqual(auto(nil, 30, 1), .surface)
     }
+
+    // MARK: Phase 2
+
+    // 12: target mode across reference bodies. The relative state comes from
+    // the two barycentric states, so a target about the Moon reads as its
+    // state carried to the Earth's frame by the ephemeris: the speed is
+    // |v - v_target|, prograde points along it, and the target and
+    // anti-target markers along the line of sight. Without a target the
+    // target frame is the orbit's.
+    func testTargetFrameAcrossReferenceBodies() throws {
+        let sim = try Simulation.forTests(perturbations: false)
+        let earth = sim.system.earth, moon = sim.system.moon
+        let v = Toy.rocket(), t = Toy.rocket()
+        sim.add(v)
+        sim.add(t)
+        sim.placeInCircularOrbit(v, around: earth, altitude: 185_000, inclination: 32.5)
+        sim.placeInCircularOrbit(t, around: moon, altitude: 110_000, inclination: 10)
+        v.attitude = Quat(axis: Vec3(0.2, -0.5, 0.7), angle: 1.1)
+        let snap = sim.snapshot
+        // The target's state relative to the Earth, from the ephemeris.
+        let tPosition = snap.position(moon) - snap.position(earth) + t.position
+        let tVelocity = snap.velocity(moon) - snap.velocity(earth) + t.velocity
+        let ball = Navball(vessel: v, in: sim, snapshot: snap, frame: .target, target: t)
+        XCTAssertEqual(ball.frame, .target)
+        let rel = try XCTUnwrap(ball.target)
+        XCTAssertLessThan((rel.position - (v.position - tPosition)).length, 1e-3)
+        XCTAssertLessThan((rel.velocity - (v.velocity - tVelocity)).length, 1e-9)
+        XCTAssertEqual(ball.speed, (v.velocity - tVelocity).length, accuracy: 1e-9)
+        XCTAssertGreaterThan(rel.range, 3e8)
+        func direction(_ kind: NavballMarker.Kind) throws -> Vec3 {
+            v.attitude.rotate(try XCTUnwrap(ball.marker(kind), "\(kind)").body)
+        }
+        XCTAssertGreaterThan(try direction(.prograde).dot((v.velocity - tVelocity).normalized), 1 - 1e-12)
+        XCTAssertGreaterThan(try direction(.target).dot((tPosition - v.position).normalized), 1 - 1e-12)
+        XCTAssertLessThan((try direction(.antitarget) + direction(.target)).length, 1e-12)
+        // The orbit's trajectory markers stay the vessel's own.
+        XCTAssertGreaterThan(try direction(.normal).dot(v.position.cross(v.velocity).normalized), 1 - 1e-12)
+
+        // In the orbit frame the target markers stay; without a target, or
+        // with the vessel itself, target mode is the orbit's.
+        let orbit = Navball(vessel: v, in: sim, snapshot: snap, frame: .orbit, target: t)
+        XCTAssertEqual(orbit.speed, v.velocity.length, accuracy: 1e-9)
+        XCTAssertNotNil(orbit.marker(.target))
+        for target in [nil, v] {
+            let none = Navball(vessel: v, in: sim, snapshot: snap, frame: .target, target: target)
+            XCTAssertEqual(none.frame, .orbit)
+            XCTAssertNil(none.target)
+            XCTAssertNil(none.marker(.target))
+            XCTAssertEqual(none.speed, v.velocity.length, accuracy: 1e-9)
+        }
+        XCTAssertEqual(VelocityFrame.target.label, "TGT")
+    }
+
+    // 13: rendezvous geometry, against the chord of a circular orbit. The
+    // target 1 km ahead in the same 185 km orbit (Δu = 1 km / r): range
+    // 2 r sin(Δu/2), relative speed 2 v sin(Δu/2), range rate zero; seen
+    // from a vessel flying prograde, the target is Δu/2 below the nose
+    // (towards the Earth) and the relative velocity Δu/2 off the radial,
+    // forward. Backing away along the line of sight at 0.25 m/s, the range
+    // opens at 0.25 m/s.
+    func testRangeAndRangeRateOnACircularOrbit() throws {
+        let sim = try Simulation.forTests(perturbations: false)
+        let earth = sim.system.earth
+        let v = Toy.rocket(), t = Toy.rocket()
+        sim.add(v)
+        sim.add(t)
+        let r = earth.radius + 185_000, du = 1_000 / r
+        sim.placeInCircularOrbit(v, around: earth, altitude: 185_000, inclination: 32.5, argumentOfLatitude: 40)
+        sim.placeInCircularOrbit(t, around: earth, altitude: 185_000, inclination: 32.5,
+                                 argumentOfLatitude: 40 + du / deg)
+        let speed = v.velocity.length
+        var ball = Navball(vessel: v, in: sim, snapshot: sim.snapshot, frame: .target, target: t)
+        var rel = try XCTUnwrap(ball.target)
+        XCTAssertEqual(rel.range, 2 * r * sin(du / 2), accuracy: 1e-6)
+        XCTAssertEqual(ball.speed, 2 * speed * sin(du / 2), accuracy: 1e-9)
+        XCTAssertEqual(rel.rangeRate, 0, accuracy: 1e-9)
+        let target = Navball.project(try XCTUnwrap(ball.marker(.target)).body)
+        XCTAssertTrue(target.front)
+        XCTAssertEqual(target.x, 0, accuracy: 1e-9)
+        XCTAssertEqual(target.y, -sin(du / 2), accuracy: 1e-9)
+        XCTAssertFalse(Navball.project(try XCTUnwrap(ball.marker(.antitarget)).body).front)
+        let prograde = v.attitude.rotate(try XCTUnwrap(ball.marker(.prograde)).body)
+        XCTAssertEqual(acos(prograde.dot(v.position.normalized)), du / 2, accuracy: 1e-6)
+        XCTAssertGreaterThan(prograde.dot(v.velocity), 0)
+
+        v.velocity -= rel.towardTarget.normalized * 0.25
+        ball = Navball(vessel: v, in: sim, snapshot: sim.snapshot, frame: .target, target: t)
+        rel = try XCTUnwrap(ball.target)
+        XCTAssertEqual(rel.rangeRate, 0.25, accuracy: 1e-6)
+
+        // Docking speeds keep their prograde marker: 3 cm/s relative.
+        t.velocity = v.velocity + rel.towardTarget.normalized * 0.03
+        ball = Navball(vessel: v, in: sim, snapshot: sim.snapshot, frame: .target, target: t)
+        XCTAssertEqual(ball.speed, 0.03, accuracy: 1e-9)
+        let away = v.attitude.rotate(try XCTUnwrap(ball.marker(.prograde)).body)
+        XCTAssertGreaterThan(away.dot(-rel.towardTarget.normalized), 1 - 1e-9)
+        XCTAssertEqual(try XCTUnwrap(ball.target).rangeRate, 0.03, accuracy: 1e-6)
+    }
+
+    // 14: the manoeuvre marker is the burn's direction in pilot axes, in
+    // body and crew axes alike, and only with a burn.
+    func testManeuverMarker() throws {
+        let sim = try Simulation.forTests(perturbations: false)
+        let v = Toy.rocket()
+        sim.add(v)
+        sim.placeInCircularOrbit(v, around: sim.system.earth, altitude: 185_000, inclination: 32.5)
+        let burn = -v.velocity.normalized * 90 + v.position.normalized * 5
+        for frame in [Quat.identity, crew] {
+            v.controlFrame = frame
+            let ball = Navball(vessel: v, in: sim, snapshot: sim.snapshot, frame: .orbit, maneuver: burn)
+            let m = try XCTUnwrap(ball.marker(.maneuver)).body
+            XCTAssertLessThan(((v.attitude * frame).rotate(m) - burn.normalized).length, 1e-12)
+            // Nearly retrograde: on the far side of a prograde-pointing ball.
+            XCTAssertFalse(Navball.project(m).front)
+        }
+        XCTAssertNil(Navball(vessel: v, in: sim, snapshot: sim.snapshot, frame: .orbit).marker(.maneuver))
+    }
 }

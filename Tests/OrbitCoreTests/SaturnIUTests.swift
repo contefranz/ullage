@@ -1159,6 +1159,59 @@ final class SaturnIUTests: XCTestCase {
         var status: String { "" }
     }
 
+    // FlightProgram.nextEvent on the nominal flight, the HUD's NEXT line
+    // (design-navball-hud.md, phase 2): every timed event it shows happens
+    // when it said; the gain switches, the cant, the EMR ratings and the log
+    // notes never show; from the IGM's second cycle after the S-II centre
+    // cutoff to the cutoff it expects, that S-II cutoff comes within 1.5 s
+    // of T4 (measured 1.05 s early at 480 s, then 0.08 s; until then the
+    // cycles still average the five engines' thrust in, 7.5 s early); and
+    // through the S-IVB burn the IGM's predicted cutoff comes within 1 s of
+    // 699 s (AS-506's 699.33 s, FER Table 2-2; measured 699.24 s after the
+    // ullage cases' jettison, 699.06 s at 690 s, then the high-speed loop's
+    // 698.83 s, the model's own cutoff).
+    func testNextEventShowsTheIGMCutoffComing() throws {
+        let f = NominalFlight.shared
+        let hidden = Set(f.iu.plan.sequence.filter { !SaturnIU.isShown($0.action) }.map(\.name))
+            .union(["S-II low EMR (PU valve step)"])
+        for s in f.samples {
+            guard let e = s.nextEvent else { continue }
+            XCTAssertFalse(hidden.contains(e.name), e.name)
+            XCTAssertGreaterThan(e.range, s.range, e.name)
+            guard !e.name.hasSuffix("(IGM)") else { continue }
+            let logged = e.name == "liftoff" ? "T1: liftoff" : e.name
+            XCTAssertTrue(f.iu.log.contains { $0.event == logged && abs(f.range($0.time) - e.range) < 1e-6 },
+                          "\(e.name) at \(e.range) s, shown at \(s.range) s")
+        }
+
+        let t4 = try XCTUnwrap(f.time(of: "T4: S-II outboard engine cutoff sensed"))
+        let sIICentre = try XCTUnwrap(f.time(of: "S-II centre engine cutoff"))
+        let coming = f.samples(in: (sIICentre + 2 * AS506.igmCycle + 0.05)...(t4 - 0.5))
+        XCTAssertFalse(coming.isEmpty)
+        for s in coming {
+            let e = try XCTUnwrap(s.nextEvent, "at \(s.range) s")
+            XCTAssertEqual(e.name, "S-II cutoff (IGM)", "at \(s.range) s")
+            XCTAssertEqual(e.range, t4, accuracy: 1.5, "at \(s.range) s")
+        }
+
+        let cutoff = try XCTUnwrap(f.time(of: "S-IVB velocity cutoff (IGM)"))
+        let jettison = try XCTUnwrap(f.time(of: "S-IVB ullage case jettison"))
+        let burn = f.samples(in: (jettison + 0.05)...(cutoff - 0.05))
+        XCTAssertFalse(burn.isEmpty)
+        for s in burn {
+            let e = try XCTUnwrap(s.nextEvent, "at \(s.range) s")
+            XCTAssertEqual(e.name, "S-IVB cutoff (IGM)", "at \(s.range) s")
+            XCTAssertEqual(e.range, 699, accuracy: 1, "at \(s.range) s")
+            XCTAssertEqual(e.range, cutoff, accuracy: 0.5, "at \(s.range) s")
+        }
+        if let first = burn.first?.nextEvent, let last = burn.last?.nextEvent {
+            print(String(format: "nextEvent: S-IVB cutoff (IGM) predicted %.2f s to %.2f s; flown %.2f s",
+                         first.range, last.range, cutoff))
+        }
+        // The T5 events, then nothing.
+        XCTAssertNil(f.samples.last?.nextEvent)
+    }
+
     // The simulation ends a step on a flight program's next event, so the
     // program acts on time at any warp: a capsule coasting in orbit (steps of
     // several seconds), or standing on the pad (10 s steps), still gets an
