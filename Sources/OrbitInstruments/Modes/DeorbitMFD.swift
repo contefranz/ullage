@@ -18,7 +18,9 @@ import OrbitCore
 ///
 /// SET loads the Δv into the vessel's ΔV counter (`DeltaVCounting`, the
 /// Apollo SCS's EMS counter), which cuts the engine off when it has counted
-/// the Δv down; CLR clears it. Both do nothing on a vessel without one.
+/// the Δv down, and the burn into the navball's manoeuvre marker
+/// (`ActiveManeuver`); CLR clears both. Both do nothing on a vessel
+/// without one.
 /// Once TIG has passed, the page plans from now: its Δv is the Δv still to
 /// go to the target.
 public final class DeorbitMFD: MFDMode {
@@ -97,9 +99,11 @@ public final class DeorbitMFD: MFDMode {
         case .s:
             guard let counter = c?.deltaVCounter, let plan else { return false }
             counter.loadDeltaV(plan.deltaVMagnitude)
+            c?.data.maneuver = ActiveManeuver(deorbit: plan)
         case .c:
             guard let counter = c?.deltaVCounter else { return false }
             counter.loadDeltaV(nil)
+            c?.data.maneuver = nil
         default: return false
         }
         return true

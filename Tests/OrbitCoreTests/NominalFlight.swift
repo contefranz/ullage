@@ -23,6 +23,8 @@ final class NominalFlight {
         let range: Double
         /// By vessel name: "Apollo 11", "Apollo 11 – S-IC", ...
         let vessels: [String: State]
+        /// The IU's `nextEvent` after the step: its name and range time.
+        let nextEvent: (name: String, range: Double)?
     }
 
     static let shared = NominalFlight()
@@ -68,7 +70,8 @@ final class NominalFlight {
                                    tanks: Dictionary(v.parts.flatMap(\.tanks).map { ($0.name, $0.mass) },
                                                      uniquingKeysWith: +))
         }
-        samples.append(Sample(range: range(), vessels: states))
+        let next = iu.nextEvent(at: sim.time).map { ($0.name, range($0.at)) }
+        samples.append(Sample(range: range(), vessels: states, nextEvent: next))
     }
 
     /// The last sample at or before `range` (the first one before the start).
