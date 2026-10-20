@@ -5,11 +5,17 @@ extension VesselLibrary {
     /// simulation time 0 is range time 0.30 s, and the S-IC tanks already lack
     /// the propellant burned since ignition. Data and sources are in `AS506`.
     ///
-    /// Eleven parts, bottom to top: S-IC, S-IC/S-II interstage, S-II, S-II/S-IVB
-    /// interstage, S-IVB, S-IVB ullage rockets, IU, SLA, LM, CSM, LES. The
-    /// Space key separates the S-IC, the interstage, the LES, the S-II with
-    /// the aft interstage, then the ullage rockets' cases; the rest never
-    /// separates. The S-IC and S-II separate on their retro motors, which
+    /// Eighteen parts, bottom to top: S-IC, S-IC/S-II interstage, S-II,
+    /// S-II/S-IVB interstage, S-IVB, S-IVB ullage rockets, IU, the SLA's ring
+    /// and four panels (`slaParts`), LM, the CSM's SM and command module
+    /// parts (`apolloCSMParts`: CM, apex cover, drogue and main parachutes),
+    /// LES. The Space key separates the S-IC, the interstage, the LES, the
+    /// S-II with the aft interstage, the ullage rockets' cases, then the CSM
+    /// from the S-IVB (event 6: the S-IVB, IU, SLA ring and LM leave with
+    /// the IU's program, each panel on its own; the crew keeps the vessel
+    /// and its SCS takes over), then the SM (event 7), then the CM's apex
+    /// cover and parachutes (events 30-32). The vessel flies in the crew's
+    /// axes (`controlFrame`). The S-IC and S-II separate on their retro motors, which
     /// their separation lights; the S-II and S-IVB ullage motors light at the
     /// IU's command or at the separation below them, whichever comes first.
     /// F-1 and J-2 engines are on/off. The outboard
@@ -132,7 +138,6 @@ extension VesselLibrary {
         }
 
         let body = D.bodyDiameter / 2 * D.inch, upper = D.sIVBDiameter / 2 * D.inch
-        let csmRadius = D.csmDiameter / 2 * D.inch
 
         // S-IC at first motion: engines below the thrust structure, RP-1
         // below LOX. Its dry mass is the FER stage less its tanks and retro
@@ -240,7 +245,7 @@ extension VesselLibrary {
             (-D.sIVBUllageMotorCases, D.height(D.sIVBUllageMotorHeight), D.sIVBUllageMotorRadius)],
             total: sIVBDry)
         let sIVB = part("S-IVB", D.station(D.sIVBAftSkirt), D.station(D.sIVBTop), radius: upper, dryMass: sIVBDry,
-                        dryCenterOfMass: sIVBMass.com, staging: .fixed)
+                        dryCenterOfMass: sIVBMass.com, staging: .event(6))
         sIVB.dryInertia = sIVBMass.inertia
         let sIVBLOX = tank("S-IVB LOX", in: sIVB, load: D.sIVBLOXLoad * lb, unusable: D.sIVBLOXUnusable * lb,
                            centroid: D.sIVBLOXCentroid, density: D.loxDensity)
@@ -277,22 +282,29 @@ extension VesselLibrary {
 
         let iuMass = dryProperties(D.instrumentUnit, total: D.iu * lb)
         let iu = part("IU", D.station(D.sIVBTop), D.station(D.iuTop), radius: upper, dryMass: D.iu * lb,
-                      dryCenterOfMass: iuMass.com, staging: .fixed)
+                      dryCenterOfMass: iuMass.com, staging: .event(6))
         iu.dryInertia = iuMass.inertia
 
-        let sla = part("SLA", D.station(D.iuTop), D.apolloStation(D.slaTop), radius: upper, dryMass: D.sla,
-                       staging: .fixed)
-
+        // The SLA: its ring and four panels (`slaParts`), event 6 with the
+        // S-IVB, IU and LM: the crew keeps the vessel, the launch vehicle's
+        // side leaves, the panels on their own. The CSM's +X jets, not
+        // springs, separate the S-IVB.
+        let sla = slaParts()
         let lm = part("LM", D.height(D.lmBottomHeight), D.height(D.lmTopHeight), radius: D.lmRadius,
-                      dryMass: D.lm, dryCenterOfMass: D.station(D.lmCenterOfMass), staging: .fixed)
+                      dryMass: D.lm, dryCenterOfMass: D.station(D.lmCenterOfMass), staging: .event(6))
+        for p in [sIVB, iu, lm] { p.separationSpeed = 0 }
 
-        // CSM as one part (M2 splits it). No CSM CG was found: the SM and CM
-        // each sit at their own mid-station.
-        let smMid = D.apolloStation((D.slaTop + D.smTop) / 2), cmMid = D.apolloStation((D.smTop + D.cmApex) / 2)
-        let cm = D.cm * lb
-        let csm = part("CSM", D.apolloStation(D.slaTop), D.apolloStation(D.cmApex), radius: csmRadius,
-                       dryMass: D.csm,
-                       dryCenterOfMass: ((D.csm - cm) * smMid + cm * cmMid) / D.csm, staging: .fixed)
+        // The CSM (`apolloCSMParts`): the SM, event 7, and the command
+        // module's parts; the CM carries the SCS, which flies the CSM once
+        // the IU has left, with its +X ullage at the separation.
+        let csm = apolloCSMParts(.apollo11)
+        csm.first { $0.name == "CM" }?.standbyProgram = ApolloSCS(separationUllage: ApolloCSM.separationUllage)
+        // On the launch vehicle the CSM's mass counts centred on the axis,
+        // as M1's ascent was calibrated: its 4-7 in lateral CG and its
+        // products of inertia would move the §17 residuals (the S-II cutoff's
+        // radius by 320 m) and the APS's and gimbals' decoupling. They are
+        // the CSM's own from its separation on.
+        for p in csm { p.centeredUntilEvent = 6 }
 
         // LES with the boost protective cover; tower, motor and nose are crude.
         // Its tower-jettison motor, not a spring, throws it clear: the thrust
@@ -326,12 +338,16 @@ extension VesselLibrary {
         tjm.transients = D.towerJettisonStart
         les.thrusters = [tjm]
 
-        let stack = Vessel(name: name, parts: [sIC, interstage, sII, aftInterstage, sIVB, ullageRockets, iu, sla, lm,
-                                               csm, les],
+        let stack = Vessel(name: name, parts: [sIC, interstage, sII, aftInterstage, sIVB, ullageRockets, iu] + sla + [lm]
+                                               + csm + [les],
                            reference: placeholderBody)
         // The IU's APS switching logic flies the APS in every mode but kill rotation.
         stack.phasePlane = D.apsLaw
         stack.aerodynamics = D.aerodynamics
+        // The crew flies in its own axes from the pad, and the vessel that
+        // carries the CM to splashdown has the CM's impact limits.
+        stack.controlFrame = ApolloAxes.rotation
+        stack.impactLimits = ApolloCM.impactLimits
         dressSaturnV(stack)
         return stack
     }

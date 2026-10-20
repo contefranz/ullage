@@ -42,13 +42,15 @@ final class MassCharacteristicsTests: XCTestCase {
     // gives the FER's first-motion mass to 1 kg: 1,109 kg (2.3 %) more than
     // this row, which must book an item elsewhere; placed anywhere from the
     // SLA's base to the LES's top, that item moves the row's CG by 8-11 in.
-    // Its CG within 10 in (the model is +7.6 in, with the LM's CG from the
-    // predicted rows, the CSM's and LES's estimated: L). The row's pitch
-    // inertia (1.549e6 kg m²) is not checked: the model's is 9 % higher, its
-    // modules' inner layouts being estimates (datasheet §13.2).
+    // Its CG within 10 in (the model is -4.2 in, with the LM's CG from the
+    // predicted rows, the CSM's from the Apollo 11 Mission Report's Table
+    // A-I since track C, +7.6 in on M1's estimate, the LES's estimated: L).
+    // The row's pitch inertia (1.549e6 kg m²) is not checked: the model's is
+    // 9 % higher, its modules' inner layouts being estimates (datasheet
+    // §13.2).
     func testSpacecraftCenterOfMass() {
         let v = VesselLibrary.saturnV()
-        let sc = v.parts.filter { ["SLA", "LM", "CSM", "LES"].contains($0.name) }
+        let sc = v.parts.filter { (SaturnVDataTests.spacecraft + ["LES"]).contains($0.name) }
         let m = sc.reduce(0) { $0 + $1.mass }
         let x = sc.reduce(0) { $0 + ($1.offset.x + $1.centerOfMass.x) * $1.mass } / m - v.structureOrigin.x
         XCTAssertEqual(m, 1_792 + 15_095 + 28_806 + 4_042, accuracy: 1e-6)

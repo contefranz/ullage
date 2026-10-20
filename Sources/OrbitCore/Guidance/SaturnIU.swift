@@ -408,8 +408,17 @@ public final class SaturnIU: FlightProgram {
     }
 
     /// The pilot may stage from T3 on: before it, Space would drop the S-IC
-    /// on the pad, or full and burning in flight.
-    public func allowsManualStaging(of vessel: Vessel) -> Bool { timeBases[.t3] != nil }
+    /// on the pad, or full and burning in flight. While the S-IVB burns only
+    /// its ullage motors' cases may go (event 5): Space would otherwise
+    /// separate the spacecraft from a burning S-IVB.
+    public func allowsManualStaging(of vessel: Vessel) -> Bool {
+        guard timeBases[.t3] != nil else { return false }
+        return !stageFiring(vessel, plan.stages.third) || vessel.nextStagingEvent == 5
+    }
+
+    /// The IU rides in its own part, and leaves with it: with the S-IVB at
+    /// the CSM's separation.
+    public var hostPart: String? { "IU" }
 
     public func timeToNextEvent(at now: Epoch) -> Double? {
         var next: Double?
@@ -450,20 +459,7 @@ public final class SaturnIU: FlightProgram {
         timeBases[.t1] = t1
         log.append((t1, "T1: liftoff"))
         sim.log("\(v.name): IU T1, liftoff")
-        // The space-fixed frame: launch vertical and flight azimuth at
-        // guidance reference release, before the Earth turned the pad on.
-        let o = sim.snapshot.orientation(v.reference)
-        let back = Quat(axis: o.angularVelocity, angle: -o.angularVelocity.length * plan.referenceToLiftoff)
-        // X_S is the plumb line, opposite local gravity (GE504 Fig 1-1): the
-        // reference body's gravity and its rotation's centrifugal term, which
-        // on the Earth tilt it from the radial as the geodetic vertical is.
-        let plumb = v.reference.gravity(at: v.position, pole: o.pole)
-            - o.angularVelocity.cross(o.angularVelocity.cross(v.position))
-        let up = -plumb.normalized
-        let east = o.pole.cross(up).normalized, north = up.cross(east)
-        let downrange = north * cos(plan.flightAzimuth) + east * sin(plan.flightAzimuth)
-        let x = back.rotate(up), z = back.rotate(downrange)
-        let frame = Quat(matrix: Mat3(columns: x, z.cross(x), z))
+        let frame = spaceFixedFrame(at: v.position, of: v.reference, orientation: sim.snapshot.orientation(v.reference))
         spaceFixed = frame
         // The vehicle's roll in that frame (Position I's azimuth against the
         // flight azimuth); it starts the roll program from there.
@@ -471,6 +467,63 @@ public final class SaturnIU: FlightProgram {
         initialRoll = atan2(-zS.y, zS.z)
         chi = Vec3(initialRoll, 0, 0)
         v.autopilot = .attitudeHold
+    }
+
+    /// The space-fixed frame (PACSS 13) the IU fixes for a vehicle at
+    /// `position` (relative to `body`) at liftoff, when `body` turns as
+    /// `o`: launch vertical and flight azimuth at guidance reference
+    /// release, before the Earth turned the pad on.
+    public func spaceFixedFrame(at position: Vec3, of body: CelestialBody, orientation o: BodyOrientation) -> Quat {
+        let back = Quat(axis: o.angularVelocity, angle: -o.angularVelocity.length * plan.referenceToLiftoff)
+        // X_S is the plumb line, opposite local gravity (GE504 Fig 1-1): the
+        // reference body's gravity and its rotation's centrifugal term, which
+        // on the Earth tilt it from the radial as the geodetic vertical is.
+        let plumb = body.gravity(at: position, pole: o.pole)
+            - o.angularVelocity.cross(o.angularVelocity.cross(position))
+        let up = -plumb.normalized
+        let east = o.pole.cross(up).normalized, north = up.cross(east)
+        let downrange = north * cos(plan.flightAzimuth) + east * sin(plan.flightAzimuth)
+        let x = back.rotate(up), z = back.rotate(downrange)
+        return Quat(matrix: Mat3(columns: x, z.cross(x), z))
+    }
+
+    /// Pick the program up after the S-IVB's cutoff, at `now`, on `v`: its
+    /// time bases at `bases` (T1 to T5), its space-fixed frame `frame`, the
+    /// IGM done on its velocity cutoff, every event due by `now` done (the
+    /// APS ullage running if it is on by then) and the later ones to come.
+    /// The attitude command starts from `v`'s attitude, which the IU holds
+    /// until its turn to the local horizontal. A parking-orbit scenario
+    /// starts here (`as506InParkingOrbit`).
+    public func resume(after bases: [TimeBase: Epoch], spaceFixed frame: Quat, on v: Vessel, at now: Epoch) {
+        precondition(bases[.t1] != nil && bases[.t5] != nil, "resuming needs T1 and T5")
+        timeBases = bases
+        spaceFixed = frame
+        firstMotion = bases[.t1].map { $0 + (-plan.liftoffDelay) }
+        programStarted = plan.programStart.backup
+        tiltArrested = true
+        secondStageLit = true
+        secondStageMainstage = true
+        thirdStageLit = true
+        guidance = nil
+        guidanceDone = true
+        guidanceCutoff = true
+        for (i, e) in plan.sequence.enumerated() {
+            guard let base = bases[e.base], base + e.offset <= now + 1e-9 else { continue }
+            done.insert(i)
+            switch e.action {
+            case .ullage(let on): ullageOn = on
+            case .localHorizontal: localHorizontal = true
+            case .gains(let g): v.fccGains = g
+            default: break
+            }
+        }
+        for (b, t) in bases.sorted(by: { $0.key < $1.key }) { log.append((t, "\(b): resumed")) }
+        chi = eulerAngles(of: v.attitude) ?? .zero
+        lastCommand = v.attitude
+        lastUpdate = now
+        v.autopilot = .attitudeHold
+        v.attitudeCommand = AttitudeCommand(attitude: v.attitude)
+        status = statusLine(v, now: now)
     }
 
     /// The time bases the LVDC starts on sensing a cutoff, at the first step

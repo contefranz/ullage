@@ -144,21 +144,27 @@ fragment DepthColorOut planet_fragment(FullscreenOut in [[stage_in]],
 // ------------------------------------------------------------------ meshes ---
 
 struct MeshVertex {
-    float4 position;   // xyz (vessel frame, m), w = 1
+    float4 position;   // xyz (vessel construction frame, m), w = 1
     float4 normal;     // xyz
-    float4 color;      // rgb linear
+    float4 color;      // rgb linear, w: emissive role (0 none, 1 heat shield)
 };
 
 struct MeshUniforms {
     float4x4 modelViewProjection;
-    float4x4 model;                // rotation + translation into camera-relative world
-    float4 sunDir;                 // xyz world, w = ambient
+    float4x4 model;                // construction frame -> camera-relative world
+    float4x4 normalMatrix;         // normals -> world (rotation, inverse scale)
+    float4 sunDir;                 // xyz: unit vector to the Sun (world)
+    float4 light;                  // x: sunlit fraction, y: ambient floor, z: earthshine, full disc
+    float4 earthDir;               // xyz: unit vector to the reference body (world), w: its lit share
+    float4 earthColor;             // rgb: earthshine colour
+    float4 glow;                   // rgb: heat-shield glow, added
+    float4 flowDir;                // xyz: unit velocity through the air (world), zero in vacuum
 };
 
 struct MeshOut {
     float4 position [[position]];
     float3 normal;
-    float3 color;
+    float4 color;
 };
 
 vertex MeshOut mesh_vertex(uint vid [[vertex_id]],
@@ -167,15 +173,28 @@ vertex MeshOut mesh_vertex(uint vid [[vertex_id]],
     MeshVertex v = verts[vid];
     MeshOut o;
     o.position = u.modelViewProjection * v.position;
-    o.normal = (u.model * float4(v.normal.xyz, 0.0)).xyz;
-    o.color = v.color.rgb;
+    o.normal = (u.normalMatrix * float4(v.normal.xyz, 0.0)).xyz;
+    o.color = v.color;
     return o;
 }
 
-fragment float4 mesh_fragment(MeshOut in [[stage_in]], constant MeshUniforms &u [[buffer(1)]]) {
+// Lambert from the Sun (times the sunlit fraction) and from the lit part of
+// the reference body below, plus an ambient floor. Back faces are only drawn
+// for open shapes (closed ones are culled) and are lit as their inside, with
+// the normal reversed. Heat-shield vertices add the glow, strongest where the
+// surface faces the oncoming air.
+fragment float4 mesh_fragment(MeshOut in [[stage_in]], bool front [[front_facing]],
+                              constant MeshUniforms &u [[buffer(1)]]) {
     float3 n = normalize(in.normal);
-    float diffuse = max(dot(n, u.sunDir.xyz), 0.0);
-    return float4(in.color * (diffuse + u.sunDir.w), 1.0);
+    if (!front) { n = -n; }
+    float sun = u.light.x * max(dot(n, u.sunDir.xyz), 0.0);
+    float3 earth = u.earthColor.rgb * (u.light.z * u.earthDir.w * max(dot(n, u.earthDir.xyz), 0.0));
+    float3 c = in.color.rgb * (float3(sun) + earth + u.light.y);
+    if (in.color.w > 0.5 && in.color.w < 1.5) {
+        float facing = max(dot(n, u.flowDir.xyz), 0.0);
+        c += u.glow.rgb * (0.2 + 0.8 * facing);
+    }
+    return float4(c, 1.0);
 }
 
 // ------------------------------------------------------------------ points ---
@@ -242,5 +261,86 @@ vertex LineOut line_vertex(uint vid [[vertex_id]],
 
 fragment float4 line_fragment(LineOut in [[stage_in]]) {
     return in.color;
+}
+// ------------------------------------------------------------------ plumes ---
+
+struct PlumeVertex {
+    float4 position;   // camera-relative world position, w = 1
+    float4 color;      // rgb: colour times intensity
+    float4 shape;      // x: across (-1...1), y: along (0 exit ... 1 tail), z: dark core, w: 1 = glow disc
+};
+
+struct PlumeOut {
+    float4 position [[position]];
+    float4 color;
+    float4 shape;
+};
+
+vertex PlumeOut plume_vertex(uint vid [[vertex_id]],
+                             const device PlumeVertex *verts [[buffer(0)]],
+                             constant PointUniforms &u [[buffer(1)]]) {
+    PlumeVertex v = verts[vid];
+    PlumeOut o;
+    o.position = u.viewProjection * v.position;
+    o.color = v.color;
+    o.shape = v.shape;
+    return o;
+}
+
+// Additive: a cone seen side-on (dense on its axis, fading to the tail, with
+// a hot line near the exit and, for kerosene, a dark fuel-rich core just
+// below it), and a soft disc over the exit that carries the plume end-on.
+fragment float4 plume_fragment(PlumeOut in [[stage_in]]) {
+    float a;
+    if (in.shape.w < 0.5) {
+        float x2 = in.shape.x * in.shape.x, y = clamp(in.shape.y, 0.0, 1.0);
+        float across = pow(max(1.0 - x2, 0.0), 1.5);
+        float along = smoothstep(0.0, 0.03, y) * pow(1.0 - y, 1.6);
+        float core = 1.0 - in.shape.z * (1.0 - smoothstep(0.03, 0.2, y)) * (1.0 - x2);
+        float hot = 1.0 + 0.8 * exp(-6.0 * y) * pow(max(1.0 - x2, 0.0), 6.0);
+        a = across * along * core * hot;
+    } else {
+        float r2 = dot(in.shape.xy, in.shape.xy);
+        a = pow(max(1.0 - r2, 0.0), 2.0);
+    }
+    return float4(in.color.rgb * a, 0.0);
+}
+
+// ----------------------------------------------------------------- sprites ---
+
+struct SpriteVertex {
+    float4 position;   // anchor, camera-relative world, w = 1
+    float4 offset;     // xy: pixels from the anchor (y up), zw: atlas uv
+    float4 color;      // tint, premultiplied
+};
+
+struct SpriteUniforms {
+    float4x4 viewProjection;
+    float4 params;                 // xy: pixels -> NDC (2 / drawable size)
+};
+
+struct SpriteOut {
+    float4 position [[position]];
+    float2 uv;
+    float4 color;
+};
+
+vertex SpriteOut sprite_vertex(uint vid [[vertex_id]],
+                               const device SpriteVertex *verts [[buffer(0)]],
+                               constant SpriteUniforms &u [[buffer(1)]]) {
+    SpriteVertex v = verts[vid];
+    float4 clip = u.viewProjection * v.position;
+    clip.xy += v.offset.xy * u.params.xy * clip.w;   // a fixed size in pixels, at the anchor's depth
+    SpriteOut o;
+    o.position = clip;
+    o.uv = v.offset.zw;
+    o.color = v.color;
+    return o;
+}
+
+fragment float4 sprite_fragment(SpriteOut in [[stage_in]],
+                                texture2d<float> atlas [[texture(0)]],
+                                sampler smp [[sampler(0)]]) {
+    return atlas.sample(smp, in.uv) * in.color;
 }
 """#
