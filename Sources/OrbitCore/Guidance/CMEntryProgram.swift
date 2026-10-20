@@ -5,7 +5,8 @@ import Foundation
 ///
 /// 1. Dormant while an "SM" part is aboard (a CSM's program hosts it until
 ///    the SM leaves).
-/// 2. Pre-entry, from the first step without the SM: it arms the CM RCS and
+/// 2. Pre-entry, from the first step without the SM: it arms the CM RCS (on
+///    its own dead-banded law, `holdLaw`) and
 ///    the earth landing system, drops the launch day's sounding of the
 ///    reference body (`Simulation.atmospheres`; the standard air applies
 ///    over the recovery area), and holds the trim attitude about the air
@@ -115,11 +116,26 @@ public final class CMEntryProgram: FlightProgram {
         }
     }
 
-    /// Wake: arm the CM RCS and the ELS, drop the day's sounding.
+    /// The pre-entry hold's law on the CM RCS: a phase plane with a 2° dead
+    /// band (half the entry autopilot's bank dead band), turning at 2°/s at
+    /// most on a 2.5 s switching line, with 14 ms pulses (L: the CMC's
+    /// pre-entry dead band is not in the sources read; the turn and pulse
+    /// are the CSM's, `ApolloCSM.phasePlaneLaw`). Its pitch and yaw jets
+    /// fire alone, so a proportional law's steady trickle of thrust would
+    /// also push the CM off its trajectory before entry interface.
+    public static let holdLaw: PhasePlaneLaw = {
+        let deg = Double.pi / 180, deadband = 2 * deg, limit = deadband + 2 * deg * 2.5
+        return PhasePlaneLaw(deadband: deadband, errorLimit: Vec3(limit, limit, limit), rateGain: 2.5,
+                             minimumOnTime: 0.014)
+    }()
+
+    /// Wake: arm the CM RCS, on `holdLaw` in place of a CSM's law, and the
+    /// ELS; drop the day's sounding.
     func activate(_ v: Vessel, in sim: Simulation) {
         phase = .preEntry
         activated = sim.time
         for t in v.thrusters where t.name.hasPrefix("CM RCS") { t.isEnabled = true }
+        v.phasePlane = Self.holdLaw
         els.arm()
         if sim.atmospheres.removeValue(forKey: v.reference.id) != nil {
             sim.log("\(v.name): entry program, standard atmosphere over \(v.reference.name)")

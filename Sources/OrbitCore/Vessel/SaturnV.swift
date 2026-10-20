@@ -296,9 +296,11 @@ extension VesselLibrary {
 
         // The CSM (`apolloCSMParts`): the SM, event 7, and the command
         // module's parts; the CM carries the SCS, which flies the CSM once
-        // the IU has left, with its +X ullage at the separation.
+        // the IU has left, with its +X ullage at the separation, and the CM
+        // once the SM has gone (its entry program, `ApolloMission`).
         let csm = apolloCSMParts(.apollo11)
-        csm.first { $0.name == "CM" }?.standbyProgram = ApolloSCS(separationUllage: ApolloCSM.separationUllage)
+        csm.first { $0.name == "CM" }?.standbyProgram =
+            ApolloMission.spacecraftControl(separationUllage: ApolloCSM.separationUllage)
         // On the launch vehicle the CSM's mass counts centred on the axis,
         // as M1's ascent was calibrated: its 4-7 in lateral CG and its
         // products of inertia would move the §17 residuals (the S-II cutoff's

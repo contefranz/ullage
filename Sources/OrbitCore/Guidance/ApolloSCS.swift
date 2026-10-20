@@ -77,6 +77,7 @@ public final class ApolloSCS: FlightProgram, DeltaVCounting {
         }
         if smGone, let next = successor {
             next.update(v, in: sim)
+            status = next.status
             return
         }
         if !configured {
