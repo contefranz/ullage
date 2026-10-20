@@ -72,7 +72,8 @@ grid. For real imagery, put equirectangular maps (8192×4096 or smaller) in
 | F, then 1–5 | Fail engine n of the stage now firing (S-IC and S-II: 5 is the centre engine); Esc cancels |
 | . , / | Time warp up / down / reset to 1× |
 | P | Pause |
-| N | Navball speed mode: orbit / surface (automatic: surface below 40 km, orbit above 50 km) |
+| N | Navball speed mode: orbit / surface / target (automatic: surface below 40 km, orbit above 50 km; target only with a target set) |
+| Y | Target: the nearest other vessel, then farther ones, then none (target markers, range and range rate) |
 | F2 or ` | HUD: full / instruments only / off |
 | Left/right Shift + F1 or Tab | Left/right MFD: mode select (then the mode's letter: O, S, M, D, E) |
 | Left/right Shift + ` / Esc | Left/right MFD: menu / power |
@@ -127,11 +128,19 @@ liftoff.
   failures and tanks.
 - **Navball and instrument cluster** (bottom): the ball in the crew's axes,
   heads down in orbit, with the speed markers (prograde, normal, radial ±r̂ as
-  the autopilot flies them), the green command marker (the IU's attitude
-  command, or the autopilot's target) and the thrust marker; around it the
-  throttle, the speed tape (orbit or surface, Mach and q), heading, pitch and
-  roll, body rates, α/β in the air, the altitude tape with the apsides, the
-  vertical speed and the autopilot column.
+  the autopilot flies them, or relative to a target in target mode), the
+  green command marker (the IU's attitude command, or the autopilot's target),
+  the thrust marker, the target and anti-target markers, and the manoeuvre
+  marker of the burn DEORBIT's SET has loaded; around it the throttle, the
+  speed tape (orbit, surface or target, Mach and q), heading, pitch and roll,
+  body rates, α/β in the air, the altitude tape with the apsides, the
+  vertical speed and the autopilot column (HOLD IU, HOLD SCS or HOLD CM when
+  a program flies the hold). Under it, an annunciator strip: the next event
+  (the IU's sequence and its predicted IGM cutoffs, the SCS's burn and
+  counter cutoff, the ELS) and the target's range and range rate; in an
+  entry the throttle becomes a 0–10 g meter with the peak, and the strip
+  shows the 0.05 G light, peak g, bank, heat flux and load and the ELS
+  state.
 - **Two MFDs** (bottom corners; one in narrow windows), after Orbiter:
   - ORBIT: the elements, apsides and their times, and the orbit drawn from the
     equator or the vessel's plane;
@@ -199,7 +208,8 @@ the S-IVB about 45 s late, into the same parking orbit.
    thrusts against it.
 3. **The DEORBIT MFD plans the burn**: the Δv to the target entry
    flight-path angle (−1.75° by default), its time of ignition, and the entry
-   interface it gives; its SET loads the Δv into the ΔV counter.
+   interface it gives; its SET loads the Δv into the ΔV counter, puts the
+   manoeuvre marker on the navball and the time to TIG in the strip.
 4. **Z at TIG lights the SPS**, which the SCS trims through the centre of
    mass; the counter counts the Δv sensed along the CSM's axis and cuts the
    SPS off at zero.
@@ -209,8 +219,9 @@ the S-IVB about 45 s late, into the same parking orbit.
    attitude lift up (the crew heads down).
 6. **Entry.** At 0.05 g the program flies the entry mode: lift up by
    default, or (key 9) manual, where Q and E roll the lift about the air
-   velocity, bank hold, or rolling. The ENTRY MFD shows the g–V scroll and
-   the predicted landing point; the heat shield glows near peak heating.
+   velocity, bank hold, or rolling. The cluster's g meter and strip and the
+   ENTRY MFD show the load, bank and heating, the ENTRY MFD the g–V scroll
+   and the predicted landing point; the heat shield glows near peak heating.
 7. **Landing.** At 24,000 ft the upper baroswitch jettisons the apex cover
    and fires the drogues; at 10,000 ft the lower one deploys the three mains,
    reefed. Space is the crew's backup for each step, below 40,000 ft. The log

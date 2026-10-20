@@ -67,7 +67,10 @@ The plan and its design reports are in [docs/m15/](m15/plan.md).
   overrides), prograde, normal, radial, the green command marker and the thrust marker; the
   instrument cluster with throttle, speed and altitude tapes, HDG/PIT/RLL, rates, α/β and
   the autopilot column; F2 cycles full HUD, instruments only and off; every key bound by its
-  physical position)*
+  physical position. Phase 2: target mode (Y, with target markers, range and range rate),
+  the manoeuvre marker from DEORBIT's SET, entry readouts (a g meter, the 0.05 G light, bank,
+  heating and the ELS), and the next event in an annunciator strip, with the IU's predicted
+  IGM cutoffs)*
 - Orbiter-style MFD displays (ORBIT, SURFACE, MAP, DEORBIT, ENTRY) in a new
   `OrbitInstruments` target, left Shift driving the left MFD and right Shift the right one
   *(done: MAP with Natural Earth coastlines, the terminator, the track flown and predicted
