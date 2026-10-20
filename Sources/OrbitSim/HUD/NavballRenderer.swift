@@ -5,10 +5,10 @@ import simd
 import OrbitCore
 
 /// Draws the navball: the textured ball and its bezel, then the markers,
-/// the fixed waterline and pointers on the bezel for prograde and the
-/// command when they are behind the ball. `encode(into:viewport:navball:)`
-/// draws into any render pass, so the scene renderer can later take the
-/// ball into an overlay pass unchanged.
+/// the fixed waterline and pointers on the bezel for prograde, the
+/// command, the target and the manoeuvre when they are behind the ball.
+/// `encode(into:viewport:navball:)` draws into any render pass, so the scene
+/// renderer can later take the ball into an overlay pass unchanged.
 @MainActor
 final class NavballRenderer: NSObject, MTKViewDelegate {
     let device: MTLDevice
@@ -126,12 +126,14 @@ final class NavballRenderer: NSObject, MTKViewDelegate {
         var tint: SIMD4<Float>
     }
 
-    /// Markers drawn later are on top: the trajectory pairs, then thrust,
-    /// then the command, prograde/retrograde last.
-    private static let order: [NavballMarker.Kind] = [.radialIn, .radialOut, .antinormal, .normal, .maneuver,
-                                                      .antitarget, .target, .thrust, .command, .retrograde, .prograde]
+    /// Markers drawn later are on top: the trajectory pairs and the target's,
+    /// then thrust, the command, prograde/retrograde, and last the
+    /// manoeuvre, which a retrograde burn puts on the retrograde marker and
+    /// the pilot flies to.
+    private static let order: [NavballMarker.Kind] = [.radialIn, .radialOut, .antinormal, .normal, .antitarget,
+                                                      .target, .thrust, .command, .retrograde, .prograde, .maneuver]
     /// Markers that get a pointer on the bezel when behind the ball.
-    private static let pointed: [NavballMarker.Kind] = [.prograde, .command]
+    private static let pointed: [NavballMarker.Kind] = [.prograde, .command, .target, .maneuver]
 
     /// Encode the ball for `navball` into `encoder`, whose target is the
     /// square `viewport` (pixels).
