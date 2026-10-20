@@ -440,7 +440,7 @@ final class AppModel: ObservableObject {
                 : els.mainsDeployed == nil ? "mains"
                 : els.mainsReleased == nil ? "release mains" : nil
             guard let step else { return "–" }
-            return "ELS backup: " + step + (v.altitude > elsBackupCeiling ? " (inhibited above 40,000 ft)" : "")
+            return "ELS backup: " + step + (v.altitude > elsBackupCeiling ? " (inhibited)" : "")
         }
         let events = v.parts.compactMap { p -> Int? in if case .event(let n) = p.staging { n } else { nil } }
         let group: [VesselPart]
