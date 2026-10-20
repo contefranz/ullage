@@ -199,6 +199,8 @@ Setup:
 | Peak heating / heat load | 57.7 BTU/ft²·s / 13,188 BTU/ft² | 59.8 / 12,649 (§5.4.4) | ±10 % (R_n fitted to both) |
 | CM RCS propellant | 39.4 lb | Apollo 7 flew 49.1 lb (Mission Report §5.21) | within a factor of 2 |
 
+**Accepted deviation (Franz, 2026-10-20).** The landing bands stay at 90 n mi from the planned entry interface and 60 n mi against the flight. The model's constant-55° backup lands 50-80 n mi long, and that is accepted as a known deviation, with no tuning to close it. Revisit it when closed-loop entry guidance arrives: constant-g in M2, the CMC's predictor-corrector in M3.
+
 **The landing miss.** The constant-bank range is very sensitive to the entry flight-path angle: about 700 n mi per degree. The same flight entering at −1.80° lands 36 n mi from the target, and at −1.85° 7 n mi. The 70-80 n mi corresponds to 0.1° of γ, or about 0.03 of vertical L/D (15 % of it at 55°). That is the size of the conventions between 68-FM-184's trajectory program and this one:
 - Fischer 1960 against WGS-84;
 - a geodetic or geocentric horizontal for γ (0.02° here);
