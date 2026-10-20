@@ -363,13 +363,14 @@ extension VesselLibrary {
     }
 
     /// The Apollo CSM alone (`apolloCSMParts`), as it flies after the
-    /// CSM/LV separation: its SCS (`ApolloSCS`) aboard, the crew's control
+    /// CSM/LV separation: its SCS (`ApolloSCS`, with the CM's entry program
+    /// for once the SM has gone: `ApolloMission`) aboard, the crew's control
     /// frame, the CM's impact limits, the CSM's drag and the CM's
     /// aerodynamics for once the SM has gone. Place it with
     /// `Simulation.place`.
     public static func apolloCSM(_ mission: ApolloCSM.Mission, name: String? = nil) -> Vessel {
         let parts = apolloCSMParts(mission)
-        let scs = ApolloSCS()
+        let scs = ApolloMission.spacecraftControl()
         parts.first { $0.name == "CM" }?.standbyProgram = scs
         let v = Vessel(name: name ?? mission.rawValue, parts: parts, reference: placeholderBody)
         v.controlFrame = ApolloAxes.rotation

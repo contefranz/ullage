@@ -80,9 +80,10 @@ public final class EntryMFD: MFDMode {
     }
 
     /// The landing system's state: the sequencer's line when the vessel
-    /// flies it, else what the parachutes show.
+    /// flies it (alone or in the CM's entry program), else what the
+    /// parachutes show.
     func els(_ v: Vessel) -> String {
-        if let els = v.flightProgram as? EarthLandingSystem { return els.status.replacingOccurrences(of: "ELS ", with: "") }
+        if let els = ApolloMission.landingSystem(of: v) { return els.status.replacingOccurrences(of: "ELS ", with: "") }
         let chutes = v.parachutes.filter { $0.state != .stowed }
         guard let c = chutes.last else { return v.parachutes.isEmpty ? "---" : "stowed" }
         let name = c.name.lowercased().hasPrefix("drogue") ? "drogues" : c.name.lowercased().hasPrefix("main") ? "mains"

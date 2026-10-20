@@ -9,8 +9,8 @@ extension Simulation {
     /// ... `heatLoad`), from the state the step ended in and its thrust, air
     /// and altitude telemetry (`updateTelemetry` sets those first).
     ///
-    /// - Sensed acceleration: the aerodynamic and thrust forces over mass,
-    ///   as an accelerometer at the centre of mass reads them; on the
+    /// - Sensed acceleration: the aerodynamic, parachute and thrust forces
+    ///   over mass, as an accelerometer at the centre of mass reads them; on the
     ///   surface, the support that holds the vessel in the rotating frame
     ///   (1 g up at rest).
     /// - Bank angle, for a vessel flying a capsule model: the angle about the
@@ -42,12 +42,17 @@ extension Simulation {
             var force = v.thrustForceAndTorque(ambientPressure: v.atmosphere.pressure,
                                                seaLevelPressure: atm?.seaLevelPressure ?? 0).force
             if v.atmosphere.density > 0 {
+                let bodyAir = v.attitude.inverseRotate(air)
                 if let model {
-                    force += model.loads(air: v.attitude.inverseRotate(air), atmosphere: v.atmosphere, altitude: v.altitude,
+                    force += model.loads(air: bodyAir, atmosphere: v.atmosphere, altitude: v.altitude,
                                          powered: v.basePowered(model), centerOfPressureX: v.centerOfPressureX(model),
                                          planform: v.planform).force
                 } else {
                     force += v.attitude.inverseRotate(air * (-0.5 * v.atmosphere.density * air.length * v.dragArea))
+                }
+                if v.parachutes.contains(where: \.isDeployed) {
+                    force += v.parachuteLoads(at: s.time, air: bodyAir, omega: v.angularVelocity,
+                                              density: v.atmosphere.density).force
                 }
             }
             v.sensedAcceleration = force / v.mass

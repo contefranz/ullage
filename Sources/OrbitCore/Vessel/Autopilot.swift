@@ -29,13 +29,16 @@ public enum AttitudeAutopilot: String, CaseIterable, Codable {
     /// With a flight program writing `attitudeCommand` (the Saturn's IU),
     /// selecting it hands the attitude back to the program.
     case attitudeHold = "Hold Att"
+    /// The entry autopilot (`EntryAutopilot`): roll about the stability
+    /// axis to fly `Vessel.entryCommand`, pitch and yaw left to the trim.
+    case entry = "Entry"
 
     /// Desired direction of the vessel +x axis (ICRF), or nil for rate damping
     /// (and for `.attitudeHold`, which targets a full attitude).
     func target(for v: Vessel) -> Vec3? {
         let r = v.position, vel = v.velocity
         switch self {
-        case .killRotation, .attitudeHold: return nil
+        case .killRotation, .attitudeHold, .entry: return nil
         case .prograde: return vel.normalized
         case .retrograde: return -vel.normalized
         case .normal: return r.cross(vel).normalized
@@ -215,6 +218,11 @@ extension Vessel {
             referenceAttitude = nil
             referenceRate = .zero
             return RotationCommand()
+        }
+        if mode == .entry {
+            referenceAttitude = nil
+            referenceRate = .zero
+            return entryAutopilotCommand(alpha: alpha)
         }
 
         // Gains of the gimbal law (below).

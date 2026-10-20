@@ -316,14 +316,16 @@ extension VesselLibrary {
 
     /// The command module alone, at `mission`'s "after CM/SM separation" row,
     /// as it flies once the SM has gone: its RCS armed, the crew's control
-    /// frame (`ApolloAxes.rotation`) and the CM's impact limits. Place it
-    /// with `Simulation.place`.
+    /// frame (`ApolloAxes.rotation`), the CM's impact limits and its entry
+    /// aerodynamics (`AerodynamicModel.apolloCommandModule()`, flight-
+    /// consistent). Place it with `Simulation.place`.
     public static func commandModule(_ mission: ApolloCM.Mission, name: String? = nil) -> Vessel {
         let parts = commandModuleParts(mission)
         for t in parts.flatMap(\.thrusters) { t.isEnabled = true }
         let cm = Vessel(name: name ?? mission.rawValue, parts: parts, reference: placeholderBody)
         cm.controlFrame = ApolloAxes.rotation
         cm.impactLimits = ApolloCM.impactLimits
+        cm.aerodynamics = [.apolloCommandModule()]
         return cm
     }
 

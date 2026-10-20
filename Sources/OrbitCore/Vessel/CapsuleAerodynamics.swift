@@ -388,12 +388,19 @@ extension CapsuleAerodynamics {
         referenceStation: ApolloAxes.construction(xa: 1000).x, area: apolloReferenceArea,
         diameter: apolloReferenceDiameter)
 
-    /// The Block II command module calibrated on Apollo 7's trim table, its
-    /// stagnation heating on the heat shield's 184.8 in radius (L: TN D-5399
-    /// and 68-FM-184 do not give the radius their heating used).
+    /// The effective radius of the CM's stagnation heating, m: Apollo 7's
+    /// entry from 68-FM-184 Table IX(b) (Apollo7EntryTests) then peaks at
+    /// 57.9 BTU/ft^2 s and totals 13,100 BTU/ft^2, against §5.4.4's 59.8 and
+    /// 12,649 (L: fitted to both, as neither document gives the radius; the
+    /// heat shield's own 184.8 in gives 34 and 7,800). A blunt spherical
+    /// segment's stagnation region sees a much smaller effective radius than
+    /// its sphere's.
+    public static let apolloNoseRadius = 1.65
+
+    /// The Block II command module calibrated on Apollo 7's trim table.
     public static func apolloCommandModule(calibration: Calibration = .flightConsistent) -> CapsuleAerodynamics {
         CapsuleAerodynamics(trimTable: apollo7TrimTable, referenceCenterOfMass: apollo7TrimCenterOfMass,
-                            calibration: calibration, noseRadius: 184.8 * AS506.inch, newtonian: apolloNewtonian)
+                            calibration: calibration, noseRadius: apolloNoseRadius, newtonian: apolloNewtonian)
     }
 }
 
