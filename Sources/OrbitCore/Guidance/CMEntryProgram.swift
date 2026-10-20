@@ -38,7 +38,9 @@ public final class CMEntryProgram: FlightProgram {
         case dormant, preEntry, entry, drogues, mains, landed
     }
 
-    public var mode: Mode
+    public var mode: Mode {
+        didSet { if mode != oldValue { heldBank = nil } }
+    }
     /// In manual mode, the pilot's roll command, -1...1 of the entry
     /// autopilot's top roll rate, positive raising the bank (the app sets
     /// it from the roll keys).
@@ -56,7 +58,7 @@ public final class CMEntryProgram: FlightProgram {
     public var predictor = LandingPointPredictor()
     /// Sensed load factor that starts the entry phase, g.
     public static let entryLoadFactor = 0.05
-    /// The bank manual mode holds once the pilot lets go.
+    /// The bank manual mode holds once the pilot lets go (`targetBank`).
     var heldBank: Double?
     var lastPrediction: Epoch?
 
@@ -143,12 +145,18 @@ public final class CMEntryProgram: FlightProgram {
         sim.log("\(v.name): entry program active")
     }
 
-    /// The bank the mode wants now (manual: where the pilot left it).
+    /// The bank the mode wants now. Manual: where the pilot left it, the
+    /// bank of the moment when the mode is chosen and again whenever the
+    /// pilot flies the CM by hand (`Vessel.rotationInput`, the RCS keys
+    /// before 0.05 g), held from there: aiming at the bank of the moment
+    /// would never stop a slow roll inside the hold's dead band.
     func targetBank(_ v: Vessel) -> Double {
         switch mode {
         case .bankHold(let b): return b
         case .rolling: return 0
-        case .manual: return heldBank ?? v.bankAngle ?? 0
+        case .manual:
+            if heldBank == nil || !v.rotationInput.isZero { heldBank = v.bankAngle ?? 0 }
+            return heldBank!
         }
     }
 
@@ -166,8 +174,7 @@ public final class CMEntryProgram: FlightProgram {
                 heldBank = nil
                 return .rolling(rate: max(-1, min(1, pilotRoll)) * EntryAutopilot.maxRollRate)
             }
-            if heldBank == nil { heldBank = v.bankAngle ?? 0 }
-            return .bank(heldBank!)
+            return .bank(targetBank(v))
         }
     }
 

@@ -295,6 +295,44 @@ final class EntryTests: XCTestCase {
         if case .bank(let held) = program.command(v) { XCTAssertEqual(held, v.bankAngle!, accuracy: 1e-12) } else { XCTFail() }
     }
 
+    /// Manual mode before 0.05 g: the pre-entry hold keeps the bank where
+    /// the pilot left it. It used to aim at the bank of the moment, so a
+    /// slow roll left over (here 0.7°/s) never stopped: in the app's Apollo
+    /// 7 CM the bank went from -55° to +50° before 0.05 g. The RCS keys move
+    /// the held bank, and the hold keeps the new one once they are let go.
+    func testManualHoldsTheBankBeforeEntry() throws {
+        let deg = Double.pi / 180
+        let sim = try Simulation.forTests(perturbations: true)
+        let v = apollo7CM()
+        sim.add(v)
+        let ei = Self.apollo7EntryInterface
+        sim.place(v, geodeticLatitude: ei.latitude, longitude: ei.longitude, height: ei.height, inertialSpeed: ei.speed,
+                  flightPathAngle: ei.flightPathAngle, azimuth: ei.azimuth)
+        let program = CMEntryProgram(mode: .bankHold(-55 * deg))
+        v.flightProgram = program
+        v.attitude = CMEntryProgram.trimAttitude(of: v, capsule: v.activeAerodynamics!.capsule!, bank: -55 * deg, in: sim)!
+        sim.run(seconds: 2)
+        program.mode = .manual
+        let start = v.bankAngle!
+        v.angularVelocity += Vec3(0.7 * deg, 0, 0)
+        var drift = 0.0
+        sim.run(seconds: 80) { drift = max(drift, abs(v.bankAngle! - start)) }
+        XCTAssertEqual(program.phase, .preEntry)
+        XCTAssertLessThan(drift, 5 * deg, "the pre-entry hold let the bank drift")
+
+        // Rolled by hand (the RCS keys), it holds the new bank.
+        v.setPilotInput(rotation: RotationCommand(roll: -1, pitch: 0, yaw: 0), translation: .zero)
+        sim.run(seconds: 1)
+        v.setPilotInput(rotation: RotationCommand(), translation: .zero)
+        sim.run(seconds: 3)
+        let rolled = v.bankAngle!
+        XCTAssertGreaterThan(rolled - start, 5 * deg, "a roll to the left about +X raises the bank")
+        drift = 0
+        sim.run(seconds: 40) { drift = max(drift, abs(v.bankAngle! - rolled)) }
+        XCTAssertEqual(program.phase, .preEntry)
+        XCTAssertLessThan(drift, 5 * deg)
+    }
+
     /// From Apollo 7's entry interface as flown (the onboard computer's
     /// 25,846.4 ft/s at -2.072°, Mission Report §5.16, H; position and
     /// azimuth from 68-FM-184 Table IX(b)), lift up as the crew flew it to
