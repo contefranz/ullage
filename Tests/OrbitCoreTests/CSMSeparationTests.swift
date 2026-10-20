@@ -71,6 +71,59 @@ final class CSMSeparationTests: XCTestCase {
         for w in sim.vessels where w !== v { XCTAssertTrue(w.jettisonNextStageAll().isEmpty, w.name) }
     }
 
+    /// The displays ask what Space would do (`manualStaging`) as often as
+    /// they like without touching the SCS's CM/SM guard: before this query,
+    /// the app's HUD asked the key's own check ten times a second, which armed
+    /// the guard and cleared it on alternate refreshes, so one press
+    /// separated the SM about half the time. Here 100 queries arm nothing,
+    /// change no status and separate nothing; one press arms (and the query
+    /// says so); a second within 2 s separates; a second after 2 s re-arms.
+    /// Once the SM has gone the query is the entry program's: Space is the
+    /// ELS's backup then, refused as staging.
+    func testDisplaysAskWithoutArmingTheSeparationGuard() throws {
+        let sim = try Simulation.forTests(perturbations: false)
+        let v = VesselLibrary.saturnV()
+        v.flightProgram = IUStandIn()
+        sim.add(v)
+        sim.placeInCircularOrbit(v, around: sim.system.earth, altitude: 400_000)
+        var clock = 0.0
+        sim.clock = { clock }
+        for _ in 1...6 { sim.stage(v) }
+        sim.tick()
+        let scs = try XCTUnwrap(v.flightProgram as? ApolloSCS)
+        XCTAssertEqual(v.nextStagingEvent, 7)
+        func hasSM() -> Bool { v.parts.contains { $0.name == "SM" } }
+
+        let status = scs.status
+        for i in 0..<100 {
+            clock = Double(i) * 0.1
+            XCTAssertEqual(scs.manualStaging(of: v), .guarded(armed: false))
+        }
+        XCTAssertEqual(scs.status, status)
+        XCTAssertTrue(hasSM())
+
+        clock = 20
+        XCTAssertNil(sim.stage(v))                                      // the first press arms
+        XCTAssertTrue(scs.status.contains("armed"), scs.status)
+        for i in 0..<100 {
+            clock = 20 + Double(i) * 0.01
+            XCTAssertEqual(scs.manualStaging(of: v), .guarded(armed: true))
+        }
+        clock = 23                                                      // 3 s on: the guard has lapsed
+        XCTAssertEqual(scs.manualStaging(of: v), .guarded(armed: false))
+        XCTAssertNil(sim.stage(v))                                      // so this press arms again
+        XCTAssertTrue(hasSM())
+        clock = 24.5
+        XCTAssertEqual(scs.manualStaging(of: v), .guarded(armed: true))
+        XCTAssertNotNil(sim.stage(v))                                   // within 2 s: separated
+        XCTAssertFalse(hasSM())
+
+        // The CM's entry program wakes at the next step and takes Space for the ELS.
+        sim.tick()
+        XCTAssertEqual(scs.manualStaging(of: v), .inhibited)
+        XCTAssertFalse(scs.allowsManualStaging(of: v))
+    }
+
     // The parking-orbit scenario (`apollo11InParkingOrbit`): at insertion,
     // range 709.33 s, on AS-506's postflight state (PFT Table B-II) turned
     // to ICRF through the frame the IU fixes when it lifts off (within

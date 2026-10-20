@@ -26,24 +26,11 @@ struct HUDState: Equatable {
     var reference = ""
     var cameraInfo = ""
 
+    /// Geodetic altitude and its rate (the orbit and surface numbers are
+    /// the instrument cluster's and the MFDs').
     var altitude = 0.0
-    var orbitalSpeed = 0.0
-    var surfaceSpeed = 0.0
     var verticalSpeed = 0.0
-    var mach = 0.0
-    var dynamicPressure = 0.0
-    var latitude = 0.0
-    var longitude = 0.0
 
-    var apoapsisAltitude: Double? = nil
-    var periapsisAltitude = 0.0
-    var inclination = 0.0
-    var eccentricity = 0.0
-    var period: Double? = nil
-    var timeToApoapsis: Double? = nil
-    var timeToPeriapsis: Double? = nil
-
-    var throttle = 0.0
     var thrustAcceleration = 0.0
     /// Thrust over the weight at the vessel (the reference body's gravity).
     var thrustToWeight = 0.0
@@ -53,9 +40,11 @@ struct HUDState: Equatable {
     var mass = 0.0
     var tanks: [TankInfo] = []
     var autopilot: String? = nil
-    /// The flight program's HUD line (the Saturn's IU); nil when the vessel
-    /// carries no program.
+    /// The flight program's HUD line and its label (`programLabel`): the
+    /// Saturn's IU, the CSM's SCS, the CM's entry program; nil when the
+    /// vessel carries no program.
     var program: String? = nil
+    var programLabel = "IU"
     /// Largest deflection of a firing gimballed engine and its range; nil when none fires.
     var gimbal: String? = nil
     /// After F: the stage whose engine the next digit fails ("S-IC engine
@@ -213,7 +202,8 @@ final class AppModel: ObservableObject {
             }
             guard let v = sim.focus, v.status != .crashed else { continue }
             switch key {
-            case .space: sim.stage(v)
+            case .space: stageOrBackUpELS(v, sim: sim)
+            case .digit9: cycleEntryMode(of: v, sim: sim)
             case .z: v.mainThrottle = 1
             case .x: v.mainThrottle = 0
             case .t: v.autopilot = v.autopilot == .killRotation ? nil : .killRotation
@@ -239,8 +229,73 @@ final class AppModel: ObservableObject {
         func axis(_ plus: PhysicalKey, _ minus: PhysicalKey) -> Double {
             (input.isHeld(plus) ? 1 : 0) - (input.isHeld(minus) ? 1 : 0)
         }
-        v.setPilotInput(rotation: RotationCommand(roll: axis(.e, .q), pitch: axis(.s, .w), yaw: axis(.d, .a)),
-                        translation: Vec3(axis(.u, .o), axis(.l, .j), axis(.k, .i)))
+        var rotation = RotationCommand(roll: axis(.e, .q), pitch: axis(.s, .w), yaw: axis(.d, .a))
+        // In the entry program's manual mode, from 0.05 g, Q and E roll the
+        // lift about the air velocity (the entry autopilot's coordinated
+        // roll) instead of about the CM's axis. The CM flies heat shield
+        // first, so a roll to the right about +X turns the lift to the left:
+        // E lowers the bank, as it would on the RCS alone.
+        if let entry = ApolloMission.entryProgram(of: v), entry.mode == .manual, entry.phase == .entry {
+            entry.pilotRoll = -rotation.roll
+            rotation.roll = 0
+        }
+        v.setPilotInput(rotation: rotation, translation: Vec3(axis(.u, .o), axis(.l, .j), axis(.k, .i)))
+    }
+
+    /// Space: the next staging event (`Simulation.stage`, which the flight
+    /// program may refuse: the IU until T3, the SCS's first press for CM/SM
+    /// separation); once the CM's entry program is awake (the SM gone), the
+    /// crew's backup of the earth landing system instead, the next step of
+    /// its sequence (apex cover, drogues, mains, mains release) that the
+    /// baroswitches would otherwise fire. Above `elsBackupCeiling` it does
+    /// nothing but log, so a stray press in orbit or high in the entry cannot
+    /// fire the parachutes.
+    private func stageOrBackUpELS(_ v: Vessel, sim: Simulation) {
+        guard let entry = ApolloMission.entryProgram(of: v), entry.phase != .dormant else {
+            sim.stage(v)
+            return
+        }
+        guard v.altitude <= Self.elsBackupCeiling else {
+            sim.log("\(v.name): ELS backup inhibited above 40,000 ft")
+            return
+        }
+        if !entry.advanceELS(v, in: sim) { sim.log("\(v.name): ELS sequence complete") }
+    }
+
+    /// Highest altitude Space backs up the ELS at, m: 40,000 ft, well above
+    /// the upper baroswitch's 24,000 ft (an app guard).
+    static let elsBackupCeiling = 40_000 * 0.3048
+    /// The rolling entry's roll rate, rad/s (L: zero mean lift needs only a
+    /// steady roll; 15°/s, under the entry autopilot's 20°/s).
+    static let entryRollRate = 15 * Double.pi / 180
+
+    /// 9: the entry program's next mode, manual → bank hold → rolling →
+    /// manual. Bank hold holds the bank flown now (lift up while the SM is
+    /// aboard, where there is none), so manual sets a bank and bank hold
+    /// keeps it. Before CM/SM separation it presets the mode the program
+    /// wakes in.
+    private func cycleEntryMode(of v: Vessel, sim: Simulation) {
+        guard let entry = ApolloMission.entryProgram(of: v) else { return }
+        switch entry.mode {
+        case .manual: entry.mode = .bankHold(v.bankAngle ?? 0)
+        case .bankHold: entry.mode = .rolling(Self.entryRollRate)
+        case .rolling: entry.mode = .manual
+        }
+        entry.pilotRoll = 0
+        sim.log("\(v.name): entry mode \(Self.describe(entry.mode))")
+    }
+
+    /// "manual", "bank hold 55° L", "lift up", "rolling 15°/s".
+    static func describe(_ mode: CMEntryProgram.Mode) -> String {
+        let deg = 180 / Double.pi
+        switch mode {
+        case .manual: return "manual"
+        case .bankHold(let b):
+            if abs(b) < 0.5 / deg { return "bank hold, lift up" }
+            if abs(abs(b) - .pi) < 0.5 / deg { return "bank hold, lift down" }
+            return String(format: "bank hold %.0f° %@", abs(b) * deg, b > 0 ? "R" : "L")
+        case .rolling(let r): return String(format: "rolling %.0f°/s", r * deg)
+        }
     }
 
     /// The stage F fails an engine of: the lowest part with a main liquid
@@ -327,33 +382,12 @@ final class AppModel: ObservableObject {
         h.reference = v.reference.name
         h.cameraInfo = "\(camera.targetName) · \(camera.frame.rawValue)"
 
-        // Geodetic altitude, latitude and longitude (the reference body's
-        // figure, WGS 84 on the Earth), and the altitude's rate: the speed
-        // along the normal. The apsides below stay radii less a.
+        // Geodetic altitude (the reference body's figure, WGS 84 on the
+        // Earth), and its rate: the speed along the normal.
         h.altitude = v.altitude
-        h.orbitalSpeed = v.velocity.length
-        h.surfaceSpeed = v.surfaceVelocity(snapshot: snap).length   // over the ground; airspeed has the wind
         h.verticalSpeed = v.velocity.dot(v.reference.vertical(at: v.position,
                                                                 orientation: snap.orientation(v.reference)))
-        h.mach = v.mach
-        h.dynamicPressure = v.dynamicPressure
-        let ll = v.latitudeLongitude(snapshot: snap)
-        h.latitude = ll.lat * 180 / .pi
-        h.longitude = ll.lon * 180 / .pi
 
-        if v.landed == nil {
-            let el = v.elements(snapshot: snap)
-            let radius = v.reference.radius
-            h.apoapsisAltitude = el.isBound ? el.apoapsisRadius - radius : nil
-            h.periapsisAltitude = el.periapsisRadius - radius
-            h.inclination = el.inclination * 180 / .pi
-            h.eccentricity = el.eccentricity
-            h.period = el.isBound ? el.period : nil
-            h.timeToApoapsis = el.isBound ? el.timeToApoapsis : nil
-            h.timeToPeriapsis = el.timeToPeriapsis
-        }
-
-        h.throttle = v.mainThrottle
         h.thrustAcceleration = v.thrustAcceleration
         let weight = v.reference.gravity(at: v.position, pole: snap.orientation(v.reference).pole).length
         h.thrustToWeight = weight > 0 ? v.thrustAcceleration / weight : 0
@@ -381,6 +415,7 @@ final class AppModel: ObservableObject {
         }
         h.autopilot = v.autopilot?.rawValue
         h.program = v.flightProgram?.status
+        h.programLabel = Self.programLabel(v)
         h.gimbal = Self.gimbalSummary(v)
         if let c = failureCapture, c.vessel === v {
             h.failurePrompt = "\(c.part) engine \(c.engines.count == 1 ? "1" : "1-\(c.engines.count)")?  (Esc cancels)"
@@ -392,10 +427,23 @@ final class AppModel: ObservableObject {
         if h != hud { hud = h }
     }
 
-    /// What Space separates next: the parts of the lowest pending staging
-    /// event, or the bottom part of an M0 stack ("–" when nothing would
-    /// go), and whether the flight program refuses it now (the IU until T3).
+    /// What Space does next: the parts of the lowest pending staging event,
+    /// or the bottom part of an M0 stack ("–" when nothing would go), and
+    /// whether the flight program refuses it now (the IU until T3, or while
+    /// the S-IVB burns), or wants two presses (CM/SM separation), asked
+    /// without acting (`manualStaging`, not the key's own check, which arms
+    /// the SCS's guard); once the CM's entry program is awake, the ELS step
+    /// it backs up.
     static func nextStage(of v: Vessel) -> String {
+        if let entry = ApolloMission.entryProgram(of: v), entry.phase != .dormant {
+            let els = entry.els
+            let step = els.apexCoverJettisoned == nil ? "apex cover + drogues"
+                : els.droguesDeployed == nil ? "drogues"
+                : els.mainsDeployed == nil ? "mains"
+                : els.mainsReleased == nil ? "release mains" : nil
+            guard let step else { return "–" }
+            return "ELS backup: " + step + (v.altitude > elsBackupCeiling ? " (inhibited)" : "")
+        }
         let events = v.parts.compactMap { p -> Int? in if case .event(let n) = p.staging { n } else { nil } }
         let group: [VesselPart]
         if let n = events.min() {
@@ -407,8 +455,28 @@ final class AppModel: ObservableObject {
         }
         guard group.count < v.parts.count else { return "–" }
         let names = group.map(\.name).joined(separator: " + ")
-        guard let program = v.flightProgram, !program.allowsManualStaging(of: v) else { return names }
-        return names + (program is SaturnIU ? " (inhibited until T3)" : " (inhibited)")
+        guard let program = v.flightProgram else { return names }
+        switch program.manualStaging(of: v) {
+        case .allowed: return names
+        case .inhibited:
+            if let iu = program as? SaturnIU, iu.timeBases[.t3] == nil { return names + " (inhibited until T3)" }
+            return names + " (inhibited)"
+        case .guarded(let armed): return names + (armed ? " (armed: Space again)" : " (Space twice)")
+        }
+    }
+
+    /// The vehicle panel's label for the flight program aboard `v`: "IU" for
+    /// the Saturn's, "SCS" for the CSM's, "CM" once the SCS has handed the
+    /// command module to its entry program, "ELS" for the landing system
+    /// alone.
+    static func programLabel(_ v: Vessel) -> String {
+        switch v.flightProgram {
+        case is SaturnIU: return "IU"
+        case is CMEntryProgram: return "CM"
+        case is EarthLandingSystem: return "ELS"
+        case is ApolloSCS: return v.parts.contains { $0.name == "SM" } ? "SCS" : "CM"
+        default: return "Program"
+        }
     }
 
     /// "S-II engine 5 failed +00:05:28.6" for each failed engine aboard (its

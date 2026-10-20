@@ -57,19 +57,50 @@ native macOS simulator. Each milestone should be flyable on its own.
   *(done: the stack opens at first motion, 13:32:00.3 UTC, on LC-39A, and the HUD's MET is
   Apollo 11's GET from range zero)*
 
-## M1.5 — Apollo Earth-orbit mission, from the pad to splashdown
+## M1.5 — Apollo Earth-orbit mission, from the pad to splashdown *(done)*
 
 The plan and its design reports are in [docs/m15/](m15/plan.md).
 
 - Navball and flight HUD (KSP-like), on physical key positions
+  *(done: the navball in the crew's axes (pad 090/90/0, heads down in orbit at roll 180),
+  orbit and surface speed modes switching at 50 km climbing and 40 km descending (N
+  overrides), prograde, normal, radial, the green command marker and the thrust marker; the
+  instrument cluster with throttle, speed and altitude tapes, HDG/PIT/RLL, rates, α/β and
+  the autopilot column; F2 cycles full HUD, instruments only and off; every key bound by its
+  physical position. Phase 2: target mode (Y, with target markers, range and range rate),
+  the manoeuvre marker from DEORBIT's SET, entry readouts (a g meter, the 0.05 G light, bank,
+  heating and the ELS), and the next event in an annunciator strip, with the IU's predicted
+  IGM cutoffs)*
 - Orbiter-style MFD displays (ORBIT, SURFACE, MAP, DEORBIT, ENTRY) in a new
   `OrbitInstruments` target, left Shift driving the left MFD and right Shift the right one
+  *(done: MAP with Natural Earth coastlines, the terminator, the track flown and predicted
+  (secular J2) and the predicted landing point; DEORBIT with the burn's Δv, TIG, burn time
+  and EI, and a SET that loads the ΔV counter; ENTRY with an EMS-style g–V scroll, bank,
+  heating, the landing point and the ELS state; the buttons take clicks too)*
 - CSM separation: the four SLA panels, and the S-IVB, IU and LM leaving with the IU program
+  *(done: the panels tumble away at 68-FM-160's rates, the crew keeps the vessel, and the
+  CM's SCS takes over with its 3 s +X ullage; passive debris no longer holds time warp down)*
 - CSM SPS and the SM and CM RCS quads, as thrusters (their systems stay in M3)
+  *(done: 68-FM-184's SPS rating, gimballed about the AOH's nulls and trimmed through the CG
+  by the SCS; four SM RCS quads on a 0.5°/5° phase-plane law; the CM's two RCS systems)*
 - SPS deorbit burn cut off by an EMS-style ΔV counter, CM/SM separation
+  *(done: Z lights the SPS and the counter cuts it off; CM/SM separation takes Space twice
+  within 2 s, and the SM's jettison controller fires its jets; Apollo 7's SPS-8 cutoff and
+  entry interface against Mission Report Table 3-III)*
 - Command module entry aerodynamics (lift vector control), parachutes, splashdown
+  *(done: trim-calibrated sphere-centre aerodynamics with a Newtonian blend, the 1976
+  atmosphere to 1,000 km, sensed g, bank and Sutton–Graves heating; the CM's entry program:
+  trim lift up to entry interface, 0.05 g, then manual, bank hold or rolling (key 9), with a
+  display-only landing-point predictor; the earth landing system on baroswitch pressure,
+  reefed drogues and mains, Space as the crew's backup; splashdown on a Natural Earth land
+  mask, the CM floating at once)*
 - Graphics: Apollo shapes, open engine bells and interstages, plumes, eclipse and earthshine,
   heat-shield glow, parachute canopies
+  *(done: lathed shapes from the sources' dimensions, MSAA 4×, visible gimballing, plumes
+  styled by propellant, the conical eclipse model and earthshine, orbit-line markers (Pe, Ap,
+  AN, DN, EI), the heat shield's glow from the heat flux, and the canopies and risers)*
+- Scenarios: Apollo 11 from the pad to splashdown (TLI no-go), Apollo 11 in parking orbit,
+  Apollo 7's deorbit and entry, and Apollo 7's command module at entry interface *(done)*
 
 **Definition of done**
 
@@ -88,6 +119,14 @@ The plan and its design reports are in [docs/m15/](m15/plan.md).
    - the CM from 68-FM-184 Table IX(b)'s EI at 55° bank lands within about 30 n mi of
      29.8° N 67.0° W;
    - the ELS phase durations fall within their bands.
+
+   **Accepted deviation** (Franz, 2026-10-20): the constant-55° backup lands 50–80 n mi long
+   (81 n mi beyond 29.8° N 67.0° W from the planned EI, 52 n mi beyond where Apollo 7 came
+   down when flown from its deorbit burn), so the tests' landing bands are 90 n mi from the
+   planned EI and 60 n mi against the flight, with no tuning to close it. It is the size of
+   the conventions between 68-FM-184's trajectory program and this one (0.1° of entry
+   flight-path angle); revisit it with closed-loop entry guidance (constant-g in M2, the CMC's
+   predictor-corrector in M3). See [docs/CM-entry-datasheet.md](CM-entry-datasheet.md) §4.4–4.5.
 3. No regressions: every M1 test passes with the §17 residuals unchanged; `swift test` is green
    on Linux and `xcodebuild build test` on the Mac; the owner has reviewed the screenshot set;
    README, ROADMAP and CLAUDE.md are updated.

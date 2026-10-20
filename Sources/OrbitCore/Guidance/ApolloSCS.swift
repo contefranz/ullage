@@ -114,6 +114,9 @@ public final class ApolloSCS: FlightProgram, DeltaVCounting {
         return next
     }
 
+    /// The Space key's check: for CM/SM separation (event 7) the first press
+    /// arms the guard and is refused, a second within
+    /// `ApolloCSM.separationGuard` of the simulation's clock is allowed.
     public func allowsManualStaging(of vessel: Vessel) -> Bool {
         if smGone, let next = successor { return next.allowsManualStaging(of: vessel) }
         guard vessel.nextStagingEvent == 7 else { return true }
@@ -125,6 +128,14 @@ public final class ApolloSCS: FlightProgram, DeltaVCounting {
         armedAt = t
         status = "CM/SM SEP armed: Space again within 2 s"
         return false
+    }
+
+    /// The guard as it stands, without arming or clearing it.
+    public func manualStaging(of vessel: Vessel) -> ManualStaging {
+        if smGone, let next = successor { return next.manualStaging(of: vessel) }
+        guard vessel.nextStagingEvent == 7 else { return .allowed }
+        let t = clock?() ?? 0
+        return .guarded(armed: armedAt.map { t - $0 <= ApolloCSM.separationGuard } ?? false)
     }
 
     public func nextEvent(at now: Epoch) -> (name: String, at: Epoch)? {

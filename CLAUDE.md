@@ -3,14 +3,23 @@
 Native Apple Silicon space flight simulator (Swift + Metal), aiming at
 procedurally realistic Apollo and Space Shuttle missions. Owner: Francesco
 Grossetti (Franz). Read `README.md` for architecture and `docs/ROADMAP.md` for
-milestones. M0 (physics core + Metal viewer) and M1 (Saturn V to parking orbit)
-are done: the AS-506 stack (propulsion and masses calibrated to its Flight
-Evaluation Report, datasheet §9), its gimballing/TVC, the IU flight program with
-iterative guidance to the parking orbit (§8, §10), its aerodynamics with the
-launch day's atmosphere (§11), its solid motors (§12), its mass characteristics
-(§13), the WGS-84 Earth and geodetic pad (§15), engine-out (§16) and the ascent
-residuals closed on AS-506's postflight trajectory (§14, §17), with Earth
-orientation on IAU 2006/2000B and UT1, and the Apollo 11 scenario on its GET.
+milestones. M0 (physics core + Metal viewer), M1 (Saturn V to parking orbit)
+and M1.5 (Apollo Earth-orbit mission, pad to splashdown) are done.
+- M1: the AS-506 stack (propulsion and masses calibrated to its Flight
+  Evaluation Report, datasheet §9), its gimballing/TVC, the IU flight program
+  with iterative guidance to the parking orbit (§8, §10), its aerodynamics with
+  the launch day's atmosphere (§11), its solid motors (§12), its mass
+  characteristics (§13), the WGS-84 Earth and geodetic pad (§15), engine-out
+  (§16) and the ascent residuals closed on AS-506's postflight trajectory (§14,
+  §17), with Earth orientation on IAU 2006/2000B and UT1, and the Apollo 11
+  scenario on its GET.
+- M1.5 (plan in docs/m15/): the navball HUD and Orbiter-style MFDs on physical
+  keys; CSM separation with the SLA panels, the SPS and SM/CM RCS, the SCS with
+  its EMS ΔV counter; the CM's entry aerodynamics, entry program, earth landing
+  system and splashdown (docs/CM-entry-datasheet.md, Apollo 7's landing miss
+  being an accepted deviation); the Apollo shapes, plumes, eclipse light, glow
+  and canopies; the Apollo 11 return and Apollo 7 scenarios.
+
 M2 (lunar mission profile) is next; see docs/ROADMAP.md.
 
 ## Rules
@@ -21,8 +30,9 @@ M2 (lunar mission profile) is next; see docs/ROADMAP.md.
   `m1-saturn-v-stack` or `fix-hud-mass-column`; never `claude/...` or other
   generated names. If a session starts on a generated branch, do the work on a
   descriptively named branch instead.
-- Keep `OrbitCore` pure Swift + Foundation (no Apple-only frameworks, no
-  `simd`): it must build and test on Linux, which is where cloud sessions run.
+- Keep `OrbitCore` and `OrbitInstruments` pure Swift + Foundation (no
+  Apple-only frameworks, no `simd`): they must build and test on Linux, which
+  is where cloud sessions run.
 - Every physics change gets a test in `Tests/OrbitCoreTests`, preferably
   against an external reference (JPL/SPICE values, published vehicle data).
 - SI units everywhere in the core (m, kg, s, rad). Inertial frame is ICRF;
@@ -32,10 +42,19 @@ M2 (lunar mission profile) is next; see docs/ROADMAP.md.
 ## Commands
 
 ```sh
-swift build                 # OrbitCore everywhere; also the app on macOS
-swift test                  # core test suite (must stay green)
+swift build                 # OrbitCore and OrbitInstruments everywhere; also the app on macOS
+swift test                  # both test suites (must stay green; about 15 min on the Mac)
+swift test --filter OrbitInstrumentsTests   # the MFD pages and keys alone
 swift run -c release OrbitSim   # macOS only: launch the app
 ```
+
+Targets: `OrbitCore` (physics, guidance, navigation, the navball's maths);
+`OrbitInstruments` (depends on OrbitCore: physical keys and the keyboard
+state, the MFD pages as display lists, and the hooks that read OrbitCore's
+programs, e.g. EntryProgramHooks.swift); the `OrbitSim` app (macOS only,
+depends on both; its MFD coastlines are a resource of the app target). On the
+Mac, `xcodebuild -scheme OrbitSim-Package -destination 'platform=macOS,arch=arm64'
+build test` builds and tests all three.
 
 In Claude Code cloud sessions the SessionStart hook
 (`.claude/hooks/session-start.sh`) installs the toolchain, puts it on PATH
@@ -46,7 +65,7 @@ allowlist), then `export PATH=/opt/swift/usr/bin:$PATH`.
 
 ## What can be verified where
 
-- Linux/cloud: `OrbitCore` builds and tests. `Sources/OrbitSim` (SwiftUI,
+- Linux/cloud: `OrbitCore` and `OrbitInstruments` build and test. `Sources/OrbitSim` (SwiftUI,
   AppKit, Metal) cannot be compiled; review it carefully and ask the owner to
   build in Xcode, or hand the task to a local session on the Mac.
 - Mac: everything, including the Metal shaders, which are compiled at runtime
@@ -59,6 +78,10 @@ allowlist), then `export PATH=/opt/swift/usr/bin:$PATH`.
 scripts in `tools/` from JPL DE421 (+ `moon_pa_de421_1900-2050.bpc`) and the
 Hipparcos catalogue. These inputs are available from the
 `skyfielders/python-skyfield` repository (`ci/` folder) via a sparse git clone.
+`landmask.bin` (OrbitCore) and `Sources/OrbitSim/MFD/Resources/coastlines.bin`
+come from Natural Earth (public domain) through `tools/make_landmask.py` and
+`tools/make_coastlines.py`, whose docstrings record the source commit. The
+transcribed Apollo sources are in `tools/data/` and `docs/data/`.
 
 ## Open decisions
 
