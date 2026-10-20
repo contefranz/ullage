@@ -238,13 +238,33 @@ public struct EngineTransients: Equatable {
     }
 }
 
-/// When staging lights a solid motor (`Thruster.trigger`).
-public enum SolidTrigger: Equatable {
-    /// When its own part separates: a retro motor on the stage that leaves.
+/// When staging acts on a thruster (`Thruster.trigger`). It lights a solid
+/// motor; it starts a liquid engine's `sequence`, or, without one, enables
+/// the engine (`isEnabled`: the CM RCS, armed at CM/SM separation).
+public enum StagingTrigger: Equatable {
+    /// When its own part separates: a retro motor on the stage that leaves,
+    /// the SM's jettison jets.
     case ownSeparation
     /// When staging event `n` separates, on the vessel that stays: an ullage
     /// motor on the stage that starts next.
     case event(Int)
+}
+
+/// The name the trigger had while it lit only solid motors.
+public typealias SolidTrigger = StagingTrigger
+
+/// A firing a liquid engine runs on its own once its `trigger` starts it,
+/// at full level whatever the controls command (the SM jettison
+/// controller's): from `start` s after the trigger for `duration` s, or
+/// until its propellant runs out when `duration` is nil.
+public struct FiringSequence: Equatable {
+    public var start: Double
+    public var duration: Double?
+    public init(start: Double = 0, duration: Double?) {
+        precondition(start >= 0 && (duration ?? 0) >= 0, "a firing sequence's times must not be negative")
+        self.start = start
+        self.duration = duration
+    }
 }
 
 /// Tanks an engine draws from.
@@ -305,8 +325,13 @@ public final class Thruster {
     /// feed, and no shutdown transient (its tank has nothing below empty to
     /// tail off on).
     public var isSolid = false
-    /// When staging lights this solid; nil: only `ignite()` does.
-    public var trigger: SolidTrigger?
+    /// When staging lights this solid, or starts or arms this liquid engine;
+    /// nil: only `ignite()` and the controls do.
+    public var trigger: StagingTrigger?
+    /// A firing the trigger starts (liquid engines only); see `FiringSequence`.
+    public var sequence: FiringSequence?
+    /// Seconds since the trigger started the sequence; nil before.
+    public private(set) var sequenceElapsed: Double?
     /// True once a solid has been lit, burnt out or not.
     public private(set) var isIgnited = false
     /// Change of performance over the burn; nil keeps `rating` throughout.
@@ -438,9 +463,34 @@ public final class Thruster {
     /// True while the controls command thrust: available, lit and fed, and
     /// not still decaying from a cutoff (a new command waits for the decay to
     /// end). Start and shutdown ramps aside, this is when the engine
-    /// delivers thrust. A solid is commanded from ignition to burnout.
+    /// delivers thrust. A solid is commanded from ignition to burnout, a
+    /// liquid engine also through its sequence's window.
     public var isCommanded: Bool {
-        (isSolid ? isIgnited : isAvailable && level > 0) && hasPropellant && shutdownElapsed == nil
+        (isSolid ? isIgnited : isAvailable && (level > 0 || isSequenced)) && hasPropellant && shutdownElapsed == nil
+    }
+
+    /// True while the engine's sequence holds it at full level.
+    public var isSequenced: Bool {
+        guard let s = sequence, let e = sequenceElapsed, e >= s.start - 1e-9 else { return false }
+        return s.duration.map { e < s.start + $0 - 1e-9 } ?? true
+    }
+
+    /// Start the sequence (staging's `trigger` does); false if the engine
+    /// has none or it has already started.
+    @discardableResult
+    public func startSequence() -> Bool {
+        guard !isSolid, sequence != nil, sequenceElapsed == nil else { return false }
+        sequenceElapsed = 0
+        return true
+    }
+
+    /// Seconds to the next start or end of the sequence's window, so the
+    /// simulation can end a step there; nil when none is ahead.
+    public var timeToSequenceEdge: Double? {
+        guard let s = sequence, let e = sequenceElapsed else { return nil }
+        if e < s.start - 1e-9 { return s.start - e }
+        if let d = s.duration, e < s.start + d - 1e-9 { return s.start + d - e }
+        return nil
     }
 
     /// Fail the engine now. A liquid engine stops as on a cutoff: it is no
@@ -464,7 +514,7 @@ public final class Thruster {
     /// applies to, this step; nil when the engine delivers nothing.
     var output: (fraction: Double, rating: EngineRating)? {
         if isCommanded {
-            var f = isSolid ? 1 : level
+            var f = isSolid || isSequenced ? 1 : level
             if let tr = transients, tr.startDelay + tr.startRise > 0 {
                 let t = burnTime + lastStep / 2 - tr.startDelay
                 f *= t <= 0 ? 0 : tr.startRise > 0 ? min(1, t / tr.startRise) : 1
@@ -483,11 +533,13 @@ public final class Thruster {
     /// this step's output. Call once per step.
     func advanceTransients(dt: Double) {
         defer {
-            // A rating ramp runs whether or not the engine fires.
+            // A rating ramp runs whether or not the engine fires, and so
+            // does a sequence's clock.
             if let r = ratingRamp {
                 let e = r.elapsed + dt
                 ratingRamp = e >= r.duration - 1e-6 ? nil : (r.from, r.duration, e)
             }
+            if let e = sequenceElapsed { sequenceElapsed = e + dt }
         }
         if isCommanded {
             lastOutput = output
@@ -505,7 +557,7 @@ public final class Thruster {
         }
         // A cutoff commanded (or a failure) before this step started the ramp
         // with it; an engine that ran out of propellant during it ran to its end.
-        let ranOut = shutdownElapsed == nil && (isSolid ? isIgnited : isAvailable && level > 0)
+        let ranOut = shutdownElapsed == nil && (isSolid ? isIgnited : isAvailable && (level > 0 || isSequenced))
         let e = shutdownElapsed.map { $0 + dt } ?? (ranOut ? 0 : dt)
         if e >= tr.shutdown {
             lastOutput = nil
@@ -604,6 +656,35 @@ public final class VesselPart {
     /// Relative speed (m/s) springs or ordnance give the parts of its staging
     /// event as they separate; 0 when solid motors do the work.
     public var separationSpeed = 1.0
+    /// Parts of one staging event in different groups leave as different
+    /// vessels, each group on its own (the SLA panels); nil leaves with the
+    /// event's other ungrouped parts.
+    public var separationGroup: String?
+    /// The velocity the separation gives the part's group relative to the
+    /// vessel it leaves (vessel axes, m/s), in place of `separationSpeed`:
+    /// shared between the two by momentum.
+    public var separationVelocity: Vec3?
+    /// The body rate the separation adds to the part's group (rad/s, vessel
+    /// axes): the SLA panels' tumble about their hinges.
+    public var separationRate: Vec3?
+    /// The crew rides in this part: the vessel that carries it keeps its
+    /// identity at a separation, and flies in its `crewFrame`.
+    public var isCrewed = false
+    /// The crew's control frame (pilot axes -> vessel axes) on a vessel that
+    /// carries this crewed part: the Apollo crew axes on a vessel built in
+    /// the Saturn V construction frame.
+    public var crewFrame = Quat.identity
+    /// A flight program the part carries on standby: it takes over the
+    /// vessel the part is aboard when a separation leaves that vessel
+    /// without a program (the CM's SCS once the IU has left).
+    public var standbyProgram: FlightProgram?
+    /// Until staging event `n` (or a later one) separates, the part's mass
+    /// counts as if centred on its axis: its centre of mass on the axis and
+    /// its inertia without products (`centerOfMass`, `localInertia`). The
+    /// Apollo CSM rides the Saturn V so until its separation (event 6): M1's
+    /// ascent was calibrated on an axisymmetric spacecraft, and the CSM's
+    /// 4-7 in lateral CG moves it (track C's PR). Nil: as it is.
+    public var centeredUntilEvent: Int?
 
     public init(name: String, dryMass: Double, offset: Vec3 = .zero, length: Double, radius: Double,
                 dragCoefficient: Double = 0.5, tanks: [PropellantTank] = [], thrusters: [Thruster] = [],
@@ -651,18 +732,27 @@ public final class VesselPart {
         return elements
     }
 
-    /// Centre of mass of the part, part frame.
+    /// Centre of mass of the part, part frame (on the axis while
+    /// `centeredUntilEvent` holds).
     public var centerOfMass: Vec3 {
-        let m = mass
-        guard m > 0 else { return dryCenterOfMass }
-        return massElements.reduce(Vec3.zero) { $0 + $1.position * $1.mass } / m
+        let c = trueCenterOfMass
+        return centeredUntilEvent == nil ? c : Vec3(c.x, 0, 0)
     }
 
     /// Inertia tensor about the part's own centre of mass (for an M0 part,
-    /// a solid cylinder along x).
+    /// a solid cylinder along x), without products while
+    /// `centeredUntilEvent` holds.
     public var localInertia: Mat3 {
-        let c = centerOfMass
-        return massElements.reduce(Mat3.zero) { $0 + $1.inertia + .parallelAxis(mass: $1.mass, offset: $1.position - c) }
+        let c = trueCenterOfMass
+        let i = massElements.reduce(Mat3.zero) { $0 + $1.inertia + .parallelAxis(mass: $1.mass, offset: $1.position - c) }
+        return centeredUntilEvent == nil ? i : .diagonal(Vec3(i[0, 0], i[1, 1], i[2, 2]))
+    }
+
+    /// Centre of mass of the part's elements as they are, part frame.
+    var trueCenterOfMass: Vec3 {
+        let m = mass
+        guard m > 0 else { return dryCenterOfMass }
+        return massElements.reduce(Vec3.zero) { $0 + $1.position * $1.mass } / m
     }
 
     /// Adds a symmetric set of attitude-control thrusters at station `x` (part

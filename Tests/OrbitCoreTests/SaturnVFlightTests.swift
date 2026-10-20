@@ -88,7 +88,8 @@ final class SaturnVFlightTests: XCTestCase {
             if steps == cecoStep { engines[4].isEnabled = false }
             worstCoM = max(worstCoM, v.centerOfMass.length)
             worstTilt = max(worstTilt, angleBetween(v.attitude.rotate(.unitX), v.position))
-            if v.thrusters.contains(where: { $0.gimbal.contains { $0.angle != 0 } }) { deflected += 1 }
+            // The launch vehicle's gimbals (the SPS sits at its nulls).
+            if v.thrusters.contains(where: { $0.name != "SPS" && $0.gimbal.contains { $0.angle != 0 } }) { deflected += 1 }
         }
         XCTAssertEqual(v.status, .flying)
         XCTAssertEqual(deflected, 0)
@@ -145,7 +146,8 @@ final class SaturnVFlightTests: XCTestCase {
     // interstage, the LES, the S-II with the aft interstage, then the S-IVB
     // ullage motors' cases. Nothing moves (the retros and ullage motors the
     // presses light have not burned yet), mass and momentum are conserved,
-    // and only the LES separates ahead.
+    // and only the LES separates ahead. The sixth, the CSM's separation, is
+    // `CSMSeparationTests`'.
     func testSpaceKeyStagingSequence() throws {
         let sim = try Simulation.forTests(perturbations: false)
         let v = VesselLibrary.saturnV()
@@ -156,7 +158,8 @@ final class SaturnVFlightTests: XCTestCase {
         for p in v.parts { construction[ObjectIdentifier(p)] = p.offset - v.structureOrigin }
         var separated: [[String]] = []
         var ahead: [Double] = []
-        while let spent = sim.stage(v) {
+        for _ in 1...5 {
+            guard let spent = sim.stage(v) else { return XCTFail("no stage") }
             separated.append(spent.parts.map(\.name))
             XCTAssertEqual(spent.name, "Apollo 11 – \(spent.parts[0].name)")
             ahead.append(v.attitude.inverseRotate(spent.position - v.position).x)
@@ -171,7 +174,7 @@ final class SaturnVFlightTests: XCTestCase {
         }
         XCTAssertEqual(separated, [["S-IC"], ["S-IC/S-II interstage"], ["LES"], ["S-II", "S-II/S-IVB interstage"],
                                    ["S-IVB ullage rockets"]])
-        XCTAssertEqual(v.parts.map(\.name), ["S-IVB", "IU", "SLA", "LM", "CSM"])
+        XCTAssertEqual(v.parts.map(\.name), SaturnVDataTests.parkingOrbitStack)
         XCTAssertEqual(sim.vessels.count, 6)
         XCTAssertEqual(sim.vessels.reduce(0) { $0 + $1.mass }, m, accuracy: 1e-6)
         let after = sim.vessels.reduce(Vec3.zero) { $0 + $1.velocity * $1.mass }

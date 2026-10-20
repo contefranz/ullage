@@ -68,13 +68,14 @@ final class VisualShapeTests: XCTestCase {
                 for s in p.shapes { XCTAssertFalse(s.triangles().isEmpty, "\(v.name): \(p.name)") }
             }
         }
-        // Today's single SLA is the split's ring and panels.
+        // The Saturn V's SLA (track C's ring and panels) dresses as the
+        // stand-in's.
         let stack = VesselLibrary.saturnV(), split = splitStack()
         func count(_ v: Vessel, _ names: [String]) -> Int {
             v.parts.filter { names.contains($0.name) }.reduce(0) { $0 + $1.shapes.count }
         }
-        XCTAssertEqual(count(stack, ["SLA"]), count(split, ["SLA ring", "SLA panel 1", "SLA panel 2", "SLA panel 3",
-                                                             "SLA panel 4"]))
+        let sla = ["SLA ring", "SLA panel 1", "SLA panel 2", "SLA panel 3", "SLA panel 4"]
+        XCTAssertEqual(count(stack, sla), count(split, sla))
     }
 
     // Dressing again replaces the shapes with the same ones; a part the dress
@@ -115,7 +116,8 @@ final class VisualShapeTests: XCTestCase {
     }
 
     // Every nozzle link names a thruster of its part; every main engine of
-    // the Saturn V has one bell, and the split SM's SPS and RCS jets theirs.
+    // the Saturn V has one bell (the SPS among them) and each SM RCS jet its
+    // nozzle, as the stand-in SM's SPS and RCS jets.
     func testThrusterLinksResolve() {
         for v in vehicles() {
             for p in v.parts {
@@ -130,12 +132,13 @@ final class VisualShapeTests: XCTestCase {
         for p in stack.parts {
             for t in p.thrusters {
                 let bells = p.shapes.filter { $0.thruster == t.name }
-                XCTAssertEqual(bells.count, t.groups.contains(.main) ? 1 : 0, t.name)
+                XCTAssertEqual(bells.count, t.groups.contains(.main) || t.name.hasPrefix("SM RCS") ? 1 : 0, t.name)
                 linked += bells.count
             }
         }
-        XCTAssertEqual(linked, 11)   // 5 F-1, 5 + 1 J-2
-        XCTAssertNil(stack.parts.first { $0.name == "CSM" }!.shapes.first { $0.thruster != nil })
+        XCTAssertEqual(linked, 11 + 1 + 16)   // 5 F-1, 5 + 1 J-2, the SPS, the SM RCS
+        let real = stack.parts.first { $0.name == "SM" }!
+        XCTAssertEqual(real.shapes.count, 1 + 1 + 4 + 16)
 
         let sm = splitStack().parts.first { $0.name == "SM" }!
         XCTAssertEqual(Set(sm.shapes.compactMap(\.thruster)), ["SPS", "SM RCS A1", "SM RCS C1"])
@@ -173,10 +176,10 @@ final class VisualShapeTests: XCTestCase {
         }
         // SPS: 98.4 in inside diameter at the nozzle extension's exit (AOH
         // 2.4-43), Xa 715 to the gimbal at Xa 833 (datasheet §4).
-        let csm = stack.parts.first { $0.name == "CSM" }!
-        let sps = csm.shapes.first { s in s.twoSided && (profile(s).map { $0.first!.r > 1 } ?? false) }!
+        let sm = stack.parts.first { $0.name == "SM" }!
+        let sps = sm.shapes.first { $0.thruster == "SPS" }!
         XCTAssertEqual(profile(sps)!.first!.r / inch, 49.2, accuracy: 1e-9)
-        let x = (csm.offset - stack.structureOrigin).x + sps.origin.x
+        let x = (sm.offset - stack.structureOrigin).x + sps.origin.x
         XCTAssertEqual(x, xa(715), accuracy: 1e-9)
         XCTAssertEqual(x + sps.length, xa(833), accuracy: 1e-9)
     }
@@ -186,7 +189,12 @@ final class VisualShapeTests: XCTestCase {
     // a 33° afterbody, 10 ft 7 in from the face, which sits at Xa 1000
     // (TN D-5399 Table II).
     func testCommandModuleOuterMouldLine() throws {
-        let stack = VesselLibrary.saturnV(), csm = stack.parts.first { $0.name == "CSM" }!
+        // The stack without its apex cover (staging event 30): the CM has
+        // its apex.
+        let stack = VesselLibrary.saturnV()
+        stack.jettison(event: 30)
+        VesselLibrary.dressApollo(stack)
+        let csm = stack.parts.first { $0.name == "CM" }!
         let heatShield = try XCTUnwrap(csm.shapes.first { $0.emissive == .heatShield })
         let afterbody = try XCTUnwrap(csm.shapes.first { $0.origin == heatShield.origin && $0.emissive == .none })
         let face = ((csm.offset - stack.structureOrigin).x + heatShield.origin.x) / inch - AS506.apolloStationOffset
@@ -281,7 +289,7 @@ final class VisualShapeTests: XCTestCase {
 
         // The CM, heat shield and afterbody together, against π ∫ r² dx on
         // the same profile (trapezoids in r², exact for the cone).
-        let csm = VesselLibrary.saturnV().parts.first { $0.name == "CSM" }!
+        let csm = VesselLibrary.saturnV().parts.first { $0.name == "CM" }!
         let cm = csm.shapes.filter { $0.origin == csm.shapes.first { $0.emissive == .heatShield }!.origin }
         XCTAssertEqual(cm.count, 2)
         let points = profile(cm[0])! + profile(cm[1])!.dropFirst()
