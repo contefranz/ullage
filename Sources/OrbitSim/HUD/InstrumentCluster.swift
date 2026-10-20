@@ -1,12 +1,16 @@
 import SwiftUI
 import OrbitCore
+import OrbitInstruments
 
-/// The flight instruments at the bottom centre: throttle, speed tape, the
-/// navball with heading, pitch and roll and the body-rate needles, the
-/// altitude tape with the apsides, the vertical-speed bar and the autopilot
-/// modes. The moving parts are drawn every frame from `InstrumentModel`, in
-/// step with the ball; the scales and labels once, and the mode column when
-/// the mode changes (text is what costs in a canvas).
+/// The flight instruments at the bottom centre: throttle (the g meter in an
+/// entry), speed tape, the navball with heading, pitch and roll and the
+/// body-rate needles, the altitude tape with the apsides, the vertical-speed
+/// bar and the autopilot modes; below them a strip with the next event and
+/// the target's range and range rate, or in an entry the 0.05 g light, the
+/// bank, the heating and the landing system. The moving parts are drawn
+/// every frame from `InstrumentModel`, in step with the ball; the scales and
+/// labels once, the mode column when the mode changes and the strip five
+/// times a second (text is what costs in a canvas).
 struct InstrumentCluster: View {
     let instruments: InstrumentModel
     let layout: Layout
@@ -26,12 +30,17 @@ struct InstrumentCluster: View {
                 ZStack(alignment: .topLeading) {
                     Canvas { ctx, _ in painter.draw(&ctx) }
                     ModeColumn(layout: layout, autopilot: painter.r.autopilot,
-                               programSteers: painter.r.programSteers).equatable()
+                               holdProgram: painter.r.holdProgram).equatable()
                 }
             }
             NavballView(instruments: instruments)
                 .frame(width: layout.ball.width, height: layout.ball.height)
                 .offset(x: layout.ball.minX, y: layout.ball.minY)
+            TimelineView(.periodic(from: .now, by: 0.2)) { _ in
+                AnnunciatorStrip(r: instruments.readouts)
+                    .frame(width: layout.strip.width, height: layout.strip.height)
+                    .offset(x: layout.strip.minX, y: layout.strip.minY)
+            }
         }
         .frame(width: layout.size.width, height: layout.size.height)
     }
@@ -43,6 +52,8 @@ struct InstrumentCluster: View {
         let throttle, speedTape, altitudeTape, vsi, modes: CGRect
         /// Rows above and below the tapes, for their labels.
         let labelRow: CGFloat, belowRows: (CGFloat, CGFloat)
+        /// The annunciator strip along the bottom.
+        let strip: CGRect
         /// The visible ball's radius in the navball view (its bezel's).
         var ballRadius: CGFloat { ball.width / 2 * CGFloat(NavballRenderer.bezelRadius) }
 
@@ -64,7 +75,8 @@ struct InstrumentCluster: View {
             labelRow = top + 9
             let below = tapeTop + tapeHeight + 10
             belowRows = (below, below + 15)
-            size = CGSize(width: x, height: below + 15 + 12)
+            strip = CGRect(x: pad, y: below + 24, width: x - 2 * pad, height: 16)
+            size = CGSize(width: x, height: strip.maxY + 6)
         }
 
         static func == (a: Layout, b: Layout) -> Bool { a.ball == b.ball }
@@ -84,10 +96,10 @@ private struct StaticLayer: View, Equatable {
 private struct ModeColumn: View, Equatable {
     let layout: InstrumentCluster.Layout
     let autopilot: AttitudeAutopilot?
-    let programSteers: Bool
+    let holdProgram: String?
 
     var body: some View {
-        Canvas { ctx, _ in Painter.drawModes(&ctx, layout, autopilot: autopilot, programSteers: programSteers) }
+        Canvas { ctx, _ in Painter.drawModes(&ctx, layout, autopilot: autopilot, holdProgram: holdProgram) }
     }
 }
 
@@ -132,8 +144,6 @@ private struct Painter {
         func label(_ s: String, _ f: CGRect, _ y: CGFloat, weight: Font.Weight = .regular) {
             ctx.draw(text(s, size: 10, weight: weight), at: CGPoint(x: f.midX, y: y))
         }
-        label("THR", layout.throttle, layout.labelRow)
-        label("%", layout.throttle, layout.belowRows.1)
         label("ALT", layout.altitudeTape, layout.labelRow, weight: .semibold)
         label("VS", layout.vsi, layout.labelRow, weight: .semibold)
         label("m/s", layout.vsi, layout.belowRows.1)
@@ -198,13 +208,50 @@ private struct Painter {
 
     // MARK: Throttle
 
+    /// The throttle, or in an entry the g meter in its place.
     func throttle(_ ctx: inout GraphicsContext) {
         let f = layout.throttle
+        if let entry = r.entry {
+            gMeter(&ctx, entry)
+            return
+        }
         let level = max(0, min(1, r.throttle))
         let bar = CGRect(x: f.minX + 3, y: f.maxY - 3 - (f.height - 6) * level, width: f.width - 6,
                          height: (f.height - 6) * level)
         ctx.fill(Path(bar), with: .color(Color(red: 0.95, green: 0.7, blue: 0.2)))
+        ctx.draw(text("THR", size: 10), at: CGPoint(x: f.midX, y: layout.labelRow))
         ctx.draw(text(String(format: "%.0f", level * 100), size: 10), at: CGPoint(x: f.midX, y: layout.belowRows.0))
+        ctx.draw(text("%", size: 10), at: CGPoint(x: f.midX, y: layout.belowRows.1))
+    }
+
+    /// Full scale of the g meter, g.
+    static let gMeterScale = 10.0
+
+    /// The sensed load factor on a 0-10 g scale (the EMS's), ticked every g,
+    /// amber from 5 g and red from 8 g, with the entry's peak.
+    func gMeter(_ ctx: inout GraphicsContext, _ entry: EntryReadouts) {
+        let f = layout.throttle, inner = f.height - 6
+        func y(_ g: Double) -> CGFloat { f.maxY - 3 - inner * CGFloat(max(0, min(1, g / Self.gMeterScale))) }
+        let g = entry.loadFactor
+        let color = g >= 8 ? Color(red: 1, green: 0.3, blue: 0.25) : g >= 5 ? Color(red: 1, green: 0.7, blue: 0.2)
+            : Self.green
+        ctx.fill(Path(CGRect(x: f.minX + 7, y: y(g), width: f.width - 10, height: f.maxY - 3 - y(g))),
+                 with: .color(color))
+        for k in 0...Int(Self.gMeterScale) {
+            var p = Path()
+            p.move(to: CGPoint(x: f.minX, y: y(Double(k))))
+            p.addLine(to: CGPoint(x: f.minX + (k % 5 == 0 ? 6 : 3), y: y(Double(k))))
+            ctx.stroke(p, with: .color(Self.dim), lineWidth: 1)
+        }
+        if let peak = entry.peakLoadFactor, peak > 0 {
+            var p = Path()
+            p.move(to: CGPoint(x: f.minX + 4, y: y(peak)))
+            p.addLine(to: CGPoint(x: f.maxX - 1, y: y(peak)))
+            ctx.stroke(p, with: .color(Color(red: 1, green: 0.85, blue: 0.3)), lineWidth: 1.5)
+        }
+        ctx.draw(text("G", size: 10, weight: .semibold), at: CGPoint(x: f.midX, y: layout.labelRow))
+        ctx.draw(text(String(format: "%.1f", g), size: 10), at: CGPoint(x: f.midX, y: layout.belowRows.0))
+        ctx.draw(text("g", size: 10), at: CGPoint(x: f.midX, y: layout.belowRows.1))
     }
 
     // MARK: Tapes
@@ -360,7 +407,7 @@ private struct Painter {
     }
 
     static func drawModes(_ ctx: inout GraphicsContext, _ layout: InstrumentCluster.Layout,
-                          autopilot: AttitudeAutopilot?, programSteers: Bool) {
+                          autopilot: AttitudeAutopilot?, holdProgram: String?) {
         let f = layout.modes
         let rowHeight = f.height / CGFloat(modeRows.count)
         for (i, row) in modeRows.enumerated() {
@@ -371,7 +418,8 @@ private struct Painter {
             } else {
                 ctx.stroke(Path(roundedRect: cell, cornerRadius: 4), with: .color(dim.opacity(0.6)), lineWidth: 1)
             }
-            let name = row.mode == .attitudeHold && active && programSteers ? "HOLD IU" : row.name
+            var name = row.name
+            if row.mode == .attitudeHold, active, let program = holdProgram { name = "HOLD " + program }
             ctx.draw(text(name, size: 10, weight: .bold, color: active ? .black : green),
                      at: CGPoint(x: cell.minX + 6, y: cell.midY), anchor: .leading)
             ctx.draw(text(row.key, size: 10, color: active ? .black : dim),
@@ -380,5 +428,94 @@ private struct Painter {
         if autopilot == nil {
             ctx.draw(text("off  0", size: 10, color: dim), at: CGPoint(x: f.midX, y: layout.belowRows.0))
         }
+    }
+}
+
+// MARK: - Annunciator strip
+
+/// The strip under the cluster. In an entry: the 0.05 g light, the peak
+/// load factor, the bank, the heat flux and load, the landing system, and
+/// the next event when it fits. Otherwise the next event (the flight
+/// program's, or the loaded burn's ignition) and the target's range and
+/// range rate.
+private struct AnnunciatorStrip: View {
+    let r: InstrumentModel.Readouts
+
+    static let target = color(.target)
+    static let maneuver = color(.maneuver)
+    static let lamp = Color(red: 1, green: 0.72, blue: 0.2)
+
+    static func color(_ g: MarkerGlyph) -> Color { Color(.sRGB, red: g.color.r, green: g.color.g, blue: g.color.b) }
+
+    func item(_ label: String, _ value: String, _ color: Color = Painter.green) -> some View {
+        HStack(spacing: 4) {
+            Text(label).foregroundColor(color.opacity(0.75))
+            Text(value).foregroundColor(color).fontWeight(.semibold)
+        }
+    }
+
+    @ViewBuilder var next: some View {
+        if let n = r.nextEvent {
+            let burn = r.maneuver.map { n.name == $0.name + " TIG" } ?? false
+            item("NEXT", HUDFormat.nextEvent(n.name, in: n.timeToGo), burn ? Self.maneuver : Painter.green)
+        }
+    }
+
+    @ViewBuilder var target: some View {
+        if let t = r.target {
+            HStack(spacing: 8) {
+                item("TGT", t.name, Self.target)
+                Text(HUDFormat.range(t.relative.range)).foregroundColor(Self.target)
+                Text(HUDFormat.rangeRate(t.relative.rangeRate)).foregroundColor(Self.target)
+            }
+        }
+    }
+
+    func entry(_ e: EntryReadouts) -> some View {
+        HStack(spacing: 10) {
+            Text("0.05 G")
+                .fontWeight(.bold)
+                .foregroundColor(e.pointZeroFiveG ? .black : Painter.dim)
+                .padding(.horizontal, 4)
+                .background(RoundedRectangle(cornerRadius: 3).fill(e.pointZeroFiveG ? Self.lamp : .clear))
+                .overlay(RoundedRectangle(cornerRadius: 3).stroke(e.pointZeroFiveG ? Self.lamp : Painter.dim, lineWidth: 1))
+            if let peak = e.peakLoadFactor { item("PK", HUDFormat.loadFactor(peak)) }
+            item("BANK", HUDFormat.bank(e.bankAngle))
+            item("FLUX", HUDFormat.heatFlux(e.heatFlux))
+            item("LOAD", HUDFormat.heatLoad(e.heatLoad))
+            if let els = e.landingSystem { Text(els).foregroundColor(Painter.green) }
+        }
+    }
+
+    var body: some View {
+        Group {
+            if let e = r.entry {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 12) {
+                        entry(e)
+                        Spacer(minLength: 0)
+                        next
+                    }
+                    HStack {
+                        entry(e)
+                        Spacer(minLength: 0)
+                    }
+                }
+            } else {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 12) {
+                        next
+                        Spacer(minLength: 0)
+                        target
+                    }
+                    HStack {
+                        target
+                        Spacer(minLength: 0)
+                    }
+                }
+            }
+        }
+        .font(.system(size: 10, design: .monospaced))
+        .lineLimit(1)
     }
 }

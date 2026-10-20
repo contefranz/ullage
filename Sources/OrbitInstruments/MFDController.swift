@@ -261,6 +261,8 @@ public final class MFDVesselData {
     /// 0.05 G light), and the highest since.
     public private(set) var pointZeroFiveG: Epoch?
     public private(set) var peakLoadFactor = 0.0
+    /// The burn DEORBIT's SET loaded (`ActiveManeuver`), until CLR.
+    public internal(set) var maneuver: ActiveManeuver?
 
     /// The last sample: the state to fill a gap in the track from.
     private var last: Sample?
