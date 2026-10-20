@@ -429,9 +429,11 @@ final class AppModel: ObservableObject {
 
     /// What Space does next: the parts of the lowest pending staging event,
     /// or the bottom part of an M0 stack ("–" when nothing would go), and
-    /// whether the flight program refuses it now (the IU until T3); CM/SM
-    /// separation takes two presses; once the CM's entry program is awake,
-    /// the ELS step it backs up.
+    /// whether the flight program refuses it now (the IU until T3, or while
+    /// the S-IVB burns), or wants two presses (CM/SM separation), asked
+    /// without acting (`manualStaging`, not the key's own check, which arms
+    /// the SCS's guard); once the CM's entry program is awake, the ELS step
+    /// it backs up.
     static func nextStage(of v: Vessel) -> String {
         if let entry = ApolloMission.entryProgram(of: v), entry.phase != .dormant {
             let els = entry.els
@@ -453,10 +455,14 @@ final class AppModel: ObservableObject {
         }
         guard group.count < v.parts.count else { return "–" }
         let names = group.map(\.name).joined(separator: " + ")
-        // The SCS's guard is not asked: asking arms it (its first press).
-        if v.flightProgram is ApolloSCS, v.nextStagingEvent == 7 { return names + " (Space twice)" }
-        guard let program = v.flightProgram, !program.allowsManualStaging(of: v) else { return names }
-        return names + (program is SaturnIU ? " (inhibited until T3)" : " (inhibited)")
+        guard let program = v.flightProgram else { return names }
+        switch program.manualStaging(of: v) {
+        case .allowed: return names
+        case .inhibited:
+            if let iu = program as? SaturnIU, iu.timeBases[.t3] == nil { return names + " (inhibited until T3)" }
+            return names + " (inhibited)"
+        case .guarded(let armed): return names + (armed ? " (armed: Space again)" : " (Space twice)")
+        }
     }
 
     /// The vehicle panel's label for the flight program aboard `v`: "IU" for
