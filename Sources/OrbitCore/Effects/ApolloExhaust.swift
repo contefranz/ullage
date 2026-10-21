@@ -85,7 +85,7 @@ public enum ApolloExhaust {
         ratedFlow: ApolloCM.rcsThrust * C.poundForce / (ApolloCM.rcsIsp * standardGravity))
 
     /// An S-IVB APS attitude engine (TRW TR-204, 147 lbf): MMH and N2O4 at
-    /// o/f 1.6 and its nominal 100 psia (AS-501 FER §7, H), at a guessed
+    /// o/f 1.6 and its nominal 100 psia (AS-501 FER §7.12, H), at a guessed
     /// 40:1 whose exit the thrust then sizes (L).
     public static let apsAttitude = Engine(
         spec: ExhaustSpec(family: .hypergolic, chamberPressure: 100 * psi, areaRatio: 40,

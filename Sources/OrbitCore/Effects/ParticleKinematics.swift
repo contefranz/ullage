@@ -25,12 +25,14 @@ public enum ParticleKinematics {
 
     /// The position and velocity after `dt` s from `position` and
     /// `velocity`, in air moving at `airVelocity`, under `gravity` (m/s²),
-    /// with drag relaxation time `relaxationTime` (s; infinite: no drag).
+    /// with drag relaxation time `relaxationTime` (s; infinite: no drag;
+    /// zero: carried with the air).
     public static func step(position x: Vec3, velocity v: Vec3, airVelocity air: Vec3, gravity g: Vec3,
                             relaxationTime tau: Double, dt: Double) -> (position: Vec3, velocity: Vec3) {
-        let s = tau.isFinite && tau > 0 ? dt / tau : 0
+        // τ = 0: the particle moves with the air at once.
+        let s = tau > 0 ? (tau.isFinite ? dt / tau : 0) : .infinity
         let (p1, p2) = phi(s)
-        let decay = s > 0 ? exp(-s) : 1.0
+        let decay = exp(-s)
         let slip = v - air
         let velocity = air + slip * decay + g * (dt * p1)
         let position = x + air * dt + slip * (dt * p1) + g * (dt * dt * p2)

@@ -66,7 +66,8 @@ final class ParticleKinematicsTests: XCTestCase {
     }
 
     // In vacuum (τ infinite) and as τ grows without bound the step is the
-    // ballistic parabola, without cancellation.
+    // ballistic parabola, without cancellation; at τ = 0 the particle moves
+    // with the air.
     func testBallisticLimit() {
         let x0 = Vec3(1, 2, 3), v0 = Vec3(-30, 120, 7), g = Vec3(0, -8.9, 0), t = 2.0
         let parabola = x0 + v0 * t + g * (t * t / 2)
@@ -76,6 +77,10 @@ final class ParticleKinematicsTests: XCTestCase {
             assertClose(x, parabola, 1e-5, "τ \(tau)")
             assertClose(v, v0 + g * t, 1e-5, "τ \(tau)")
         }
+        let (xc, vc) = K.step(position: x0, velocity: v0, airVelocity: Vec3(5, 5, 5), gravity: g, relaxationTime: 0,
+                              dt: t)
+        assertClose(xc, x0 + Vec3(5, 5, 5) * t, 1e-12, "τ 0")
+        assertClose(vc, Vec3(5, 5, 5), 1e-12, "τ 0")
         XCTAssertEqual(K.relaxationTime(mass: 1, dragArea: 1, density: 0, relativeSpeed: 10), .infinity)
         XCTAssertEqual(K.relaxationTime(mass: 1, dragArea: 1, density: 1.2, relativeSpeed: 0), .infinity)
     }

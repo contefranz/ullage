@@ -3,7 +3,7 @@
 # and the chamber pressure; their area ratios are not known).
 # Run by tools/make_exhaust_table.py; the specs take the frozen expansion.
 #
-# p,psia: 100, the attitude engines' nominal (AS-501 FER §7: "the nominal
+# p,psia: 100, the attitude engines' nominal (AS-501 FER §7.12: "the nominal
 #   69 N/cm2 (100 psia)": H); taken for the ullage engine too (L).
 # Propellants: N2O4 and MMH (MSFC-MAN-503 §6: H); o/f 1.6 (enginehistory.org
 #   8.30, read through a search extract: M; AS506Data's feed ratio is 1.611).
