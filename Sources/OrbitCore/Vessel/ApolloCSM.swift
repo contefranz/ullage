@@ -245,6 +245,7 @@ extension VesselLibrary {
         fuel.mass = load.fuel * lb
         for t in quadTanks { t.mass = t.capacity }
 
+        for p in [sm] + cmParts { p.appearance = ApolloVariant(mission) }
         return [sm] + cmParts
     }
 

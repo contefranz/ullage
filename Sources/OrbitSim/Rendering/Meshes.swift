@@ -113,7 +113,7 @@ struct VesselMesh {
             return (shape.origin + shape.axis * first.x, first.r)
         case let .frustum(baseRadius, _):
             return (shape.origin, baseRadius)
-        case .sphere:
+        case .sphere, .prism, .plate, .torus, .box:
             return nil
         }
     }
