@@ -31,14 +31,28 @@ public enum ApolloExhaust {
     /// film (R-3896-1 through a search extract: M), the dark sheath under
     /// the exit that AS-501 to 503's films show burning about three-fourths
     /// of a nozzle diameter downstream (D5-15796-1 §4.1.1, H).
+    ///
+    /// The plume starts at the drawn nozzle: the exit is the gas side the
+    /// dresser draws, R-3896-1's 961.4 in² throat at 16:1 (Fig. 3-13, H;
+    /// `ApolloShapeData.f1ThroatArea` and `f1AreaRatio`), 1.7773 m in
+    /// radius. The flight physics' `AS506.f1ExitArea`, 10.10 m² (1.7930 m),
+    /// is a performance fit for the engines' pressure term, not the
+    /// nozzle's, and stays out of the plume.
     public static let f1 = Engine(
-        spec: ExhaustSpec(family: .keroseneLOX, chamberPressure: 982 * psi, areaRatio: 16,
-                          exitRadius: (D.f1ExitArea / Double.pi).squareRoot(), lipHalfAngle: 8 * degree,
+        spec: ExhaustSpec(family: .keroseneLOX, chamberPressure: 982 * psi, areaRatio: ApolloShapeData.f1AreaRatio,
+                          exitRadius: f1ExitRadius, lipHalfAngle: 8 * degree,
                           exitGamma: 1.2330, molarMass: 0.023037, chamberTemperature: 3_615.69,
                           exitTemperature: 1_469.49, fuelRichFraction: 0.44871, sootIndex: 1,
                           film: .init(massFraction: 167.0 / 5_737, injectionAreaRatio: 10, temperature: 887),
                           source: "exhaust datasheet §2.1; CEA row F-1", grade: "M"),
         ratedFlow: 5_737 * D.pound)
+
+    /// The F-1's drawn gas-side exit radius (m), as `ApolloShapes+SIC`
+    /// sizes its gas side: the throat's radius times √16.
+    static var f1ExitRadius: Double {
+        let throat: Double = (ApolloShapeData.f1ThroatArea / Double.pi).squareRoot()   // in
+        return throat * ApolloShapeData.f1AreaRatio.squareRoot() * D.inch
+    }
 
     /// The J-2: 763 psia at the rated o/f 5.5 and 230,000 lbf at 425 s
     /// (Purdue's table through a search extract, M), 27.5:1. AS-506's S-II

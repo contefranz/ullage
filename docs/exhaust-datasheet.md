@@ -11,7 +11,7 @@ Compiled on 2026-10-21 for M1.6 track P1 (exhaust physics, docs/m16/plan.md; des
 - **Chamber pressure** is the nozzle stagnation pressure (the 1,125 psia often quoted for the F-1 is its injector end's).
 - **Source keys:**
   - Betts: E. Betts, "Waking a Giant: Bringing the Saturn F-1 Engine Back to Life", NTRS 20140011656.
-  - R-3896-1: Rocketdyne, *Technical Manual, Engine Data, F-1 Rocket Engine*, 31 Mar 1967 (Internet Archive; read through a search extract only).
+  - R-3896-1: Rocketdyne, *Technical Manual, Engine Data, F-1 Rocket Engine*, 31 Mar 1967 (Internet Archive; read here through a search extract only, except its Fig. 3-13 throat area, 961.4 in², which docs/SaturnV-CSM-exterior-datasheet.md §8.1 read on the page images).
   - F-1 review: "Comprehensive Review of Liquid-Propellant Combustion Instabilities in F-1 Engines", J. Propulsion and Power 9(5), 1993 (extract).
   - MAN-503: *Saturn V Flight Manual SA-503*, MSFC-MAN-503, NTRS 19750063889.
   - D5-15796-1: Boeing, *Saturn V Aerothermodynamics Flight Evaluation Summary, AS-501 through AS-503*, 19 June 1969, NTRS 20160013592.
@@ -69,7 +69,7 @@ Compiled on 2026-10-21 for M1.6 track P1 (exhaust physics, docs/m16/plan.md; des
 
 | engine | given pc | pc from thrust and exit | reading |
 |---|---|---|---|
-| F-1 (1,748,200 lbf; 10.10 m² exit at 16:1) | 982 | 1,012 | +3 %: the turbine exhaust's thrust is in the rating, and AS506Data's exit area is an effective one (M) |
+| F-1 (1,748,200 lbf; 139.95 in exit: R-3896-1's 961.4 in² throat at 16:1) | 982 | 1,030 | +4.9 %: the turbine exhaust's thrust is in the rating, not in the deck (M); through the flight physics' fitted 10.10 m² exit (§2.1) it would be 1,012 |
 | J-2 (230,000 lbf; 14.7 in throat) | 763 | 743 | −2.6 %: the real thrust coefficient's losses |
 | SPS (21,080 lbf; 98.4 in exit) | 100 | 94 | −6 %: the same |
 | SM RCS (99.8 lbf; 5.6 in exit) | 90 | 89.1 | agrees with Marquardt's reference engine |
@@ -81,7 +81,7 @@ Every thruster of the Apollo vehicles maps to one family by its name (`ApolloExh
 
 | family | thrusters | family enum | pc | ε | exit radius | lip half-angle | rated flow (kg/s) | grade |
 |---|---|---|---|---|---|---|---|---|
-| F-1 | "S-IC engine 1"-"5" | keroseneLOX | 982 psia (Betts, H) | 16 (H) | 1.793 m, √(10.10 m²/π) (the dresser's) | 8° (assumed) | 2,602.3: 5,737 lb/s (Betts, H) | M |
+| F-1 | "S-IC engine 1"-"5" | keroseneLOX | 982 psia (Betts, H) | 16 (H) | 1.777 m, 139.95 in across: R-3896-1's 961.4 in² throat at 16:1 (H; the dresser's gas side) | 8° (assumed) | 2,602.3: 5,737 lb/s (Betts, H) | M |
 | J-2 | "S-II engine 1"-"5", "S-IVB engine" | hydrogenLOX | 763 psia (Purdue, extract, M) | 27.5 (H) | 0.979 m (the dresser's) | 8° (assumed) | 245.47: 230,000 lbf at 425 s (M) | M |
 | SPS | "SPS" | hypergolic | 100 psia (AOH, H) | 62.5 (AOH, H) | 1.250 m, 98.4 in across (AOH; the dresser's) | 8° (assumed) | 30.61: 21,080 lbf at 312.34 s | M |
 | SM RCS (R-4D) | "SM RCS A1"-"D4" | hypergolic | 90 psia (A-1080, M) | 40 (AOH, H) | 0.0711 m, 5.6 in across (AOH; the dresser's) | 10° (assumed) | 0.164: 99.8 lbf at 276 s | M |
@@ -99,7 +99,8 @@ The lip half-angles are assumptions for the plume's initial angle; the dresser's
 ### 2.1 F-1
 
 - **Chamber.** 982 psia nozzle stagnation (Betts' "Chamber Pressure, ns", H; the F-1 review gives 980 psia at the throat's stagnation and 1,125 psia at the injector face, extract). The thrust chamber's o/f is 2.404: the engine's 2.27 (Betts, H) less its gas generator's 167 lb/s at o/f 0.416 (R-3896-1, extract, M) out of 5,737 lb/s, (3,982.6 − 49.1) / (1,754.4 − 117.9).
-- **Nozzle.** Regeneratively cooled to 10:1, then the turbine-exhaust-cooled extension to 16:1 (MAN-503 Fig. 4-6: the gas generator's gas "passes through turbopump, heat exchanger, exhaust manifold and nozzle extension", H). The exit is AS506Data's effective 10.10 m², the one the dresser draws.
+- **Nozzle.** Regeneratively cooled to 10:1, then the turbine-exhaust-cooled extension to 16:1 (MAN-503 Fig. 4-6: the gas generator's gas "passes through turbopump, heat exchanger, exhaust manifold and nozzle extension", H).
+- **Exit size.** The plume starts at the drawn nozzle. Its exit is the gas side the dresser draws (`ApolloShapes+SIC`, track VG1): R-3896-1's 961.4 in² throat (Fig. 3-13, H) at 16:1, 1.7773 m in radius, 139.95 in across (9.924 m²); the spec takes it from the dresser's own constants (`ApolloShapeData.f1ThroatArea`, `f1AreaRatio`), and so do the plume quantities that scale with the exit (its flow at the rated pressure, the jet, the shock cells, the Mach disk, the flame front, the core). The flight physics' `AS506.f1ExitArea`, 10.10 m² (1.7930 m, 141.18 in), is not the nozzle's: it is a performance fit, the area through which the engines' pressure term, n p A_e, turns FER Figure 5-3's vacuum specific impulse (2,980.5 N s/kg late in the burn) into its site one at liftoff (about 2,594 N s/kg at 100.6 kPa; docs/SaturnV-CSM-exterior-datasheet.md §8.1 calls it a performance fit too). It stays as it is, and the §17 ascent with it; the 0.9 % between the two radii (1.8 % in area) is the fit's, not the hardware's.
 - **Exit.** 41.3 kPa (6.0 psia) at Mach 3.70 (CEA, frozen); the F-1 review's table gives 5.8 psia at 16:1 (extract, M), within 3 %. At sea level n = 0.41.
 - **Turbine film** (`ExhaustSpec.Film`): 167/5,737 = 2.9 % of the flow (R-3896-1, extract, M), injected at 10:1 (H), at about 887 K: the 1,138°F the turbine exhaust has after the heat exchanger (R-3896-1 and a heroicrelics.org page, extract, M). Fuel-rich (the gas generator runs at o/f 0.416), it is the dark sheath at the exit: D5-15796-1 §4.1.1 saw on AS-501 to 503 "dark fuel-rich exhaust gases … at the F-1 nozzle exit plane followed by a flame front approximately three-fourths of a nozzle diameter downstream" (H). Its composition is not in CEA (a gas generator's products are far from equilibrium).
 - **Soot index** 1, the scale's definition.
@@ -170,10 +171,10 @@ The F-1 at its rated flow, on AS-506's launch-day sounding (`AS506.launchDayAtmo
 
 | altitude | pa | n | regime | δ0 | Mach disk (Lewis-Carlson; Ashkenas-Sherman) | afterburning |
 |---|---|---|---|---|---|---|
-| pad | 101.6 kPa | 0.41 | overexpanded, attached (Schmucker's limit 0.317) | −3.6° | none; shock cells of 10.3 m | 0.449 (full) |
+| pad | 101.6 kPa | 0.41 | overexpanded, attached (Schmucker's limit 0.317) | −3.6° | none; shock cells of 10.2 m | 0.449 (full) |
 | 7-8 km | 44-38 kPa | 0.95-1.08 | pe = pa between them | 7-9° | none | full |
-| 30 km | 1.29 kPa | 32 | underexpanded | 41.5° | 58 m; 44 m | 0.39 (fading) |
-| 67 km (S-IC cutoff) | 8.2 Pa | 5,050 | underexpanded | 71.7° (θ_lim 118.6°) | 729 m, luminosity 0.009 | 0 |
+| 30 km | 1.29 kPa | 32 | underexpanded | 41.5° | 58 m; 43 m | 0.39 (fading) |
+| 67 km (S-IC cutoff) | 8.2 Pa | 5,050 | underexpanded | 71.7° (θ_lim 118.6°) | 722 m, luminosity 0.009 | 0 |
 
 The design report's estimates before CEA (γ 1.22-1.25) were Me about 3.7, pe about 43 kPa, n about 0.42 at the pad, pe = pa near 6.7 km on US 1976, and at 30 km n about 36, δ0 about 45° and the Mach disk about 60 m downstream; the model agrees.
 
@@ -214,13 +215,13 @@ Sunlit ice sublimating in vacuum holds itself near 183 K, not the 208 K radiatio
 | `NozzleFlowTests` | A/A*, p/p0, T/T0, ρ/ρ0 and ν at γ 1.4, M 2 and 3 (1.6875, 0.1278, 26.38°; 4.2346, 0.02722, 49.76°), ν_max 130.45°; the inverses on both branches | NACA 1135 Table I |
 | `PlumeModelTests.testF1AttachedAtSeaLevelBySchmucker` | the F-1 attached at the pad; the J-2 separated; a pad start or shutdown passing through separation | Schmucker |
 | `.testF1PressureMatchedBetween5And8km` | pe = pa between 5 and 8 km on the sounding | plan |
-| `.testF1AndJ2ExitStates` | the F-1's 5.8 psia within 5 %; both engines' vacuum thrust coefficients against their ratings within 5 %; Me within 2 % of CEA's | F-1 review; Betts; Purdue; SP-8120 |
+| `.testF1AndJ2ExitStates` | the F-1's 5.8 psia within 5 %; both engines' vacuum thrust coefficients against their ratings within 5 % (the F-1's on R-3896-1's throat: the rating 4.4 % above the model's); Me within 2 % of CEA's | F-1 review; Betts; R-3896-1; Purdue; SP-8120 |
 | `.testF1BoundaryAndMachDiskAloft` | δ0 ≈ 42° and the Mach disk ≈ 60 m at 30 km, Ashkenas-Sherman within 30 %; the boundary near its limit at cutoff | design report A4 |
 | `.testMachDiskSonicLimitAndBoundaryAngle` | Lewis-Carlson's sonic limit 0.593 D* √(p0/pa), 11.5 % under Ashkenas-Sherman's 0.67; δ0 and θ_lim from NACA 1135's ν | Lewis and Carlson; Ashkenas and Sherman |
 | `.testShockCells` | a matched jet keeps De; Ls = 1.306 Dj √(Mj² − 1) | Pack; Tam and Tanna |
 | `.testSimonsMassFlux` | ∫ ρ u_lim dA = ṁ within 1 % (θ_lim below and at 180°) | plan |
 | `.testAfterburningFadesWithAltitude`, `.testRegimesAlongTheFlight`, `.testShutdownShrinksThePlume` | the fade from 28 to 40 km; the flame front; the J-2's faint Mach disk at 67 km, free-molecular flow above; pc, δ0 and the Mach disk shrinking along the F-1's shutdown ramp | D5-15796-1 |
-| `ExhaustSpecTests` | a spec for every Apollo thruster (none for the M0 test vehicles); exit radii equal to the dressed nozzles'; the specs equal to the CEA table; the rated flows the vehicle's | plan |
+| `ExhaustSpecTests` | a spec for every Apollo thruster (none for the M0 test vehicles); exit radii equal to the dressed nozzles' (the F-1's gas side included); the specs and their exits equal to the CEA table; the rated flows the vehicle's | plan |
 | `ParticleKinematicsTests` | one step and many equal the closed form; RK4; the ballistic limit; quadratic drag against RK4 within 0.5 % and onto the terminal velocity at any step; the golden cases | analytic |
 | `FrostSheddingTests` | Table 20-1's masses by CECO and its shed totals within 1 %; Murphy-Koop against IAPWS within 0.5 %; Hertz-Knudsen; the lifetimes | FER; IAPWS 2011 |
 

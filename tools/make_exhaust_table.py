@@ -52,9 +52,13 @@ INCH = 0.0254           # m
 # one), area ratio, engine, propellants, reference vacuum thrust (lbf) or
 # None, exit diameter (in) or None (derived from the thrust), note).
 CASES = [
+    # The F-1's exit is the gas side the dresser draws (ApolloShapeData's
+    # f1ThroatArea at f1AreaRatio), not the flight physics' performance-fitted
+    # AS506.f1ExitArea (docs/exhaust-datasheet.md §2.1).
     ("F-1", "f1", "frozen", None, 16.0, "F-1 thrust chamber", "RP-1/LOX", 1_748_200,
-     2 * math.sqrt(10.10 / math.pi) / INCH,
-     "Betts' rated vacuum thrust (the turbine exhaust's share in it); exit from AS506.f1ExitArea, 10.10 m^2"),
+     2 * math.sqrt(16.0 * 961.4 / math.pi),
+     "Betts' rated vacuum thrust (the turbine exhaust's share in it); exit from R-3896-1's 961.4 in^2 throat"
+     " at 16:1, the drawn gas side"),
     ("F-1 at 10:1", "f1", "frozen", None, 10.0, "F-1 chamber's end", "RP-1/LOX", None, None,
      "where the turbine exhaust film is injected"),
     ("J-2", "j2", "frozen", None, 27.5, "J-2", "LH2/LOX", 230_000, 14.7 * math.sqrt(27.5),

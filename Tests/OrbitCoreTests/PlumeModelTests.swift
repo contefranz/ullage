@@ -86,15 +86,17 @@ final class PlumeModelTests: XCTestCase {
     // at 16:1 (the 1993 F-1 combustion review's table, M) within 5 %; each
     // engine's vacuum thrust coefficient, (ṁ ue + pe Ae)/(pc At), against
     // its rated thrust, chamber pressure and throat (F-1: Betts' 1,748,200
-    // lbf at 982 psia on the 10.10 m² exit's throat; J-2: 230,000 lbf at
-    // 763 psia on SP-8120's 14.7 in throat) within 5 %, the turbine film's
-    // and the nozzles' losses between; and the one-gamma exit Mach number
-    // within 2 % of CEA's frozen one (tools/data/cea_apollo_exhaust.csv).
+    // lbf at 982 psia on R-3896-1's 961.4 in² throat, the drawn nozzle's,
+    // 4.4 % above the model; J-2: 230,000 lbf at 763 psia on SP-8120's 14.7
+    // in throat) within 5 %, the turbine film's thrust and the nozzles'
+    // losses between; and the one-gamma exit Mach number within 2 % of
+    // CEA's frozen one (tools/data/cea_apollo_exhaust.csv).
     func testF1AndJ2ExitStates() throws {
         let rows = try toolsData("cea_apollo_exhaust.csv")
         func row(_ name: String) -> [String: String] { rows.first { $0["row"] == name }! }
+        let f1Throat: Double = ApolloShapeData.f1ThroatArea * AS506.inch * AS506.inch
         let cases: [(name: String, engine: ApolloExhaust.Engine, thrust: Double, pc: Double, throat: Double)] = [
-            ("F-1", ApolloExhaust.f1, 1_748_200, 982, AS506.f1ExitArea / 16),
+            ("F-1", ApolloExhaust.f1, 1_748_200, 982, f1Throat),
             ("J-2", ApolloExhaust.j2, 230_000, 763, Double.pi / 4 * pow(14.7 * AS506.inch, 2)),
         ]
         for c in cases {

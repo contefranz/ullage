@@ -84,7 +84,8 @@ final class ExhaustSpecTests: XCTestCase {
 
     // The specs' gas, chamber pressure and area ratio are the CEA table's
     // rows (tools/data/cea_apollo_exhaust.csv), to the digits transcribed;
-    // the derived exits are the table's.
+    // so is every exit the table gives or derives, the F-1's drawn gas side
+    // among them.
     func testSpecsAreTheCEATable() throws {
         let rows = try toolsData("cea_apollo_exhaust.csv")
         XCTAssertEqual(Set(ApolloExhaust.byTableRow.keys).subtracting(rows.compactMap { $0["row"] }), [])
@@ -100,9 +101,8 @@ final class ExhaustSpecTests: XCTestCase {
             XCTAssertEqual(s.exitTemperature, row.number("te_k")!, accuracy: 0.005, name)
             XCTAssertEqual(s.fuelRichFraction, row.number("fuel_rich")!, accuracy: 5e-6, name)
             XCTAssertEqual(s.aluminaFraction, row.number("y_al2o3")!, accuracy: 5e-6, name)
-            if row["exit_source"] == "derived" || name == "Tower jettison" {
-                XCTAssertEqual(2 * s.exitRadius / AS506.inch, row.number("exit_diameter_in")!, accuracy: 5e-4, name)
-            }
+            let exit = try XCTUnwrap(row.number("exit_diameter_in"), name)
+            XCTAssertEqual(2 * s.exitRadius / AS506.inch, exit, accuracy: 5e-4, name)
         }
     }
 
