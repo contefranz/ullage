@@ -18,9 +18,11 @@ and M1.5 (Apollo Earth-orbit mission, pad to splashdown) are done.
   its EMS ΔV counter; the CM's entry aerodynamics, entry program, earth landing
   system and splashdown (docs/CM-entry-datasheet.md, Apollo 7's landing miss
   being an accepted deviation); the Apollo shapes, plumes, eclipse light, glow
-  and canopies; the Apollo 11 return and Apollo 7 scenarios.
+  and canopies; the Apollo 11 return and Apollo 7 scenarios; RCS keys that
+  pulse as in Orbiter (tap, hold, Ctrl for fine).
 
-M2 (lunar mission profile) is next; see docs/ROADMAP.md.
+M1.6, the graphics overhaul (plan in docs/m16/), is in progress; M2 (Apollo 8)
+and M2.5 (the LM) follow. See docs/ROADMAP.md.
 
 ## Rules
 
@@ -32,7 +34,15 @@ M2 (lunar mission profile) is next; see docs/ROADMAP.md.
   descriptively named branch instead.
 - Keep `OrbitCore` and `OrbitInstruments` pure Swift + Foundation (no
   Apple-only frameworks, no `simd`): they must build and test on Linux, which
-  is where cloud sessions run.
+  is where cloud sessions run. The same holds for `OrbitScene` once M1.6's F0
+  adds it.
+- Graphics placement (M1.6): OrbitCore holds what the simulation reads;
+  OrbitScene (pure Swift + Foundation, Linux) holds what only the renderer
+  reads; OrbitRender (macOS) holds the Metal code. Each render pass is a Swift
+  file plus its own shader file, compiled into its own MTLLibrary with
+  ShaderCommon in front, so a broken shader disables one pass, not the
+  renderer. Each track keeps its own `docs/look/shots/<track>.json` specs and
+  look-dev goldens.
 - Every physics change gets a test in `Tests/OrbitCoreTests`, preferably
   against an external reference (JPL/SPICE values, published vehicle data).
 - SI units everywhere in the core (m, kg, s, rad). Inertial frame is ICRF;
