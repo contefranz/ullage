@@ -128,7 +128,10 @@ final class SurfaceGeometryTests: XCTestCase {
                            Ellipsoid.wgs84.bodyFixed(latitude: p.latitude, longitude: p.longitude, height: 0))
             let e = SurfaceGeometry.sunElevationAzimuth(latitude: p.latitude, longitude: p.longitude, on: earth,
                                                         in: system, snapshot: s)
-            XCTAssertEqual(e.elevation, Double.pi / 2, accuracy: 1e-9, "\(t)")
+            // asin near 1 resolves only to 1.5e-8 rad (asin(1 - 2^-53)), so the
+            // elevation is checked to a few of those; the normal's angle above
+            // is the 1e-12 rad check.
+            XCTAssertEqual(e.elevation, Double.pi / 2, accuracy: 1e-7, "\(t)")
             // The Sun's declination of date: the almanac's at its zenith.
             let a = almanacSun(jdTT: t.julianDateTDB, jdUT1: t.julianDateUT1, latitude: p.latitude / deg,
                                longitude: p.longitude / deg)
@@ -141,7 +144,10 @@ final class SurfaceGeometryTests: XCTestCase {
 
     // The sub-observer point of a point at a geodetic latitude, longitude and
     // height is that latitude and longitude, from 1 m up to the Moon's
-    // distance, the observer on its normal (to 1e-12 rad, or 1 nm across).
+    // distance, the observer on its normal (to 1e-12 rad, or 10 nm across:
+    // a few units in the last place of the 6.4e6 m coordinates, which the
+    // round trip through the Earth's orientation and the 1 m difference
+    // expose).
     func testSubObserverPoint() throws {
         let system = try SolarSystem.bundled(), earth = system.earth
         let o = system.snapshot(at: VesselLibrary.apollo11RangeZero).orientation(earth)
@@ -152,7 +158,7 @@ final class SurfaceGeometryTests: XCTestCase {
             XCTAssertEqual(p.latitude / deg, lat, accuracy: 1e-10)
             XCTAssertEqual(p.longitude / deg, lon, accuracy: 1e-10)
             XCTAssertEqual((o.toBody(r) - p.position).length, h, accuracy: 1e-6 * max(1, h / 1e6))
-            XCTAssertLessThan(angleBetween(p.normal, o.toBody(r) - p.position), 1e-12 + 1e-9 / h)
+            XCTAssertLessThan(angleBetween(p.normal, o.toBody(r) - p.position), 1e-12 + 1e-8 / h)
         }
     }
 
@@ -241,6 +247,45 @@ final class SurfaceGeometryTests: XCTestCase {
             XCTAssertLessThan((p.position - search).length, 2, name)
             XCTAssertGreaterThan(p.normal.dot(observer - p.position), 0, name)
             XCTAssertGreaterThan(p.normal.dot(source - p.position), 0, name)
+        }
+    }
+
+    // Low observers, from 1 m to 10 km over LC-39A with the Sun 36.45° up at
+    // azimuth 83.54° (Apollo 11's range zero), see the glint where a flat
+    // mirror puts it, h / tan(elevation) towards the Sun, up to 100 m, and
+    // where the brute-force search finds it from 3 km. A source low near
+    // the pole, under the sphere through the observer's foot, still has its
+    // glint (observer 3 km up at 45° N, source 150 m up at 45.5° N).
+    func testSpecularPointForLowObservers() {
+        let figure = Ellipsoid.wgs84, au = 149_597_870_700.0
+        let lat = 28.6084 * deg, lon = -80.6041 * deg, el = 36.4537 * deg, az = 83.5400 * deg
+        let up = figure.normal(latitude: lat, longitude: lon)
+        let north = Vec3(-sin(lat) * cos(lon), -sin(lat) * sin(lon), cos(lat)), east = Vec3(-sin(lon), cos(lon), 0)
+        let towardSun = north * cos(az) + east * sin(az)
+        let foot = figure.bodyFixed(latitude: lat, longitude: lon, height: 0)
+        let sun = foot + (up * sin(el) + towardSun * cos(el)) * au
+        for h in [1.0, 5, 100, 3_000, 10_000] {
+            let observer = foot + up * h
+            guard let p = SurfaceGeometry.specularPoint(observer: observer, source: sun, on: figure) else {
+                XCTFail("\(h) m: no specular point"); continue
+            }
+            XCTAssertLessThan(reflectionError(p, observer: observer, source: sun), 1e-9, "\(h) m")
+            if h <= 100 {
+                let d = h / tan(el)
+                XCTAssertEqual((p.position - foot).length, d, accuracy: 1e-3 * d, "\(h) m")
+                XCTAssertGreaterThan((p.position - foot).dot(towardSun), 0.999 * d, "\(h) m")
+            } else {
+                let search = searchSpecularPoint(observer: observer, source: sun, figure: figure)
+                XCTAssertLessThan((p.position - search).length, 2, "\(h) m")
+            }
+        }
+        let observer = figure.bodyFixed(latitude: 45 * deg, longitude: 0, height: 3_000)
+        let source = figure.bodyFixed(latitude: 45.5 * deg, longitude: 0, height: 150)
+        let p = SurfaceGeometry.specularPoint(observer: observer, source: source, on: figure)
+        XCTAssertNotNil(p)
+        if let p {
+            XCTAssertLessThan(reflectionError(p, observer: observer, source: source), 1e-9)
+            XCTAssertEqual(p.latitude / deg, 45.4745, accuracy: 1e-3)
         }
     }
 

@@ -45,22 +45,30 @@ public enum SurfaceGeometry {
     /// seen from both, or when either is on or inside the figure.
     ///
     /// The point is the stationary point of the path length |O - P| + |S - P|
-    /// (Fermat). On the sphere through the observer's sub-point it lies in
-    /// the plane of the centre, observer and source, where the path length is
-    /// convex over the arc both see and its slope is bracketed at the arc's
-    /// ends: bisection finds it. Newton's method on geodetic latitude and
-    /// longitude then moves it onto the ellipsoid, where the flattening puts
-    /// it up to a few kilometres out of that plane.
+    /// (Fermat). On a sphere under both, through the lower of their
+    /// sub-points, it lies in the plane of the centre, observer and source,
+    /// where the path length is convex over the arc both see and its slope
+    /// is bracketed at the arc's ends: bisection finds it. Newton's method on
+    /// geodetic latitude and longitude then moves it onto the ellipsoid,
+    /// where the flattening puts it up to a few kilometres out of that plane.
+    /// It starts from the geodetic latitude of the sphere's point (its
+    /// geocentric one is up to 0.19° off, more than a low observer's glint
+    /// lies from its foot), and its derivative steps shrink with the height
+    /// of the lower of the two, so an observer a metre up still converges.
     public static func specularPoint(observer: Vec3, source: Vec3, on figure: Ellipsoid) -> SurfacePoint? {
-        guard figure.geodetic(observer).height > 0, figure.geodetic(source).height > 0,
-              let start = sphericalSpecularNormal(observer: observer, source: source,
-                                                  radius: subPoint(below: observer, on: figure).position.length)
+        let heights = (figure.geodetic(observer).height, figure.geodetic(source).height)
+        let radius = min(subPoint(below: observer, on: figure).position.length,
+                         subPoint(below: source, on: figure).position.length)
+        guard heights.0 > 0, heights.1 > 0,
+              let start = sphericalSpecularNormal(observer: observer, source: source, radius: radius)
         else { return nil }
-        var lat = asin(max(-1, min(1, start.z))), lon = atan2(start.y, start.x)
+        let seed = figure.geodetic(start * radius)
+        var lat = seed.latitude, lon = seed.longitude
+        // About a hundredth of the lower height across, at most 1e-6 rad.
+        let h = min(1e-6, 1e-2 * min(heights.0, heights.1) / figure.equatorialRadius)
         var converged = false
         for _ in 0..<20 {
             let f = reflectionResidual(lat, lon, observer: observer, source: source, figure: figure)
-            let h = 1e-6
             let fLat1 = reflectionResidual(lat + h, lon, observer: observer, source: source, figure: figure)
             let fLat0 = reflectionResidual(lat - h, lon, observer: observer, source: source, figure: figure)
             let fLon1 = reflectionResidual(lat, lon + h, observer: observer, source: source, figure: figure)
