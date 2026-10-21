@@ -154,9 +154,11 @@ enum CMOuterMouldLine {
             let a = heatShieldEdge * Double(i) / 8
             return Point(x: S.cmHeatShieldRadius * (1 - cos(a)), r: S.cmHeatShieldRadius * sin(a), nx: -cos(a), nr: sin(a))
         }
-        // About 6° steps, through the maximum radius at 90°.
-        let rising: [Double] = (1...11).map { i in heatShieldEdge + (Double.pi / 2 - heatShieldEdge) * Double(i) / 11 }
-        let falling: [Double] = (1...5).map { i in Double.pi / 2 + (coneStart - Double.pi / 2) * Double(i) / 5 }
+        // About 6° steps, through the maximum radius at 90°. The typed
+        // parameters keep Swift 6.0's type checker on Linux within its limits.
+        let halfPi = Double.pi / 2
+        let rising = (1...11).map { (i: Int) -> Double in heatShieldEdge + (halfPi - heatShieldEdge) * Double(i) / 11 }
+        let falling = (1...5).map { (i: Int) -> Double in halfPi + (coneStart - halfPi) * Double(i) / 5 }
         let shoulder = (rising + falling).map { a -> Point in
             Point(x: shoulderCentre.x - S.cmShoulderRadius * cos(a), r: shoulderCentre.r + S.cmShoulderRadius * sin(a),
                   nx: -cos(a), nr: sin(a))
