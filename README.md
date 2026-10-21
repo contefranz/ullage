@@ -36,14 +36,19 @@ cd <repo>
 open Package.swift          # opens in Xcode
 ```
 
-In Xcode, choose the **OrbitSim** scheme with **My Mac** as the destination and
-press Run. From a terminal, `swift run -c release OrbitSim` works too.
+In Xcode, choose the **OrbitSim** scheme with **My Mac** as the destination,
+set it to **Release** (Product ▸ Scheme ▸ Edit Scheme…, Run, Info, Build
+Configuration: Release) and press Run. Xcode's default Debug build is about 10×
+slower per simulation step, so high time warp falls well short of the rate you
+select. From a terminal, `swift run -c release OrbitSim` builds and runs
+Release.
 
 The physics core (`OrbitCore`) and the instrument pages and keys
 (`OrbitInstruments`) have their own test suites, which also run on Linux:
 
 ```sh
-swift test
+scripts/test.sh             # optimised, in parallel: a few minutes
+scripts/test.sh full        # the same tests in Debug, serially (plain `swift test`)
 ```
 
 ### Planet textures (optional)

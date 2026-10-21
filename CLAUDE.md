@@ -43,10 +43,30 @@ M2 (lunar mission profile) is next; see docs/ROADMAP.md.
 
 ```sh
 swift build                 # OrbitCore and OrbitInstruments everywhere; also the app on macOS
-swift test                  # both test suites (must stay green; about 15 min on the Mac)
-swift test --filter OrbitInstrumentsTests   # the MFD pages and keys alone
+scripts/test.sh             # merge gate: both suites, -O, in parallel (1-3 min on the Mac)
+scripts/test.sh full        # milestone gate: the same tests, Debug, serially (20 min or more)
+scripts/test.sh fast --filter OrbitInstrumentsTests   # the MFD pages and keys alone
 swift run -c release OrbitSim   # macOS only: launch the app
 ```
+
+The tests must stay green in both modes, which run the same tests. Run
+`scripts/test.sh` (fast) before every merge and paste its last line, the test
+count, failures and times, into the PR; run `scripts/test.sh full` when a
+milestone closes, and check that its count matches. Arguments after the mode
+go to `swift test`. Parallel runs show a test's output only when it fails, so
+read printouts (the §17 residuals in AscentResidualTests, the parking orbit)
+serially: `scripts/test.sh fast --no-parallel --filter AscentResidualTests`.
+
+The two builds are not bit-identical. At -O, LLVM merges `sin` and `cos` of
+one angle into Apple's `__sincos_stret`, whose sine is 1 ulp off for about
+0.2 % of arguments. Measured at the M1.5 close-out:
+- the nominal ascent moved by under 3 µm over 1,300 s, and every §17 printout
+  was identical;
+- the Apollo 7 entry from its deorbit burn, whose on-off RCS firings amplify
+  the difference, landed about 0.3 km apart and used 1.8 lb more CM RCS
+  propellant.
+
+Pins must leave room for that.
 
 Targets: `OrbitCore` (physics, guidance, navigation, the navball's maths);
 `OrbitInstruments` (depends on OrbitCore: physical keys and the keyboard
@@ -58,7 +78,8 @@ build test` builds and tests all three.
 
 In Claude Code cloud sessions the SessionStart hook
 (`.claude/hooks/session-start.sh`) installs the toolchain, puts it on PATH
-and builds the tests. Elsewhere on Linux without Swift, run
+and builds the tests in both modes (`scripts/test.sh warm`, fast first).
+Elsewhere on Linux without Swift, run
 `scripts/install-swift-linux.sh` first (it fetches a full Swift 6.0 toolchain
 from a GitHub release, since swift.org downloads may be blocked by the network
 allowlist), then `export PATH=/opt/swift/usr/bin:$PATH`.
