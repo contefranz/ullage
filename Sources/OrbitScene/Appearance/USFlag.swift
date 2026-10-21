@@ -54,15 +54,22 @@ public enum USFlag {
     public static func stripeIndex(y: Double) -> Int { min(max(Int(y * Double(stripeCount)), 0), stripeCount - 1) }
 
     /// Signed distance (hoists) from (x, y) to the nearest star's edge,
-    /// negative inside a star.
+    /// negative inside a star, anywhere in the plane: on the stripes and
+    /// off the flag it is the distance to the union's outer stars (the
+    /// atlas may bake it over a decal's whole bounds).
     public static func starDistance(x: Double, y: Double) -> Double {
         // Only the nearest few centres can be nearest: rows and columns are
-        // at least one spacing apart.
-        let row = Int((y / starRowSpacing).rounded()) - 1, column = Int((x / starColumnSpacing).rounded())
+        // at least one spacing apart. Off the union the nearest row and
+        // column are its outer ones, so both are clamped to the grid.
+        guard x.isFinite, y.isFinite else { return x.isNaN || y.isNaN ? .nan : .infinity }
+        let rowIndex: Double = (y / starRowSpacing).rounded() - 1
+        let columnIndex: Double = (x / starColumnSpacing).rounded()
+        let row = Int(min(max(rowIndex, 0), Double(starRows - 1)))
+        let column = Int(min(max(columnIndex, 1), 11))
         var d = Double.infinity
-        for r in max(row - 1, 0)...min(max(row + 1, 0), starRows - 1) {
+        for r in max(row - 1, 0)...min(row + 1, starRows - 1) {
             let first = r % 2 == 0 ? 1 : 2
-            for c in max(column - 2, first)...min(max(column + 2, first), 11) where (c - first) % 2 == 0 {
+            for c in max(column - 2, first)...min(column + 2, 11) where (c - first) % 2 == 0 {
                 let cx = starColumnSpacing * Double(c), cy = starRowSpacing * Double(r + 1)
                 d = min(d, star(x: x - cx, y: y - cy, radius: starDiameter / 2))
             }

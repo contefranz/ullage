@@ -75,6 +75,47 @@ final class USFlagTests: XCTestCase {
         XCTAssertNil(USFlag.colour(x: 0.5, y: -0.01))
     }
 
+    /// The stars' signed distance holds wherever the atlas may bake it:
+    /// over the whole flag and a margin round it (a decal's bounds), it is
+    /// the nearest of the fifty stars', the union's outer ones off it.
+    func testStarDistanceEverywhere() {
+        let r = USFlag.starDiameter / 2
+        func nearest(_ x: Double, _ y: Double) -> Double {
+            USFlag.starCentres.map { USFlag.star(x: x - $0.x, y: y - $0.y, radius: r) }.min()!
+        }
+        var worst = 0.0, at = (0.0, 0.0), count = 0
+        for x in stride(from: -0.25, through: USFlag.fly + 0.25, by: 0.0123) {
+            for y in stride(from: -0.25, through: USFlag.hoist + 0.25, by: 0.0117) {
+                let e = abs(USFlag.starDistance(x: x, y: y) - nearest(x, y))
+                if e > worst || e.isNaN { worst = e.isNaN ? .infinity : e; at = (x, y) }
+                count += 1
+            }
+        }
+        XCTAssertEqual(worst, 0, accuracy: 1e-12, "at \(at)")
+        XCTAssertGreaterThan(count, 20_000)
+        // Past the union's fly and below its foot (the review's points).
+        XCTAssertEqual(USFlag.starDistance(x: 1.0, y: 0.3), nearest(1.0, 0.3), accuracy: 1e-12)
+        XCTAssertEqual(USFlag.starDistance(x: 0.5, y: 0.8), nearest(0.5, 0.8), accuracy: 1e-12)
+        XCTAssertGreaterThan(USFlag.starDistance(x: 1.0, y: 0.3), 0.25)
+        XCTAssertEqual(USFlag.starDistance(x: 1e6, y: -1e6), nearest(1e6, -1e6), accuracy: 1e-6)
+        XCTAssertEqual(USFlag.starDistance(x: .infinity, y: 0.2), .infinity)
+        XCTAssertTrue(USFlag.starDistance(x: .nan, y: 0.2).isNaN)
+    }
+
+    /// Old Glory Red and Blue at the State Department's sRGB (ECA Design
+    /// Guidelines: #B31942 and #0A3161), through IEC 61966-2-1's transfer
+    /// function to linear; the Saturn's red lettering is the flag's red.
+    func testOldGloryColours() {
+        let red = PaintColour.flagRed.linear, blue = PaintColour.flagBlue.linear
+        let expected: [(Float, Float)] = [(red.r, 0.450786), (red.g, 0.009721), (red.b, 0.054480),
+                                          (blue.r, 0.003035), (blue.g, 0.030713), (blue.b, 0.119538)]
+        for (k, (value, linear)) in expected.enumerated() { XCTAssertEqual(value, linear, accuracy: 2e-6, "channel \(k)") }
+        XCTAssertEqual(PaintColour.red.linear, red)
+        // Navy, not a purple-grey: blue well above red and green.
+        XCTAssertGreaterThan(blue.b, 3 * blue.g)
+        XCTAssertGreaterThan(blue.g, 5 * blue.r)
+    }
+
     /// Every flag on the vehicles keeps EO 10834's ratio, its union at the
     /// upper hoist on the low-azimuth side, its hoist edge on the measured
     /// one, and misses the measured hoist and fly by under 10 %.

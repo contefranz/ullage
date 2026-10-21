@@ -76,14 +76,18 @@ public enum PaintColour: String, CaseIterable {
     }
 
     /// Flat display albedo, linear RGB. The flag's red and blue (also the
-    /// lettering's red) are the State Department's sRGB #B22234 and #3C3B6E
-    /// for Old Glory Red and Blue; the rest are estimates (L).
+    /// lettering's red) are Old Glory Red and Old Glory Blue (Standard
+    /// Color Card of America Nos. 70180 and 70075, Federal Specification
+    /// DDD-F-416E) at the sRGB the State Department's Bureau of
+    /// Educational and Cultural Affairs gives them (ECA Design Guidelines,
+    /// January 2017: PMS 193 C, #B31942; PMS 282 C, #0A3161); the rest are
+    /// estimates (L).
     public var linear: RenderScene.RGB {
         switch self {
         case .white, .flagWhite: return RenderScene.RGB(0.80, 0.80, 0.78)
         case .black: return RenderScene.RGB(0.04, 0.04, 0.04)
-        case .red, .flagRed: return Self.fromSRGB(0xB2, 0x22, 0x34)
-        case .flagBlue: return Self.fromSRGB(0x3C, 0x3B, 0x6E)
+        case .red, .flagRed: return Self.fromSRGB(0xB3, 0x19, 0x42)
+        case .flagBlue: return Self.fromSRGB(0x0A, 0x31, 0x61)
         case .aluminium: return RenderScene.RGB(0.70, 0.71, 0.72)
         case .kapton: return RenderScene.RGB(0.85, 0.85, 0.87)
         case .zincChromate: return Self.fromSRGB(0xE3, 0xD2, 0x6E)

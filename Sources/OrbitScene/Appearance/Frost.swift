@@ -11,9 +11,11 @@ import Foundation
 /// cryogenic tanks, each with a weight. Its areal density at a station is
 /// the stage's frost mass over the zones' weighted area, times the weight
 /// there, so it integrates over the skin to the table's mass at any time.
-/// `coverage`, the overlay's strength, is that weight times the share of
-/// the first-motion mass still aboard. AS-503's frost was not tabled here:
-/// Apollo 8 uses AS-506's (L).
+/// `coverage`, the overlay's strength, is that density over the S-IC LOX
+/// tank's at first motion (`fullCoverageDensity`), the heaviest frost on
+/// the vehicle: so the overlay is one scale for every stage, and a stage
+/// whose frost is spread thinner (the S-IVB's) reads lighter. AS-503's
+/// frost was not tabled here: Apollo 8 uses AS-506's (L).
 public enum Frost {
     public enum Stage: String, CaseIterable {
         case sIC = "S-IC", sII = "S-II", sIVB = "S-IVB"
@@ -81,24 +83,30 @@ public enum Frost {
         }
     }
 
-    /// Where frost forms (stations: the VD1 datasheet's exterior bands, H):
+    /// Where frost forms (stations: the VD1 datasheet's exterior bands, H),
+    /// the bands design-vehicle-look.md names ("the S-IC LOX tank and lines,
+    /// the S-II aft/LOX band, a light S-IVB band"):
     /// - S-IC: the LOX tank's exposed wall, STA 885.2-1420.3, bare
     ///   aluminium wetted by LOX inside (M503 p. 4-1; frost hides the flags
     ///   there in AS-506's launch-day photos, as506.csv 506-112), weight 1
     ///   (M); the intertank below it, STA 628.8-885.2, round the LOX tank's
     ///   aft dome (STA 772), frost-covered on AS-502 (as502.csv 502-011),
     ///   weight 0.5 (L);
-    /// - S-II: the LH2 tank's exposed wall, STA 1890-2387, under its
-    ///   helium-purged foam insulation (L: where its 204 kg lay is not
-    ///   sourced);
+    /// - S-II: its aft band over the LOX tank, from the aft skirt's foot
+    ///   (STA 1760) to the top of the LOX ellipsoid (STA 1980; the
+    ///   ellipsoid 1716-1980, AS506-datasheet.md §13, L), round the tank's
+    ///   equator where the aft skirt meets the LH2 wall (STA 1890), not the
+    ///   LH2 wall above it under its helium-purged foam (L: where the
+    ///   204 kg lay is not sourced);
     /// - S-IVB: the tank's exposed wall, STA 2832-3100.56, insulated inside
-    ///   (L, as the S-II's).
+    ///   (L). Its 90 kg over 135 m² come to about 0.67 kg/m², just over
+    ///   half the S-IC LOX tank's 1.21: the light band.
     public static let zones: [Zone] = [
         Zone(stage: .sIC, name: "intertank", stations: 628.8...885.2, radius: 198, weight: 0.5,
              rampLow: 12, rampHigh: 0, grade: .low),
         Zone(stage: .sIC, name: "LOX tank", stations: 885.2...1420.3, radius: 198, weight: 1,
              rampLow: 0, rampHigh: 12, grade: .medium),
-        Zone(stage: .sII, name: "LH2 tank", stations: 1890...2387, radius: 198, weight: 1,
+        Zone(stage: .sII, name: "aft LOX band", stations: 1760...1980, radius: 198, weight: 1,
              rampLow: 12, rampHigh: 12, grade: .low),
         Zone(stage: .sIVB, name: "tank", stations: 2832...3100.56, radius: 130, weight: 1,
              rampLow: 12, rampHigh: 12, grade: .low),
@@ -123,11 +131,18 @@ public enum Frost {
         return mass(z.stage, time: time) * z.weight(at: station) / area
     }
 
+    /// The areal density (kg/m²) the overlay shows at full strength: the
+    /// S-IC LOX tank's at first motion, about 1.21 kg/m², the heaviest
+    /// frost on the vehicle.
+    public static let fullCoverageDensity: Double = tableMass(.sIC).firstMotion / weightedArea(.sIC)
+
     /// The overlay's strength at STA `station` at range time `time`, 0 to
-    /// 1: the zone's weight there times the share of the stage's
-    /// first-motion frost still aboard.
+    /// 1: the frost's areal density there over `fullCoverageDensity`. On a
+    /// band it falls as the stage's frost is shed (the share of its
+    /// first-motion mass still aboard), and it is lighter where a stage's
+    /// frost lies thinner: 1 on the S-IC LOX tank on the pad, 0.5 on the
+    /// intertank, about 0.55 on the S-IVB.
     public static func coverage(station: Double, time: Double) -> Double {
-        guard let z = zone(at: station) else { return 0 }
-        return z.weight(at: station) * mass(z.stage, time: time) / tableMass(z.stage).firstMotion
+        min(1, arealDensity(station: station, time: time) / fullCoverageDensity)
     }
 }

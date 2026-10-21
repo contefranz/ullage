@@ -78,16 +78,94 @@ final class StrokeFontTests: XCTestCase {
         let t = try XCTUnwrap(StrokeFont.glyph("T", width: w, height: h))
         XCTAssertGreaterThan(t.distance(x: s, y: h / 2), 0)
         XCTAssertLessThan(t.distance(x: s / 2, y: h - s / 2), 0)
-        // Outside, the distance grows like the distance (1-Lipschitz) and
-        // reaches it along a straight edge.
+        // Inside and out, the distance changes no faster than the point
+        // moves (1-Lipschitz): between neighbours of a grid over the box
+        // and round it, across and along, so that every cap and joint is
+        // crossed both ways (horizontal ones only by steps in y).
+        let step = 0.25
         for c in StrokeFont.characters {
             let g = try XCTUnwrap(StrokeFont.glyph(c, width: w, height: h))
-            for k in 0..<200 {
-                let x = Double(k % 20) * 3 - 5, y = Double(k / 20) * 7 - 5
-                let d0 = g.distance(x: x, y: y), d1 = g.distance(x: x + 0.1, y: y)
-                XCTAssertLessThanOrEqual(abs(d1 - d0), 0.1 + 1e-9, "\(c) at \(x), \(y)")
+            let nx = Int((g.width + 6) / step) + 1, ny = Int((h + 6) / step) + 1
+            var d = [Double](repeating: 0, count: nx * ny)
+            for i in 0..<nx {
+                for j in 0..<ny { d[i * ny + j] = g.distance(x: -3 + Double(i) * step, y: -3 + Double(j) * step) }
+            }
+            var worst = 0.0, at = (0.0, 0.0)
+            for i in 0..<nx {
+                for j in 0..<ny {
+                    let d0 = d[i * ny + j]
+                    let dx = i + 1 < nx ? abs(d[(i + 1) * ny + j] - d0) : 0
+                    let dy = j + 1 < ny ? abs(d[i * ny + j + 1] - d0) : 0
+                    if max(dx, dy) > worst { worst = max(dx, dy); at = (-3 + Double(i) * step, -3 + Double(j) * step) }
+                }
+            }
+            XCTAssertLessThanOrEqual(worst, step + 1e-9, "\(c) at \(at)")
+        }
+    }
+
+    /// A free flat end (the S's two terminals, the 2's upper one) is an
+    /// edge: just inside its cap the ink is as deep as the step past it,
+    /// not half a stroke, and the distance just outside is as far. Where a
+    /// stroke runs on into the next (an S's bowl into its bar, either way)
+    /// the cap between them is no edge.
+    func testFreeEndsAreCappedAndJointsAreNot() throws {
+        let w = 44.0, h = 57.0, s = h * StrokeFont.strokeRatio, hw = s / 2
+        var free: [String] = [], joints = 0
+        for c in StrokeFont.characters.sorted() {
+            let g = try XCTUnwrap(StrokeFont.glyph(c, width: w, height: h))
+            for stroke in g.strokes {
+                switch stroke {
+                case let .arc(_, _, from, to, endFrom, endTo):
+                    if endFrom == .flat { free.append("\(c) arc \(Int((from * 180 / Double.pi).rounded()))°") }
+                    if endTo == .flat { free.append("\(c) arc \(Int((to * 180 / Double.pi).rounded()))°") }
+                    joints += [endFrom, endTo].filter { $0 == .joined }.count
+                case let .line(_, _, endA, endB):
+                    free += [endA, endB].filter { $0 == .flat }.map { _ in "\(c) line" }
+                    joints += [endA, endB].filter { $0 == .joined }.count
+                }
             }
         }
+        // The 1's flag and the A's bar (whose ends lie inside its legs) end
+        // flat too; every other flat end is a joint.
+        XCTAssertEqual(free, ["1 line", "2 arc 180°", "A line", "A line", "S arc 0°", "S arc 180°"])
+        XCTAssertGreaterThan(joints, 80)
+
+        // The S's top right terminal: the arc about (w - r, h - r) (in the
+        // inset frame) from 0°, its cap the horizontal at y = hw + h' - r
+        // from the stroke's inner edge to the box's right edge.
+        let g = try XCTUnwrap(StrokeFont.glyph("S", width: w, height: h))
+        let r = min((h - s) / 4, (g.width - s) / 2), capY = hw + (h - s) - r, x = g.width - hw
+        for e in [0.01, 0.1, 1] {
+            XCTAssertEqual(g.distance(x: x, y: capY + e), -e, accuracy: 1e-9, "inside the cap by \(e)")
+            XCTAssertEqual(g.distance(x: x, y: capY - e), e, accuracy: 1e-9, "past the cap by \(e)")
+        }
+        // The bottom left terminal: the arc about (r, r) from 180°, its cap
+        // the horizontal at y = hw + r from the box's left edge.
+        let lowY = hw + r
+        XCTAssertEqual(g.distance(x: hw, y: lowY - 0.05), -0.05, accuracy: 1e-9)
+        XCTAssertEqual(g.distance(x: hw, y: lowY + 0.05), 0.05, accuracy: 1e-9)
+        // The 2's upper terminal: the arc about (r, h' - r) to 180°, the
+        // ink above its cap.
+        let two = try XCTUnwrap(StrokeFont.glyph("2", width: w, height: h))
+        let r2 = min((two.width - s) / 2, (h - s) / 2), twoY = hw + (h - s) - r2
+        XCTAssertEqual(two.distance(x: hw, y: twoY + 0.05), -0.05, accuracy: 1e-9)
+        XCTAssertEqual(two.distance(x: hw, y: twoY - 0.05), 0.05, accuracy: 1e-9)
+        // A joint is no edge: on the centre line either side of where the
+        // S's top bowl meets its top bar the ink is half a stroke deep.
+        let joint = (x: hw + (g.width - s) - r, y: h - hw)
+        for e in [0.01, 0.05, 0.5] {
+            XCTAssertEqual(g.distance(x: joint.x + e, y: joint.y), -hw, accuracy: 0.02, "bowl side, \(e)")
+            XCTAssertEqual(g.distance(x: joint.x - e, y: joint.y), -hw, accuracy: 1e-9, "bar side, \(e)")
+        }
+        // The 2's diagonal leaves its bowl along the tangent.
+        guard case let .arc(c, radius, from, _, _, _) = two.strokes[0], case let .line(a, b, _, _) = two.strokes[1] else {
+            return XCTFail("the 2's bowl and diagonal")
+        }
+        XCTAssertEqual(a.x, c.x + radius * cos(from), accuracy: 1e-9)
+        XCTAssertEqual(a.y, c.y + radius * sin(from), accuracy: 1e-9)
+        let tangent = (x: -sin(from), y: cos(from)), along = (x: a.x - b.x, y: a.y - b.y)
+        let cross = tangent.x * along.y - tangent.y * along.x
+        XCTAssertEqual(cross / (along.x * along.x + along.y * along.y).squareRoot(), 0, accuracy: 1e-9)
     }
 
     /// AS-503's S-II lettering (503-122), read letter by letter on

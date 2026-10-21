@@ -41,16 +41,18 @@ final class FrostCharTests: XCTestCase {
                        accuracy: 1e-9)
     }
 
-    /// Frost lies on the cryogenic tanks only, fades only with time, and
-    /// is full on the LOX tank on the pad.
+    /// Frost lies on the cryogenic bands only (the S-IC LOX tank and
+    /// intertank, the S-II's aft LOX band, the S-IVB's tank), fades only
+    /// with time, and is full on the LOX tank on the pad.
     func testFrostCoverage() {
         XCTAssertEqual(Frost.coverage(station: 1150, time: 0), 1)
-        XCTAssertEqual(Frost.coverage(station: 750, time: 0), 0.5)
+        XCTAssertEqual(Frost.coverage(station: 750, time: 0), 0.5, accuracy: 1e-12)
         XCTAssertEqual(Frost.coverage(station: 1150, time: Frost.centreCutoff), 340.0 / 635, accuracy: 1e-12)
-        for station in [200.0, 600, 1480, 1600, 1800, 2450, 2700, 3150, 3240] {
+        for station in [200.0, 600, 1480, 1600, 1740, 2000, 2100, 2300, 2450, 2700, 3150, 3240] {
             XCTAssertEqual(Frost.coverage(station: station, time: 0), 0, "\(station)")
             XCTAssertEqual(Frost.arealDensity(station: station, time: 0), 0, "\(station)")
         }
+        for station in [1800.0, 1890, 1960] { XCTAssertGreaterThan(Frost.coverage(station: station, time: 0), 0.9) }
         for station in stride(from: 620.0, through: 3110, by: 10) {
             var last = Double.infinity
             for t in stride(from: -10.0, through: 200, by: 5) {
@@ -64,7 +66,33 @@ final class FrostCharTests: XCTestCase {
         // The flags on the LOX tank are under the heaviest frost on the pad
         // (AS-506's launch-day photos: frost hides them).
         let flagStation = 1160.0
-        XCTAssertGreaterThan(Frost.arealDensity(station: flagStation, time: 0), Frost.arealDensity(station: 2100, time: 0))
+        XCTAssertGreaterThan(Frost.arealDensity(station: flagStation, time: 0), Frost.arealDensity(station: 2950, time: 0))
+    }
+
+    /// The overlay is one scale for every stage: its strength is the
+    /// frost's areal density over the S-IC LOX tank's on the pad, so the
+    /// S-IVB's 90 kg, spread over its tank, read as the design's light
+    /// band (about 0.55), and the S-II's 204 kg on its aft band about as
+    /// heavy as the LOX tank's.
+    func testCoverageFollowsTheFrostsThickness() {
+        let lox = Frost.arealDensity(station: 1150, time: 0)
+        XCTAssertEqual(Frost.fullCoverageDensity, lox, accuracy: 1e-12)
+        XCTAssertEqual(lox, 635 / Frost.weightedArea(.sIC), accuracy: 1e-12)
+        XCTAssertEqual(lox, 1.21, accuracy: 0.01)
+        let sIVB = Frost.coverage(station: 2950, time: 0)
+        XCTAssertEqual(sIVB, Frost.arealDensity(station: 2950, time: 0) / lox, accuracy: 1e-12)
+        XCTAssertEqual(sIVB, (90 / Frost.weightedArea(.sIVB)) / lox, accuracy: 1e-12)
+        XCTAssertEqual(sIVB, 0.55, accuracy: 0.02)
+        XCTAssertEqual(Frost.coverage(station: 1870, time: 0), 1)
+        for station in stride(from: 600.0, through: 3200, by: 7) {
+            for t in [-30.0, 0, 40, 100, 135.2, 170] {
+                let expected = min(1, Frost.arealDensity(station: station, time: t) / lox)
+                XCTAssertEqual(Frost.coverage(station: station, time: t), expected, accuracy: 1e-12, "\(station) at \(t)")
+            }
+        }
+        // Half-way to CECO the S-IVB band has half its pad strength.
+        let half = (Frost.firstMotion + Frost.centreCutoff) / 2
+        XCTAssertEqual(Frost.coverage(station: 2950, time: half), sIVB / 2, accuracy: 1e-12)
     }
 
     /// The char factor grows with the heat load and is 1 at Apollo 7's

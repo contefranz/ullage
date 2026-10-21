@@ -193,9 +193,9 @@ final class PaintSchemeTests: XCTestCase {
         XCTAssertEqual(PaintCoordinates(construction: Vec3(0, 3, 0)).azimuth, 270, accuracy: 1e-9)
     }
 
-    /// Every shape of the dressed Apollo 8 and Apollo 11 stacks and of
-    /// Apollo 7's CSM gets an element or is unpainted by its material, and
-    /// its vertices sample paint on the outer skins.
+    /// Every shape of the dressed Apollo 8 and Apollo 11 stacks gets an
+    /// element or is unpainted by its material, and its vertices sample
+    /// paint on the outer skins (Apollo 7's CSM: the next test).
     func testDressedShapesFindTheirElements() throws {
         for variant in [ApolloVariant.apollo8, .apollo11] {
             let stack = VesselLibrary.saturnV()
@@ -224,6 +224,81 @@ final class PaintSchemeTests: XCTestCase {
                 }
             }
             XCTAssertGreaterThan(painted, 1000, "\(variant)")
+        }
+    }
+
+    /// Apollo 7's CSM-101, as `apolloCSM(.apollo7)` builds and dresses it
+    /// and as its CM flies alone (the entry scenario's): every part is
+    /// CSM-101's, the SM's shapes are painted as the SM and the CM's and
+    /// the apex cover's as the CM, by CSM-101's rows only (no launch
+    /// vehicle, no SLA rows: its Saturn IB is not built), the parachutes
+    /// and the SPS nozzle unpainted. A single "CSM" part (the dresser's
+    /// name for the SM and CM as one part) splits the same way for
+    /// CSM-101, `apollo.cm.*` to the CM.
+    func testApollo7ShapesFindTheirElements() throws {
+        let variant = ApolloVariant.apollo7
+        let scheme = Markings.scheme(for: variant)
+        XCTAssertEqual(scheme.vehicles, ["CSM-101"])
+        let cm = VesselLibrary.commandModule(.apollo7)
+        VesselLibrary.dressApollo(cm)
+        let expected: [String: PaintElement] = ["SM": .sm, "CM": .cm, "Apex cover": .cm]
+        for vessel in [VesselLibrary.apolloCSM(.apollo7), cm] {
+            var painted: [PaintElement: Int] = [:], rows: Set<String> = []
+            for part in vessel.parts {
+                XCTAssertEqual(part.appearance, variant, part.name)
+                let offset = part.offset - vessel.structureOrigin
+                for shape in part.shapes {
+                    let element = PaintElement.of(part: part.name, shape: shape, variant: variant)
+                    if PaintElement.unpaintedMaterials.contains(shape.material) || part.name.hasSuffix("parachutes") {
+                        XCTAssertNil(element, "\(part.name) \(shape.material)")
+                        continue
+                    }
+                    XCTAssertEqual(element, try XCTUnwrap(expected[part.name], part.name), "\(part.name) \(shape.material)")
+                    guard let element else { continue }
+                    for v in shape.mesh().vertices {
+                        let s = Markings.sample(part: part.name, shape: shape, vertex: v, partOffset: offset, variant: variant)
+                        XCTAssertEqual(s, scheme.sample(element, at: PaintCoordinates(v, of: shape, partOffset: offset)))
+                        if let s {
+                            painted[element, default: 0] += 1
+                            rows.insert(s.row)
+                        }
+                    }
+                }
+            }
+            XCTAssertTrue(rows.allSatisfy { $0.hasPrefix("101-") }, "\(vessel.name): \(rows.sorted())")
+            XCTAssertGreaterThan(painted[.cm] ?? 0, 100, vessel.name)
+            if vessel.parts.contains(where: { $0.name == "SM" }) {
+                XCTAssertGreaterThan(painted[.sm] ?? 0, 100, vessel.name)
+                XCTAssertTrue(rows.contains("101-001"), "the SM's bare aluminium")
+            }
+            XCTAssertTrue(rows.contains("101-020"), "the CM's Kapton")
+        }
+        // A single "CSM" part (the dresser's contract name for SM and CM
+        // together), CSM-101's: its CM shapes to the CM, the rest to the SM.
+        let single = VesselPart(name: "CSM", dryMass: 1, offset: ApolloAxes.construction(xa: 1_000), length: 5, radius: 2)
+        single.appearance = variant
+        let csm = Vessel(name: "CSM-101", parts: [single], reference: cm.reference)
+        VesselLibrary.dressApollo(csm)
+        var split: [PaintElement: Int] = [:]
+        let offset = single.offset - csm.structureOrigin
+        for shape in single.shapes where !PaintElement.unpaintedMaterials.contains(shape.material) {
+            let element = try XCTUnwrap(PaintElement.of(part: "CSM", shape: shape, variant: variant))
+            XCTAssertEqual(element, shape.material.rawValue.hasPrefix("apollo.cm.") ? .cm : .sm, "\(shape.material)")
+            for v in shape.mesh().vertices {
+                let s = Markings.sample(part: "CSM", shape: shape, vertex: v, partOffset: offset, variant: variant)
+                if let s {
+                    XCTAssertTrue(s.row.hasPrefix("101-"), s.row)
+                    split[element, default: 0] += 1
+                }
+            }
+        }
+        XCTAssertGreaterThan(split[.sm] ?? 0, 100)
+        XCTAssertGreaterThan(split[.cm] ?? 0, 100)
+        // No launch vehicle paints anything on Apollo 7.
+        let stack = VesselLibrary.saturnV()
+        VesselLibrary.dressApollo(stack)
+        for part in stack.parts where PaintElement.launchVehicleParts.contains(part.name) {
+            for shape in part.shapes { XCTAssertNil(PaintElement.of(part: part.name, shape: shape, variant: variant)) }
         }
     }
 }

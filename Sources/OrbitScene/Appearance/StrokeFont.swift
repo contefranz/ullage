@@ -9,7 +9,10 @@ import Foundation
 /// ends (so corners are sharp) and arcs with flat ends, and the ink is cut
 /// to the box (an A's feet and apex, an N's diagonal). `distance` is the
 /// signed distance to the ink's edge, negative inside, which the renderer
-/// bakes into its SDF atlas and the tests read directly.
+/// bakes into its SDF atlas and the tests read directly. It is exact
+/// outside the ink and 1-Lipschitz everywhere: a free end's cap (an S's or
+/// a 2's terminal) is an edge from both sides, and where a stroke runs on
+/// into the next (an S's bowl into its bar) the cap between them is not.
 ///
 /// The Saturn's letters were measured as boxes (VD2's `letter_h`,
 /// `letter_w`); their stroke weight was not, and is taken as a sixth of the
@@ -53,11 +56,23 @@ public enum StrokeFont {
 
     /// A stroke's centre line.
     public enum Stroke: Equatable {
-        /// From `a` to `b`, each end square (extended by half a stroke) or flat.
-        case line(a: Point, b: Point, squareA: Bool, squareB: Bool)
+        /// From `a` to `b`; its ends square, flat or joined.
+        case line(a: Point, b: Point, endA: End, endB: End)
         /// About `centre`, from angle `from` to `to` (rad, `from` < `to`,
-        /// anticlockwise), flat at both ends.
-        case arc(centre: Point, radius: Double, from: Double, to: Double)
+        /// anticlockwise); its ends flat or joined.
+        case arc(centre: Point, radius: Double, from: Double, to: Double, endFrom: End, endTo: End)
+    }
+
+    /// How a stroke ends.
+    public enum End: Equatable {
+        /// A free end extended by half a stroke, its cap an edge (corners).
+        case square
+        /// A free end cut across the centre line, its cap an edge (the S's
+        /// and the 2's terminals).
+        case flat
+        /// Cut across, where another stroke's centre line starts or ends
+        /// and carries the ink on: its cap lies inside the ink, no edge.
+        case joined
     }
 
     public struct Point: Equatable {
@@ -87,10 +102,10 @@ public enum StrokeFont {
             var d = Double.infinity
             for s in strokes {
                 switch s {
-                case let .line(a, b, squareA, squareB):
-                    d = min(d, StrokeFont.lineDistance(px, py, a, b, squareA ? hw : 0, squareB ? hw : 0, hw))
-                case let .arc(c, r, from, to):
-                    d = min(d, StrokeFont.arcDistance(px, py, c, r, from, to, hw))
+                case let .line(a, b, endA, endB):
+                    d = min(d, StrokeFont.lineDistance(px, py, a, b, endA, endB, hw))
+                case let .arc(c, r, from, to, endFrom, endTo):
+                    d = min(d, StrokeFont.arcDistance(px, py, c, r, from, to, endFrom, endTo, hw))
                 }
             }
             return max(d, StrokeFont.boxDistance(x - width / 2, y - height / 2, width / 2, height / 2))
@@ -107,36 +122,56 @@ public enum StrokeFont {
         return outside + min(max(qx, qy), 0)
     }
 
-    /// Signed distance to the stroke along a to b, `hw` either side,
-    /// extended by `ea` before a and `eb` past b.
-    static func lineDistance(_ x: Double, _ y: Double, _ a: Point, _ b: Point, _ ea: Double, _ eb: Double,
+    /// Signed distance to the stroke along a to b, `hw` either side, a
+    /// square end extended by `hw`. Outside the stroke it is the distance
+    /// to it; inside, to its sides and its free ends' caps (a joined end's
+    /// cap is inside the ink).
+    static func lineDistance(_ x: Double, _ y: Double, _ a: Point, _ b: Point, _ endA: End, _ endB: End,
                              _ hw: Double) -> Double {
         let dx = b.x - a.x, dy = b.y - a.y
         let length = (dx * dx + dy * dy).squareRoot()
         guard length > 1e-12 else { return boxDistance(x - a.x, y - a.y, hw, hw) }
+        let ea = endA == .square ? hw : 0, eb = endB == .square ? hw : 0
         let ux = dx / length, uy = dy / length
-        let mid = (length + eb - ea) / 2
+        let mid = (length + eb - ea) / 2, half = (length + ea + eb) / 2
         let cx = a.x + ux * mid, cy = a.y + uy * mid
         let along = (x - cx) * ux + (y - cy) * uy
         let across = -(x - cx) * uy + (y - cy) * ux
-        return boxDistance(along, across, (length + ea + eb) / 2, hw)
+        let box = boxDistance(along, across, half, hw)
+        guard box < 0 else { return box }
+        var depth = hw - abs(across)
+        if endA != .joined { depth = min(depth, along + half) }
+        if endB != .joined { depth = min(depth, half - along) }
+        return -depth
     }
 
-    /// Signed distance to the arc's stroke, `hw` either side, flat-ended.
+    /// Signed distance to the arc's stroke, `hw` either side. Outside the
+    /// stroke it is the distance to it; inside, to its two circles and its
+    /// free ends' caps (a joined end's cap is inside the ink).
     static func arcDistance(_ x: Double, _ y: Double, _ c: Point, _ r: Double, _ from: Double, _ to: Double,
-                            _ hw: Double) -> Double {
+                            _ endFrom: End, _ endTo: End, _ hw: Double) -> Double {
         let dx = x - c.x, dy = y - c.y
         let rho = (dx * dx + dy * dy).squareRoot()
         var phi = atan2(dy, dx)
         let turn = 2 * Double.pi
         phi -= turn * ((phi - from) / turn).rounded(.down)
-        if phi <= to { return abs(rho - r) - hw }
-        // Off the arc's span: the nearest point is on an end.
+        // An end's cap: the radial segment across the stroke.
         func end(_ angle: Double) -> Double {
             let ex = cos(angle), ey = sin(angle)
             let a = Point(c.x + ex * (r - hw), c.y + ey * (r - hw)), b = Point(c.x + ex * (r + hw), c.y + ey * (r + hw))
             return segmentDistance(x, y, a, b)
         }
+        if phi <= to {
+            // In the span: outside the stroke the nearest point is across
+            // the circles; inside it, a free cap may be nearer.
+            let ring = abs(rho - r) - hw
+            guard ring < 0 else { return ring }
+            var depth = -ring
+            if endFrom != .joined { depth = min(depth, end(from)) }
+            if endTo != .joined { depth = min(depth, end(to)) }
+            return -depth
+        }
+        // Off the arc's span: the nearest point is on an end.
         return min(end(from), end(to))
     }
 
@@ -217,9 +252,12 @@ public enum StrokeFont {
             b.line(0.6 * w, 0, 0.6 * w, h)
             b.line(0.6 * w, h, 0.1 * w, 0.75 * h, square: (true, false))
         case "2":
+            // The diagonal leaves the bowl along its tangent from the foot's
+            // corner (about -45°), so the two run on into each other.
             let r = min(w / 2, h / 2)
-            let a = -45.0 * Double.pi / 180
-            b.arc(r, h - r, r, -45, 180)
+            let reach = (r * r + (h - r) * (h - r)).squareRoot()
+            let a = atan2(h - r, r) - acos(-r / reach)
+            b.arc(r, h - r, r, a * 180 / Double.pi, 180)
             b.line(r + r * cos(a), h - r + r * sin(a), 0, 0, square: (false, true))
             b.line(0, 0, w, 0)
         case "3":
@@ -267,23 +305,60 @@ public enum StrokeFont {
         default:
             break
         }
-        return b.strokes
+        return b.joined(tolerance: 1e-9 * max(w + h + s, 1))
     }
 
     /// Collects strokes; angles in degrees.
     struct Builder {
         var strokes: [Stroke] = []
 
+        /// A line, each end square (true) or flat.
         mutating func line(_ x0: Double, _ y0: Double, _ x1: Double, _ y1: Double, square: (Bool, Bool) = (true, true)) {
             let dx = x1 - x0, dy = y1 - y0
             guard dx * dx + dy * dy > 1e-18 else { return }
-            strokes.append(.line(a: Point(x0, y0), b: Point(x1, y1), squareA: square.0, squareB: square.1))
+            strokes.append(.line(a: Point(x0, y0), b: Point(x1, y1), endA: square.0 ? .square : .flat,
+                                 endB: square.1 ? .square : .flat))
         }
 
+        /// An arc, flat at both ends.
         mutating func arc(_ cx: Double, _ cy: Double, _ r: Double, _ from: Double, _ to: Double) {
             guard r > 1e-9 else { return }
             let deg = Double.pi / 180
-            strokes.append(.arc(centre: Point(cx, cy), radius: r, from: from * deg, to: to * deg))
+            strokes.append(.arc(centre: Point(cx, cy), radius: r, from: from * deg, to: to * deg,
+                                endFrom: .flat, endTo: .flat))
+        }
+
+        /// The strokes with every flat end where another stroke's centre
+        /// line starts or ends (within `tolerance`) marked joined.
+        func joined(tolerance: Double) -> [Stroke] {
+            func ends(_ s: Stroke) -> [Point] {
+                switch s {
+                case let .line(a, b, _, _):
+                    return [a, b]
+                case let .arc(c, r, from, to, _, _):
+                    return [Point(c.x + r * cos(from), c.y + r * sin(from)), Point(c.x + r * cos(to), c.y + r * sin(to))]
+                }
+            }
+            let all = strokes.map(ends)
+            func mark(_ end: End, _ p: Point, of i: Int) -> End {
+                guard end == .flat else { return end }
+                let joined = all.indices.contains { j in
+                    j != i && all[j].contains { q in
+                        let ex = q.x - p.x, ey = q.y - p.y
+                        return (ex * ex + ey * ey).squareRoot() <= tolerance
+                    }
+                }
+                return joined ? .joined : .flat
+            }
+            return strokes.indices.map { i -> Stroke in
+                switch strokes[i] {
+                case let .line(a, b, endA, endB):
+                    return .line(a: a, b: b, endA: mark(endA, all[i][0], of: i), endB: mark(endB, all[i][1], of: i))
+                case let .arc(c, r, from, to, endFrom, endTo):
+                    return .arc(centre: c, radius: r, from: from, to: to, endFrom: mark(endFrom, all[i][0], of: i),
+                                endTo: mark(endTo, all[i][1], of: i))
+                }
+            }
         }
 
         /// A closed round-cornered rectangle from (x0, y0) to (x1, y1).
