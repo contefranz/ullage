@@ -17,6 +17,7 @@ extension Simulation {
             log("\(v.name): staging inhibited by the flight program")
             return []
         }
+        let separated = event ?? v.nextStagingEvent
         let spent = event.map { v.jettisonAll(event: $0) } ?? v.jettisonNextStageAll()
         guard !spent.isEmpty else { return [] }
         let snap = snapshot
@@ -25,6 +26,7 @@ extension Simulation {
             updateTelemetry(s, snapshot: snap)
         }
         updateTelemetry(v, snapshot: snap)
+        for s in spent { recordEffect(.separation(event: separated, parts: s.parts.map(\.name), parent: v.id), s) }
         log("\(v.name): staged \(spent.map { $0.parts.first?.name ?? "part" }.joined(separator: ", "))")
         return spent
     }

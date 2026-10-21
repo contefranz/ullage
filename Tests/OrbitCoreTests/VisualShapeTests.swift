@@ -318,6 +318,72 @@ final class VisualShapeTests: XCTestCase {
         }
     }
 
+    // Each builder sets its vehicle on every part (`appearance`), and the
+    // parts keep it through their separations: Apollo 7's CSM-101 stays
+    // CSM-101 once its CM flies alone.
+    func testVariantsRideOnTheParts() {
+        XCTAssertTrue(VesselLibrary.saturnV().parts.allSatisfy { $0.appearance == .apollo11 })
+        XCTAssertTrue(VesselLibrary.commandModule(.apollo7).parts.allSatisfy { $0.appearance == .apollo7 })
+        let csm = VesselLibrary.apolloCSM(.apollo7)
+        XCTAssertTrue(csm.parts.allSatisfy { $0.appearance == .apollo7 })
+        let sm = csm.jettison(event: 7)!
+        VesselLibrary.dressApollo(csm)
+        XCTAssertTrue((csm.parts + sm.parts).allSatisfy { $0.appearance == .apollo7 })
+        XCTAssertEqual(ApolloVariant(.apollo7), .apollo7)
+        XCTAssertEqual(ApolloVariant(.apollo11), .apollo11)
+        XCTAssertNil(ApolloVariant.apollo7.launchVehicle)
+        XCTAssertEqual(ApolloVariant.apollo8, ApolloVariant(launchVehicle: .as503, csm: .csm103, payload: .ltaB))
+        XCTAssertEqual(ApolloVariant.apollo11.payload, .lm(5))
+        XCTAssertEqual(ApolloVariant.LaunchVehicle.allCases.map(\.rawValue), ["AS-501", "AS-502", "AS-503", "AS-506"])
+        XCTAssertEqual(ApolloVariant.CSM.allCases.map(\.rawValue), ["CSM-101", "CSM-103", "CSM-107"])
+    }
+
+    // The attachments: the S-IC's eight retro ports and the S-IC/S-II
+    // plane at STA 1564; the interstage's four S-II ullage exits and its
+    // ring's plane at STA 1760; the S-II retros on the aft interstage with
+    // the S-II/S-IVB plane at STA 2746.5; the S-IVB's two ullage exits. Each
+    // port names its motor and points along its exhaust; they stay where
+    // they were on the stack once their part has left.
+    func testAttachments() throws {
+        let stack = VesselLibrary.saturnV()
+        func attachments(_ name: String) -> [VisualAttachment] { stack.parts.first { $0.name == name }!.attachments }
+        let expected: [(String, VisualAttachment.Kind, Int, Double?)] = [
+            ("S-IC", .retroPort, 8, nil), ("S-IC", .separationPlane, 1, 1_564),
+            ("S-IC/S-II interstage", .ullageExit, 4, nil), ("S-IC/S-II interstage", .separationPlane, 1, 1_760),
+            ("S-II/S-IVB interstage", .retroPort, 4, nil), ("S-II/S-IVB interstage", .separationPlane, 1, 2_746.5),
+            ("S-IVB ullage rockets", .ullageExit, 2, nil),
+        ]
+        for (name, kind, count, station) in expected {
+            let part = try XCTUnwrap(stack.parts.first { $0.name == name })
+            let found = part.attachments.filter { $0.kind == kind }
+            XCTAssertEqual(found.count, count, "\(name) \(kind)")
+            for a in found {
+                if let station {
+                    XCTAssertEqual((a.position.x + part.offset.x - stack.structureOrigin.x) / inch, station,
+                                   accuracy: 1e-9, a.name)
+                    XCTAssertEqual(a.direction, .unitX)
+                } else {
+                    let motor = try XCTUnwrap(part.thrusters.first { $0.name == a.thruster }, a.name)
+                    XCTAssertTrue(motor.isSolid)
+                    XCTAssertEqual(a.position, motor.position)
+                    XCTAssertEqual((a.direction + motor.direction).length, 0, accuracy: 1e-12)
+                }
+            }
+        }
+        let carrying = Set(expected.map(\.0))
+        for p in stack.parts where !carrying.contains(p.name) { XCTAssertTrue(p.attachments.isEmpty, p.name) }
+        XCTAssertEqual(attachments("S-IC").filter { $0.kind == .retroPort }.compactMap(\.thruster),
+                       (1...8).map { "S-IC retro motor \($0)" })
+
+        // The S-IC leaves with its attachments where they were.
+        let sIC = stack.parts.first { $0.name == "S-IC" }!
+        let before = sIC.attachments.map { $0.position + sIC.offset - stack.structureOrigin }
+        let spent = try XCTUnwrap(stack.jettison(event: 1))
+        VesselLibrary.dressApollo(spent)
+        let after = sIC.attachments.map { $0.position + sIC.offset - spent.structureOrigin }
+        for (a, b) in zip(before, after) { XCTAssertEqual((a - b).length, 0, accuracy: 1e-9) }
+    }
+
     // A revolution's sweep, facets and caps: a quarter turn spans 90° from
     // its reference, eight faceted segments make an octagon with flat sides,
     // and open ends leave no cap.

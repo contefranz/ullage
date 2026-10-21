@@ -648,6 +648,12 @@ public final class VesselPart {
     public var thrusters: [Thruster]
     public var parachutes: [Parachute] = []
     public var shapes: [VisualShape]
+    /// The Apollo vehicle the part belongs to, for its look
+    /// (`VesselLibrary.dressApollo`); nil is Apollo 11's.
+    public var appearance: ApolloVariant?
+    /// Where effects attach to the part (ports, vents, separation planes,
+    /// frost zones), part frame.
+    public var attachments: [VisualAttachment] = []
     /// Centre of mass of the dry part (and of its lumped tanks), part frame.
     public var dryCenterOfMass: Vec3
     /// Dry inertia about `dryCenterOfMass`; nil uses a solid bounding cylinder.
