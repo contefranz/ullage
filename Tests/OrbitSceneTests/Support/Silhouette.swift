@@ -32,7 +32,8 @@ import OrbitCore
 ///   ports) at their azimuths. `diameter(at:azimuth:)` adds the two rays of
 ///   the line through the axis. Measure stage and skin diameters with these,
 ///   on rays that miss the features themselves: the ray at 45° misses the
-///   S-II's tunnel at 32° and VG2's ullage-motor fairings 4.6° past each fin.
+///   S-II's tunnel at 32° and VG1's S-II ullage-motor fairings, 24 in across
+///   and centred 4° past each fin.
 ///
 /// Both include every triangle of the scene, back faces and insides too.
 ///

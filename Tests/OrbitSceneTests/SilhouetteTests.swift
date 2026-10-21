@@ -2,13 +2,14 @@ import Foundation
 import XCTest
 @testable import OrbitCore
 
-/// Today's Saturn V and CSM outlines (`Silhouette`) against
+/// The Saturn V's and CSM's outlines (`Silhouette`) against
 /// docs/SaturnV-CSM-exterior-datasheet.md, and the helpers' meaning on a
 /// toy. The skins' diameters are measured along the fin diagonals (θ = 45°,
 /// 135°, 225°, 315°) with the ray-local `diameter`, at stations clear of the
-/// fins, so that VG1-VG3's tunnels, fairings, modules and antennas beside
-/// the rays leave them standing: `radius`, the outline's support function,
-/// would pick those up from as far as 19° away (see `Silhouette`).
+/// fins, so that the tunnels, fairings, modules and antennas VG1-VG3 put
+/// beside the rays leave them standing: `radius`, the outline's support
+/// function, picks those up from as far as 19° away (see `Silhouette` and
+/// `testStageDiametersBesideTunnelsAndFairings`).
 final class SilhouetteTests: XCTestCase {
     static let stack = Silhouette(VesselLibrary.saturnV())
     static let csm = VesselLibrary.apolloCSM(.apollo11)
@@ -53,49 +54,52 @@ final class SilhouetteTests: XCTestCase {
         ("S-IVB", 2900, 260), ("S-IVB", 3050, 260), ("IU", 3240, 260),
     ]
 
-    func checkStageDiameters(_ s: Silhouette, _ what: String) throws {
+    func testStageDiameters() throws {
         for (name, sta, diameter) in stageDiameters {
             for azimuth in diagonalLines {
-                let d = try XCTUnwrap(s.diameter(at: AS506.station(sta), azimuth: azimuth), name)
-                XCTAssertEqual(d / inch, diameter, accuracy: 1, "\(what): \(name), STA \(sta), θ \(azimuth)")
+                let d = try XCTUnwrap(Self.stack.diameter(at: AS506.station(sta), azimuth: azimuth), name)
+                XCTAssertEqual(d / inch, diameter, accuracy: 1, "\(name), STA \(sta), θ \(azimuth)")
             }
         }
     }
 
-    func testStageDiameters() throws {
-        try checkStageDiameters(Self.stack, "today's stack")
-    }
-
-    /// The same pins stand beside VG2's S-II systems tunnel (22 in across,
-    /// 11 in proud at θ = 32°, STA 1782.5 to 2502.5) and its S-II ullage-motor
-    /// fairings (24 in across, 16 in proud, 16 in of arc anticlockwise of
-    /// each fin line, STA 1563.56 to 1710.65), drawn here as stand-ins. The
-    /// outline beside them is wider: `radius` on the diagonal reads them.
+    /// The pins stand beside the features that stand proud near fin A's
+    /// diagonal: the S-II's systems tunnel (§4: semicircular, 22 in wide,
+    /// between Positions I and II, close to I) and the S-II ullage motors'
+    /// fairings on the S-IC/S-II interstage (§3: one round each 12.5 in
+    /// motor). Rays swept round the diagonal find each feature where it
+    /// stands. The outline beside them is wider: `radius` on the diagonal
+    /// reads them, as the support function of what the rays find,
+    /// max reach(θ) cos(45° - θ); for the tunnel, R cos Δ + 11 in.
     func testStageDiametersBesideTunnelsAndFairings() throws {
-        let r = 198 * inch, white: (Double, Double, Double) = (1, 1, 1)
-        let tunnelAzimuth = 32 * Double.pi / 180
-        let tunnelFoot: Vec3 = Vec3(AS506.station(1782.5), 0, 0) + Silhouette.radial(tunnelAzimuth) * r
-        let tunnel = VisualShape.frustum(from: tunnelFoot, length: 720 * inch, baseRadius: 11 * inch,
-                                         topRadius: 11 * inch, color: white)
-        let offset = 16 * inch / r
-        let fairings = diagonals.map { fin -> VisualShape in
-            let out = Silhouette.radial(fin + offset)
-            // From 1 in under the skin to 16 in proud.
-            return VisualShape.box(from: Vec3(AS506.station(1563.56), 0, 0) + out * (r + 7.5 * inch),
-                                   length: (1710.65 - 1563.56) * inch, width: 17 * inch, height: 24 * inch,
-                                   reference: out, color: white)
+        let degree = Double.pi / 180, fin = Double.pi / 4
+        /// At STA `sta`: the farthest of the rays every 0.02° from θ 20° to
+        /// 70° (the feature: its azimuth and how far it stands proud of the
+        /// 198 in skin, in) and `radius` on the diagonal (in), once the
+        /// diameter there is checked and `radius` against the rays.
+        func beside(_ sta: Double, _ name: String) throws -> (azimuth: Double, proud: Double, outline: Double) {
+            let x = AS506.station(sta), cut = Self.stack.section(at: x)
+            let rays = stride(from: 20.0, through: 70, by: 0.02).compactMap { a in
+                cut.reach(azimuth: a * degree).map { (azimuth: a * degree, reach: $0) }
+            }
+            let feature = try XCTUnwrap(rays.max { $0.reach < $1.reach }, name)
+            let diameter = try XCTUnwrap(Self.stack.diameter(at: x, azimuth: fin), name)
+            let outline = try XCTUnwrap(cut.radius(azimuth: fin), name)
+            let support = try XCTUnwrap(rays.map { $0.reach * cos(fin - $0.azimuth) }.max(), name)
+            XCTAssertEqual(diameter / inch, 396, accuracy: 1, name)
+            XCTAssertEqual(outline / inch, support / inch, accuracy: 0.05, name)
+            XCTAssertGreaterThan((outline - diameter / 2) / inch, 5, "\(name): the outline is wider")
+            return (feature.azimuth, feature.reach / inch - 198, outline / inch)
         }
-        let stack = Silhouette(OrthoScene(VesselLibrary.saturnV(), adding: [tunnel] + fairings))
-        try checkStageDiameters(stack, "with the stand-ins")
 
-        // The tunnel's crown 13° off the diagonal; the fairing's outer corner.
-        let besideTunnel: Double = 2 * (198 * cos(Double.pi / 4 - tunnelAzimuth) + 11)
-        let besideFairing: Double = 2 * (214 * cos(offset) + 12 * sin(offset))
-        let beside: [(Double, Double)] = [(2300, besideTunnel), (1650, besideFairing)]
-        for (sta, outline) in beside {
-            let rDiagonal = try XCTUnwrap(stack.radius(at: AS506.station(sta), azimuth: Double.pi / 4))
-            XCTAssertEqual(2 * rDiagonal / inch, outline, accuracy: 1, "STA \(sta)")
-        }
+        let tunnel = try beside(2300, "S-II systems tunnel")
+        XCTAssertGreaterThan(tunnel.azimuth, 0)
+        XCTAssertLessThan(tunnel.azimuth, fin)
+        XCTAssertEqual(tunnel.proud, 11, accuracy: 0.25)
+        XCTAssertEqual(tunnel.outline, 198 * cos(fin - tunnel.azimuth) + 11, accuracy: 0.1)
+
+        let fairing = try beside(1650, "S-II ullage-motor fairing")
+        XCTAssertGreaterThan(fairing.proud, 12.5)
     }
 
     /// §1: 363 ft from the F-1 exit plane (STA -115.36) to the LES's tip

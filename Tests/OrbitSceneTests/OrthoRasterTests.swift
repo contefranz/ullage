@@ -215,24 +215,64 @@ final class OrthoRasterTests: XCTestCase {
     /// lies above it.
     func testCropsAndSections() throws {
         let band = AS506.station(2450)...AS506.station(2900)
+        let k = 20.0
         let style = OrthoStyle(lighting: .albedo, outlines: false, annotations: false, margin: 5)
-        let crop = OrthoRaster.render(Self.stackScene, .position(1, scale: 20, stations: band), style: style)
-        XCTAssertEqual(crop.height, Int(((band.upperBound - band.lowerBound) * 20 + 10).rounded(.up)))
-        XCTAssertEqual(crop.screen(0, 0).up, band.upperBound + 4.5 / 20, accuracy: 1e-9)
+        let crop = OrthoRaster.render(Self.stackScene, .position(1, scale: k, stations: band), style: style)
+        XCTAssertEqual(crop.height, Int(((band.upperBound - band.lowerBound) * k + 10).rounded(.up)))
+        XCTAssertEqual(crop.screen(0, 0).up, band.upperBound + 4.5 / k, accuracy: 1e-9)
 
-        // From above, the whole stack shows the LES's nose at the centre;
-        // cut below the gimbal plane, only the five F-1 bells.
-        let whole = OrthoRaster.render(Self.stackScene, OrthoView(.top, scale: 20), style: style)
+        // From above, the whole stack shows the LES's nose at the centre.
+        let whole = OrthoRaster.render(Self.stackScene, OrthoView(.top, scale: k), style: style)
         let nose = Self.stackScene.surfaces[try XCTUnwrap(whole.surface(whole.width / 2, whole.height / 2))]
         XCTAssertEqual(nose.part?.name, "LES")
-        let engines = OrthoRaster.render(Self.stackScene, OrthoView(.top, scale: 20, stations: AS506.station(-120)...AS506.station(90)),
-                                         style: style)
-        let seen = Set(engines.surfaces.filter { $0 >= 0 }).map { Self.stackScene.surfaces[Int($0)] }
-        XCTAssertEqual(seen.count, 5)
-        for s in seen {
-            XCTAssertEqual(s.part?.name, "S-IC")
-            XCTAssertEqual(s.shape.material, .apolloEngineBell)
-            XCTAssertNotNil(s.shape.thruster)
+
+        // Cut below the engine fairings' aft end (STA 48.5, the exterior
+        // datasheet's §2.3) and the F-1s' upper blocks (to 62.5 in aft of
+        // the gimbals at STA 100, §8.1), only the five F-1s hang: every
+        // surface seen is a part of one, linked to one of the S-IC's main
+        // thrusters, within the 147 in exit envelope (§8.1) of that
+        // engine's own axis, and all five are seen.
+        let stack = Self.stack
+        let sIC = try XCTUnwrap(stack.parts.first { $0.name == "S-IC" })
+        let axes = Dictionary(uniqueKeysWithValues: sIC.thrusters.filter { $0.groups.contains(.main) }.map {
+            ($0.name, $0.position + sIC.offset - stack.structureOrigin)
+        })
+        XCTAssertEqual(axes.count, 5)
+        let base = AS506.station(-120)...AS506.station(30)
+        let section = OrthoRaster.render(Self.stackScene, OrthoView(.top, scale: k, stations: base), style: style)
+        let b = section.view.basis, envelope = 147 / 2 * AS506.inch
+        var seen: Set<String> = [], strays: Set<String> = [], outside = 0
+        for y in 0..<section.height {
+            for x in 0..<section.width {
+                guard let i = section.surface(x, y) else { continue }
+                let s = Self.stackScene.surfaces[i]
+                guard s.part?.name == "S-IC", let engine = s.shape.thruster, let axis = axes[engine] else {
+                    strays.insert("\(s.part?.name ?? "loose") shape \(s.shapeIndex) (\(s.shape.material))")
+                    continue
+                }
+                seen.insert(engine)
+                let p = section.screen(x, y)
+                if hypot(p.right - axis.dot(b.right), p.up - axis.dot(b.up)) > envelope + 1 / k { outside += 1 }
+            }
+        }
+        XCTAssertEqual(strays, [], "surfaces that are not an F-1's")
+        XCTAssertEqual(seen, Set(axes.keys))
+        XCTAssertEqual(outside, 0, "pixels outside their engine's exit envelope")
+
+        // The section's window is the band's outline, as `Silhouette`
+        // measures it (from above, II is on the right and III at the top):
+        // the exits' envelopes round the outboard axes, not the fins.
+        let silhouette = Silhouette(Self.stackScene)
+        func extent(_ one: Double, _ other: Double) throws -> Double {
+            try XCTUnwrap(silhouette.radius(over: base, azimuth: one))
+                + XCTUnwrap(silhouette.radius(over: base, azimuth: other))
+        }
+        let across = try extent(Double.pi / 2, 3 * Double.pi / 2), along = try extent(Double.pi, 0)
+        XCTAssertEqual(Double(section.width), (across * k + 10).rounded(.up), accuracy: 1)
+        XCTAssertEqual(Double(section.height), (along * k + 10).rounded(.up), accuracy: 1)
+        for (span, direction) in [(across, b.right), (along, b.up)] {
+            let cluster = 2 * (axes.values.map { abs($0.dot(direction)) }.max()! + envelope)
+            XCTAssertEqual(span / AS506.inch, cluster / AS506.inch, accuracy: 0.5)
         }
     }
 }

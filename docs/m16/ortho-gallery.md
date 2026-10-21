@@ -20,7 +20,7 @@ ORBITSIM_ORTHO_DIR=/path/to/dir swift test --filter OrthoGallery
 
 - The command writes PNGs and an `index.txt` into the directory, creating it if needed. Without the variable the test is skipped.
 - It takes about 40 s in Debug, and about 20 s through `scripts/test.sh fast --filter OrthoGallery` (the variable passes through).
-- The files total about 40 MB, because stored deflate leaves them uncompressed.
+- The files total about 50 MB, because stored deflate leaves them uncompressed.
 - Open the images with the Read tool. Each file is read back and must decode to the image written.
 - Pillow also opens them.
 
@@ -106,6 +106,6 @@ s.stations                                                   // lowest and highe
 The two measures differ wherever something stands proud of a skin, so pick the one that matches what is being checked:
 
 - **`radius`** is the outline's support function: the largest p·radial(θ) over the cross-section. It is the half-width that a drawing, or a view from θ − π/2, shows on its right. Measure outlines, spans and fin tips with it (a fin span is `radius` at 45° plus 225°). It is not local to θ. A feature standing h proud of a skin of radius R, at Δ from θ, reaches R cos Δ + h towards θ, so it raises `radius` wherever Δ < acos(1 − h/R). For 11 in on the S-II's 198 in skin, that is 19°: VG2's systems tunnel at θ = 32° makes `radius` at 45° read 203.9 in, so the S-II would measure 407.8 in across there instead of 396.
-- **`reach`** sees only the half-plane at θ, a ray from the axis. A skin's radius beside a tunnel or fairing is the skin's, and sweeping θ finds bumps (fairings, modules, ports) at their own azimuths. **`diameter`** adds the two rays of a line through the axis. Measure stage and skin diameters with these, on rays that miss the features themselves. `SilhouetteTests` measures them along the fin diagonals, which miss the S-II's tunnel and VG2's ullage-motor fairings; it checks this with stand-ins for both.
+- **`reach`** sees only the half-plane at θ, a ray from the axis. A skin's radius beside a tunnel or fairing is the skin's, and sweeping θ finds bumps (fairings, modules, ports) at their own azimuths. **`diameter`** adds the two rays of a line through the axis. Measure stage and skin diameters with these, on rays that miss the features themselves. `SilhouetteTests` measures them along the fin diagonals, which miss VG2's S-II tunnel and VG1's S-II ullage-motor fairings; beside both, it checks that the diameters stand and that `radius` reads the features.
 
-Both count every triangle, back faces and insides included. `OrthoRasterTests` checks that the drawn outline matches `Silhouette` to within a pixel. `SilhouetteTests` pins today's vehicle against docs/SaturnV-CSM-exterior-datasheet.md.
+Both count every triangle, back faces and insides included. `OrthoRasterTests` checks that the drawn outline matches `Silhouette` to within a pixel. `SilhouetteTests` pins the vehicle as VG1-VG3 draw it against docs/SaturnV-CSM-exterior-datasheet.md.
