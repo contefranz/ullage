@@ -1,0 +1,17 @@
+# S-IVB APS engines (TRW TR-204 attitude, 150 lbf; Rocketdyne SE-7-1 ullage,
+# 70 lbf): NASA CEA input deck, one run for both (they share the chemistry
+# and the chamber pressure; their area ratios are not known).
+# Run by tools/make_exhaust_table.py; the specs take the frozen expansion.
+#
+# p,psia: 100, the attitude engines' nominal (AS-501 FER §7: "the nominal
+#   69 N/cm2 (100 psia)": H); taken for the ullage engine too (L).
+# Propellants: N2O4 and MMH (MSFC-MAN-503 §6: H); o/f 1.6 (enginehistory.org
+#   8.30, read through a search extract: M; AS506Data's feed ratio is 1.611).
+# supar: 40 for the attitude engine and 9 for the ullage engine, guesses by
+#   kin (the R-4D's 40:1, the SE-8's 9:1: L).
+reac
+  fuel=CH6N2(L) wt%=100 t(k)=298.15
+  oxid=N2O4(L)  wt%=100 t(k)=298.15
+prob case=APS rocket p,psia=100 o/f=1.6 eql frozen nfz=2 supar=9,40
+output siunits trace=1e-5
+end

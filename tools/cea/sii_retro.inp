@@ -1,0 +1,38 @@
+# S-II retro motor (Thiokol TE-M-29): NASA CEA input deck (RP-1311 free form).
+# Run by tools/make_exhaust_table.py; the spec takes the equilibrium
+# expansion (a frozen one stops at the throat: its condensed species
+# leave their temperature ranges).
+#
+# Propellant: not given ("case-bonded, single-grain, solid propellant",
+#   MSFC-MAN-503 p. 5-24); TP-E-8104 stands in (L).
+# p,psia: 1,761, the four AS-501 motors' mean burn-time pressure (AS-501 FER
+#   Table 12-4, H; limits 1,615-1,945).
+# supar: 4.3 (L): the area ratio at which this deck's vacuum thrust
+#   coefficient puts the exit of a nozzle delivering 34,810 lbf
+#   (MSFC-MAN-506) at 0.9 of the 9 in case (MSFC-MAN-503 p. 5-24).
+# Propellant: Thiokol TP-E-8104, polysulfide (LP-33) and ammonium
+#   perchlorate with 2 % aluminium, by weight (TN D-6295 Table I(a), H). The
+#   heats of formation not in CEA's library are the deck's: LP-33 per
+#   C5H10O2S2 repeat unit -493 kJ/mol, set so that CEA gives TN D-6295 Table
+#   I(b)'s flame temperature, 4,404 F (2,702 K) at 1,000 psia (its chamber
+#   gamma then comes out at the table's 1.176, an independent check); GMF
+#   (p-quinone dioxime) 0, dibutyl carbitol -640 and diphenylguanidine +140
+#   kJ/mol, estimates (L; together 4 % of the mass). Benzyl mercaptan (0 to
+#   0.09 %) is left out.
+# omit: CEA 3.3.4's equilibrium expansion does not converge past the throat
+#   with the spinel MgAl2O4 (0.5 mol % in the chamber), so its Mg and Al go
+#   to MgO, MgCl2 and Al2O3.
+reac
+  fuel=NH4CLO4(I)                                    wt%=72.000 t(k)=298.15
+  fuel=AL(cr)                                        wt%=2.000 t(k)=298.15
+  fuel=LP-33      C 5 H 10 O 2 S 2 h,kj/mol=-493     wt%=18.810 t(k)=298.15
+  fuel=GMF        C 6 H 6 N 2 O 2 h,kj/mol=0         wt%=1.390 t(k)=298.15
+  fuel=S(a)                                          wt%=0.010 t(k)=298.15
+  fuel=MgO(cr)                                       wt%=1.000 t(k)=298.15
+  fuel=Fe2O3(cr)                                     wt%=2.000 t(k)=298.15
+  fuel=TP-903     C 12 H 26 O 3 h,kj/mol=-640        wt%=2.090 t(k)=298.15
+  fuel=DPG        C 13 H 13 N 3 h,kj/mol=140         wt%=0.700 t(k)=298.15
+prob case=S-II-retro rocket p,psia=1761 eql supar=4.3
+omit MgAL2O4(cr) MgAL2O4(L)
+output siunits trace=1e-5
+end
