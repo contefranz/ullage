@@ -4,7 +4,7 @@ import OrbitCore
 /// Builds each frame's `RenderScene` from the simulation and the camera.
 /// It keeps what a frame needs from the frames before: the heat shield's
 /// thermal lag, each vessel's captured geometry, the vessels seen last time
-/// (for transitions) and the event cursor. Call `reset()` when a scenario
+/// and the place it has read the core's effect journal up to. Call `reset()` when a scenario
 /// loads; a new `Simulation` resets it too.
 public final class SceneExtractor {
     public struct Options {
@@ -18,10 +18,6 @@ public final class SceneExtractor {
 
     /// Body-fixed sites to place each frame (the launch complex).
     public var sites: [SitePlacement] = []
-    /// Where the core's events come from for this simulation: its journal's
-    /// adapter once there is one; none until then, and transitions come from
-    /// vessels appearing and going alone.
-    public var eventSource: (Simulation) -> SceneEventSource? = { _ in nil }
 
     /// The temporal history goes stale when the body nearest the camera
     /// turns more than this between two scenes, rad (0.5°).
@@ -48,7 +44,8 @@ public final class SceneExtractor {
     private var previous: Previous?
     private var thermal: [UUID: (flux: Double, time: Epoch)] = [:]
     private var geometry: [UUID: VesselGeometry] = [:]
-    private var eventCursor: UInt64 = 0
+    /// The journal's sequence the next scene reads from.
+    private var journalCursor = 0
 
     public init() {}
 
@@ -57,7 +54,7 @@ public final class SceneExtractor {
         previous = nil
         thermal = [:]
         geometry = [:]
-        eventCursor = 0
+        journalCursor = 0
     }
 
     public func extract(sim: Simulation, camera cam: OrbitCamera, viewport: RenderScene.Viewport, realTime: Double,
@@ -124,12 +121,11 @@ public final class SceneExtractor {
         if thermal.keys.contains(where: { !live.contains($0) }) { thermal = thermal.filter { live.contains($0.key) } }
         if geometry.keys.contains(where: { !live.contains($0) }) { geometry = geometry.filter { live.contains($0.key) } }
 
-        var transitions: [RenderScene.Transition] = []
-        if let source = eventSource(sim) {
-            let drained = source.sceneEvents(after: eventCursor)
-            eventCursor = drained.cursor
-            transitions += drained.events.map { .event($0) }
-        }
+        // The journal's records since the last scene, the edges of this
+        // frame's last step included.
+        sim.recordEffectEdges()
+        var transitions: [RenderScene.Transition] = sim.journal.events(from: journalCursor).events.map { .event($0) }
+        journalCursor = sim.journal.nextSequence
         if let prev { transitions += Self.diff(sim.vessels, against: prev.vessels, camera: cam.position, snapshot: snap) }
 
         previous = Previous(sim: ObjectIdentifier(sim), time: sim.time, realTime: realTime, warp: sim.warp,

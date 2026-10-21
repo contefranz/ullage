@@ -113,6 +113,17 @@ final class SnapshotSpecTests: XCTestCase {
         XCTAssertEqual(scene.camera.viewport, RenderScene.Viewport(width: 640, height: 400))
         XCTAssertGreaterThan(scene.clock.frameIndex, 1, "the extractor followed the flight")
 
+        // The frame carries what happened while the script ran, though the
+        // extractor followed the flight: the CSM's separation records.
+        let orbit = SnapshotSpec.Shot(name: "sep", scenario: "as506-parking-orbit", advance: ["stage", "wait:3"])
+        let prepared = try orbit.prepare(system: Self.system)
+        let events = orbit.scene(prepared).transitions.compactMap { t -> EffectEvent? in
+            if case let .event(e) = t { return e }
+            return nil
+        }
+        XCTAssertTrue(events.contains { if case .separation = $0.kind { return true } else { return false } })
+        XCTAssertEqual(events.map(\.sequence), events.map(\.sequence).sorted(), "oldest first")
+
         shot.camera.target = "vessel:nothing"
         XCTAssertThrowsError(try shot.prepare(system: Self.system))
         XCTAssertThrowsError(try SnapshotSpec.Shot(name: "x", scenario: "nowhere").prepare(system: Self.system))

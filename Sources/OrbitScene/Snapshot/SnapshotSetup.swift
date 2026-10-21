@@ -9,6 +9,9 @@ extension SnapshotSpec.Shot {
         public let sim: Simulation
         public let camera: OrbitCamera
         public let extractor: SceneExtractor
+        /// What the extractor saw happen while the script ran (the journal's
+        /// events and vessels appearing), which the shot's frame carries too.
+        public let advanceTransitions: [RenderScene.Transition]
     }
 
     public enum Failure: Error, CustomStringConvertible {
@@ -41,19 +44,25 @@ extension SnapshotSpec.Shot {
         }
         camera.update(sim: sim)
         let viewport = self.viewport, realTime = self.realTime
+        var transitions: [RenderScene.Transition] = []
         try ScenarioScript(advance).run(on: sim, missionClockZero: scenario.missionClockZero) { sim in
             camera.update(sim: sim)
-            _ = extractor.extract(sim: sim, camera: camera, viewport: viewport, realTime: realTime)
+            transitions += extractor.extract(sim: sim, camera: camera, viewport: viewport, realTime: realTime).transitions
         }
         try self.camera.apply(to: &camera, sim: sim)
         sim.paused = true
-        return Prepared(scenario: scenario, sim: sim, camera: camera, extractor: extractor)
+        return Prepared(scenario: scenario, sim: sim, camera: camera, extractor: extractor,
+                        advanceTransitions: transitions)
     }
 
-    /// The frame's scene.
+    /// The frame's scene. Its transitions are everything since the scenario
+    /// opened, oldest first, so effects can start every burst still alive
+    /// at its true age, as they would have in the app.
     public func scene(_ p: Prepared) -> RenderScene {
-        p.extractor.extract(sim: p.sim, camera: p.camera, viewport: viewport, realTime: realTime,
-                            options: SceneExtractor.Options(showOrbit: showOrbit))
+        var scene = p.extractor.extract(sim: p.sim, camera: p.camera, viewport: viewport, realTime: realTime,
+                                        options: SceneExtractor.Options(showOrbit: showOrbit))
+        scene.transitions = p.advanceTransitions + scene.transitions
+        return scene
     }
 }
 
