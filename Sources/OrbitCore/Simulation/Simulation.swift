@@ -82,7 +82,7 @@ public final class Simulation {
     public func add(_ v: Vessel) {
         vessels.append(v)
         if focus == nil { focus = v }
-        _ = effectEdges.view(of: v)
+        effectEdges.arrive(v)
     }
 
     public func remove(_ v: Vessel) {
@@ -148,7 +148,7 @@ public final class Simulation {
     public func step(_ h: Double) {
         let t0 = time
         let t1 = time + h
-        recordEffectEdges()
+        lookForEffectEdges(controlsSet: true)
         for v in vessels {
             if v.status == .crashed {
                 if let l = v.landed { setLandedKinematics(v, l, snapshot: system.snapshot(at: t1)) }

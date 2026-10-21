@@ -34,6 +34,8 @@ public struct VisualShape {
         /// `axis` and b along `reference`, in either winding; the thickness
         /// is along `axis × reference`. A positive `bevel` chamfers the edges
         /// of both faces by that much (m), less than half the thickness.
+        /// `capBase` closes the face towards -(axis × reference), `capTop`
+        /// the other.
         case plate(outline: [SectionPoint], thickness: Double, bevel: Double)
         /// A ring about `axis` through `origin`: the circle of `minorRadius`
         /// whose centre is `majorRadius` from the axis, turned about it in
@@ -589,7 +591,10 @@ public struct VisualShape {
     private func prism(_ section: [SectionPoint], stations: [PrismStation]) -> Mesh {
         guard section.count >= 3, stations.count >= 2 else { return Mesh() }
         let ring = Self.counterClockwise(section)
-        let ordered = stations[0].x <= stations[stations.count - 1].x ? stations : Array(stations.reversed())
+        // Built from the lowest station up; the caps stay with the first and
+        // last stations given.
+        let reversed = stations[0].x > stations[stations.count - 1].x
+        let ordered = reversed ? Array(stations.reversed()) : stations
         let side = axis.cross(reference)
         let rings = ordered.map { st -> [Vec3] in
             let base: Vec3 = origin + axis * st.x
@@ -599,7 +604,8 @@ public struct VisualShape {
             }
         }
         let planes = ordered.map { st in ring.map { (a: $0.a * st.width, b: $0.b * st.height) } }
-        return loft(rings: rings, planes: planes, creases: ring.map(\.crease), sweep: axis)
+        return loft(rings: rings, planes: planes, creases: ring.map(\.crease), sweep: axis,
+                    caps: reversed ? (capTop, capBase) : (capBase, capTop))
     }
 
     /// The outline thickened along `axis × reference`, its faces inset by
@@ -620,7 +626,8 @@ public struct VisualShape {
                 return base + inPlane
             }
         }
-        return loft(rings: rings, planes: layers.map { $0.plane }, creases: ring.map(\.crease), sweep: normal)
+        return loft(rings: rings, planes: layers.map { $0.plane }, creases: ring.map(\.crease), sweep: normal,
+                    caps: (capBase, capTop))
     }
 
     /// `points` in counter-clockwise order (positive area in (a, b)).
@@ -654,10 +661,11 @@ public struct VisualShape {
 
     /// Rings of the same number of points, each counter-clockwise about
     /// `sweep` (unit), joined band by band, every ring a sharp edge; the
-    /// first and last capped as the flags say (`planes` are their points in
-    /// a counter-clockwise 2D frame, for the caps). A point that is not a
+    /// first and last capped as `caps` say (`planes` are their points in a
+    /// counter-clockwise 2D frame, for the caps). A point that is not a
     /// crease is smooth round its ring; the first point is the seam of s and v.
-    private func loft(rings: [[Vec3]], planes: [[(a: Double, b: Double)]], creases: [Bool], sweep: Vec3) -> Mesh {
+    private func loft(rings: [[Vec3]], planes: [[(a: Double, b: Double)]], creases: [Bool], sweep: Vec3,
+                      caps: (first: Bool, last: Bool)) -> Mesh {
         let count = rings[0].count
         let partOrigin = partOrigin
         // Azimuth reference: the shape's centre about the vehicle's axis, or
@@ -779,8 +787,8 @@ public struct VisualShape {
                 for t in Self.earClip(plane) { triangle(rim[t.0], rim[t.1], rim[t.2]) }
             }
         }
-        if capBase { cap(0, facing: -1) }
-        if capTop { cap(rings.count - 1, facing: 1) }
+        if caps.first { cap(0, facing: -1) }
+        if caps.last { cap(rings.count - 1, facing: 1) }
         return m
     }
 
@@ -878,7 +886,10 @@ public struct VisualAttachment: Equatable {
     public var name: String
     public var kind: Kind
     /// The outlet's centre (port, vent), the plane's centre, or the centre
-    /// of the zone's start on the axis it runs along.
+    /// of the zone's start on the axis it runs along. The solid motors'
+    /// ports are not at their nozzle exits yet: until the motors' lengths
+    /// are sourced they sit at the motor's thrust point, its grain, on the
+    /// exhaust line (`direction`) upstream of the exit.
     public var position: Vec3
     /// Unit: the flow out of a port or vent; the plane's normal, away from
     /// the part; the way the zone runs.

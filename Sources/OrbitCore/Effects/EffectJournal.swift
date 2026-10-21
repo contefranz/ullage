@@ -123,6 +123,14 @@ public final class EffectJournal {
 /// walks arrays; a vessel whose parts changed (a separation) gets a new
 /// view, which takes each object's last state from wherever it was seen.
 /// The objects are held, so an identifier is never reused while here.
+///
+/// A vessel's baseline, the states no edge is recorded for, is taken when
+/// it is added to a simulation that has stepped (a stage that separates,
+/// its retros lit, records their ignition at its first look). A vessel
+/// added before the first step, as a scenario builds it, waits for that
+/// step's look, once its program, autopilot and pilot have set the
+/// controls: a vessel that arrives burning has not just lit its engines,
+/// though its liquid engines' levels are only set by the first control pass.
 final class EffectEdges {
     final class ThrusterEntry {
         let thruster: Thruster
@@ -167,10 +175,36 @@ final class EffectEdges {
     private var thrusters: [ObjectIdentifier: ThrusterEntry] = [:]
     private var parachutes: [ObjectIdentifier: ParachuteEntry] = [:]
     private var views: [ObjectIdentifier: View] = [:]
+    /// Set by the first step's look.
+    private(set) var started = false
+    /// Vessels added before the first step, their baseline still to take.
+    private var awaitingControls: Set<ObjectIdentifier> = []
+
+    /// `v` joined the simulation: take its baseline now, or at the first
+    /// step's look if the simulation has not stepped yet.
+    func arrive(_ v: Vessel) {
+        if started { _ = view(of: v) } else { awaitingControls.insert(ObjectIdentifier(v)) }
+    }
+
+    func isAwaitingControls(_ v: Vessel) -> Bool { awaitingControls.contains(ObjectIdentifier(v)) }
+
+    /// The first step's look, its controls set: take the baseline of every
+    /// vessel waiting for it, as its thrusters and parachutes are now.
+    func start(_ vessels: [Vessel]) {
+        for v in vessels where isAwaitingControls(v) {
+            views[ObjectIdentifier(v)] = nil
+            for p in v.parts {
+                for t in p.thrusters { thrusters[ObjectIdentifier(t)] = nil }
+                for c in p.parachutes { parachutes[ObjectIdentifier(c)] = nil }
+            }
+            _ = view(of: v)
+        }
+        awaitingControls.removeAll()
+        started = true
+    }
 
     /// `v`'s view, made afresh if its parts changed. A thruster or parachute
-    /// never seen before is taken as it is, with no edge: a vessel that
-    /// arrives burning has not just lit its engines.
+    /// never seen before is taken as it is, with no edge.
     func view(of v: Vessel) -> View {
         if let view = views[ObjectIdentifier(v)], view.matches(v.parts) { return view }
         var ts: [ThrusterEntry] = [], cs: [ParachuteEntry] = []
@@ -195,6 +229,7 @@ final class EffectEdges {
 
     /// Forget `v` and its thrusters and parachutes (it left the simulation).
     func forget(_ v: Vessel) {
+        awaitingControls.remove(ObjectIdentifier(v))
         views[ObjectIdentifier(v)] = nil
         for p in v.parts {
             for t in p.thrusters { thrusters[ObjectIdentifier(t)] = nil }
@@ -219,8 +254,16 @@ extension Simulation {
     /// what the last step of a frame ended waits for the next step to be
     /// recorded, at its own epoch, unless a reader looks first: one that
     /// calls this before reading the journal has it in the same frame.
-    public func recordEffectEdges() {
+    /// Before the first step it records nothing for the vessels added so
+    /// far, whose baseline waits for that step (`EffectEdges`).
+    public func recordEffectEdges() { lookForEffectEdges(controlsSet: false) }
+
+    /// `recordEffectEdges`; `step` looks with `controlsSet`, which takes the
+    /// baseline of the vessels added before the first step.
+    func lookForEffectEdges(controlsSet: Bool) {
+        if controlsSet && !effectEdges.started { effectEdges.start(vessels) }
         for v in vessels {
+            if !effectEdges.started && effectEdges.isAwaitingControls(v) { continue }
             let view = effectEdges.view(of: v)
             for e in view.thrusters {
                 let on = e.thruster.isCommanded

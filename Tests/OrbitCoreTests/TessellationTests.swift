@@ -172,6 +172,29 @@ final class TessellationTests: XCTestCase {
         XCTAssertEqual(volume(shapes["torus"]!.triangles()) / (2 * Double.pi * section), 1, accuracy: 0.01)
     }
 
+    // The caps go with the stations as given, whichever way they run along
+    // the axis, as a revolution's go with its profile's ends: without its
+    // top, a prism built from x = 4 down to 0 is open at x = 0 and closed at
+    // x = 4, facing +axis; built upwards, the other way round.
+    func testPrismCapsFollowTheStations() {
+        let section = [Q(-0.5, -0.5), Q(0.5, -0.5), Q(0.5, 0.5), Q(-0.5, 0.5)]
+        for (stations, closedAt) in [([4.0, 0.0], 4.0), ([0.0, 4.0], 0.0)] {
+            var s = VisualShape.prism(section, from: .zero, axis: .unitX,
+                                      stations: stations.map { VisualShape.PrismStation($0) }, color: white)
+            s.capTop = false
+            let ends = s.mesh().vertices.filter { abs(abs($0.normal.x) - 1) < 1e-12 }
+            XCTAssertFalse(ends.isEmpty, "\(stations)")
+            for v in ends {
+                XCTAssertEqual(v.position.x, closedAt, "\(stations)")
+                XCTAssertEqual(v.normal.x, closedAt == 4 ? 1 : -1, "\(stations)")
+            }
+            s.capTop = true
+            s.capBase = false
+            XCTAssertTrue(s.mesh().vertices.filter { abs(abs($0.normal.x) - 1) < 1e-12 }
+                .allSatisfy { $0.position.x == 4 - closedAt }, "\(stations)")
+        }
+    }
+
     /// Signed volume enclosed by triangles (divergence theorem).
     func volume(_ t: [VisualShape.Vertex]) -> Double {
         stride(from: 0, to: t.count, by: 3).reduce(0) {

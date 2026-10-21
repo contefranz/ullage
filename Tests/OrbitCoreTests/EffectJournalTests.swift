@@ -210,6 +210,40 @@ final class EffectJournalTests: XCTestCase {
         XCTAssertTrue(sim.journal.events.allSatisfy { $0.epoch == t0 })
     }
 
+    // A vessel that arrives burning has not just lit its engines: Apollo 11
+    // in its parking orbit has had its APS ullage on since T5, which its IU
+    // commands again on the first step (a liquid engine's level is only set
+    // by the control pass). Its first frame records no ignition; the ullage
+    // cutoff at T5 + 87 s is recorded when it comes, and so are the APS
+    // attitude jets' pulses of the turn to the local horizontal.
+    func testArrivingBurningRecordsNoIgnition() throws {
+        let sim = Simulation(system: try SolarSystem.bundled(), time: AS506.rangeZero)
+        let v = VesselLibrary.apollo11InParkingOrbit(in: sim)
+        let ullage = v.thrusters.filter { $0.name.hasPrefix("APS") && $0.name.hasSuffix("ullage") }
+        XCTAssertEqual(ullage.count, 2)
+        func ignitions() -> [EffectEvent] {
+            sim.journal.events.filter { if case .ignition = $0.kind { return true } else { return false } }
+        }
+        sim.advance(by: 1.0 / 60)
+        XCTAssertTrue(ullage.allSatisfy(\.isCommanded))
+        XCTAssertEqual(ignitions().map(\.kind), [])
+
+        sim.warp = 100
+        sim.advance(by: 0.8)
+        XCTAssertFalse(ignitions().isEmpty)
+        for e in ignitions() {
+            guard case let .ignition(thruster, _) = e.kind else { continue }
+            XCTAssertFalse(ullage.contains { $0.name == thruster }, thruster)
+        }
+        let off = AS506.rangeZero + AS506.timeBase5 + AS506.tb5UllageOff
+        let cutoffs = sim.journal.events.filter { e in
+            if case let .cutoff(thruster, _) = e.kind { return ullage.contains { $0.name == thruster } }
+            return false
+        }
+        XCTAssertEqual(cutoffs.count, 2)
+        for c in cutoffs { XCTAssertEqual(c.epoch - off, 0, accuracy: 0.02) }
+    }
+
     // Contact: splashdown, touchdown and impacts are recorded with the
     // speed the log gives.
     func testContacts() throws {

@@ -193,10 +193,11 @@ struct ApolloDresser {
 
     // MARK: Attachments
 
-    /// The nozzle exits of the part's solid motors whose names hold `motor`
-    /// ("retro", "ullage"), as `kind`: on each motor's thrust line at its
-    /// grain, the exhaust leaving against the thrust. Their exit radius is
-    /// not known yet (0).
+    /// The ports of the part's solid motors whose names hold `motor`
+    /// ("retro", "ullage"), as `kind`, the exhaust leaving against the
+    /// thrust. Each sits at its motor's thrust point (the thruster's
+    /// position, at its grain), not yet at the nozzle exit downstream of
+    /// it: the motors' lengths and exit radii (0 here) wait for VD1.
     func solidMotorPorts(_ motor: String, _ kind: VisualAttachment.Kind) -> [VisualAttachment] {
         part.thrusters.filter { $0.isSolid && $0.name.contains(motor) }.map { t in
             VisualAttachment(name: t.name, kind: kind, position: t.position, direction: -t.direction, radius: 0,
