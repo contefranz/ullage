@@ -59,9 +59,10 @@ public struct Spectrum3: Equatable, CustomStringConvertible {
 ///   to a 300 DU column, with Serdyuchenko et al. (2014) cross sections at
 ///   233 K (`Ozone`).
 ///
-/// Refraction is not modelled. Optical depths are integrated numerically
-/// along straight rays by Gauss-Legendre quadrature on segments split at the
-/// ray's lowest point, where the integrand peaks.
+/// Refraction is not modelled. Optical depths are integrated along straight
+/// rays by Gauss-Legendre quadrature on pieces cut at the ray's lowest
+/// point, where the integrand peaks, and at `cutAltitudes`: within 1e-4 of
+/// a 200,000-step trapezoid rule from the zenith to the limb.
 public struct OpticalAtmosphere {
     /// The three wavelengths, m: red, green, blue.
     public static let wavelengths = Spectrum3(680e-9, 550e-9, 440e-9)
@@ -173,6 +174,11 @@ public struct OpticalAtmosphere {
     /// ground to the top, from the atmosphere it was built on.
     let airDensityProfile: [Double]
     static let profileStep = 50.0
+    /// Altitudes (m) where rays are cut for quadrature, ascending: three
+    /// aerosol scale heights, and the ozone tent's base, peak and top, its
+    /// corners.
+    public let cutAltitudes: [Double]
+    let cutRadii: [Double]
 
     /// Optics over `atmosphere` (US-1976 by default, or a launch day's
     /// sounding), on the `figure`'s equatorial sphere.
@@ -191,6 +197,9 @@ public struct OpticalAtmosphere {
         airDensityProfile = (0..<count).map { i in
             atmosphere.state(altitude: Double(i) * Self.profileStep).density * perKilogram
         }
+        cutAltitudes = [3 * aerosol.scaleHeight, ozone.peakAltitude - ozone.halfWidth, ozone.peakAltitude,
+                        ozone.peakAltitude + ozone.halfWidth].sorted()
+        cutRadii = cutAltitudes.map { figure.equatorialRadius + $0 }
     }
 
     /// The ground's radius, m: the figure's equatorial radius.
@@ -203,14 +212,11 @@ public struct OpticalAtmosphere {
     /// The air's number density at altitude `h` (m), 1/m³: linear between
     /// the profile's 50 m nodes, the ground's below it and 0 above the top.
     public func airNumberDensity(altitude h: Double) -> Double {
-        airDensity(h)
-    }
-
-    func airDensity(_ h: Double) -> Double {
+        if h > Self.top { return 0 }
         let x = h / Self.profileStep
-        if x <= 0 { return airDensityProfile[0] }
+        if !(x > 0) { return airDensityProfile[0] }
         let i = Int(x)
-        if i >= airDensityProfile.count - 1 { return h > Self.top ? 0 : airDensityProfile[airDensityProfile.count - 1] }
+        if i >= airDensityProfile.count - 1 { return airDensityProfile[airDensityProfile.count - 1] }
         let f = x - Double(i)
         return airDensityProfile[i] + (airDensityProfile[i + 1] - airDensityProfile[i]) * f
     }
@@ -219,7 +225,7 @@ public struct OpticalAtmosphere {
     public func medium(altitude h: Double) -> Medium {
         guard h <= Self.top else { return Medium(rayleighScattering: .zero, aerosolScattering: .zero,
                                                  aerosolExtinction: .zero, ozoneAbsorption: .zero) }
-        let air = airDensity(h)
+        let air = airNumberDensity(altitude: h)
         let aerosolFactor = exp(-Swift.max(h, 0) / aerosol.scaleHeight)
         let ext = aerosolExtinctionAtGround * aerosolFactor
         return Medium(rayleighScattering: rayleighCrossSection * air,
@@ -230,10 +236,7 @@ public struct OpticalAtmosphere {
 
     /// Extinction at altitude `h` (m), 1/m.
     public func extinction(altitude h: Double) -> Spectrum3 {
-        guard h <= Self.top else { return .zero }
-        let aerosolFactor = exp(-Swift.max(h, 0) / aerosol.scaleHeight)
-        let rayleigh = rayleighCrossSection * airDensity(h)
-        return rayleigh + aerosolExtinctionAtGround * aerosolFactor + ozone.crossSection * ozone.density(altitude: h)
+        medium(altitude: h).extinction
     }
 
     // MARK: Phase functions
@@ -291,6 +294,7 @@ public struct OpticalAtmosphere {
         let disc: Double = r * r * (mu * mu - 1) + rt * rt
         guard disc >= 0 else { return nil }
         let far = -r * mu + disc.squareRoot()
+        if r <= rt { return Swift.max(far, 0) }   // from inside, rounding aside, it always leaves
         return far >= 0 ? far : nil
     }
 
@@ -311,38 +315,14 @@ public struct OpticalAtmosphere {
 
     // MARK: Optical depth
 
-    /// Altitudes (m) where rays are cut for the quadrature: three aerosol
-    /// scale heights, and the ozone tent's base, peak and top, where the
-    /// profile has corners.
-    var cutAltitudes: [Double] {
-        [3 * aerosol.scaleHeight,
-         ozone.peakAltitude - ozone.halfWidth, ozone.peakAltitude, ozone.peakAltitude + ozone.halfWidth]
-    }
-
     /// [s0, s1] along the ray from radius `r` with zenith cosine `mu`, cut
-    /// at its lowest point and where it crosses a cut altitude, so the
-    /// medium is smooth on each piece and spans a few scale heights. Each piece is (anchor, end): the
-    /// anchor is its lower end, the one toward the lowest point.
+    /// at its lowest point and where it crosses one of `cutAltitudes`, so the
+    /// medium is smooth on each piece and spans a few scale heights at most.
+    /// Each piece is (anchor, end): the anchor is its lower end, the one
+    /// toward the lowest point. In order along the ray.
     public func smoothPieces(radius r: Double, cosZenith mu: Double, from s0: Double,
-                             to s1: Double) -> [(anchor: Double, end: Double)] {
-        guard s1 > s0 else { return [] }
-        let lowest = Swift.min(Swift.max(-r * mu, s0), s1)
-        var cuts = [s0, lowest, s1]
-        let b = r * mu
-        for a in cutAltitudes {
-            let ra = bottomRadius + a
-            let disc: Double = b * b - r * r + ra * ra
-            guard disc > 0 else { continue }
-            let root = disc.squareRoot()
-            for s in [-b - root, -b + root] where s > s0 && s < s1 { cuts.append(s) }
-        }
-        cuts.sort()
-        var pieces: [(anchor: Double, end: Double)] = []
-        for i in 0..<(cuts.count - 1) where cuts[i + 1] > cuts[i] {
-            let a = cuts[i], z = cuts[i + 1]
-            pieces.append(z <= lowest ? (z, a) : (a, z))
-        }
-        return pieces
+                             to s1: Double) -> SmoothPieces {
+        SmoothPieces(cutRadii: cutRadii, radius: r, cosZenith: mu, from: s0, to: s1)
     }
 
     /// ∫ f(altitude) ds from `s0` to `s1` along the ray from radius `r` with
@@ -353,10 +333,10 @@ public struct OpticalAtmosphere {
                           nodes: Int = 16, _ f: (Double) -> Spectrum3) -> Spectrum3 {
         let rule = GaussLegendre.rule(nodes)
         var sum = Spectrum3.zero
-        for piece in smoothPieces(radius: r, cosZenith: mu, from: s0, to: s1) {
-            let length = piece.end - piece.anchor
+        for (anchor, end) in smoothPieces(radius: r, cosZenith: mu, from: s0, to: s1) {
+            let length = end - anchor
             for (t, w) in rule {
-                let s = piece.anchor + length * t * t
+                let s = anchor + length * t * t
                 sum += f(altitude(radius: r, cosZenith: mu, distance: s)) * (w * 2 * t * abs(length))
             }
         }
@@ -392,7 +372,7 @@ public struct OpticalAtmosphere {
         if rayMeetsGround(radius: r, cosZenith: mu) { return .infinity }
         guard let segment = atmosphereSegment(radius: r, cosZenith: mu) else { return 0 }
         return integrate(radius: r, cosZenith: mu, from: segment.enter, to: segment.exit) { a in
-            Spectrum3(repeating: a <= Self.top ? airDensity(a) : 0)
+            Spectrum3(repeating: airNumberDensity(altitude: a))
         }.r
     }
 
@@ -427,6 +407,71 @@ public struct OpticalAtmosphere {
         if rayMeetsGround(radius: r, cosZenith: mu) { return .zero }
         guard let segment = atmosphereSegment(radius: r, cosZenith: mu) else { return .one }
         return opticalDepth(radius: r, cosZenith: mu, from: segment.enter, to: segment.exit).attenuation
+    }
+}
+
+/// The pieces of a ray segment on which the medium is smooth
+/// (`OpticalAtmosphere.smoothPieces`), produced in order without storing
+/// them: the cuts before the ray's lowest point come from the highest
+/// altitude down, those after it from the lowest up.
+public struct SmoothPieces: Sequence, IteratorProtocol {
+    let cutRadii: [Double]
+    let b: Double, impact2: Double
+    let s0: Double, s1: Double, lowest: Double
+    var descending: Bool
+    var done: Bool
+    var index: Int
+    var previous: Double
+
+    init(cutRadii: [Double], radius r: Double, cosZenith mu: Double, from s0: Double, to s1: Double) {
+        self.cutRadii = cutRadii
+        b = r * mu
+        impact2 = r * r - b * b
+        self.s0 = s0
+        self.s1 = s1
+        lowest = Swift.min(Swift.max(-b, s0), s1)
+        descending = lowest > s0
+        done = !(s1 > s0)
+        index = descending ? cutRadii.count - 1 : 0
+        previous = descending ? s0 : lowest
+    }
+
+    public mutating func next() -> (anchor: Double, end: Double)? {
+        if done { return nil }
+        if descending {
+            while index >= 0 {
+                let ra = cutRadii[index]
+                index -= 1
+                let disc: Double = ra * ra - impact2
+                guard disc > 0 else { continue }
+                let s = -b - disc.squareRoot()
+                if s > previous && s < lowest {
+                    let piece = (anchor: s, end: previous)
+                    previous = s
+                    return piece
+                }
+            }
+            let piece = (anchor: lowest, end: previous)
+            descending = false
+            index = 0
+            previous = lowest
+            if !(s1 > lowest) { done = true }
+            return piece
+        }
+        while index < cutRadii.count {
+            let ra = cutRadii[index]
+            index += 1
+            let disc: Double = ra * ra - impact2
+            guard disc > 0 else { continue }
+            let s = -b + disc.squareRoot()
+            if s > previous && s < s1 {
+                let piece = (anchor: previous, end: s)
+                previous = s
+                return piece
+            }
+        }
+        done = true
+        return (anchor: previous, end: s1)
     }
 }
 

@@ -216,6 +216,17 @@ final class AtmosphereOpticsTests: XCTestCase {
         XCTAssertGreaterThan(optics.sunTransmittance(position: under, sunDir: up).g, 0.75)
     }
 
+    /// The noon Sun's luminance at sea level (plan.md decision 8): above
+    /// the air E⊙/Ω⊙ = 131 klx over the disc's 6.8e-5 sr, 1.9e9 cd/m²; times
+    /// the zenith transmittance at 550 nm, the ground value 1.6e9 within 5 %.
+    func testNoonSunLuminanceAtSeaLevel() {
+        let alpha = Eclipse.solarRadius / 149_597_870_700
+        let above = 131_000 / (Double.pi * alpha * alpha)
+        XCTAssertEqual(above, 1.9e9, accuracy: 0.05e9)
+        let ground = above * optics.transmittance(altitude: 0, cosZenith: 1).g
+        XCTAssertEqual(ground, 1.6e9, accuracy: 0.08e9)
+    }
+
     /// Both phase functions integrate to 1 over the sphere.
     func testPhaseFunctionsAreNormalised() {
         let n = 20_000
