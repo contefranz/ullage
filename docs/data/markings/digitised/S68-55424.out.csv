@@ -1,0 +1,84 @@
+# S68-55424 (AS-503): images.nasa.gov S68-55424~orig.jpg, 4334x5660, sha256 ae8f19eaba9074802293983b66ceb2e046b20a660a16f5386a283d87bd430bc5
+# camera: 244 m from the axis at STA -1473, viewing from azimuth 178.8; tilt +21.6, pan -1.2, roll +0.4 deg; f 8204 px; reference rms 2.09 px
+#   station  2746.50: 4.2 px from its circle; ray hits 2762.0 (+15.5 in)  S-II/S-IVB interstage top: silhouette corner, right limb
+#   station  2519.00: 3.4 px from its circle; on the silhouette  S-II forward skirt top: silhouette corner, right limb
+#   station  1760.00: 0.4 px from its circle; ray hits 1759.5 (-0.5 in)  S-IC/S-II interstage top ridge (white) across the black stripe
+#   station  1760.00: 0.0 px from its circle; ray hits 1759.9 (-0.1 in)  the same ridge further right
+#   station  1564.00: 0.1 px from its circle; ray hits 1563.9 (-0.1 in)  S-IC/S-II separation ridge (white) across the black stripe
+#   station  1564.00: 0.2 px from its circle; ray hits 1564.2 (+0.2 in)  the same ridge further right
+#   station   885.20: 2.9 px from its circle; ray hits 888.8 (+3.6 in)  intertank top: corrugations begin (texture), white sector
+#   station   345.70: 2.0 px from its circle; ray hits 343.4 (-2.3 in)  thrust structure top: corrugations begin (texture), white sector
+#   azimuth  180.0 ->  180.5 (+0.5 deg)  Position III plate (centre), thrust structure
+#   azimuth  180.0 ->  178.5 (-1.5 deg)  S-IVB APS module (centre), Position III (MSFC-MAN-503 Fig 6-14)
+# spreads: the change for a 1 px shift of the point
+name,x,y,sta,sta_spread,az_deg,az_spread
+sic_lower_bw_135,1888.6,4200,552.6,1.2,135.6,0.5
+sic_lower_wb_180,2010.7,4200,540.7,1.2,180.6,0.3
+sic_lower_bw_225,2126.3,4200,552.8,1.2,224.0,0.5
+sic_black_top_c,2010.6,4130.6,621.8,1.2,180.6,0.3
+sic_black_top_r,2125.4,4139.6,623.6,1.2,223.7,0.5
+sic_black_top_mid,2060,4132.1,622.1,1.2,197.5,0.4
+sic_black_top_left_stripe,1860,4143.9,628.0,1.2,119.7,0.7
+usaL_top,1945.5,4155,596.2,1.2,158.3,0.4
+usaL_bottom,1945.5,4344,376.7,1.2,158.5,0.4
+usaL_left,1925.8,4180,569.2,1.2,151.1,0.4
+usaL_right,1965,4180,565.3,1.2,165.2,0.3
+usaL_U_bottom,1945.5,4204,538.9,1.2,158.4,0.4
+usaL_S_top,1945.5,4224,515.6,1.2,158.4,0.4
+usaL_S_bottom,1945.5,4273,458.7,1.2,158.4,0.4
+usaL_A_top,1945.5,4292,436.7,1.2,158.5,0.4
+usaR_left,2153.4,4250,502.9,1.2,239.4,0.7
+usaR_top,2159,4170,600.2,1.2,244.1,0.9
+plateIII_top,2010.5,4320,401.7,1.2,180.5,0.3
+plateIII_bottom,2010.5,4345,372.9,1.1,180.5,0.3
+plateIII_left,2002,4332,387.9,1.2,177.7,0.3
+plateIII_right,2020,4332,387.9,1.2,183.7,0.3
+tunnel_fuel_l,2031,4250,482.9,1.2,187.4,0.3
+tunnel_fuel_r,2048,4250,483.7,1.2,193.2,0.3
+tunnel_lox,2033,3690,1149.3,1.2,188.3,0.3
+flagL_hoist_top,1897,3655,1205.2,1.2,138.2,0.5
+flagL_hoist_bottom,1897,3722,1123.0,1.2,138.3,0.5
+flagL_fly_top,2006.7,3647.5,1200.6,1.2,179.3,0.3
+flagL_fly_bottom,2006.7,3713,1120.6,1.2,179.3,0.3
+flagL_union_corner,1938,3689.5,1154.1,1.2,155.1,0.4
+flagR_hoist_top,2130,3664,1199.0,1.2,227.4,0.5
+flagR_hoist_bottom,2130,3727,1121.5,1.2,227.2,0.5
+flagR_union_corner,2152,3700,1165.4,1.2,241.0,0.8
+fs_bw_left,1893.6,3420,1499.1,1.3,136.0,0.5
+fs_wb_mid,2012.4,3420,1482.3,1.3,181.2,0.3
+fs_bw_right,2122.8,3420,1500.7,1.3,224.4,0.5
+fs_black_bottom_mid,2060,3471.4,1421.4,1.2,198.0,0.4
+fs_black_bottom_r,2090,3475.5,1421.4,1.2,209.6,0.4
+is_bw_left,1894.7,3250,1714.6,1.3,136.1,0.5
+is_wb_mid,2012.5,3250,1696.8,1.3,181.3,0.3
+is_bw_right,2122.3,3250,1716.8,1.3,224.6,0.5
+cap_top_1950,1950,3136.9,1845.5,1.3,158.9,0.4
+cap_top_2060,2060,3137.2,1844.9,1.3,198.3,0.4
+cap_bottom_1950,1950,3174.1,1797.7,1.3,159.0,0.4
+cap_left_end,1902.2,3150,1840.4,1.3,139.4,0.5
+cap_right_end,2117.1,3150,1843.4,1.3,222.2,0.5
+fairing_left_edge,1883.9,3150,1848.0,1.3,130.3,0.5
+fairing_top,1892,3010,2026.6,1.3,134.1,0.5
+us_top,2071.5,2735.5,2374.4,1.3,203.2,0.4
+us_bottom,2071.5,3077.5,1924.0,1.3,202.8,0.4
+us_left,2063,2900,2154.2,1.3,199.7,0.4
+us_right,2080,2900,2157.9,1.3,206.4,0.4
+us_D_bottom,2071.5,2892.7,2165.5,1.3,203.0,0.4
+us_S_top,2071.5,2913.4,2138.3,1.3,203.0,0.4
+iu_band_top_1960,1960,2120.5,3254.6,1.4,152.0,0.6
+iu_band_top_2000,2000,2116,3254.3,1.4,175.6,0.6
+iu_band_top_2050,2050,2121.5,3253.0,1.4,204.8,0.6
+iu_band_bottom_1960,1960,2186.5,3160.4,1.4,152.1,0.6
+iu_band_bottom_2000,2000,2182.2,3159.9,1.4,175.6,0.6
+iu_band_bottom_2050,2050,2186.1,3160.8,1.4,204.7,0.6
+isB_top_1980,1980,2481.3,2742.4,1.6,164.6,0.6
+isB_split_1980,1980,2550.6,2632.5,1.6,167.6,0.4
+isB_split_1940,1940,2556.8,2632.2,1.6,148.8,0.5
+isC_split_2040,2040,2553.8,2628.8,1.6,193.9,0.5
+isC_split_2080,2080,2561.2,2628.8,1.6,213.3,0.6
+isC_bottom_2040,2040,2624.6,2518.1,1.4,191.3,0.4
+isC_bottom_2080,2080,2630.4,2518.1,1.4,206.7,0.4
+isBC_boundary_hi,2009.2,2530,2663.4,1.6,180.5,0.5
+isBC_boundary_lo,2012.8,2600,2553.9,1.6,181.6,0.4
+ullB_l,1893.4,3340,1600.3,1.3,135.7,0.5
+ullB_r,1908.8,3340,1595.2,1.3,142.8,0.4

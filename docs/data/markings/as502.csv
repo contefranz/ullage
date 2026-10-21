@@ -1,0 +1,19 @@
+# AS-502 (Apollo 6) launch vehicle as flown, 4 Apr 1968: markings rows only (owner decision 8: no Apollo 6 visuals).
+# Conventions, columns and grades: docs/data/markings/README.md. No AS-502 photo is registered: rows say where they
+# follow AS-503 (the row id in the note) and what the AS-502 photos show qualitatively.
+id,vehicle,element,kind,feature,frame,sta_from,sta_to,az_from,az_to,paint,params,photos,sources,grade,note
+502-001,AS-502,whole stack,base,launch vehicle white,STA,48.50,3258.56,0,360,white,,6864722;9903402;6758331,,H,
+502-010,AS-502,S-IC,region,lower roll stripes,STA,48.50,628.80,0,45,black,copies=0-45/90-135/180-225/270-315,6864722,BCD,M,"As 503-010 to 503-013. 6864722 (launch, LUT on the right: the east face) shows a red USA left of the axis and a black stripe right of it, as AS-503's east face (S68-49405)."
+502-011,AS-502,S-IC,region,intertank,STA,628.80,885.20,0,360,white,,6864722,BCD,L,"Frost-covered at launch (6864722). Repainted white at KSC with a tone line, as AS-501 (rocketryforum, secondary)."
+502-020,AS-502,S-IC forward skirt to S-II aft skirt,region,upper roll stripes,STA,1420.30,1847.00,0,45,black,copies=0-45/90-135/180-225/270-315,6864722;6758331,BCD,M,As 503-020 to 503-023; 6758331 shows the S-II aft skirt's black in the VAB.
+502-030,AS-502,S-II aft skirt,region,black caps,STA,1795.00,1847.00,317.9,360,black,copies=317.9-360/52.2-90/139.4-180,6864722,,M,A cap across the D and A sectors facing the camera in 6864722; as AS-503's east face.
+502-040,AS-502,S-IC/S-II interstage,region,separation ridge at STA 1564,STA,1562.0,1566.0,0,360,white,,6864722,BCD,M,As 503-040.
+502-041,AS-502,S-IC/S-II interstage,region,separation ridge at STA 1760,STA,1758.0,1762.0,0,360,white,,6864722,BCD,M,As 503-041.
+502-050,AS-502,S-IC/S-II interstage,region,S-II ullage-motor fairings (four),STA,1563.56,1740.70,45.5,52.5,white,copies=45.5-52.5/135.5-142.5/225.5-232.5/315.5-322.5,6864722,M503 p. 5-24; D5 §6.2.2 (four removed from AS-502 and AS-503),M,"Four, as AS-503 (H as a count); azimuths as 503-050 to 053 (L)."
+502-060,AS-502,S-II/S-IVB interstage,region,quadrant A all black,STA,2519.00,2746.50,0,90,black,,6864722,BCD,M,Quadrant A black right of the axis and quadrant D white left of it (6864722); as 503-060 to 503-062.
+502-061,AS-502,S-II/S-IVB interstage,region,quadrant B upper half black,STA,2632.75,2746.50,90,180,black,,,BCD,L,As 503-061; quadrant B is not seen in 6864722.
+502-062,AS-502,S-II/S-IVB interstage,region,quadrant C lower half black,STA,2519.00,2632.75,180,270,black,,,BCD,L,As 503-062; quadrant C is not seen in 6864722.
+502-070,AS-502,IU and S-IVB forward skirt,region,black band,STA,3155.0,3258.56,0,360,black,,6864722,BCD,M,As 503-070.
+502-100,AS-502,S-IC,decal,USA,STA,372.0,594.0,331.1,342.8,red,copies=331.1-342.8/61.0-74.0/151.1-165.2/241.1-254.4;text=USA;letters=upright stacked top to bottom,6864722,,M,Red USA left of the axis on the east face (6864722); extents as AS-503's.
+502-110,AS-502,S-IC,decal,US flags,STA,1118.0,1200.0,316.2,359.6,flag,copies=316.2-359.6/47.7-89.7/138.2-179.3/227.3-268.5;union=upper hoist;hoist=low azimuth,,EO 10834,L,"Not visible at launch (the LOX tank frosted, 6864722); assumed as AS-501 and AS-503."
+502-120,AS-502,S-II,decal,UNITED STATES,STA,1918.0,2376.0,19.9,25.9,red,copies=19.9-25.9/109.0-116.0/199.7-206.4/288.2-294.8;text=UNITED STATES;letters=upright stacked top to bottom,6864722,,M,Red lettering right of the axis on the east face (6864722); extents as AS-503's.
