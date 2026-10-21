@@ -4,3 +4,7 @@ DerivedData/
 *.xcodeproj/xcuserdata/
 .DS_Store
 __pycache__/
+
+# ERA5-derived cloud fields (CC BY 4.0): fetched by the owner with
+# tools/make_clouds_era5.py, not committed (docs/m16/plan.md, decision 29).
+Sources/OrbitScene/Resources/*.oscloud
