@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import OrbitScene
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {

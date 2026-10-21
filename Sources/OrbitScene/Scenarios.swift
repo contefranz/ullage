@@ -4,24 +4,38 @@ import OrbitCore
 /// Starting situations: test vehicles; Apollo 11's Saturn V with and
 /// without an engine failure, from the pad to splashdown; and the Apollo
 /// spacecraft in Earth orbit and at entry.
-struct Scenario: Identifiable {
-    let id: String
-    let name: String
-    let summary: String
+public struct Scenario: Identifiable {
+    public let id: String
+    public let name: String
+    public let summary: String
     /// Zero of the HUD's mission clock (MET), when the mission has one (the
     /// Saturn V's range zero: Apollo 11's GET); nil starts it at liftoff.
-    var missionClockZero: Epoch? = nil
+    public var missionClockZero: Epoch? = nil
     /// Where the mission plans to land (geodetic latitude, longitude east,
     /// degrees), for the MAP and ENTRY displays; nil when none is planned.
-    var recoveryTarget: (latitude: Double, longitude: Double)? = nil
-    let build: (SolarSystem) -> Simulation
+    public var recoveryTarget: (latitude: Double, longitude: Double)? = nil
+    public let build: (SolarSystem) -> Simulation
 
-    static let all: [Scenario] = [pad39A, saturnVPad, earthOrbitReturn, apollo11ParkingOrbit, apollo13, sICEngine1Out,
+    public init(id: String, name: String, summary: String, missionClockZero: Epoch? = nil,
+                recoveryTarget: (latitude: Double, longitude: Double)? = nil,
+                build: @escaping (SolarSystem) -> Simulation) {
+        self.id = id
+        self.name = name
+        self.summary = summary
+        self.missionClockZero = missionClockZero
+        self.recoveryTarget = recoveryTarget
+        self.build = build
+    }
+
+    /// The scenario with this `id`, nil if there is none.
+    public static func named(_ id: String) -> Scenario? { all.first { $0.id == id } }
+
+    public static let all: [Scenario] = [pad39A, saturnVPad, earthOrbitReturn, apollo11ParkingOrbit, apollo13, sICEngine1Out,
                                   apollo7Deorbit, apollo7EntryInterface, lowEarthOrbit, lunarOrbit]
 
     /// Launch Complex 39A, Kennedy Space Center, where Apollo 11 stood:
     /// geodetic, on the WGS-84 Earth, with the pad's elevation.
-    static let lc39A = VesselLibrary.lc39A
+    public static let lc39A = VesselLibrary.lc39A
 
     /// Apollo 7's planned landing point, 29.8° N 67.0° W (MSC Internal Note
     /// 68-FM-184 §5.4.3 and Table IX(b), the Apollo 7 entry tests'), also the
@@ -30,9 +44,9 @@ struct Scenario: Identifiable {
     /// target had moved east, near where it came down at 27.64° N 64.15° W,
     /// about 200 n mi away (CM-entry-datasheet §4.5), and the sources give no
     /// coordinates for it.
-    static let apollo7Target = (latitude: 29.8, longitude: -67.0)
+    public static let apollo7Target = (latitude: 29.8, longitude: -67.0)
 
-    static let pad39A = Scenario(
+    public static let pad39A = Scenario(
         id: "pad39a",
         name: "Pathfinder on LC-39A",
         summary: "Two-stage test rocket on the pad on 16 July 1969, 13:32 UTC. Z for full throttle, space to stage.",
@@ -52,7 +66,7 @@ struct Scenario: Identifiable {
     /// paused with the F-1s at full thrust, so the first step after P is
     /// first motion and the IU's events fall on Apollo 11's UTC times. The
     /// mission clock is Apollo 11's GET, zero at range zero, 13:32:00 UTC.
-    static let saturnVPad = Scenario(
+    public static let saturnVPad = Scenario(
         id: "as506-pad",
         name: "Saturn V (AS-506) on LC-39A",
         summary: "Apollo 11 at first motion, 16 July 1969, 13:32:00.3 UTC, paused: P releases the hold-down arms. The IU flies the ascent: tower-clearance yaw, roll and pitch programs, staging, and iterative guidance (IGM) through the S-II and S-IVB burns to a 100 n mi parking orbit. MET is Apollo 11's GET.",
@@ -67,7 +81,7 @@ struct Scenario: Identifiable {
     /// retrograde turn on the SM RCS, the DEORBIT MFD's burn on the SPS with
     /// the ΔV counter's cutoff, CM/SM separation (Space twice), and the CM's
     /// entry program and earth landing system to splashdown.
-    static let earthOrbitReturn = Scenario(
+    public static let earthOrbitReturn = Scenario(
         id: "as506-earth-orbit-return",
         name: "Apollo 11: pad to splashdown (TLI no-go)",
         summary: "Apollo 11 from the pad, returning from Earth orbit as if TLI were no-go. Paused at first motion: P releases the hold-down arms and the IU flies to the parking orbit. Then Space separates the CSM (the SLA panels, and the S-IVB with the IU and LM, leave); 2 turns it retrograde on the SM RCS; the DEORBIT MFD gives the burn's Δv and TIG, and its SET loads the ΔV counter; Z at TIG lights the SPS and the counter cuts it off; Space twice separates the SM. The CM's entry program holds lift up (9: manual, bank hold, rolling) and the earth landing system brings it down to splashdown.",
@@ -79,7 +93,7 @@ struct Scenario: Identifiable {
     /// builder: the S-IVB with what burn 1 left, the IU turning to the local
     /// horizontal, the LM and the CSM, at AS-506's postflight insertion
     /// state. The rest of the Earth-orbit return from there.
-    static let apollo11ParkingOrbit = Scenario(
+    public static let apollo11ParkingOrbit = Scenario(
         id: "as506-parking-orbit",
         name: "Apollo 11 in parking orbit",
         summary: "Apollo 11 at orbit insertion, 16 July 1969, 13:43:49 UTC (GET 00:11:49): the S-IVB, IU, LM and CSM in the 100 n mi parking orbit at AS-506's postflight state, the IU turning to the local horizontal, heads down. Space separates the CSM; from there, as in the Earth-orbit return: 2 retrograde, the DEORBIT MFD's burn with Z and the ΔV counter, Space twice for CM/SM separation, then entry and splashdown.",
@@ -95,7 +109,7 @@ struct Scenario: Identifiable {
     /// (track C's builder): in the burn's attitude, held, the EMS ΔV counter
     /// loaded. The crew's steps are the Mission Report's (Table 2-I); it
     /// opens paused so that the pilot can read them.
-    static let apollo7Deorbit = Scenario(
+    public static let apollo7Deorbit = Scenario(
         id: "apollo7-deorbit",
         name: "Apollo 7: deorbit and entry",
         summary: "Apollo 7 (CSM-101) on 22 October 1968 at GET 259:38:00, before its deorbit burn (SPS-8): in the burn's attitude, held, with the EMS ΔV counter loaded. Paused: P starts. As the crew flew it: U (+X ullage) for 15 s from 259:39:01; Z at 259:39:16 lights the SPS and the counter cuts it off; Space twice at 259:43:34 separates the SM. The CM's entry program holds lift up (9: manual, bank hold, rolling); entry interface near 259:53:27, splashdown near 27.64° N 64.15° W.",
@@ -115,7 +129,7 @@ struct Scenario: Identifiable {
     /// angles in the geocentric horizontal; at 10:19:53:50 GET, the plan's
     /// 10:19:40:04 cutoff (§5.4.2) and 826 s coast. `EntryTests` and
     /// `Apollo7EntryTests` start there too.
-    static let apollo7Interface = (groundElapsedTime: 934_804.0 + 826, latitude: 31.03, longitude: -98.83,
+    public static let apollo7Interface = (groundElapsedTime: 934_804.0 + 826, latitude: 31.03, longitude: -98.83,
                                    height: 121_920.0, speed: 25_850.3 * 0.3048, flightPathAngle: -1.759,
                                    azimuth: 83.64)
 
@@ -125,7 +139,7 @@ struct Scenario: Identifiable {
     /// holding the 55° bank 68-FM-184 §5.4.4 targets the landing point on
     /// (to the left, as Apollo 7's backup bank was), the CM turned to that
     /// trim attitude. The app's aerodynamics are the flight-consistent ones.
-    static let apollo7EntryInterface = Scenario(
+    public static let apollo7EntryInterface = Scenario(
         id: "apollo7-cm-ei",
         name: "Apollo 7 CM at entry interface",
         summary: "Apollo 7's command module at its planned entry interface (68-FM-184 Table IX(b)): 400,000 ft over 31.03° N 98.83° W at 25,850 ft/s and -1.76°, GET 259:53:50. The entry program holds a 55° left bank, the bank 68-FM-184 targets 29.8° N 67.0° W on; 9 cycles manual (Q/E roll the lift about the air), bank hold (the bank flown) and rolling. The ELS fires on its baroswitches, Space being its backup below 40,000 ft, down to splashdown.",
@@ -152,7 +166,7 @@ struct Scenario: Identifiable {
     /// 328.6 s. The IU senses it, the four outboard J-2s burn about 33 s
     /// longer under the IGM (AS-508's 34.5 s), and the S-IVB still reaches
     /// the parking orbit (datasheet §16).
-    static let apollo13 = Scenario(
+    public static let apollo13 = Scenario(
         id: "as506-apollo13",
         name: "Apollo 13: S-II centre engine out",
         summary: "Apollo 11's Saturn V with Apollo 13's failure: the S-II centre engine (engine 5) shuts down at T3 + 167.0 s, range about 328.6 s, as on AS-508. The IGM flies the four outboard J-2s about 33 s longer (AS-508: 34.5 s) and the S-IVB to the parking orbit. Opens paused at first motion: P releases the hold-down arms.",
@@ -165,7 +179,7 @@ struct Scenario: Identifiable {
     /// freezes the pitch program for about 8 s (GE504's chi freeze) and moves
     /// the tilt arrest out; the four F-1s burn longer, and the IGM still
     /// reaches the parking orbit (datasheet §16).
-    static let sICEngine1Out = Scenario(
+    public static let sICEngine1Out = Scenario(
         id: "as506-sic-engine1-out",
         name: "S-IC engine 1 out at 60 s",
         summary: "Apollo 11's Saturn V losing outboard F-1 engine 1 at range 60 s. The IU senses it and freezes the pitch program for about 8 s (GE504's chi freeze), the four F-1s burn on to a later staging, and the IGM still flies the S-II and S-IVB to orbit. Opens paused at first motion: P releases the hold-down arms.",
@@ -176,7 +190,7 @@ struct Scenario: Identifiable {
 
     /// Apollo 11 at first motion, paused, with the F-1s at full thrust and
     /// an engine failure, if any, scheduled on the IU.
-    static func apollo11(_ system: SolarSystem, failing failure: SaturnIU.EngineFailure? = nil) -> Simulation {
+    public static func apollo11(_ system: SolarSystem, failing failure: SaturnIU.EngineFailure? = nil) -> Simulation {
         let sim = Simulation(system: system, time: VesselLibrary.apollo11FirstMotion)
         let iu = SaturnIU.as506()
         if let failure { iu.scheduleFailure(of: failure.engine, at: failure.time) }
@@ -186,7 +200,7 @@ struct Scenario: Identifiable {
         return sim
     }
 
-    static let lowEarthOrbit = Scenario(
+    public static let lowEarthOrbit = Scenario(
         id: "leo",
         name: "Capsule in low Earth orbit",
         summary: "185 km circular orbit, 32.5° inclination. Practise attitude control and orbital manoeuvres.",
@@ -199,7 +213,7 @@ struct Scenario: Identifiable {
             return sim
         })
 
-    static let lunarOrbit = Scenario(
+    public static let lunarOrbit = Scenario(
         id: "llo",
         name: "Capsule in lunar orbit",
         summary: "110 km circular lunar orbit on 20 July 1969.",

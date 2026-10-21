@@ -4,6 +4,7 @@ import Foundation
 import Metal
 import simd
 import OrbitCore
+import OrbitScene
 
 /// Screen-aligned sprites drawn once, at startup, with CoreGraphics and
 /// CoreText into one texture: the orbit-line markers (Ap, Pe, AN, DN, EI)
@@ -14,28 +15,7 @@ import OrbitCore
 @MainActor
 final class SpriteAtlas {
     /// The markers on the focus vessel's orbit line.
-    enum OrbitMarker: CaseIterable {
-        case periapsis, apoapsis, ascendingNode, descendingNode, entryInterface
-
-        var label: String {
-            switch self {
-            case .periapsis: "Pe"
-            case .apoapsis: "Ap"
-            case .ascendingNode: "AN"
-            case .descendingNode: "DN"
-            case .entryInterface: "EI"
-            }
-        }
-
-        /// sRGB.
-        var color: (r: CGFloat, g: CGFloat, b: CGFloat) {
-            switch self {
-            case .periapsis, .apoapsis: (0.35, 0.75, 1.0)
-            case .ascendingNode, .descendingNode: MarkerGlyph.normal.color
-            case .entryInterface: (1.0, 0.48, 0.15)
-            }
-        }
-    }
+    typealias OrbitMarker = OrbitMarkerKind
 
     enum Key: Hashable {
         case orbit(OrbitMarker)
@@ -243,4 +223,25 @@ final class SpriteAtlas {
         }
         ctx.restoreGState()
     }
+}
+
+extension OrbitMarkerKind {
+    /// sRGB.
+    var color: (r: CGFloat, g: CGFloat, b: CGFloat) {
+        switch self {
+        case .periapsis, .apoapsis: (0.35, 0.75, 1.0)
+        case .ascendingNode, .descendingNode: MarkerGlyph.normal.color
+        case .entryInterface: (1.0, 0.48, 0.15)
+        }
+    }
+}
+
+/// A screen-aligned sprite's vertex (OverlayShaders).
+struct SpriteVertex {
+    /// Camera-relative world position of the anchor, w = 1.
+    var position: SIMD4<Float>
+    /// xy: offset from the anchor in pixels (y up), zw: atlas texture coordinates.
+    var offset: SIMD4<Float>
+    /// Tint (premultiplied by alpha).
+    var color: SIMD4<Float>
 }
