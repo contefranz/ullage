@@ -486,6 +486,10 @@ extension Vessel {
         fccFilter?.elapsed += dt
         let r = groupPulse.remaining
         groupPulse.remaining = Vec3(max(0, r.x - dt), max(0, r.y - dt), max(0, r.z - dt))
+        if pilotPulse.isActive {
+            pilotPulse.advance(dt)
+            applyPilotInputs()   // an axis whose pulse ran out falls back to its held key
+        }
         if let r = referenceAttitude, referenceRate != .zero {
             referenceAttitude = (Quat(axis: referenceRate, angle: referenceRate.length * dt) * r).normalized
         }

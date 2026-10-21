@@ -99,6 +99,9 @@ extension Vessel {
         fccFilter = source.fccFilter
         groupPulse = source.groupPulse
         groupSwitch = source.groupSwitch
+        pilotPulse = source.pilotPulse
+        pilotHeldRotation = source.pilotHeldRotation
+        pilotHeldTranslation = source.pilotHeldTranslation
     }
 
     /// No program, no autopilot, nothing commanded, M0's laws.
@@ -116,6 +119,9 @@ extension Vessel {
         resetAttitudeReference()
         groupPulse = (.zero, .zero)
         groupSwitch = .infinity
+        pilotPulse = PilotPulse()
+        pilotHeldRotation = .zero
+        pilotHeldTranslation = .zero
     }
 
     /// Separate the lowest `.bottomOfStack` part (the bottom stage of an M0 stack).

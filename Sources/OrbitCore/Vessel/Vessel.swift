@@ -36,6 +36,59 @@ public struct RotationCommand: Equatable {
     public var isZero: Bool { roll == 0 && pitch == 0 && yaw == 0 }
 }
 
+/// RCS pulses the pilot fired with tapped keys (`Vessel.firePilotPulse`),
+/// body axes: per axis the signed level and the simulation time still to
+/// fire, s. The steps end where a pulse does (`Simulation.maxStep(for:)`),
+/// so a tap's impulse does not depend on the frame rate or the time warp.
+public struct PilotPulse: Equatable {
+    /// Signed levels on roll, pitch and yaw, and the time each still fires.
+    public var rotation = Vec3.zero
+    public var rotationRemaining = Vec3.zero
+    /// Signed levels on the translation axes, and the time each still fires.
+    public var translation = Vec3.zero
+    public var translationRemaining = Vec3.zero
+
+    public init() {}
+
+    /// Whether any axis still fires.
+    public var isActive: Bool { rotationRemaining != .zero || translationRemaining != .zero }
+
+    /// Times still to run on the axes that fire, s.
+    var remainingTimes: [Double] {
+        [rotationRemaining.x, rotationRemaining.y, rotationRemaining.z,
+         translationRemaining.x, translationRemaining.y, translationRemaining.z].filter { $0 > 0 }
+    }
+
+    /// `dt` s of firing done; an axis that runs out stops. A remainder under
+    /// 1 ns counts as run out: the steps do not end on one that short
+    /// (`Simulation.maxStep(for:)`), so it would fire through a whole step.
+    mutating func advance(_ dt: Double) {
+        func run(_ level: inout Double, _ remaining: inout Double) {
+            remaining = remaining - dt > 1e-9 ? remaining - dt : 0
+            if remaining == 0 { level = 0 }
+        }
+        run(&rotation.x, &rotationRemaining.x)
+        run(&rotation.y, &rotationRemaining.y)
+        run(&rotation.z, &rotationRemaining.z)
+        run(&translation.x, &translationRemaining.x)
+        run(&translation.y, &translationRemaining.y)
+        run(&translation.z, &translationRemaining.z)
+    }
+
+    /// End the pulses on the axes the held keys command (nonzero there).
+    mutating func end(heldRotation: Vec3, heldTranslation: Vec3) {
+        func end(_ held: Double, _ level: inout Double, _ remaining: inout Double) {
+            if held != 0 { level = 0; remaining = 0 }
+        }
+        end(heldRotation.x, &rotation.x, &rotationRemaining.x)
+        end(heldRotation.y, &rotation.y, &rotationRemaining.y)
+        end(heldRotation.z, &rotation.z, &rotationRemaining.z)
+        end(heldTranslation.x, &translation.x, &translationRemaining.x)
+        end(heldTranslation.y, &translation.y, &translationRemaining.y)
+        end(heldTranslation.z, &translation.z, &translationRemaining.z)
+    }
+}
+
 public final class Vessel: Identifiable {
     public let id = UUID()
     public var name: String
@@ -109,6 +162,12 @@ public final class Vessel: Identifiable {
     /// Predicted time until a coasting group axis reaches the phase plane's
     /// switching line, s (infinity when none is heading there).
     var groupSwitch = Double.infinity
+    /// The pilot's RCS pulses in progress (`firePilotPulse`).
+    public internal(set) var pilotPulse = PilotPulse()
+    /// The held keys' commands in body axes (`setPilotInput`), before the
+    /// pulses are laid over them on the axes no key holds.
+    var pilotHeldRotation = Vec3.zero
+    var pilotHeldTranslation = Vec3.zero
 
     // MARK: Telemetry (updated every step)
     public internal(set) var altitude = 0.0
@@ -225,14 +284,72 @@ public final class Vessel: Identifiable {
     // MARK: Control allocation
 
     /// Set the manual rotation and translation inputs from commands in pilot
-    /// axes (`controlFrame`), -1...1 per axis, as the keys give them.
+    /// axes (`controlFrame`), -1...1 per axis, as the held keys give them. A
+    /// key held on an axis ends a pilot's pulse there (`firePilotPulse`), so
+    /// the axis stops firing when the key goes up, even where the pulse
+    /// outlasts the keys' hold delay (at 0.1× warp); the pulses on the axes
+    /// left at 0 fire on.
     public func setPilotInput(rotation: RotationCommand, translation: Vec3) {
-        func clamped(_ v: Vec3) -> Vec3 {
-            Vec3(min(max(v.x, -1), 1), min(max(v.y, -1), 1), min(max(v.z, -1), 1))
+        pilotHeldRotation = Self.clamped(controlFrame.rotate(Vec3(rotation.roll, rotation.pitch, rotation.yaw)))
+        pilotHeldTranslation = Self.clamped(controlFrame.rotate(translation))
+        pilotPulse.end(heldRotation: pilotHeldRotation, heldTranslation: pilotHeldTranslation)
+        applyPilotInputs()
+    }
+
+    /// Fire one RCS pulse, as a tapped key does: `duration` s of simulation
+    /// time at `level` on the axes that `rotation` and `translation` name,
+    /// in pilot axes like `setPilotInput` (signs give the direction). A key
+    /// held on an axis wins: the pulse does not fire there. On an axis where
+    /// a pulse is still running the two add up, opposite ones netting: the
+    /// axis fires the sum of their impulses, at the new pulse's level. The
+    /// steps end where the pulse does, so a tap's impulse, and a run of
+    /// taps', is the same at any frame rate or time warp, however fast they
+    /// come (at 0.1× a tap's 0.1 s lasts 1 s of real time).
+    public func firePilotPulse(rotation: RotationCommand = RotationCommand(), translation: Vec3 = .zero,
+                               duration: Double, level: Double = 1) {
+        guard duration > 0, level > 0 else { return }
+        let r = Self.clamped(controlFrame.rotate(Vec3(rotation.roll, rotation.pitch, rotation.yaw)) * level)
+        let t = Self.clamped(controlFrame.rotate(translation) * level)
+        func lay(_ command: Double, _ held: Double, _ level: inout Double, _ remaining: inout Double) {
+            guard abs(command) > 1e-12, held == 0 else { return }
+            let impulse = level * remaining + command * duration, magnitude = abs(command)
+            if abs(impulse) <= magnitude * 1e-9 {   // netted out (`PilotPulse.advance`'s 1 ns)
+                level = 0
+                remaining = 0
+            } else {
+                level = impulse > 0 ? magnitude : -magnitude
+                remaining = abs(impulse) / magnitude
+            }
         }
-        let r = clamped(controlFrame.rotate(Vec3(rotation.roll, rotation.pitch, rotation.yaw)))
-        rotationInput = RotationCommand(roll: r.x, pitch: r.y, yaw: r.z)
-        translationInput = clamped(controlFrame.rotate(translation))
+        var p = pilotPulse   // a copy: two inout accesses to one class property conflict
+        let h = pilotHeldRotation, ht = pilotHeldTranslation
+        lay(r.x, h.x, &p.rotation.x, &p.rotationRemaining.x)
+        lay(r.y, h.y, &p.rotation.y, &p.rotationRemaining.y)
+        lay(r.z, h.z, &p.rotation.z, &p.rotationRemaining.z)
+        lay(t.x, ht.x, &p.translation.x, &p.translationRemaining.x)
+        lay(t.y, ht.y, &p.translation.y, &p.translationRemaining.y)
+        lay(t.z, ht.z, &p.translation.z, &p.translationRemaining.z)
+        pilotPulse = p
+        applyPilotInputs()
+    }
+
+    /// The inputs the steps fly: the held keys' commands, and the pulses on
+    /// the axes no key holds (`setPilotInput` ends the others).
+    func applyPilotInputs() {
+        func merged(_ held: Double, _ pulse: Double, _ remaining: Double) -> Double {
+            held != 0 ? held : (remaining > 0 ? pulse : 0)
+        }
+        let p = pilotPulse, h = pilotHeldRotation, ht = pilotHeldTranslation
+        rotationInput = RotationCommand(roll: merged(h.x, p.rotation.x, p.rotationRemaining.x),
+                                        pitch: merged(h.y, p.rotation.y, p.rotationRemaining.y),
+                                        yaw: merged(h.z, p.rotation.z, p.rotationRemaining.z))
+        translationInput = Vec3(merged(ht.x, p.translation.x, p.translationRemaining.x),
+                                merged(ht.y, p.translation.y, p.translationRemaining.y),
+                                merged(ht.z, p.translation.z, p.translationRemaining.z))
+    }
+
+    static func clamped(_ v: Vec3) -> Vec3 {
+        Vec3(min(max(v.x, -1), 1), min(max(v.y, -1), 1), min(max(v.z, -1), 1))
     }
 
     /// Torque authority about each body axis (N m): per axis, the larger of
