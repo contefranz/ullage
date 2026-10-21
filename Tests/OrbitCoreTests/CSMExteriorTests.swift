@@ -622,7 +622,8 @@ final class CSMExteriorTests: XCTestCase {
         XCTAssertEqual((section.map(\.a).max()! - section.map(\.a).min()!) / inch, 8, accuracy: 0.05)
         XCTAssertLessThan(apart(theta(origin(window[0], on: les, of: v)), 326), 1e-6)
         XCTAssertEqual(les.shapes.filter { $0.material == .apolloBPCSoft }.count, 2)   // the shell and the hatch
-        XCTAssertEqual(les.shapes.filter { $0.material == .apolloCMRCSPort }.count, 12 + 2 + 1)   // and the TJM's, the pitch motor's
+        // The twelve blow-out ports, and the TJM's two ports and the pitch motor's exit.
+        XCTAssertEqual(les.shapes.filter { $0.material == .apolloCMRCSPort }.count, 12 + 2 + 1)
     }
 
     // MARK: Variants

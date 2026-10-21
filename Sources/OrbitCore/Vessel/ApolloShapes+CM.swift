@@ -231,9 +231,8 @@ extension ApolloDresser {
         } else {
             upper = [P(top, M.coneRadius(at: top), crease: true)]
         }
-        let start = M.heatShield[M.heatShield.count - 1]
-        var afterbody = revolution(([P(start.x, start.r)] + upper + bore).map { P($0.x * inch, $0.r * inch, crease: $0.crease) },
-                                   at: face, A.silver)
+        let start = M.heatShield[M.heatShield.count - 1], profile = [P(start.x, start.r)] + upper + bore
+        var afterbody = revolution(profile.map { P($0.x * inch, $0.r * inch, crease: $0.crease) }, at: face, A.silver)
         afterbody.capBase = false
         var shapes = [heatShield, afterbody, dockingRing(), cmHatch()] + cmWindows()
         shapes += cmRCSPorts(forward: false) + (apexCovered ? [] : cmRCSPorts(forward: true))

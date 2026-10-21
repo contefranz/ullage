@@ -162,6 +162,7 @@ extension ApolloDresser {
     func bpc() -> [VisualShape] {
         typealias A = ApolloDresser
         typealias M = CMOuterMouldLine
+        typealias G = SpacecraftGeometry
         let inch = D.inch, soft = S.bpcSoftStandOff, hard = S.bpcHardStandOff, face = Vec3(cm(0), 0, 0)
         let joint = S.bpcJoint - S.cmFace, apex = S.bpcApex - S.cmFace
         let shoulder = M.heatShield.filter { $0.nx >= -1e-9 }.map { P($0.x + soft * $0.nx, $0.r + soft * $0.nr) }
@@ -187,10 +188,10 @@ extension ApolloDresser {
         var shapes = [shell(softProfile, A.bpcSoft), shell(hardProfile, A.bpcHard)]
 
         if let window = S.cmWindows.first(where: { $0.number == S.bpcWindow }) {
-            let f = cmConeFrame(x: window.xa - S.cmFace, theta: window.theta * SpacecraftGeometry.degree, off: soft)
+            let f = cmConeFrame(x: window.xa - S.cmFace, theta: window.theta * G.degree, off: soft)
             let r = S.bpcWindowDiameter / 2 * inch
             shapes.append(scPatch(at: f.at, normal: f.normal, across: f.across, up: f.up,
-                                  outline: SpacecraftGeometry.ellipse(r, r, count: 16), depth: 0.5 * inch, height: 0.1 * inch,
+                                  outline: G.ellipse(r, r, count: 16), depth: 0.5 * inch, height: 0.1 * inch,
                                   A.cmWindow))
         }
         shapes.append(cmHatch(off: soft + S.cmHatchRelief, A.bpcSoft))
@@ -247,9 +248,11 @@ extension ApolloDresser {
         typealias A = ApolloDresser
         typealias F = SpacecraftGeometry
         let inch = D.inch, body = S.lesBodyDiameter / 2
-        let skirtLength = (S.lesSkirtTop - S.lesTowerTop) * inch
-        var skirt = revolution([P(0, S.skirtBaseDiameter / 2 * inch), P(skirtLength, S.skirtTopDiameter / 2 * inch, crease: true),
-                                P(skirtLength, body * inch)], at: Vec3(lesX(S.lesTowerTop), 0, 0), A.lesSkirt)
+        let skirtLength = S.lesSkirtTop - S.lesTowerTop
+        let skirtProfile = [P(0, S.skirtBaseDiameter / 2), P(skirtLength, S.skirtTopDiameter / 2, crease: true),
+                            P(skirtLength, body, crease: true)]
+        var skirt = revolution(skirtProfile.map { P($0.x * inch, $0.r * inch, crease: $0.crease) },
+                               at: Vec3(lesX(S.lesTowerTop), 0, 0), A.lesSkirt)
         skirt.capBase = false
         skirt.capTop = false
         skirt.twoSided = true
@@ -289,7 +292,7 @@ extension ApolloDresser {
             let exhaust: Vec3 = Vec3.unitX * -cos(tjmCant) + out * sin(tjmCant)
             let skin = Vec3(lesX(S.tjmNozzleStation), 0, 0) + out * (body * inch)
             shapes.append(scPatch(at: skin, normal: out, across: F.tangent(theta), up: .unitX,
-                                  outline: SpacecraftGeometry.ellipse((er + 0.5) * inch, (er + 1) * inch), depth: 0.5 * inch,
+                                  outline: F.ellipse((er + 0.5) * inch, (er + 1) * inch), depth: 0.5 * inch,
                                   height: 0.08 * inch, A.cmRCSPort))
             shapes.append(lesNozzle(tjmNozzle, exit: Vec3(lesX(S.tjmNozzleStation), 0, 0) + out * (tjmCentre * inch),
                                    exhaust: exhaust))
@@ -308,7 +311,7 @@ extension ApolloDresser {
         shapes.append(lesNozzle(pcmNozzle, exit: exit, exhaust: minusZ))
         let r = S.pitchMotorExitRadius * inch
         shapes.append(scPatch(at: exit, normal: minusZ, across: F.tangent(0), up: .unitX,
-                              outline: SpacecraftGeometry.ellipse(r, r, count: 16), depth: 0.5 * inch, height: 0.08 * inch, A.cmRCSPort))
+                              outline: F.ellipse(r, r, count: 16), depth: 0.5 * inch, height: 0.08 * inch, A.cmRCSPort))
         return shapes
     }
 

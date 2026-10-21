@@ -424,12 +424,13 @@ extension ApolloDresser {
     /// (OrbitScene's `VesselGeometry`), and the last one it finds wins.
     func sps() -> [VisualShape] {
         typealias A = ApolloDresser
+        typealias G = SpacecraftGeometry
         let inch = D.inch, exit = xa(S.spsExit), re = S.spsExitDiameter / 2 * inch
         let link = part.thrusters.contains { $0.name == "SPS" } ? "SPS" : nil
         // The divergent contour is the bell's first eleven points.
         let contour = Array(A.bell(exitRadius: re, areaRatio: S.spsAreaRatio, length: S.spsLength * inch).prefix(11))
         let gimbal = xa(S.spsGimbal) - exit
-        let profile = contour.filter { $0.x < gimbal - 1e-9 } + [P(gimbal, SpacecraftGeometry.contourRadius(contour, at: gimbal))]
+        let profile = contour.filter { $0.x < gimbal - 1e-9 } + [P(gimbal, G.contourRadius(contour, at: gimbal))]
         var bell = finished(.revolution(profile, from: local(Vec3(exit, 0, 0)), color: A.nozzleExtension.colour),
                             A.nozzleExtension, vehicleFrame: false)
         bell.capBase = false
@@ -437,11 +438,11 @@ extension ApolloDresser {
         bell.thruster = link
 
         let chamber = re / (S.spsAreaRatio / S.spsChamberAreaRatio).squareRoot()
-        let top = min(SpacecraftGeometry.contourStation(contour, radius: chamber), gimbal), joint = xa(S.spsJoint) - exit
+        let top = min(G.contourStation(contour, radius: chamber), gimbal), joint = xa(S.spsJoint) - exit
         let lift = S.spsBandStandOff * inch
-        let band = [P(joint, SpacecraftGeometry.contourRadius(contour, at: joint) + lift)]
+        let band = [P(joint, G.contourRadius(contour, at: joint) + lift)]
             + contour.filter { $0.x > joint && $0.x < top }.map { P($0.x, $0.r + lift) }
-            + [P(top, SpacecraftGeometry.contourRadius(contour, at: top) + lift)]
+            + [P(top, G.contourRadius(contour, at: top) + lift)]
         var columbium = finished(.revolution(band, from: local(Vec3(exit, 0, 0)), color: A.spsColumbium.colour),
                                  A.spsColumbium, vehicleFrame: false)
         columbium.capBase = false
@@ -449,7 +450,7 @@ extension ApolloDresser {
         columbium.thruster = link
         let minor = S.spsStiffenerRadius * inch
         var stiffener = finished(.torus(centre: local(Vec3(exit + joint, 0, 0)),
-                                        majorRadius: SpacecraftGeometry.contourRadius(contour, at: joint) + minor, minorRadius: minor,
+                                        majorRadius: G.contourRadius(contour, at: joint) + minor, minorRadius: minor,
                                         segments: 48, minorSegments: 8, color: A.nozzleExtension.colour),
                                  A.nozzleExtension, vehicleFrame: false)
         stiffener.thruster = link
