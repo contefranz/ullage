@@ -122,7 +122,9 @@ public enum AmbientOcclusion {
                 let pc = out.vertices[Int(c)].position
                 let ab = (pb - pa).lengthSquared, bc = (pc - pb).lengthSquared, ca = (pa - pc).lengthSquared
                 guard max(ab, max(bc, ca)) > limit, depth < maxDepth else {
-                    out.indices += [a, b, c]
+                    out.indices.append(a)
+                    out.indices.append(b)
+                    out.indices.append(c)
                     continue
                 }
                 // (x, y) the longest edge, z opposite, in the same winding.
@@ -265,15 +267,20 @@ public enum AmbientOcclusion {
                 for v in s.mesh.vertices {
                     let p = v.position + s.offset
                     var found: Int32?
-                    search: for x in cellIndices(p.x) {
-                        for y in cellIndices(p.y) {
-                            for z in cellIndices(p.z) {
-                                for g in cells[Cell(x: x, y: y, z: z)] ?? [] {
-                                    let i = Int(g)
-                                    let close = (position[i] - p).lengthSquared <= tolerance * tolerance
-                                    if close && normal[i].dot(v.normal) >= AmbientOcclusion.weldNormalCosine {
-                                        found = g
-                                        break search
+                    // Far or non-finite points (none in a vessel) are not
+                    // welded: their cell would not fit an Int64.
+                    let weldable = abs(p.x) < 1e9 && abs(p.y) < 1e9 && abs(p.z) < 1e9
+                    if weldable {
+                        search: for x in cellIndices(p.x) {
+                            for y in cellIndices(p.y) {
+                                for z in cellIndices(p.z) {
+                                    for g in cells[Cell(x: x, y: y, z: z)] ?? [] {
+                                        let i = Int(g)
+                                        let close = (position[i] - p).lengthSquared <= tolerance * tolerance
+                                        if close && normal[i].dot(v.normal) >= AmbientOcclusion.weldNormalCosine {
+                                            found = g
+                                            break search
+                                        }
                                     }
                                 }
                             }
@@ -285,9 +292,11 @@ public enum AmbientOcclusion {
                         continue
                     }
                     let g = Int32(position.count)
-                    let key = Cell(x: Int64((p.x / size).rounded(.down)), y: Int64((p.y / size).rounded(.down)),
-                                   z: Int64((p.z / size).rounded(.down)))
-                    cells[key, default: []].append(g)
+                    if weldable {
+                        let key = Cell(x: Int64((p.x / size).rounded(.down)), y: Int64((p.y / size).rounded(.down)),
+                                       z: Int64((p.z / size).rounded(.down)))
+                        cells[key, default: []].append(g)
+                    }
                     position.append(p)
                     normal.append(v.normal)
                     twoSided.append(s.twoSided)
@@ -299,14 +308,14 @@ public enum AmbientOcclusion {
             centroids = facets
             facetCount = [Int](repeating: 0, count: position.count)
             for (s, surface) in surfaces.enumerated() {
-                let indices = surface.mesh.indices, vertices = surface.mesh.vertices
+                let indices = surface.mesh.indices, vertices = surface.mesh.vertices, groups = group[s]
                 for t in stride(from: 0, to: indices.count - 2, by: 3) {
-                    let i = (Int(indices[t]), Int(indices[t + 1]), Int(indices[t + 2]))
-                    let a = vertices[i.0].position, b = vertices[i.1].position, c = vertices[i.2].position
+                    let a = vertices[Int(indices[t])].position, b = vertices[Int(indices[t + 1])].position
+                    let c = vertices[Int(indices[t + 2])].position
                     let area = (b - a).cross(c - a)
                     let centroid = (a + b + c) / 3 + surface.offset
-                    for k in [i.0, i.1, i.2] {
-                        let g = Int(group[s][k])
+                    for k in t..<(t + 3) {
+                        let g = Int(groups[Int(indices[k])])
                         facets[g] += area
                         centroids[g] += centroid
                         facetCount[g] += 1
