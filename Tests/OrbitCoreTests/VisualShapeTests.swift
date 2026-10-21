@@ -116,8 +116,9 @@ final class VisualShapeTests: XCTestCase {
     }
 
     // Every nozzle link names a thruster of its part; every main engine of
-    // the Saturn V has one bell (the SPS among them) and each SM RCS jet its
-    // nozzle, as the stand-in SM's SPS and RCS jets.
+    // the Saturn V has one bell (the SPS among them), but the F-1s, drawn in
+    // their parts (SICExteriorTests), and each SM RCS jet its nozzle, as the
+    // stand-in SM's SPS and RCS jets.
     func testThrusterLinksResolve() {
         for v in vehicles() {
             for p in v.parts {
@@ -132,11 +133,12 @@ final class VisualShapeTests: XCTestCase {
         for p in stack.parts {
             for t in p.thrusters {
                 let bells = p.shapes.filter { $0.thruster == t.name }
-                XCTAssertEqual(bells.count, t.groups.contains(.main) || t.name.hasPrefix("SM RCS") ? 1 : 0, t.name)
+                let parts = p.name == "S-IC" ? SICExteriorTests.f1Parts : 1
+                XCTAssertEqual(bells.count, t.groups.contains(.main) || t.name.hasPrefix("SM RCS") ? parts : 0, t.name)
                 linked += bells.count
             }
         }
-        XCTAssertEqual(linked, 11 + 1 + 16)   // 5 F-1, 5 + 1 J-2, the SPS, the SM RCS
+        XCTAssertEqual(linked, 5 * SICExteriorTests.f1Parts + 6 + 1 + 16)   // 5 F-1, 5 + 1 J-2, the SPS, the SM RCS
         let real = stack.parts.first { $0.name == "SM" }!
         XCTAssertEqual(real.shapes.count, 1 + 1 + 4 + 16)
 
@@ -147,15 +149,14 @@ final class VisualShapeTests: XCTestCase {
     }
 
     // Each bell's exit radius is √(A_e/π) of its engine's exit area, its
-    // exit and top at the engine's exit and gimbal stations.
+    // exit and top at the engine's exit and gimbal stations. The F-1s are
+    // drawn from their own geometry (SICExteriorTests).
     func testBellExits() {
         let stack = VesselLibrary.saturnV()
         let expected: [String: (exit: Double, gimbal: Double, radius: Double)] = [
-            "S-IC": (AS506.baseStation, AS506.f1GimbalStation, (10.10 / Double.pi).squareRoot()),   // FER Fig. 5-3
             "S-II": (AS506.sIIJ2ExitStation, AS506.sIIJ2GimbalStation, (AS506.j2ExitArea / Double.pi).squareRoot()),
             "S-IVB": (AS506.sIVBJ2ExitStation, AS506.sIVBJ2GimbalStation, (AS506.j2ExitArea / Double.pi).squareRoot()),
         ]
-        XCTAssertEqual(expected["S-IC"]!.radius, 1.7930, accuracy: 1e-4)
         XCTAssertEqual(expected["S-II"]!.radius, 14.7 / 2 * 27.5.squareRoot() * inch, accuracy: 1e-9)   // SP-8120
         for p in stack.parts {
             guard let e = expected[p.name] else { continue }
@@ -301,16 +302,17 @@ final class VisualShapeTests: XCTestCase {
         XCTAssertEqual(mesh / solid, 48 / (2 * Double.pi) * sin(2 * Double.pi / 48), accuracy: 1e-9)
 
         // The Saturn V within the base, the LES tip and the 33 ft body, but
-        // for the outboard F-1 bells, which stand out under their fairings.
+        // for the S-IC's fins and engines and its interstage's ullage
+        // fairings (SICExteriorTests).
         let stack = VesselLibrary.saturnV()
         let tip = AS506.station(AS506.baseStation) + AS506.overallHeight * 0.3048
-        let f1Reach = AS506.f1OutboardRadius * inch + (AS506.f1ExitArea / Double.pi).squareRoot()
         for p in stack.parts {
+            let envelope = SICExteriorTests.envelope(p.name)
             for s in p.shapes {
-                let limit = p.name == "S-IC" && s.thruster != nil ? f1Reach : 396.0 / 2 * inch
+                let limit = envelope?.radius ?? 396.0 / 2 * inch
                 for vertex in triangles(s, on: p, of: stack) {
                     let c = vertex.position
-                    XCTAssertGreaterThanOrEqual(c.x, AS506.station(AS506.baseStation) - 1e-9, p.name)
+                    XCTAssertGreaterThanOrEqual(c.x, (envelope?.base ?? AS506.station(AS506.baseStation)) - 1e-9, p.name)
                     XCTAssertLessThanOrEqual(c.x, tip + 1e-9, p.name)
                     XCTAssertLessThanOrEqual((c.y * c.y + c.z * c.z).squareRoot(), limit + 1e-9, p.name)
                 }
@@ -342,8 +344,10 @@ final class VisualShapeTests: XCTestCase {
     // plane at STA 1564; the interstage's four S-II ullage exits and its
     // ring's plane at STA 1760; the S-II retros on the aft interstage with
     // the S-II/S-IVB plane at STA 2746.5; the S-IVB's two ullage exits. Each
-    // port names its motor and points along its exhaust; they stay where
-    // they were on the stack once their part has left.
+    // port names its motor and sits on its exhaust line, downstream of its
+    // thrust point, the S-II ullage motors' turned about the vehicle's axis
+    // to their fairings, 49° round from the motors (SICExteriorTests); they
+    // stay where they were on the stack once their part has left.
     func testAttachments() throws {
         let stack = VesselLibrary.saturnV()
         func attachments(_ name: String) -> [VisualAttachment] { stack.parts.first { $0.name == name }!.attachments }
@@ -365,8 +369,16 @@ final class VisualShapeTests: XCTestCase {
                 } else {
                     let motor = try XCTUnwrap(part.thrusters.first { $0.name == a.thruster }, a.name)
                     XCTAssertTrue(motor.isSolid)
-                    XCTAssertEqual(a.position, motor.position)
-                    XCTAssertEqual((a.direction + motor.direction).length, 0, accuracy: 1e-12)
+                    // In the construction frame, turned about the vehicle's axis.
+                    let angle = name == "S-IC/S-II interstage" ? 49 * Double.pi / 180 : 0
+                    let c = cos(angle), s = sin(angle)
+                    func turned(_ v: Vec3) -> Vec3 { Vec3(v.x, v.y * c - v.z * s, v.z * c + v.y * s) }
+                    let offset = part.offset - stack.structureOrigin
+                    let thrust = turned(motor.position + offset), exhaust = turned(-motor.direction)
+                    let run = a.position + offset - thrust, along = run.dot(a.direction)
+                    XCTAssertEqual((run - a.direction * along).length, 0, accuracy: 1e-9, a.name)
+                    XCTAssertGreaterThanOrEqual(along, 0, a.name)
+                    XCTAssertEqual((a.direction - exhaust).length, 0, accuracy: 1e-12)
                 }
             }
         }
