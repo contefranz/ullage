@@ -73,6 +73,14 @@
     {"name": "ullA_l", "at": [1368.0, 2040], "what": "white strip near fin A: left edge, interstage"},
     {"name": "ullA_r", "at": [1386.1, 2040], "what": "white strip near fin A: right edge (faint)"},
     {"name": "ullD_top", "at": [1200, 1954.0], "what": "white strip near fin D: top (meets the cap)"},
-    {"name": "ullD_bottom", "at": [1200, 2097.3], "what": "white strip near fin D: foot (separation ridge)"}
+    {"name": "ullD_bottom", "at": [1200, 2097.3], "what": "white strip near fin D: foot (separation ridge)"},
+    {"name": "usaA_top", "at": [1399, 2688.5], "what": "sector A USA (near the right limb): top of U"},
+    {"name": "usaA_U_bottom", "at": [1399, 2727.0], "what": "sector A USA: foot of U"},
+    {"name": "usaA_S_top", "at": [1399, 2740.0], "what": "sector A USA: top of S"},
+    {"name": "usaA_S_bottom", "at": [1399, 2776.6], "what": "sector A USA: foot of S"},
+    {"name": "usaA_A_top", "at": [1399, 2790.4], "what": "sector A USA: apex of A"},
+    {"name": "usaA_bottom", "at": [1399, 2824.4], "what": "sector A USA: foot of A"},
+    {"name": "usaA_left", "at": [1393.5, 2720], "what": "sector A USA: left side of U"},
+    {"name": "usaA_right", "at": [1405.0, 2720], "what": "sector A USA: right side of U"}
   ]
 }

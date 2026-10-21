@@ -93,7 +93,7 @@ AS-503's stripe azimuths therefore rest on structure (S68-55424), and the other 
 
 | key | document | copy read | sha256 |
 |---|---|---|---|
-| A8PK | NASA Release 68-208, *Apollo 8 Press Kit* (6 Dec 1968): printed p. -39- (PDF p. 59), the launch vehicle's paint | https://www.nasa.gov/wp-content/uploads/static/apollo50th/pdf/A08_PressKit.pdf | `fb5ba158821c989460f1a84c8efa85d459988529409585d78967f758b4462947` |
+| A8PK | NASA Release 68-208, *Apollo 8 Press Kit* (6 Dec 1968): printed p. -38- (PDF p. 59), the launch vehicle's paint | https://www.nasa.gov/wp-content/uploads/static/apollo50th/pdf/A08_PressKit.pdf | `fb5ba158821c989460f1a84c8efa85d459988529409585d78967f758b4462947` |
 | M503 | MSFC-MAN-503, *Saturn V Flight Manual SA-503*: Fig. 6-14 (PDF p. 137, the APS module at Position I), p. 5-24 (ullage motors), p. 5-26 (retros) | https://ntrs.nasa.gov/api/citations/19750063889/downloads/19750063889.pdf | `7465652b07306f45d2450f6a50bc52ee9c2a257522bbfc86c14bb9d1a006a967` |
 | BCD | Boeing, *Saturn V Apollo Flight Configuration* (1 Mar 1967), NASA image 9253429: the joints' stations | https://images-assets.nasa.gov/image/9253429/9253429~orig.jpg | `59763ffb44c335111dea762068449f6922a90d93b4817222f85585dddc204143` |
 | D5 | Boeing D5-15796-1 (19 Jun 1969): feed-line fairing azimuths, ullage-motor count; cited through the VD1/VD3 datasheet | NTRS 20160013592 | (datasheet) |
