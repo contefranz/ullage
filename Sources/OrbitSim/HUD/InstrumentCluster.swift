@@ -1,5 +1,6 @@
 import SwiftUI
 import OrbitCore
+import OrbitRender
 import OrbitInstruments
 
 /// The flight instruments at the bottom centre: throttle (the g meter in an

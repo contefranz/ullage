@@ -5,6 +5,7 @@ import ImageIO
 import UniformTypeIdentifiers
 import Metal
 import OrbitCore
+import OrbitRender
 
 /// The navball's art, drawn with CoreGraphics at start-up: no image assets,
 /// and nothing from KSP (its art is proprietary).

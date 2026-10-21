@@ -2,13 +2,15 @@ import SwiftUI
 import MetalKit
 import OrbitCore
 import OrbitInstruments
+import OrbitRender
+import OrbitScene
 
 /// Hosts the Metal view.
 struct MetalView: NSViewRepresentable {
     let model: AppModel
 
     final class Coordinator {
-        var renderer: Renderer?
+        var renderer: ViewRenderer?
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -16,13 +18,16 @@ struct MetalView: NSViewRepresentable {
     func makeNSView(context: Context) -> GameView {
         let view = GameView(frame: .zero, device: MTLCreateSystemDefaultDevice())
         view.input = model.input
-        if let renderer = Renderer(view: view) {
-            renderer.model = model
+        do {
+            let renderer = try SceneRenderer(device: view.device)
             renderer.setStars(model.stars)
-            view.delegate = renderer
-            context.coordinator.renderer = renderer
-        } else {
-            model.reportError("Metal renderer could not be created (see the Xcode console for the shader error).")
+            let viewRenderer = ViewRenderer(view: view, renderer: renderer)
+            viewRenderer.source = model
+            view.delegate = viewRenderer
+            context.coordinator.renderer = viewRenderer
+            if !renderer.failures.isEmpty { model.reportRenderFailures(renderer.failures) }
+        } catch {
+            model.reportError("Metal renderer could not be created: \(error)")
         }
         return view
     }
@@ -44,6 +49,12 @@ struct ContentView: View {
                 FlightHUD(model: model, instruments: model.instruments)
                 if model.showHelp {
                     HelpView(scenario: model.scenario)
+                        .allowsHitTesting(false)
+                }
+                if let warning = model.renderWarning {
+                    Text(warning).font(.system(size: 11, design: .monospaced)).foregroundStyle(.orange)
+                        .padding(6).background(.black.opacity(0.7))
+                        .frame(maxHeight: .infinity, alignment: .bottom)
                         .allowsHitTesting(false)
                 }
             }
