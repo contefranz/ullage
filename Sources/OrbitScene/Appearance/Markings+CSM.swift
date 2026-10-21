@@ -50,23 +50,24 @@ extension PaintElement {
         .apolloEngineBell, .apolloSPSNozzle, .apolloLMFoil, .apolloCanvas,
     ]
 
-    /// The tower's base, Xa 1083.476 (csm.csv's LES rows): the BPC's shell
-    /// starts below it, the tower's shapes at or above it.
-    static let towerBase = 1_083.476
+    /// The BPC's apex, Xa 1135.13, at the tension-tie plug: the top of
+    /// csm.csv's BPC rows (101-030, 103-030, 107-030) and of VG3's cover
+    /// (AOH Figs. 1-4, 2.9-8, H), below the LES's motors.
+    static let bpcApex = 1_135.13
 
-    /// The element whose rows paint `shape` of the part named `part` on
-    /// `variant`, nil when no table row applies (an unpainted material, the
-    /// LM, the parachutes):
+    /// The element whose rows paint `shape` of the part named `part`, whose
+    /// origin is at `partOffset` in the construction frame (as for
+    /// `PaintCoordinates`), on `variant`; nil when no table row applies (an
+    /// unpainted material, the LM, the parachutes):
     /// - the Saturn V's parts: the launch vehicle, by station;
     /// - "SLA", "SLA ring", "SLA panel 1"-"4": the SLA;
     /// - "LM": LTA-B on Apollo 8, nothing otherwise (LM-5 is foil);
     /// - "SM"; "CM" and "Apex cover";
     /// - the stack's single "CSM" part: the CM for the CM's materials
     ///   (`apollo.cm.*`), the SM for the rest;
-    /// - "LES": the BPC for a shape whose material names it ("bpc") or a
-    ///   shell about the vehicle's axis that starts below the tower's base,
-    ///   the LES for the rest (the truss, motors, canards and nose).
-    public static func of(part: String, shape: VisualShape, variant: ApolloVariant) -> PaintElement? {
+    /// - "LES", which carries the BPC too: `lesElement`.
+    public static func of(part: String, shape: VisualShape, partOffset: Vec3,
+                          variant: ApolloVariant) -> PaintElement? {
         guard !unpaintedMaterials.contains(shape.material) else { return nil }
         if launchVehicleParts.contains(part) { return variant.launchVehicle == nil ? nil : .launchVehicle }
         switch part {
@@ -81,17 +82,27 @@ extension PaintElement {
         case "CSM":
             return shape.material.rawValue.hasPrefix("apollo.cm.") ? .cm : .sm
         case "LES":
-            return isBPC(shape) ? .bpc : .les
+            return lesElement(shape, partOffset: partOffset)
         default:
             return part.hasPrefix("SLA panel ") ? .sla : nil
         }
     }
 
-    static func isBPC(_ shape: VisualShape) -> Bool {
-        if shape.material.rawValue.lowercased().contains("bpc") { return true }
-        guard case let .vehicle(o) = shape.surfaceFrame, abs(shape.axis.x) > 1 - 1e-9 else { return false }
-        let base = shape.origin + o
-        guard (base.y * base.y + base.z * base.z).squareRoot() < 1e-6 else { return false }
-        return base.x / PaintCoordinates.inch - MarkingRow.apolloStationOffset < towerBase
+    /// A shape of the "LES" part, which carries the BPC too (VG3): by its
+    /// material where that names one or the other, `apollo.bpc.*` (the
+    /// cover's soft and hard sections and its hatch) the BPC and
+    /// `apollo.les.*` (the tower, skirt, canards and Q-ball) the LES. A
+    /// finish the two share (a window, an RCS port, white paint) goes by
+    /// where the shape's origin is: at or below the BPC's apex on the cover
+    /// (its window and blow-out ports, Xa 1025-1087), above it on the LES
+    /// (the motors, the lowest the LES motor's aft dome at Xa 1208; the
+    /// TJM's and pitch motor's ports; the canard section). The tower
+    /// reaches below the apex, so its material decides first.
+    static func lesElement(_ shape: VisualShape, partOffset: Vec3) -> PaintElement {
+        let key = shape.material.rawValue
+        if key.hasPrefix("apollo.bpc.") { return .bpc }
+        if key.hasPrefix("apollo.les.") { return .les }
+        let xa = (shape.origin + partOffset).x / PaintCoordinates.inch - MarkingRow.apolloStationOffset
+        return xa <= bpcApex ? .bpc : .les
     }
 }

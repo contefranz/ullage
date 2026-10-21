@@ -111,7 +111,8 @@ public enum PaintColour: String, CaseIterable {
 /// whatever surface lies there, so every launch-vehicle shape is one
 /// element; on the spacecraft a row applies to its own element's shapes,
 /// since the BPC and the SLA's panels cover other parts at the same
-/// stations (`PaintElement.of(part:shape:variant:)` picks a shape's).
+/// stations (`PaintElement.of(part:shape:partOffset:variant:)` picks a
+/// shape's).
 public enum PaintElement: String, CaseIterable {
     case launchVehicle = "Saturn V"
     case sla = "SLA"
@@ -535,7 +536,9 @@ public enum Markings {
     /// are overlays on top (`Frost`, `Char`).
     public static func sample(part: String, shape: VisualShape, vertex: VisualShape.Vertex, partOffset: Vec3,
                               variant: ApolloVariant, face: PaintFace = .outer) -> PaintSample? {
-        guard let element = PaintElement.of(part: part, shape: shape, variant: variant) else { return nil }
+        guard let element = PaintElement.of(part: part, shape: shape, partOffset: partOffset, variant: variant) else {
+            return nil
+        }
         let point = PaintCoordinates(vertex, of: shape, partOffset: partOffset)
         return sample(element, of: variant, station: point.station, azimuth: point.azimuth, face: face)
     }

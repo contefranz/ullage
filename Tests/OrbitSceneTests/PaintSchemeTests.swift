@@ -195,36 +195,174 @@ final class PaintSchemeTests: XCTestCase {
 
     /// Every shape of the dressed Apollo 8 and Apollo 11 stacks gets an
     /// element or is unpainted by its material, and its vertices sample
-    /// paint on the outer skins (Apollo 7's CSM: the next test).
+    /// paint on the outer skins (Apollo 7's CSM: the next test). The "LES"
+    /// part carries the BPC too: VG3's materials name the cover's shapes
+    /// (`apollo.bpc.*`) and the tower's, skirt's, canards' and Q-ball's
+    /// (`apollo.les.*`); a shape lying on the cover's shells (every vertex
+    /// within an inch of them: its window and blow-out ports) is the BPC's,
+    /// and no other shape is. The BPC's rows paint every vertex of the
+    /// BPC's shapes, and the LES's rows paint each of the LES's.
     func testDressedShapesFindTheirElements() throws {
+        let inch = 0.0254
         for variant in [ApolloVariant.apollo8, .apollo11] {
             let stack = VesselLibrary.saturnV()
             for p in stack.parts { p.appearance = variant }
             VesselLibrary.dressApollo(stack)
             let scheme = Markings.scheme(for: variant)
-            var painted = 0
+            var painted = 0, onCover = 0, elements: [PaintElement: Int] = [:]
             for part in stack.parts {
                 let offset = part.offset - stack.structureOrigin
+                let cover = part.name == "LES" ? Self.coverProfiles(part, offset: offset) : []
+                if part.name == "LES" { XCTAssertEqual(cover.count, 2, "\(variant): the BPC's soft and hard sections") }
                 for shape in part.shapes {
-                    guard let element = PaintElement.of(part: part.name, shape: shape, variant: variant) else {
+                    guard let element = PaintElement.of(part: part.name, shape: shape, partOffset: offset,
+                                                        variant: variant) else {
                         XCTAssertTrue(PaintElement.unpaintedMaterials.contains(shape.material)
                                       || (part.name == "LM" && variant.payload != .ltaB) || part.name.hasSuffix("parachutes"),
                                       "\(part.name) \(shape.material)")
                         continue
                     }
-                    if part.name == "LES" && shape.surfaceFrame != .local && shape.capBase == false {
-                        XCTAssertEqual(element, .bpc)
-                    }
-                    for v in shape.mesh().vertices {
+                    elements[element, default: 0] += 1
+                    let vertices = shape.mesh().vertices
+                    var samples: [PaintSample?] = []
+                    for v in vertices {
                         let s = scheme.sample(element, at: PaintCoordinates(v, of: shape, partOffset: offset))
                         XCTAssertEqual(Markings.sample(part: part.name, shape: shape, vertex: v, partOffset: offset,
                                                        variant: variant), s)
+                        samples.append(s)
                         if s != nil { painted += 1 }
+                    }
+                    guard part.name == "LES" else { continue }
+                    let key = shape.material.rawValue, label = "\(variant) LES \(key) at \(shape.origin + offset)"
+                    let onShells = vertices.allSatisfy { Self.distance($0.position + offset, to: cover) < inch }
+                    if key.hasPrefix("apollo.bpc.") { XCTAssertEqual(element, .bpc, label) }
+                    if key.hasPrefix("apollo.les.") { XCTAssertEqual(element, .les, label) }
+                    if onShells {
+                        XCTAssertEqual(element, .bpc, label)
+                        if !key.hasPrefix("apollo.bpc.") { onCover += 1 }
+                    }
+                    if element == .bpc {
+                        XCTAssertTrue(key.hasPrefix("apollo.bpc.") || onShells, label)
+                        XCTAssertTrue(samples.allSatisfy { $0 != nil }, label)
+                    } else {
+                        XCTAssertEqual(element, .les, label)
+                        XCTAssertTrue(samples.contains { $0 != nil }, label)
                     }
                 }
             }
             XCTAssertGreaterThan(painted, 1000, "\(variant)")
+            // The cover's window and blow-out ports, in the CM's finishes.
+            XCTAssertGreaterThan(onCover, 0, "\(variant)")
+            for element in [PaintElement.launchVehicle, .sla, .sm, .cm, .bpc, .les] {
+                XCTAssertGreaterThan(elements[element] ?? 0, 0, "\(variant) \(element)")
+            }
+            XCTAssertEqual(elements[.ltaB] != nil, variant == .apollo8, "\(variant)")
         }
+    }
+
+    /// VD2's probe points lie on the dressed stacks' shapes of their own
+    /// elements: a ray out from the vehicle's axis at a probe's station and
+    /// azimuth meets a shape the lookup gives the probe's element, and the
+    /// colour hook at the outermost such hit, on the vertex the mesh
+    /// interpolates there, gives the probe's paint.
+    func testProbesLieOnTheirElementsShapes() throws {
+        let inch = 0.0254
+        var checked = 0
+        let flights: [(ApolloVariant, [String])] = [(.apollo8, ["AS-503", "CSM-103"]), (.apollo11, ["AS-506", "CSM-107"])]
+        for (variant, vehicles) in flights {
+            let stack = VesselLibrary.saturnV()
+            for p in stack.parts { p.appearance = variant }
+            VesselLibrary.dressApollo(stack)
+            var shapes: [(part: String, shape: VisualShape, element: PaintElement, offset: Vec3, mesh: VisualShape.Mesh,
+                          x: ClosedRange<Double>)] = []
+            for part in stack.parts {
+                let offset = part.offset - stack.structureOrigin
+                for shape in part.shapes {
+                    guard let element = PaintElement.of(part: part.name, shape: shape, partOffset: offset,
+                                                        variant: variant) else { continue }
+                    let mesh = shape.mesh(), xs = mesh.vertices.map { $0.position.x + offset.x }
+                    guard let lo = xs.min(), let hi = xs.max() else { continue }
+                    shapes.append((part.name, shape, element, offset, mesh, lo...hi))
+                }
+            }
+            for probe in try vehicles.flatMap({ try XCTUnwrap(Markings.scheme($0)).probes }) {
+                let x = probe.station * inch, a = probe.azimuth * Double.pi / 180
+                let from = Vec3(x, 0, 0), ray = Vec3(0, -sin(a), cos(a))
+                var hit: (t: Double, index: Int, vertex: VisualShape.Vertex)?
+                for (index, c) in shapes.enumerated() where c.element == probe.element && c.x.contains(x) {
+                    let m = c.mesh
+                    for k in stride(from: 0, to: m.indices.count, by: 3) {
+                        let tri = (0..<3).map { m.vertices[Int(m.indices[k + $0])] }
+                        guard let (t, b) = Self.intersect(from, ray, tri.map { $0.position + c.offset }),
+                              t > (hit?.t ?? 0) else { continue }
+                        hit = (t, index, Self.interpolate(tri, b))
+                    }
+                }
+                let h = try XCTUnwrap(hit, "\(probe.id): no \(probe.element) shape at STA \(probe.station), \(probe.azimuth)°")
+                let c = shapes[h.index]
+                let s = Markings.sample(part: c.part, shape: c.shape, vertex: h.vertex, partOffset: c.offset, variant: variant)
+                XCTAssertEqual(s?.paint, probe.expected,
+                               "\(probe.id) on \(c.part) \(c.shape.material) at r \(h.t / inch) in: \(s?.row ?? "none")")
+                checked += 1
+            }
+        }
+        XCTAssertEqual(checked, 40)
+    }
+
+    /// The BPC's two shells of the dressed "LES" part as (x, r) polylines
+    /// in the construction frame (m): its full-turn `apollo.bpc.*` surfaces
+    /// of revolution about the vehicle's axis.
+    static func coverProfiles(_ part: VesselPart, offset: Vec3) -> [[(x: Double, r: Double)]] {
+        part.shapes.compactMap { shape in
+            guard shape.material.rawValue.hasPrefix("apollo.bpc."),
+                  case let .revolution(profile, _, sweep) = shape.kind,
+                  sweep.upperBound - sweep.lowerBound >= 2 * Double.pi - 1e-9 else { return nil }
+            let o = shape.origin + offset
+            guard abs(shape.axis.x - 1) < 1e-9, (o.y * o.y + o.z * o.z).squareRoot() < 1e-9 else { return nil }
+            return profile.map { (o.x + $0.x, $0.r) }
+        }
+    }
+
+    /// The distance (m) from construction point `p` to the nearest of the
+    /// surfaces of revolution about the vehicle's axis whose profiles are
+    /// `profiles`.
+    static func distance(_ p: Vec3, to profiles: [[(x: Double, r: Double)]]) -> Double {
+        let x = p.x, r = (p.y * p.y + p.z * p.z).squareRoot()
+        var best = Double.infinity
+        for profile in profiles {
+            for (a, b) in zip(profile, profile.dropFirst()) {
+                let dx = b.x - a.x, dr = b.r - a.r, l2 = dx * dx + dr * dr
+                let t = l2 > 0 ? max(0, min(1, ((x - a.x) * dx + (r - a.r) * dr) / l2)) : 0
+                let ex = a.x + t * dx - x, er = a.r + t * dr - r
+                best = min(best, (ex * ex + er * er).squareRoot())
+            }
+        }
+        return best
+    }
+
+    /// Where the ray from `o` along `d` meets triangle `p` (Möller-Trumbore,
+    /// edges included): its parameter and the hit's barycentric weights.
+    static func intersect(_ o: Vec3, _ d: Vec3, _ p: [Vec3]) -> (Double, (Double, Double, Double))? {
+        let e1 = p[1] - p[0], e2 = p[2] - p[0], q = d.cross(e2), det = e1.dot(q)
+        guard abs(det) > 1e-15 else { return nil }
+        let s = o - p[0], u = s.dot(q) / det, r = s.cross(e1), v = d.dot(r) / det, t = e2.dot(r) / det
+        let eps = 1e-9
+        guard u >= -eps, v >= -eps, u + v <= 1 + eps, t > 0 else { return nil }
+        return (t, (1 - u - v, u, v))
+    }
+
+    /// The vertex at barycentric weights `b` of triangle `tri`: position and
+    /// surface coordinates interpolated as the renderer does, v unwrapped
+    /// about the first vertex's.
+    static func interpolate(_ tri: [VisualShape.Vertex], _ b: (Double, Double, Double)) -> VisualShape.Vertex {
+        let w = [b.0, b.1, b.2], v0 = tri[0].surface.v
+        func mix(_ f: (VisualShape.Vertex) -> Double) -> Double { zip(tri, w).reduce(0) { $0 + f($1.0) * $1.1 } }
+        var vertex = tri[0]
+        vertex.position = zip(tri, w).reduce(Vec3.zero) { $0 + $1.0.position * $1.1 }
+        vertex.surface = VisualShape.SurfaceCoordinates(u: mix { $0.surface.u },
+                                                        v: mix { v0 + remainder($0.surface.v - v0, 2 * Double.pi) },
+                                                        r: mix { $0.surface.r }, s: mix { $0.surface.s })
+        return vertex
     }
 
     /// Apollo 7's CSM-101, as `apolloCSM(.apollo7)` builds and dresses it
@@ -248,7 +386,7 @@ final class PaintSchemeTests: XCTestCase {
                 XCTAssertEqual(part.appearance, variant, part.name)
                 let offset = part.offset - vessel.structureOrigin
                 for shape in part.shapes {
-                    let element = PaintElement.of(part: part.name, shape: shape, variant: variant)
+                    let element = PaintElement.of(part: part.name, shape: shape, partOffset: offset, variant: variant)
                     if PaintElement.unpaintedMaterials.contains(shape.material) || part.name.hasSuffix("parachutes") {
                         XCTAssertNil(element, "\(part.name) \(shape.material)")
                         continue
@@ -282,7 +420,7 @@ final class PaintSchemeTests: XCTestCase {
         var split: [PaintElement: Int] = [:]
         let offset = single.offset - csm.structureOrigin
         for shape in single.shapes where !PaintElement.unpaintedMaterials.contains(shape.material) {
-            let element = try XCTUnwrap(PaintElement.of(part: "CSM", shape: shape, variant: variant))
+            let element = try XCTUnwrap(PaintElement.of(part: "CSM", shape: shape, partOffset: offset, variant: variant))
             XCTAssertEqual(element, shape.material.rawValue.hasPrefix("apollo.cm.") ? .cm : .sm, "\(shape.material)")
             for v in shape.mesh().vertices {
                 let s = Markings.sample(part: "CSM", shape: shape, vertex: v, partOffset: offset, variant: variant)
@@ -298,7 +436,10 @@ final class PaintSchemeTests: XCTestCase {
         let stack = VesselLibrary.saturnV()
         VesselLibrary.dressApollo(stack)
         for part in stack.parts where PaintElement.launchVehicleParts.contains(part.name) {
-            for shape in part.shapes { XCTAssertNil(PaintElement.of(part: part.name, shape: shape, variant: variant)) }
+            let offset = part.offset - stack.structureOrigin
+            for shape in part.shapes {
+                XCTAssertNil(PaintElement.of(part: part.name, shape: shape, partOffset: offset, variant: variant))
+            }
         }
     }
 }
