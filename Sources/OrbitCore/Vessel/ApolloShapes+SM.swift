@@ -87,9 +87,14 @@ extension ApolloShapeData {
 
     /// The nozzle extension's exit (inside diameter) and the gimbal plane:
     /// the bell from the gimbal to the exit is 111.9 in of the engine's
-    /// 159.944 in (AOH 2.4-43, H).
+    /// 159.944 in (AOH 2.4-43, H). The bell is the dresser's generic one
+    /// over the whole engine, so its throat and chamber sit in the SM above
+    /// the gimbal plane, where it is cut off (its throat at Xa 849): the 6:1
+    /// chamber exit falls 1.8 in below the gimbal, and all that shows under
+    /// the SM is the nozzle extension, 28.8 in across at the top (shape L).
     static let spsExitDiameter = 98.4                // in, AOH Vol. 1 2.4-43 (H; track D's aoh_block2_sps_rcs.csv)
     static let spsAreaRatio = 62.5                   // AOH Vol. 1 2.4-43 (H)
+    static let spsLength = 159.944                   // in, overall, AOH Vol. 1 2.4-43 (H)
     static let spsGimbal = 833.2                     // Xa, DB3 Figs. 2-2, 2-10 (H)
     static let spsExit = 721.3                       // Xa, the aft-most point, DB3 Fig. 2-10 (H)
     /// The extension's two materials: radiation-cooled columbium from the
@@ -372,21 +377,22 @@ extension ApolloDresser {
         typealias A = ApolloDresser
         let inch = D.inch, exit = xa(S.spsExit), re = S.spsExitDiameter / 2 * inch
         let link = part.thrusters.contains { $0.name == "SPS" } ? "SPS" : nil
-        let profile = A.bell(exitRadius: re, areaRatio: S.spsAreaRatio, length: xa(S.spsGimbal) - exit)
+        // The divergent contour is the bell's first eleven points.
+        let contour = Array(A.bell(exitRadius: re, areaRatio: S.spsAreaRatio, length: S.spsLength * inch).prefix(11))
+        let gimbal = xa(S.spsGimbal) - exit
+        let profile = contour.filter { $0.x < gimbal - 1e-9 } + [P(gimbal, A.contourRadius(contour, at: gimbal))]
         var bell = finished(.revolution(profile, from: local(Vec3(exit, 0, 0)), color: A.nozzleExtension.colour),
                             A.nozzleExtension, vehicleFrame: false)
         bell.capBase = false
         bell.twoSided = true
         bell.thruster = link
 
-        // The divergent contour is the profile's first eleven points.
-        let contour = Array(profile.prefix(11))
         let chamber = re / (S.spsAreaRatio / S.spsChamberAreaRatio).squareRoot()
-        let top = A.contourStation(contour, radius: chamber), joint = xa(S.spsJoint) - exit
+        let top = min(A.contourStation(contour, radius: chamber), gimbal), joint = xa(S.spsJoint) - exit
         let lift = S.spsBandStandOff * inch
         let band = [P(joint, A.contourRadius(contour, at: joint) + lift)]
             + contour.filter { $0.x > joint && $0.x < top }.map { P($0.x, $0.r + lift) }
-            + [P(top, chamber + lift)]
+            + [P(top, A.contourRadius(contour, at: top) + lift)]
         var columbium = finished(.revolution(band, from: local(Vec3(exit, 0, 0)), color: A.spsColumbium.colour),
                                  A.spsColumbium, vehicleFrame: false)
         columbium.capBase = false

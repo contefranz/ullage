@@ -82,7 +82,7 @@ extension ApolloShapeData {
         (.pitch, 0, 1_086), (.pitch, 0, 1_033), (.yaw, 60, 1_033), (.yaw, 300, 1_033), (.roll, 30, 1_033),
         (.roll, 330, 1_033),
     ]
-    static let cmRCSPortSpacing = 4.0                // in between a pair's ports, estimate (L)
+    static let cmRCSPortSpacing = 6.0                // in between a pair's ports, estimate (L)
     static let cmRCSPortRadius = 1.6                 // in: the 2.13 in exit in its recess, estimate (L)
     static let cmRCSRollPort = (across: 2.4, up: 1.3)   // in, the scarfed ports' semi-axes, estimate (L)
     /// The docking probe, on CSM-107 only (A11PK): its size is not found;

@@ -105,12 +105,13 @@ extension ApolloShapeData {
     /// Xc 81, then the hard fibreglass section to the apex at the tension-tie
     /// plug, Xc 135.13 (AOH Figs. 1-4, 2.9-8, H), which rounds off the cone
     /// on a sphere tangent to it. The stand-offs are not found (L): the soft
-    /// section clears the CM's window frames.
+    /// section clears the CM's window frames, whose corners stand up to 1.2
+    /// in off the cone.
     static let bpcAftEdge = 1_014.0                  // Xa (H)
     static let bpcJoint = 1_081.0                    // Xa (H)
     static let bpcApex = 1_135.13                    // Xa (H)
-    static let bpcSoftStandOff = 1.0                 // in, estimate (L)
-    static let bpcHardStandOff = 1.5                 // in, estimate (L)
+    static let bpcSoftStandOff = 1.5                 // in, estimate (L)
+    static let bpcHardStandOff = 2.0                 // in, estimate (L)
     /// One 8 in window over the commander's rendezvous window (window 2), a
     /// hatch over the CM's, and the blow-out ports over the CM's RCS ports
     /// (AOH Fig. 1-4, p. 1-38; CNR15 pp. 140-141, H-M).
