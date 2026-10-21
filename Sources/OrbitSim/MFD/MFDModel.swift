@@ -74,7 +74,8 @@ final class MFDModel: ObservableObject {
     private func route(_ side: MFDSide) -> MFDSide { visibleSides.contains(side) ? side : .left }
 
     /// The app's simulation; a new one (a scenario loaded) starts the
-    /// displays afresh on the modes they showed.
+    /// displays afresh on the modes they showed, with the scenario's
+    /// recovery target.
     private func currentSim() -> Simulation? {
         guard let s = app?.sim else { return nil }
         if s !== sim {
@@ -82,6 +83,9 @@ final class MFDModel: ObservableObject {
                 let old = controller
                 controller = MFDController(left: old.panel(.left).mode, right: old.panel(.right).mode,
                                            environment: old.environment)
+            }
+            controller.environment.recoveryTarget = app?.scenario?.recoveryTarget.map {
+                MFDSite("TGT", latitude: $0.latitude * .pi / 180, longitude: $0.longitude * .pi / 180)
             }
             sim = s
             simStart = s.time

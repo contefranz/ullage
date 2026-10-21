@@ -98,6 +98,9 @@ public enum MFDMarkerKind: Hashable, Sendable {
     case diamond
     /// A small open circle (the Sun, a site).
     case circle
+    /// A larger circle crossed by four ticks that leave its centre clear (a
+    /// recovery target).
+    case crosshair
 }
 
 /// Vector graphics on the display, in screen units (`MFDPoint`).

@@ -9,7 +9,8 @@ import OrbitCore
 /// - the ground track flown (dim) and the one predicted (dashed) over the
 ///   next orbits, with secular J2 (`GroundTrack.predict`, vacuum);
 /// - the vessel, its horizon (the circle it sees the ground to), the
-///   predicted entry interface and landing point, and the launch sites.
+///   predicted entry interface and landing point, the launch sites and the
+///   recovery target (a crosshair in the target colour).
 ///
 /// Zoom 1 shows the whole body; zoomed in, TRK keeps the vessel in the
 /// centre, and without it the arrow buttons scroll the map.
@@ -181,6 +182,10 @@ public final class MapMFD: MFDMode {
                 front.append(.marker(view.project(latitude: site.location.latitude * deg,
                                                   longitude: site.location.longitude * deg).point, .circle, .reference))
             }
+        }
+        if let target = c.recoveryTarget {
+            front.append(.marker(view.project(latitude: target.location.latitude * deg,
+                                              longitude: target.location.longitude * deg).point, .crosshair, .target))
         }
 
         // Tracks: flown, then predicted.

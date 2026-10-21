@@ -11,6 +11,9 @@ struct Scenario: Identifiable {
     /// Zero of the HUD's mission clock (MET), when the mission has one (the
     /// Saturn V's range zero: Apollo 11's GET); nil starts it at liftoff.
     var missionClockZero: Epoch? = nil
+    /// Where the mission plans to land (geodetic latitude, longitude east,
+    /// degrees), for the MAP and ENTRY displays; nil when none is planned.
+    var recoveryTarget: (latitude: Double, longitude: Double)? = nil
     let build: (SolarSystem) -> Simulation
 
     static let all: [Scenario] = [pad39A, saturnVPad, earthOrbitReturn, apollo11ParkingOrbit, apollo13, sICEngine1Out,
@@ -19,6 +22,15 @@ struct Scenario: Identifiable {
     /// Launch Complex 39A, Kennedy Space Center, where Apollo 11 stood:
     /// geodetic, on the WGS-84 Earth, with the pad's elevation.
     static let lc39A = VesselLibrary.lc39A
+
+    /// Apollo 7's planned landing point, 29.8° N 67.0° W (MSC Internal Note
+    /// 68-FM-184 §5.4.3 and Table IX(b), the Apollo 7 entry tests'), also the
+    /// target of the AS-506 Earth-orbit return, which has no planned point of
+    /// its own. It is the preflight plan's: by the deorbit burn Apollo 7's
+    /// target had moved east, near where it came down at 27.64° N 64.15° W,
+    /// about 200 n mi away (CM-entry-datasheet §4.5), and the sources give no
+    /// coordinates for it.
+    static let apollo7Target = (latitude: 29.8, longitude: -67.0)
 
     static let pad39A = Scenario(
         id: "pad39a",
@@ -60,6 +72,7 @@ struct Scenario: Identifiable {
         name: "Apollo 11: pad to splashdown (TLI no-go)",
         summary: "Apollo 11 from the pad, returning from Earth orbit as if TLI were no-go. Paused at first motion: P releases the hold-down arms and the IU flies to the parking orbit. Then Space separates the CSM (the SLA panels, and the S-IVB with the IU and LM, leave); 2 turns it retrograde on the SM RCS; the DEORBIT MFD gives the burn's Δv and TIG, and its SET loads the ΔV counter; Z at TIG lights the SPS and the counter cuts it off; Space twice separates the SM. The CM's entry program holds lift up (9: manual, bank hold, rolling) and the earth landing system brings it down to splashdown.",
         missionClockZero: VesselLibrary.apollo11RangeZero,
+        recoveryTarget: apollo7Target,
         build: { system in apollo11(system) })
 
     /// Apollo 11 at parking-orbit insertion (range 709.33 s), from track C's
@@ -71,6 +84,7 @@ struct Scenario: Identifiable {
         name: "Apollo 11 in parking orbit",
         summary: "Apollo 11 at orbit insertion, 16 July 1969, 13:43:49 UTC (GET 00:11:49): the S-IVB, IU, LM and CSM in the 100 n mi parking orbit at AS-506's postflight state, the IU turning to the local horizontal, heads down. Space separates the CSM; from there, as in the Earth-orbit return: 2 retrograde, the DEORBIT MFD's burn with Z and the ΔV counter, Space twice for CM/SM separation, then entry and splashdown.",
         missionClockZero: VesselLibrary.apollo11RangeZero,
+        recoveryTarget: apollo7Target,
         build: { system in
             let sim = Simulation(system: system, time: VesselLibrary.apollo11Insertion)
             VesselLibrary.apollo11InParkingOrbit(in: sim)
@@ -86,6 +100,7 @@ struct Scenario: Identifiable {
         name: "Apollo 7: deorbit and entry",
         summary: "Apollo 7 (CSM-101) on 22 October 1968 at GET 259:38:00, before its deorbit burn (SPS-8): in the burn's attitude, held, with the EMS ΔV counter loaded. Paused: P starts. As the crew flew it: U (+X ullage) for 15 s from 259:39:01; Z at 259:39:16 lights the SPS and the counter cuts it off; Space twice at 259:43:34 separates the SM. The CM's entry program holds lift up (9: manual, bank hold, rolling); entry interface near 259:53:27, splashdown near 27.64° N 64.15° W.",
         missionClockZero: VesselLibrary.apollo7RangeZero,
+        recoveryTarget: apollo7Target,
         build: { system in
             let sim = Simulation(system: system, time: VesselLibrary.apollo7RangeZero)
             VesselLibrary.apollo7BeforeDeorbit(in: sim)
@@ -115,6 +130,7 @@ struct Scenario: Identifiable {
         name: "Apollo 7 CM at entry interface",
         summary: "Apollo 7's command module at its planned entry interface (68-FM-184 Table IX(b)): 400,000 ft over 31.03° N 98.83° W at 25,850 ft/s and -1.76°, GET 259:53:50. The entry program holds a 55° left bank, the bank 68-FM-184 targets 29.8° N 67.0° W on; 9 cycles manual (Q/E roll the lift about the air), bank hold (the bank flown) and rolling. The ELS fires on its baroswitches, Space being its backup below 40,000 ft, down to splashdown.",
         missionClockZero: VesselLibrary.apollo7RangeZero,
+        recoveryTarget: apollo7Target,
         build: { system in
             let ei = apollo7Interface, bank = -55 * Double.pi / 180
             let sim = Simulation(system: system, time: VesselLibrary.apollo7RangeZero + ei.groundElapsedTime)

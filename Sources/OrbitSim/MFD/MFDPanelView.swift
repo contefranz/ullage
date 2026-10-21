@@ -190,6 +190,13 @@ struct MFDRenderer {
             path.closeSubpath()
         case .circle:
             path.addEllipse(in: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r))
+        case .crosshair:
+            let rr = 1.4 * r
+            path.addEllipse(in: CGRect(x: c.x - rr, y: c.y - rr, width: 2 * rr, height: 2 * rr))
+            for (dx, dy) in [(1.0, 0.0), (-1, 0), (0, 1), (0, -1)] {
+                path.move(to: CGPoint(x: c.x + dx * 0.5 * r, y: c.y + dy * 0.5 * r))
+                path.addLine(to: CGPoint(x: c.x + dx * 2.2 * r, y: c.y + dy * 2.2 * r))
+            }
         }
         ctx.stroke(path, with: .color(color), style: StrokeStyle(lineWidth: 1.2))
     }
