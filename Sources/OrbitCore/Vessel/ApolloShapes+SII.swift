@@ -120,10 +120,10 @@ extension ApolloShapeData {
     static let j2TurbineManifold = (offset: 7.5, proud: 2.5)   // in above the fuel manifold, off the wall, estimate (L)
     /// The turbopumps, on opposite sides of the chamber, axes parallel to
     /// it, 21-22 in from it: their sizes RJ1 §1-21 and §1-25 (H), their
-    /// places scaled off NR p. 97 (L). Their clocking is not known: across
-    /// the outboard engines' radius here.
-    static let j2FuelPump = (diameter: 18.0, length: 30.0, offset: 22.0, top: 10.0)       // in; top below the gimbal
-    static let j2OxidizerPump = (diameter: 21.0, length: 18.0, offset: 21.0, top: 18.0)   // in; top below the gimbal
+    /// places scaled off NR p. 97 (L), high enough to clear the bell. Their
+    /// clocking is not known: across the outboard engines' radius here.
+    static let j2FuelPump = (diameter: 18.0, length: 30.0, offset: 22.0, top: 0.0)       // in; top below the gimbal
+    static let j2OxidizerPump = (diameter: 21.0, length: 18.0, offset: 21.0, top: 6.0)   // in; top below the gimbal
 }
 
 extension ApolloDresser {
@@ -185,15 +185,44 @@ extension ApolloDresser {
         return [skin, aftBulkhead, forwardBulkhead, cone, tunnel] + feedFairings + antennas
     }
 
-    /// The heat shield, a closed disc whose aft face is at S-II station 44,
-    /// and a curtain round each engine from the shield, 48 in from the
-    /// engine's axis, sagging to the engine.
+    /// The heat shield, its aft face at S-II station 44, with a hole of 48
+    /// in radius round each engine's axis, and a curtain from each hole's
+    /// edge sagging to its engine. The shield is eight plates, one per octant
+    /// between a Position and a fin line, each with half an outboard hole
+    /// and an eighth of the centre one cut out of it.
     func sIIBase() -> [VisualShape] {
         typealias A = ApolloDresser
         let inch = D.inch, aft = D.station(S.sIIHeatShieldStation)
-        let top = aft + S.sIIHeatShieldThickness * inch, edge = S.sIIHeatShieldRadius * inch
-        let shield = revolution([P(aft, 0), P(aft, edge, crease: true), P(top, edge, crease: true), P(top, 0)],
-                                at: .zero, segments: 96, A.heatShield)
+        let thickness = S.sIIHeatShieldThickness * inch, edge = S.sIIHeatShieldRadius * inch
+        let hole = S.sIICurtainRadius * inch, outboard = D.sIIOutboardCircle / 2 * D.foot
+        /// A point `r` out at `angle` (rad) in the shield's plane: a towards
+        /// Position I, b towards Position II.
+        func at(_ r: Double, _ angle: Double) -> VisualShape.SectionPoint { .init(r * cos(angle), r * sin(angle)) }
+        let shield = (0..<8).map { k -> VisualShape in
+            let a0 = Double.pi / 4 * Double(k), a1 = a0 + Double.pi / 4
+            let engine = k % 2 == 0 ? a1 : a0, other = k % 2 == 0 ? a0 : a1
+            let e = (cos(engine), sin(engine)), t = (-sin(engine), cos(engine))
+            // Half the engine's hole, bulging into the octant, from its
+            // outer edge to its inner one.
+            let side = other > engine ? 1.0 : -1.0
+            let halfHole = (0...8).map { j -> VisualShape.SectionPoint in
+                let psi = Double.pi * Double(j) / 8, c = outboard + hole * cos(psi), s = side * hole * sin(psi)
+                return .init(c * e.0 + s * t.0, c * e.1 + s * t.1, crease: j == 0 || j == 8)
+            }
+            let rim = (0...6).map { j in at(edge, other + (engine - other) * Double(j) / 6) }
+            let centre = (0...4).map { j in at(hole, engine + (other - engine) * Double(j) / 4) }
+            // Round the octant: out along the other line, the rim, in along
+            // the engine's line round its hole, the centre hole's arc.
+            var outline = rim
+            outline += halfHole
+            outline += centre
+            for i in [0, rim.count - 1, rim.count + halfHole.count, outline.count - 1] { outline[i].crease = true }
+            var s = finished(.plate(outline, at: local(Vec3(aft + thickness / 2, 0, 0)), axis: .unitZ,
+                                    reference: -Vec3.unitY, thickness: thickness, color: A.heatShield.colour),
+                             A.heatShield)
+            s.surfaceFrame = .vehicle(partOrigin: construction)
+            return s
+        }
         let curtains = part.thrusters.filter { $0.groups.contains(.main) }.map { t -> VisualShape in
             let exit = D.station(D.sIIJ2ExitStation), gimbal = t.position.x + construction.x
             let profile = ApolloDresser.j2Profile(exitRadius: (D.j2ExitArea / Double.pi).squareRoot(),
@@ -206,7 +235,7 @@ extension ApolloDresser {
             upperStageOpen(&curtain)
             return curtain
         }
-        return [shield] + curtains
+        return shield + curtains
     }
 
     // MARK: S-II ullage motors (the S-IC/S-II interstage's part)
@@ -313,21 +342,21 @@ extension ApolloDresser {
         let envelope = S.j2EnvelopeDiameter / 2 * inch, ring = S.j2ExitRingHeight * inch
         var p = [P(0, re, crease: true), P(0, envelope, crease: true), P(ring, envelope, crease: true),
                  P(ring, outer(ring), crease: true)]
-        /// A half-round band `proud` off the wall from `x0` to `x1`.
-        func band(_ x0: Double, _ x1: Double, proud: Double) {
+        /// A half-round band off the wall from `x0` to `x1`, cresting at
+        /// `crest(x)` over the wall at `x`.
+        func band(_ x0: Double, _ x1: Double, crest: (Double) -> Double) {
             p.append(P(x0, outer(x0), crease: true))
             for k in 1..<6 {
                 let a = Double.pi * Double(k) / 6, x = x0 + (x1 - x0) * (1 - cos(a)) / 2
-                p.append(P(x, outer(x) + proud * sin(a)))
+                p.append(P(x, outer(x) + (crest(x) - outer(x)) * sin(a)))
             }
             p.append(P(x1, outer(x1), crease: true))
         }
         let fuel = length - S.j2FuelManifoldStation * inch, half = 3.5 * inch
-        let fuelProud = S.j2FuelManifoldDiameter / 2 * inch - outer(fuel)
         let turbine = fuel + S.j2TurbineManifold.offset * inch, turbineHalf = 3 * inch
         for x in stride(from: ring + 6 * inch, to: fuel - half - 2 * inch, by: 8 * inch) { p.append(P(x, outer(x))) }
-        band(fuel - half, fuel + half, proud: fuelProud)
-        band(turbine - turbineHalf, turbine + turbineHalf, proud: S.j2TurbineManifold.proud * inch)
+        band(fuel - half, fuel + half) { _ in S.j2FuelManifoldDiameter / 2 * inch }
+        band(turbine - turbineHalf, turbine + turbineHalf) { x in outer(x) + S.j2TurbineManifold.proud * inch }
         for x in stride(from: turbine + turbineHalf + 6 * inch, to: throat - 2 * inch, by: 8 * inch) {
             p.append(P(x, outer(x)))
         }
@@ -387,10 +416,11 @@ extension ApolloDresser {
     /// across, its face `depth` proud, shaped across by `face` (1 at the
     /// middle, from t = -1 to 1; a half-ellipse unless given) and following
     /// the skin's curve; its base 1 in under the skin. Each end tapers to a
-    /// point on the skin over `taperBottom` and `taperTop` (m), or is cut
-    /// square. Measured in the vehicle's frame.
+    /// point on the skin over `taperBottom` and `taperTop` (m), as an ogive
+    /// or, with `roundTop`, the top as a quarter ellipse; or is cut square.
+    /// Measured in the vehicle's frame.
     func upperStageFairing(_ d: (y: Double, z: Double), skin: Double, from: Double, to: Double, width: Double,
-                           depth: Double, taperBottom: Double = 0, taperTop: Double = 0,
+                           depth: Double, taperBottom: Double = 0, taperTop: Double = 0, roundTop: Bool = false,
                            face: (Double) -> Double = { t in (1 - t * t).squareRoot() },
                            _ finish: Finish) -> VisualShape {
         let half = width / 2, bury = D.inch
@@ -404,21 +434,23 @@ extension ApolloDresser {
         let base = -bury - sag(half)
         section += [.init(base, half, crease: true), .init(base, -half, crease: true)]
 
-        /// An ogive's scale `f` of the way from a tip to the full section.
+        /// The section's scale `f` of the way from a tip to the full section:
+        /// an ogive's, or a quarter ellipse's.
         func ogive(_ f: Double) -> Double { 1 - (1 - f) * (1 - f) }
-        let length = to - from
+        func round(_ f: Double) -> Double { (1 - (1 - f) * (1 - f)).squareRoot() }
+        let length = to - from, steps = 6
         var stations: [VisualShape.PrismStation] = []
         if taperBottom > 0 {
-            for k in 0..<4 {
-                let s = ogive(Double(k) / 4)
-                stations.append(.init(taperBottom * Double(k) / 4, width: s, height: s))
+            for k in 0..<steps {
+                let f = Double(k) / Double(steps), s = ogive(f)
+                stations.append(.init(taperBottom * f, width: s, height: s))
             }
         }
         stations += [.init(taperBottom), .init(length - taperTop)]
         if taperTop > 0 {
-            for k in (0..<4).reversed() {
-                let s = ogive(Double(k) / 4)
-                stations.append(.init(length - taperTop * Double(k) / 4, width: s, height: s))
+            for k in (0..<steps).reversed() {
+                let f = Double(k) / Double(steps), s = roundTop ? round(f) : ogive(f)
+                stations.append(.init(length - taperTop * f, width: s, height: s))
             }
         }
         let radial = Vec3(0, d.y, d.z)

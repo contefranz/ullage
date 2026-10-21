@@ -227,8 +227,9 @@ extension ApolloDresser {
     // MARK: S-IVB
 
     /// The skin, open at both ends, with the domes seen through them, the
-    /// thrust structure with its helium spheres, the tunnels and the
-    /// forward skirt's antennas. The skin comes first.
+    /// thrust structure (open at the dome, closed by the engine mount) with
+    /// its helium spheres, the tunnels and the forward skirt's antennas. The
+    /// skin comes first.
     func sIVBStructure() -> [VisualShape] {
         typealias A = ApolloDresser
         let inch = D.inch, r = A.upper
@@ -250,6 +251,7 @@ extension ApolloDresser {
         let largeRadius = dome * (1 - u * u).squareRoot()
         var thrust = revolution([P(mount, mountRadius), P(large, largeRadius)], at: .zero, segments: 64, A.grey)
         upperStageOpen(&thrust)
+        thrust.capBase = true   // the engine mount
         let sphere = S.sIVBHeliumSpheres.diameter / 2 * inch
         let ring = (mountRadius + largeRadius) / 2 + sphere + inch
         let spheres = (0..<S.sIVBHeliumSpheres.count).map { k -> VisualShape in
@@ -293,7 +295,8 @@ extension ApolloDresser {
             let out = Vec3(0, 0, side), across = Vec3.unitX.cross(out), mid = r + depth / 2
             shapes.append(upperStageFairing((y: 0, z: side), skin: r, from: bottom, to: top, width: width,
                                             depth: depth, taperTop: top - D.station(S.sIVBAPSModuleShoulder),
-                                            face: { t in pow(1 - pow(abs(t), 3), 1.0 / 3) }, A.white))
+                                            roundTop: true, face: { t in pow(1 - pow(abs(t), 3), 1.0 / 3) },
+                                            A.white))
             let jets: [(exit: Vec3, thrust: Vec3)] = [
                 (engines + out * (r + depth + 0.5 * inch), -out),
                 (engines + out * mid - across * (width / 2 + 0.5 * inch), across),
