@@ -52,6 +52,19 @@ final class ScenarioScriptTests: XCTestCase {
         XCTAssertEqual(sim.warp, 1000)
     }
 
+    /// Below warp 1 a waiting command still steps 0.1 s of simulation time
+    /// at a time: at 0.001× liftoff comes in a few steps, and at 1e-7×,
+    /// finer than the epoch can resolve, it still comes.
+    func testWaitingAtATinyWarp() throws {
+        let scenario = try XCTUnwrap(Scenario.named("as506-pad"))
+        for warp in ["0.001", "1e-7"] {
+            let sim = scenario.build(Self.system)
+            try ScenarioScript(["warp:\(warp)", "liftoff"]).run(on: sim, missionClockZero: scenario.missionClockZero)
+            XCTAssertNil(sim.focus?.landed, warp)
+            XCTAssertLessThan(sim.time - VesselLibrary.apollo11FirstMotion, 2, "liftoff within seconds of first motion")
+        }
+    }
+
     /// `ev:` matches only what an IU logs after the command starts, whichever
     /// vessel carries the IU: after CSM separation the S-IVB has it and the
     /// CSM is the focus, and the old "T5: resumed" must not count.
@@ -139,8 +152,10 @@ final class SnapshotSpecTests: XCTestCase {
         XCTAssertGreaterThan(scene.clock.frameIndex, 1, "the extractor followed the flight")
 
         // The frame carries what happened while the script ran, though the
-        // extractor followed the flight: the CSM's separation records.
-        let orbit = SnapshotSpec.Shot(name: "sep", scenario: "as506-parking-orbit", advance: ["stage", "wait:3"])
+        // extractor followed the flight: the CSM's separation records. The
+        // extractor saw the stack before the stage (after wait:1), so it
+        // also found the new vessels by comparison; those are left out.
+        let orbit = SnapshotSpec.Shot(name: "sep", scenario: "as506-parking-orbit", advance: ["wait:1", "stage", "wait:3"])
         let prepared = try orbit.prepare(system: Self.system)
         let events = orbit.scene(prepared).transitions.compactMap { t -> EffectEvent? in
             if case let .event(e) = t { return e }

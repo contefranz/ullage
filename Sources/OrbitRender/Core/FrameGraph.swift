@@ -71,9 +71,9 @@ public final class FrameGraph {
         f.uploadShared()
 
         var encoder: MTLRenderCommandEncoder?
-        func open(_ descriptor: MTLRenderPassDescriptor, _ label: String) {
+        func open(_ descriptor: MTLRenderPassDescriptor, _ label: String, continuation: Bool = false) {
             encoder?.endEncoding()
-            f.profile?.attach(descriptor, pass: label)
+            f.profile?.attach(descriptor, pass: label, continuation: continuation)
             encoder = cb.makeRenderCommandEncoder(descriptor: descriptor)
             encoder?.label = label
             if let encoder { f.bindShared(encoder) }
@@ -85,7 +85,7 @@ public final class FrameGraph {
         var overheadMeasured = false
         func measureSplitOverhead() {
             guard f.splitsEncoders, !overheadMeasured, encoder != nil, let next = plan.continuation(f) else { return }
-            open(next, FrameProfile.splitOverhead)
+            open(next, FrameProfile.splitOverhead, continuation: true)
             overheadMeasured = true
         }
         for stage in PassStage.allCases where stage != .prepare {
@@ -113,7 +113,7 @@ public final class FrameGraph {
                     if i == 0, let fresh {
                         open(fresh, p.name)
                     } else if encoder != nil, let next = plan.continuation(f) {
-                        open(next, p.name)
+                        open(next, p.name, continuation: true)
                     }
                 }
                 guard let encoder else { break }

@@ -48,6 +48,77 @@ final class SnapshotToolTests: XCTestCase {
                           "\(timed.timings)")
     }
 
+    /// The split overhead comes off the scene's continuations only: not
+    /// off the scene's first encoder, nor a pass's own encoder (the debug
+    /// view runs the same way unsplit), nor compute; spans not sampled read 0.
+    func testSplitOverheadComesOffContinuationsOnly() {
+        typealias K = FrameProfile.EncoderKind
+        let labels = ["Stars", "Planets", "Debug view", FrameProfile.splitOverhead, "Probe"]
+        let kinds: [K] = [.render, .sceneContinuation, .render, .sceneContinuation, .other]
+        let stamps: [UInt64] = [10, 20, 30, 130,      // Stars: 10 + 100
+                                100, 110, 200, 400,   // Planets: 10 + 200, less 50
+                                500, 505, 600, 700,   // Debug view: 5 + 100
+                                800, 801, 900, 949,   // the overhead: 1 + 49
+                                1_000, 1_060, 0, 0]   // Probe: 60
+        let t = FrameProfile.timings(labels: labels, kinds: kinds, stamps: stamps, secondsPerTick: 1)
+        XCTAssertEqual(t.map(\.pass), labels)
+        XCTAssertEqual(t.map(\.seconds), [110, 160, 105, 50, 60])
+    }
+
+    /// Only unsplit frames give F10's GPU time and `times`: a timed frame
+    /// gives its passes and nothing else.
+    func testSplitFramesNeverSetTheFrameTime() throws {
+        let times = FrameTimes(), reports = ReportBox()
+        SceneRenderer.record(gpu: 0.009, passes: [PassTiming(pass: "Vessels", seconds: 0.004)], times: times,
+                             reports: reports)
+        XCTAssertNil(reports.gpu)
+        XCTAssertEqual(times.gpu, 0)
+        SceneRenderer.record(gpu: 0.002, passes: nil, times: times, reports: reports)
+        XCTAssertEqual(reports.gpu, 0.002)
+        XCTAssertEqual(times.gpu, 0.002)
+        SceneRenderer.record(gpu: 0.009, passes: [PassTiming(pass: "Planets", seconds: 0.003)], times: times,
+                             reports: reports)
+        XCTAssertEqual(reports.gpu, 0.002)
+        XCTAssertEqual(times.gpu, 0.002)
+        XCTAssertEqual(reports.passes.map(\.pass), ["Planets"])
+
+        // And through a renderer: timing every frame leaves no frame time.
+        let device = try XCTUnwrap(RenderDevice.shared)
+        let r = try SceneRenderer(device: device, outputFormat: .bgra8Unorm_srgb,
+                                  passes: [RecordingPass("vessel", .opaque, log: RecordingPass.Log())],
+                                  plan: DirectTargetPlan(colorFormat: .bgra8Unorm_srgb, sampleCount: 4))
+        guard r.profiler.isSupported else { throw XCTSkip("no timestamp counters on this GPU") }
+        let target = try XCTUnwrap(OffscreenTarget(device: device, width: 64, height: 32))
+        r.profiling = true
+        r.profileInterval = 1
+        for _ in 0..<3 { r.renderAndWait(FrameGraphTests.emptyScene(), into: target) }
+        XCTAssertNil(r.lastReport, "no unsplit frame yet")
+        XCTAssertEqual(r.times.gpu, 0)
+        r.profiling = false
+        r.renderAndWait(FrameGraphTests.emptyScene(), into: target)
+        XCTAssertGreaterThan(try XCTUnwrap(r.lastReport).gpu, 0)
+        XCTAssertEqual(r.lastReport?.passes, [], "no passes once timing is off")
+    }
+
+    /// The record's GPU time is the main frame's, not an AOV frame's.
+    func testRecordTakesTheMainFramesGPUTime() throws {
+        let s = try snapper()
+        let saved = s.frameGPUTime
+        defer { s.frameGPUTime = saved }
+        var frames = 0.0
+        s.frameGPUTime = { _ in
+            frames += 1
+            return frames      // 1 s for the first frame rendered, 2 for the next...
+        }
+        var shot = Self.pad
+        shot.width = 160
+        shot.height = 100
+        shot.aovs = [.depth, .normals]
+        let out = try s.render(shot)
+        XCTAssertEqual(frames, 3)
+        XCTAssertEqual(out.record.gpuMilliseconds, 1_000)
+    }
+
     /// With a debug view on (a P4 pass ends the scene's encoders), timing
     /// still measures the split overhead and times the view's own encoder.
     func testTimingWithADebugView() throws {

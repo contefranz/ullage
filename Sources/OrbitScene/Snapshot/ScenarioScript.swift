@@ -203,7 +203,9 @@ public struct ScenarioScript: Equatable {
         while !done(sim) {
             guard sim.time - start < limit else { throw Failure.notReached(what, after: sim.time - start) }
             let before = sim.time
-            sim.advance(by: 0.1)
+            // 0.1 s of simulation time, times the warp above 1: as `advance`
+            // does, never less than the epoch can resolve at a tiny warp.
+            sim.advance(by: 0.1 * max(1, sim.warp) / sim.warp)
             if sim.time - before <= 0 { throw Failure.notReached(what, after: sim.time - start) }
             if sim.time - observed >= max(1, sim.warp) {
                 observe(sim)

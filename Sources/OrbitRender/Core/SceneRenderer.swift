@@ -23,8 +23,8 @@ public final class SceneRenderer {
     /// The output's pixel format (the drawable's).
     public let outputFormat: MTLPixelFormat
     public var settings = RenderSettings()
-    /// CPU encoding and GPU times of the frames that are not split for
-    /// timing, smoothed (s).
+    /// Smoothed, s: the CPU encoding time of every frame, and the GPU time
+    /// of the frames not split for timing.
     public let times = FrameTimes()
     /// Time each pass on the GPU (F10, `orbitsnap --timings`). One frame in
     /// `profileInterval` is split, every render pass in an encoder of its
@@ -132,13 +132,7 @@ public final class SceneRenderer {
         frameCount += 1
         let profile = profiling && frameCount % max(1, profileInterval) == 0 ? profiler.beginFrame() : nil
         cb.addCompletedHandler { cb in
-            let gpu = cb.gpuEndTime - cb.gpuStartTime
-            if let profile {
-                reports.passes = profile.resolve()
-            } else {
-                times.addGPU(gpu)
-                reports.gpu = gpu
-            }
+            Self.record(gpu: cb.gpuEndTime - cb.gpuStartTime, passes: profile?.resolve(), times: times, reports: reports)
             semaphore.signal()
             completion?(cb)
         }
@@ -168,6 +162,19 @@ public final class SceneRenderer {
         cb.commit()
         times.addEncode(CACurrentMediaTime() - encodeStart)
         return cb
+    }
+}
+
+extension SceneRenderer {
+    /// A finished frame's times: a split (timed) frame gives the passes
+    /// only; an unsplit one the GPU time, the real frame's.
+    nonisolated static func record(gpu: Double, passes: [PassTiming]?, times: FrameTimes, reports: ReportBox) {
+        if let passes {
+            reports.passes = passes
+        } else {
+            times.addGPU(gpu)
+            reports.gpu = gpu
+        }
     }
 }
 

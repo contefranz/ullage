@@ -12,6 +12,8 @@ public final class SnapshotRenderer {
     public let system: SolarSystem
     public let stars: [Star]
     private var renderers = [Bool: SceneRenderer]()
+    /// The GPU time of the frame a renderer just finished, s (a seam for tests).
+    var frameGPUTime: (SceneRenderer) -> Double? = { $0.lastReport?.gpu }
 
     public init(device: MTLDevice? = nil) throws {
         guard let device = device ?? MTLCreateSystemDefaultDevice() else { throw SceneRenderer.Failure.noDevice }
@@ -53,13 +55,15 @@ public final class SnapshotRenderer {
         guard let target = OffscreenTarget(device: device, width: shot.width, height: shot.height) else {
             throw SceneRenderer.Failure.noResources
         }
+        var gpuTimes: [Double] = []
         func frame(_ settings: RenderSettings) -> [UInt8] {
             r.settings = settings
             r.renderAndWait(scene, into: target)
+            gpuTimes.append(frameGPUTime(r) ?? 0)
             return target.bytes()
         }
         let pixels = frame(shot.settings)
-        var gpu = r.lastReport?.gpu ?? 0
+        var gpu = gpuTimes[0]       // the main frame's, not an AOV's
         var aovs: [(view: DebugView, pixels: [UInt8])] = []
         for view in shot.aovs where view != .none {
             var s = shot.settings
@@ -82,12 +86,8 @@ public final class SnapshotRenderer {
             r.profiling = false
             r.profileInterval = 4
             timings = order.map { PassTiming(pass: $0, seconds: Self.median(samples[$0]!)) }
-            var totals: [Double] = []
-            for _ in 0..<timingFrames {
-                _ = frame(shot.settings)
-                if let t = r.lastReport?.gpu { totals.append(t) }
-            }
-            gpu = Self.median(totals)
+            for _ in 0..<timingFrames { _ = frame(shot.settings) }
+            gpu = Self.median(Array(gpuTimes.suffix(timingFrames)))
         }
         r.settings = RenderSettings()
         let record = SnapshotRecord(shot: shot, prepared: prepared, scene: scene, gpuSeconds: gpu, timings: timings,
