@@ -154,7 +154,7 @@ ALM sheet 1.9101 *S-IC Booster Fin (75 ft²)* (TP3615 Fig. 42, PDF p. 56, page i
 |---|---|---|---|---|---|
 | Base heat shield | at the base of the stage, forward of the gimbal plane; top at STA 112.00; out to the fairings (pressure ports at 80-260 in from the axis, so it continues into the fairings) | M503 p. 4-1/4-3; BCD; D5 Table 2-I, PDF p. 26 | H | — | |
 | Construction | 15-7 PH stainless-steel honeycomb, 1.00 in thick, brazed to 0.010 in steel face sheets | M503 p. 4-3 | H | — | |
-| Flexible engine curtains (S-IC) | **not found** in M503, BCD or D5's S-IC sections | — | — | — | D5 documents curtains for the S-II only (§4.3). The design report's S-IC curtains stay unsourced. |
+| Flexible engine curtains (S-IC) | a "vehicle flexible heat-resistant curtain" attached to each F-1's interface panel, closing the gap to the heat shield | NR printed p. 3-7, PDF p. 55 (§8.1) | M | — | Extent and form not dimensioned. |
 
 ## 3. S-IC/S-II interstage
 
@@ -187,8 +187,8 @@ ALM sheet 1.9101 *S-IC Booster Fin (75 ft²)* (TP3615 Fig. 42, PDF p. 56, page i
 | LH2 feed-line fairings | five, from XB 158.00 (STA 1722) to XB 451.75 (STA 2015.75) | BCD "top of LH2 feed fairing 5 places 451.75", "bottom LH2 feed fairing 158.00" | H | — | Above the aft skirt's top (STA 1890) about 126 in of each fairing is exposed. TMX Fig. 2 and D5 Fig. 6-1 draw them. |
 | LH2 feed-line fairing azimuths | engine 1's at 44° from Position I towards II (θ 44°); engine 4's at 44° from Position IV towards I (θ 314°) | D5 Table 6-II, PDF p. 205 | H (for engines 1 and 4) | — | So the outboard engines' fairings run 1° off the fin diagonals; by symmetry engine 2's and 3's near θ 134° and 224° (M, *derived*); the centre engine's not found. |
 | Thrust cone | a truncated cone from about 18 ft in diameter to the 33 ft skin, ring frames and hat-section stringers; from XB 112.00 (STA 1676) to XB 223.00 (STA 1787) | M503 p. 5-1; BCD "bottom of thrust cone 112.00", "top of thrust cone 223.00" | H | grey frustum from STA 1664 (0.6 of the body radius) to 1760 | Its top is inside the aft skirt; the part below STA 1760 shows inside the interstage. |
-| Heat shield | fibreglass honeycomb, supported from the thrust structure's lower portion | M503 p. 5-1 | H | — | Station not printed. |
-| Heat-shield curtains | flexible engine curtains at S-II station 48 (STA 1612), gas probes at 56 and 76 in from the axis | D5 Table 4-IV, PDF pp. 136-137 | M | — | Their extent is not dimensioned. |
+| Heat shield | fibreglass honeycomb, supported from the thrust structure's lower portion; its aft surface at S-II station 44 (STA 1608) | M503 p. 5-1; D5 Table 4-III, PDF p. 131 (text layer) | H (construction); M (station) | — | See §8.2 for the curtains. |
+| Heat-shield curtains | flexible engine curtains round each engine, probes at S-II station 48 (STA 1612), about 48 in from each outboard engine's axis | D5 Table 4-IV, PDF pp. 136-137 (§8.2) | M | — | Fitted on the pad. |
 | J-2 gimbal plane | XB 100.00 (STA 1664) | BCD | H | `sIIJ2GimbalStation` 1664 (H) | |
 | Outboard J-2 circle | 17.5 ft in diameter (outboard engines on the diagonals) | M503 p. 5-1, PDF p. 86 | H | `sIIOutboardCircle` 17.5 ft (M) | |
 | Antennas, forward skirt | radio command antennas, 4 places, XB 923.00 (STA 2487); telemetry antennas, 4 places, XB 902.00 (STA 2466) | BCD; M503 Fig. 5-2 | H (stations); azimuths not found | — | |
@@ -244,7 +244,80 @@ ALM sheet 1.9101 *S-IC Booster Fin (75 ft²)* (TP3615 Fig. 42, PDF p. 56, page i
 
 ## 8. F-1 and J-2 in flight configuration
 
-*In progress: filled from the engine documents (Rocketdyne R-3896-1 F-1 Engine Data, R-3825-1 J-2 Engine Data, the F-1 thermal-insulation report NTRS 19650013319).*
+Distances along an engine are from its gimbal centre, + aft. The F-1's sides are named as seen from the exit with the engine horizontal: the turbopump at 12 o'clock, the hypergol manifold at 6, the No. 1 (gas generator) side on the left, the No. 2 (engine control valve) side on the right (R1 §1-6, PDF p. 25). Engine sources (read on page images; contractor documents for facts only):
+
+| key | document | copy read | bytes | sha256 |
+|---|---|---|---|---|
+| R1 | Rocketdyne R-3896-1, *Technical Manual: Engine Data, F-1 Rocket Engine* (31 Mar 1967, changes to No. 10, 16 Jul 1971); Fig. 2-22 at Change 2, 10 Aug 1967 | https://archive.org/download/r-3896-1-technical-manual-engine-data-f-1-rocket-engine-31-mar-1967/R3896-1_(Technical_Manual-Engine_Data)_F-1_Rocket_Engine_31_Mar_1967.pdf | 9,279,507 | `fb281e25e0a36a23942299ebf738ae078dae35c4aca83d079d7524f532f2d1ec` |
+| R6 | Rocketdyne R-3896-6, *Installation and Repair of Thermal Insulation, F-1 Rocket Engine* (13 Jul 1966, Change 9, 23 Mar 1972; Fig. 1-1 at Change 4, 13 Mar 1968) | https://archive.org/download/r-3896-6-technical-manual-installation-and-repair-of-thermal-insulation-f-1-rocket-engine-03-23-1/R3896-6_TECHNICAL_MANUAL_INSTALLATION_AND_REPAIR_OF_THERMAL_INSULATION_F-1_ROCKET_ENGINE_03-23-1.pdf | 13,336,815 | `b0b703f0489b7ecbacb3451a75009326bc368f13f10ae4ba2706dec457721517` |
+| RJ1 | Rocketdyne R-3825-1, *J-2 Rocket Engine, Engine Data* (18 May 1967, Change 12, 18 Oct 1972) | https://archive.org/download/r-3825-1-j-2-rocket-engine-engine-data-18-may-1967-change-no.-12-18-oct-72/R-3825-1_J-2_ROCKET_ENGINE-ENGINE_DATA18_MAY_1967_CHANGE_NO.12_18-OCT-72.pdf | 11,615,261 | `d295d55f2f9b032f0a14bbf7c18cebb09bf280e8a87bfae0f42c3290c3ff5034` |
+| RJ4 | Rocketdyne R-3825-4, *Illustrated Parts Breakdown, J-2 Rocket Engine* (23 Feb 1970; Fig. 56 at Change 4, 9 May 1972) | https://archive.org/download/r-3825-4-technical-manual-illustrated-parts-breakdown-j-2-rocket-engine-february-23-1970/R-3825-4_Technical_Manual_Illustrated_Parts_Breakdown_J-2_Rocket_Engine_FEBRUARY_23,1970.pdf | 11,169,728 | `0de897061b5475cf0610efadb905f0dcc87dce6a5ea23bc5f52acf5b224dc402` |
+| NR | *Saturn V News Reference* (Aug 1967, changed Dec 1968): F-1 fact sheet PDF p. 47, J-2 fact sheet PDF p. 97 (a press reference: M at best) | https://archive.org/download/saturn-v-news-reference/saturn-v-news-reference_text.pdf | 10,807,793 | `d4f2397a32434bbf943d86da26747d04bed1601a56a06337c1119ca849b3fe76` |
+| TMX1470 | NASA TM X-1470, Blaha, Wasko and Bresnahan, *Wind-Tunnel Investigation of Saturn S-IC Aerodynamic Engine Gimbal Forces and Base Pressures Using a Cold-Flow-Jet Simulation Technique* (NTRS 19670030895) | https://ntrs.nasa.gov/api/citations/19670030895/downloads/19670030895.pdf | 13,511,987 | `83bf4dbe75cac6d577349ae3cb3610ae428fe3bb7907a93fdad7c9806ecaf20e` |
+| P64 | S. T. Peters (Rocketdyne), *Thermal Insulative Elastomers for Clustered Large Liquid Propellant Rocket Engines*, 7th SAMPE Symposium, May 1964 (NTRS 19650013319) | https://ntrs.nasa.gov/api/citations/19650013319/downloads/19650013319.pdf | 8,947,882 | `58f20b57f9be0f4b4280b72f8a4d0ae58d1b9e810581aeeaa90f6f448fbd242d` |
+| TIS | MSFC S&E-ASTR-S-101-69, *Technical Information Summary, AS-506* | https://www.ibiblio.org/apollo/Documents/SE-ASTR-S-101-69-TechnicalInformationSummary-Apollo11-AS506-ApolloSaturnVSpaceVehicle.pdf | 4,166,492 | `802605552f06a004ce6857de45d52a6ed6ccd985d7538772c0a00c0dc119d43c` |
+
+The two items that matter most predate AS-503: R1's envelope drawing (Aug 1967) and R6's cocoon figure (Mar 1968). D5 is Boeing's flight evaluation of AS-501 to AS-503, so it describes the insulation AS-503 flew.
+
+### 8.1 F-1
+
+| item | value | source | grade | today | notes |
+|---|---|---|---|---|---|
+| Gimbal centre to exit plane | 215.50 in (5.474 m) | R1 Fig. 2-22 "Engine Envelope Dimensions", printed p. 2-23, PDF p. 148 | H | 215.0 in (STA 100 to −115.0) | BCD's STA 100.00 and −115.36 give 215.36 in. All within 0.5 in. |
+| Forward-most point | 14.50 in ahead of the gimbal centre (the turbopump inlet block's face); the main block's face 3.50 in ahead | R1 Fig. 2-22 | H | — | Overall length 230.00 in (19.17 ft), R1 §1-5's "19.2 feet". |
+| Exit, outer envelope | 147.00 in diameter (3.734 m) | R1 Fig. 2-22 | H | 3.76 m envelope | Includes the extension's outer wall and bands. |
+| Exit, gas side | 139.95 in (3.555 m, 9.924 m²) | *derived*: throat area 961.4 in² (R1 Fig. 3-13, printed p. 3-7, PDF p. 207, H) × 16 | H | `f1ExitArea` 10.10 m² (a performance fit) | Today's bell is drawn from `f1ExitArea`: 3.586 m across, 3 cm wider than the gas-side exit. NR's "maximum nozzle exit diameter" 11 ft 7 in (139 in) and TMX1470's 144.0 in outside diameter (p. 3, PDF p. 21) are other definitions of the same lip. |
+| Throat | 34.99 in diameter (*derived* from 961.4 in²) | R1 Fig. 3-13 | H | from the 16:1 ratio | |
+| Throat station | about 64-67 in aft of the gimbal | *scaled* off TMX1470 Fig. 2 (±4 %) | L | Rao bell, 30° convergent (`ApolloShapeData`) | |
+| Expansion ratios | 10:1 at the end of the tube-wall chamber, 16:1 with the extension | R1 §1-4, Fig. 1-7; M504 p. 4-4 | H | 16:1 (M, recalled) | Today's grade rises to H. |
+| Upper block (turbopump, LOX dome, valves, cocoon) | from 14.50 in ahead to 62.50 in aft of the gimbal; 103.24 in wide (51.62 each side); 75.75 in towards the turbopump side, 39.00 in towards the other; 12.00 in corner radii | R1 Fig. 2-22 side view and view B-B | H | — | An envelope, not a part outline. |
+| Turbopump inlet block | an obround with 15.75 in end radii, centres 51.75 in apart, its centre line 50.00 in from the axis on the turbopump side | R1 Fig. 2-22 view B-B | H | — | |
+| Section A-A (62.50 in aft) | a U-shape 60 in wide (30.00 in radius about the axis), 12.00 in corner radii on the turbopump side | R1 Fig. 2-22 | H (envelope) | — | Encloses the chamber below the upper block. |
+| Turbine exhaust manifold | a CRES torus round the chamber's exit end, its section tapering from inlet to exit, 15 omega expansion joints; envelope corner radii 13.50 in (turbopump side) and 7.00 in (far side), so a section of about 27 in tapering to about 14 in; its aft face 150.00 in aft of the gimbal | R1 §1-18, printed p. 1-9A, PDF p. 36; Fig. 2-22 | H (construction, stations); M (section from the radii) | — | Its centre plane sits about 8 in further aft on the 6 o'clock side (*scaled*, M): the torus is tilted. |
+| Nozzle extension | from the manifold's aft face (150.00 in, 125.00 in outer diameter) to the exit (215.50 in, 147.00 in): 65.5 in long, a 9.5° outer half-angle | R1 Fig. 2-22 (*derived*) | M | the bell's last part | Double-walled nickel-alloy walls on z-sections, CRES reinforcing bands round the outer wall, turbine exhaust injected through 23 rows of shingles; bolted on after the engine is in the stage (R1 §1-23, PDF p. 37, H). |
+| Extension installation | the extensions and the insulation are fitted in the VAB; stages at Michoud and MSFC have neither | R1 §1-229 (PDF p. 112), §1-235 (PDF p. 113) | H | — | Photos of S-IC stages at the factory are not flight-configuration references. |
+| Thermal insulation as flown (AS-501 to AS-503) | each engine enclosed in a "cocoon" of fibrous silica insulation in Inconel foil, except the nozzle extension, insulated with wire-reinforced asbestos | D5 §4, printed p. 4-3, PDF p. 65; D5 Fig. 4-15 (PDF p. 95, photo of the S-IC centre engine with its cocoon) | H | — | R1 §1-235 (PDF p. 113): the insulation is installed "to completely envelop the engine". |
+| Insulation construction | foil-batt: random-fibre batting between textured Inconel foils (0.004 in inner, 0.006 in outer); asbestos blankets: 2-5 layers of Inconel-lockwire-reinforced asbestos cloth "coated on one side with aluminum", on the extension's exit end, over the LOX dome between the gimbal and the interface panel, and below the cocoon | R1 §1-105 to 1-108, PDF pp. 74-76; R6 §1-3 to 1-7, PDF p. 14 | H | — | R1/R6 put foil-batt on the extension's large areas and asbestos on its exit end; D5 says asbestos on the extension. For AS-503, D5 (the flight report) wins: M for the extension's exact covering. |
+| Cocoon extent | from the thrust chamber's throat to the interface panel (the upper block) | R1 §1-106; R6 Fig. 1-1 (photo, PDF p. 15) | H | — | |
+| Insulation thickness | **not found** as flown; a 1964 design figure, 0.375 (in) | P64 printed p. 17-6, PDF p. 7 | L | — | |
+| Insulation mass | 1,188 lb (inboard), 1,198 lb (outboard) per engine, centred 77.5 in aft of the gimbal | R6 §4-3A, printed p. 4-2, PDF p. 84 | H | — | For mass properties, not shape. |
+| Engine interface panel and curtain | the interface panel (stainless-steel casting, three sections) "provides the attachment point for the vehicle flexible heat-resistant curtain", which closes the gap to the S-IC heat shield | NR printed p. 3-7, PDF p. 55 | M | — | Sources the S-IC's engine curtains (§2.7). |
+| Gimbal boot | silicone-impregnated fibreglass boot round the gimbal bearing | R1 §1-21, PDF p. 37 | H | — | |
+| Pre-launch weather cover | an engine environmental cover from the throat to the extension exit, laced tight under the exit, fitted before rollout | R1 §1-235, PDF p. 113 | H | — | For rollout and pad views only (the red covers in NASA 6761894, AS-503 in the VAB). |
+| Turbopump | 5 ft long, 4 ft in diameter (Mk-10) | R1 Fig. 1-16, printed p. 1-16, PDF p. 44 | H | — | |
+| Turbopump axis | about 50 in from the engine axis on the 12 o'clock side, parallel to it, inlets forward | *inferred* from Fig. 2-22's inlet block | M | — | |
+| Heat exchanger | 43 in diameter × 58 in long envelope; 40 in at the turbine outlet, 24 in at the manifold | R1 §1-72, printed p. 1-29, PDF p. 59 | H (size); L (position, on the turbopump side from about +62.5 to +123 in) | — | |
+| Gas generator | 18 × 24 × 28 in envelope, on the No. 1 side | R1 §1-64, printed p. 1-25, PDF p. 54 | H (size) | — | Position not found. |
+| Tube-wall chamber | 178 primary tubes (1-3/32 in OD Inconel-X) above the 3:1 plane, 356 secondary tubes (1 in OD) to 10:1, with reinforcing bands below the throat | R1 §1-15/1-16, printed p. 1-8, PDF p. 34 | H | — | Hidden by the insulation in flight. |
+| Gimbal range | ±5.0° square pattern, 5°/s | M503 p. 4-7, PDF p. 64; M504 p. 4-7 | H | 5.0° (L, enginehistory) | TIS Fig. 25 says ±5.1°. Today's grade can rise to H. |
+| Mounting and cant | outboard engines mounted parallel to the axis; they cant 2° outward on IU command once clear of the tower (AS-503: after 20 s) | A8PK printed p. -10-, PDF p. 12; D5 PDF p. 24 | H | gimbal-commanded cant (`AS506`) | No mounting cant: at lift-off the outboard F-1s are parallel. |
+| Outboard radius | no printed number; 182.0 in from the fairing's axis (§2.3, M); TMX1470's model scales to 176-193 in (L) | ALM 1.9201; TMX1470 Figs. 4 and 9 | M | 182 in (L) | |
+| Turbopump clocking within the cluster | **not found** | — | — | — | |
+
+### 8.2 J-2
+
+| item | value | source | grade | today | notes |
+|---|---|---|---|---|---|
+| Envelope | 80.75 in in diameter × 133 in long | RJ1 §1-9, printed p. 1-1, PDF p. 25 | H | 2.07 m envelope (81.5 in) | NR: 80.5 in and 11 ft 1 in. |
+| Exit (inside, at the exit ring) | 77 in (1.9558 m) | RJ1 §1-16, printed p. 1-7, PDF p. 31 | H | `j2ExitArea` from 14.7 in at 27.5:1: 1.958 m | 2.6 mm apart: negligible. |
+| Throat; chamber | 14.7 in throat; 18.3 in chamber; chamber body 107 in long | RJ1 §1-16 | H | 14.7 in (H) | |
+| Area ratio | 27.5:1 (NR); geometric from 77/14.7: 27.44 | NR PDF p. 97; RJ1 §1-15 | H | 27.5 (H) | |
+| Gimbal to exit | 116 in | `docs/AS506-datasheet.md` §13 (REF504 stations); corroborated by RJ1 Fig. 9-5 (printed p. 9-6, PDF p. 178): the exit closure's CG at +116.6 in | H | 116 in (M) | |
+| Tube bundle | furnace-brazed stainless steel: 180 down tubes and 360 up tubes, held by bands | RJ1 §1-16 | H | — | VM2's "J-2 tubes(count)": 360 visible on the bell's lower part (the up tubes). |
+| Fuel inlet manifold | round the chamber's middle, where the down tubes start; about 65 in aft of the gimbal and 61 in across (*scaled* off NR p. 97) | RJ1 §1-16; NR | H (description); L (station) | — | |
+| Turbine exhaust manifold | tapered, round the chamber just above the fuel inlet manifold; exhaust leaves through "cat-eye" openings between the long tubes | RJ1 §1-16 | H | — | |
+| Turbopumps | oxidizer 21 in diameter × 18 in; fuel 18 in diameter × 30 in (volute foam-insulated); on opposite sides of the chamber, axes about 21-22 in from the engine axis | RJ1 §1-21, §1-25 (PDF p. 35); positions *scaled* off NR p. 97 | H (sizes); L (positions) | — | |
+| Heat exchanger; start tank | 14 in × 16.5 in; a 25.5 in sphere | RJ1 §1-55 (PDF p. 51), §1-63 (PDF p. 55) | H | — | |
+| Gimbal bearing | about 10 in across × 6 in, on the injector dome | RJ1 §1-19, PDF p. 34 | H | — | |
+| S-II engines' insulation | covers on the chamber's hat bands and stiffener rings aft of the heat shield; the main fuel valve, the electrical control assembly, the oxidizer turbine bypass valve, the oxidizer volute, valve, ducts and bleed line | RJ1 §1-140, printed p. 1-61, PDF p. 86 (Change 10, Feb 1971) | H (as of 1971) | — | Effectivity for S-II-3 and S-II-6 not checked: M for AS-503/506. |
+| S-IVB engine's insulation | "the thrust chamber tubes, below the fuel inlet manifold, are insulated" (RJ4 Fig. 56: 7 rows of 14 panels, strapped) | RJ1 §1-141, PDF p. 86; RJ4 Fig. 56 sheet 4 | M | — | Whether S-IVB-503 and -506 carried it is not established. |
+| S-II outboard circle; mounting | 17.5 ft diameter, outboard engines on the diagonals, mounted parallel to the stage centreline; ±7.0° gimbal pattern | M503 pp. 5-1, 5-5 (PDF pp. 86, 90) | H | 17.5 ft (M) | Today's grade can rise to H. |
+| S-IVB gimbal | 7.0° square pattern | M504 p. 6-19, PDF p. 134 | H | 7.0° (M) | |
+| S-II heat shield and curtains | heat shield's aft surface at S-II station 44 (STA 1608); curtain probes at S-II station 48, 56 in out on each outboard engine's azimuth and 76 in out 25° either side, so the curtains ring each outboard engine about 48 in from its axis | D5 Table 4-III (PDF p. 131, text layer), Table 4-IV (PDF p. 136, page image), Fig. 4-53 (PDF p. 135) | M | — | Fibreglass honeycomb (M503 p. 5-1). The curtains are fitted on the pad ("INSTALL S-II FLAME CURTAINS", M503 countdown chart, PDF p. 204). |
+
+### 8.3 Colour and finish
+
+No source read states a colour for either engine. Stated materials: the F-1's textured Inconel foil and aluminium-coated asbestos blankets (R1 §1-106/107), the extension under them nickel alloy with CRES bands (R1; NR: "high strength stainless steel"), the J-2's stainless-steel tubes (RJ1). VM2 takes tones from flight-era colour photos.
 
 ## 8a. VD1 values not found
 
@@ -252,6 +325,7 @@ ALM sheet 1.9101 *S-IC Booster Fin (75 ft²)* (TP3615 Fig. 42, PDF p. 56, page i
 - S-IC tunnel cross-sections; the S-IC LOX vent outlets' form; S-IC engine curtains.
 - The S-II/S-IVB interstage retros' azimuths; the S-IVB tunnels' azimuths and extents; the APS modules' dimensions and station; the TX-280 case dimensions.
 - Antenna sizes (S-II, S-IVB, IU).
+- Engines (§8): the F-1 insulation's thickness as flown, any stated colour, a printed outboard radius, the throat station (L only), the LOX dome's size, the gas generator's position and the turbopumps' clocking in the cluster; the J-2 gas generator, its parts' dimensioned positions (scaled only), and whether S-IVB-503/506 carried the chamber-tube insulation.
 
 ---
 
@@ -280,3 +354,6 @@ Today's shapes are in `ApolloShapes.swift` and the stations in `AS506Data.swift`
 11. **S-IVB ullage fairings, tunnels, antennas: placement agrees or is new.** The TX-280 fairings near the fin D and fin B diagonals (towards Positions IV and II) agree with today's "II-III and IV-I diagonals". New: two tunnels, the telemetry antennas at STA 3193.56 (θ about 79° and 259°), the vents and fill line fairing.
 12. **IU: missing** its doors (umbilical and access, between Positions I and II) and antennas; stations agree.
 13. **Datum: 0.36 in.** The F-1 exit is STA −115.36 (BCD), today −115; the tip STA 4240.79 (BCD), today 4241.0 (from 363 ft). Both within a centimetre.
+14. **F-1 shape: generic.** Today each F-1 is a Rao bell from the exit (radius from `f1ExitArea`, 10.10 m², 3.586 m across) to the gimbal, 215.0 in. Sourced (§8.1): gimbal to exit 215.50 in; a tube-wall chamber to 10:1, the turbine exhaust manifold torus with its aft face at 150.00 in, then the 65.5 in extension from 125.00 in to 147.00 in outer diameter (gas-side exit 139.95 in); an upper block (turbopump, dome, valves) from 14.50 in ahead to 62.50 in aft of the gimbal, 103.24 in wide; and, as flown, the whole engine wrapped in the foil cocoon and asbestos blankets. VG1 should size the exit from the geometry (3.555 m gas side, 3.734 m outer), not from the performance-fitted `f1ExitArea`.
+15. **J-2 envelope: 2 cm large.** Today 2.07 m; RJ1 80.75 in (2.051 m). The exit (77 in) agrees with today's 1.958 m within 3 mm.
+16. **Grades that can rise.** `f1AreaRatio` 16 (recalled, M) is H (R1, M504); the F-1 gimbal range 5.0° (L) is H (M503); `sIIOutboardCircle` 17.5 ft (M) is H (M503); `f1OutboardRadius` 182 in (L) is M (the fairing's axis).
