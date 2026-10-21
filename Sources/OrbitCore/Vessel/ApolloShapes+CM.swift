@@ -73,21 +73,45 @@ extension ApolloShapeData {
     static let cmHatchHeight = 29.0                  // in (M)
     static let cmHatchCentre = 1_062.3               // Xa, the band's middle (L)
     static let cmHatchRelief = 0.12                  // in above the skin (visual)
-    /// The twelve RCS engines' ports in pairs (AOH Figs. 1-4, 1-5, 2.5-1):
-    /// the -pitch pair on -Z_A just above the forward heat shield's base,
-    /// the +pitch pair below the hatch, the yaw pairs near ±Y_A turned 30°
-    /// towards -Z_A and the roll pairs on the arcs either side of -Z_A, all
-    /// aft ones in the band under Xa 1043.4 (M placement; azimuths,
-    /// stations and sizes not found, L). Roll ports are scarfed along the
-    /// surface.
+    /// The twelve RCS engines' ports in pairs, each port naming the jet
+    /// that fires through it ("CM RCS " and the suffix, as
+    /// `VesselLibrary.addCommandModuleRCS` names them), the pair's two in
+    /// the order of `across` (round the CM, - then +).
+    /// - The pitch pairs on -Z_A (θ 0°): the -pitch pair just above the
+    ///   forward heat shield's base, the +pitch pair below the hatch (AOH
+    ///   Figs. 1-4, 1-5, M).
+    /// - The yaw and roll pairs where the physics fires those jets, on ±Y_A
+    ///   (θ 90° and 270°, `ApolloCM`'s L placement), so each plume, which
+    ///   leaves along its jet's direction, leaves its port along the
+    ///   surface's normal or, for a scarfed roll port, along the surface.
+    ///   The AOH's yaw pairs, perhaps 30° towards -Z_A, and roll engines on
+    ///   the arcs either side of -Z_A (Fig. 2.5-1, L) would move with the
+    ///   jets (V8 or M2).
+    /// - The aft ports in the band between the shoulder (the cone from Xa
+    ///   1024.1) and Xa 1043.4 (D7564 Fig. 6, M): the pitch and yaw ports
+    ///   at Xa 1027, the roll ports above them at Xa 1033 (L).
+    ///
+    /// The jets themselves sit at Xa 1020, 72 in out (inside the shoulder),
+    /// and Xa 1100, 24 in out (`ApolloCM.rcsAftStation`,
+    /// `rcsForwardStation`, L): the ports stand within 14 in of their jets'
+    /// stations, and the nozzles' links (`cmRCSNozzles`) start the plumes
+    /// at the ports while the torques stay the physics'.
     enum RCSPort { case pitch, yaw, roll }
-    static let cmRCSPorts: [(kind: RCSPort, theta: Double, xa: Double)] = [
-        (.pitch, 0, 1_086), (.pitch, 0, 1_033), (.yaw, 60, 1_033), (.yaw, 300, 1_033), (.roll, 30, 1_033),
-        (.roll, 330, 1_033),
+    static let cmRCSPorts: [(kind: RCSPort, jets: [String], theta: Double, xa: Double)] = [
+        (.pitch, ["4A", "4B"], 0, 1_086), (.pitch, ["3A", "3B"], 0, 1_027),
+        (.yaw, ["5A", "5B"], 90, 1_027), (.yaw, ["6A", "6B"], 270, 1_027),
+        (.roll, ["1A", "2A"], 90, 1_033), (.roll, ["1B", "2B"], 270, 1_033),
     ]
     static let cmRCSPortSpacing = 6.0                // in between a pair's ports, estimate (L)
     static let cmRCSPortRadius = 1.6                 // in: the 2.13 in exit in its recess, estimate (L)
     static let cmRCSRollPort = (across: 2.4, up: 1.3)   // in, the scarfed ports' semi-axes, estimate (L)
+    static let cmRCSPortRelief = 0.1                 // in: a recess's top over the tape (visual)
+    /// The SE-8's nozzle: its exit (AOH p. 2.5-47, H), and the bell drawn
+    /// back from it towards the 9:1 throat. The -pitch engines, in the
+    /// forward compartment, stand on its deck: their chamber's radius.
+    static let cmRCSExitDiameter = 2.13              // in (H)
+    static let cmRCSBellLength = 2.5                 // in, estimate (L)
+    static let cmRCSChamberRadius = 0.6              // in, estimate (L)
     /// The docking probe, on CSM-107 only (A11PK): its size is not found;
     /// about 20 in of it above the interface, under the BPC's apex (L).
     static let probeLength = 20.0                    // in above the interface, estimate (L)
@@ -212,8 +236,9 @@ extension ApolloDresser {
     /// afterbody stops at the forward heat shield's base and shows the
     /// forward deck and the tunnel. Then the docking ring, the hatch, the
     /// windows, the RCS ports (the -pitch pair on the cover when it is a
-    /// part) and, on CSM-107, the probe. The whole CM wears the Kapton tape
-    /// (D7564: "over the entire external surface of the ablator", H).
+    /// part), on CSM-107 the probe, and last the RCS nozzles linked to the
+    /// jets. The whole CM wears the Kapton tape (D7564: "over the entire
+    /// external surface of the ablator", H).
     func commandModule() -> [VisualShape] {
         typealias A = ApolloDresser
         typealias M = CMOuterMouldLine
@@ -237,7 +262,7 @@ extension ApolloDresser {
         var shapes = [heatShield, afterbody, dockingRing(), cmHatch()] + cmWindows()
         shapes += cmRCSPorts(forward: false) + (apexCovered ? [] : cmRCSPorts(forward: true))
         if variant.csm == .csm107 { shapes.append(dockingProbe()) }
-        return shapes
+        return shapes + cmRCSNozzles()
     }
 
     /// The forward heat shield: the OML from the forward heat shield's base
@@ -364,7 +389,59 @@ extension ApolloDresser {
             let f = cmConeFrame(x: port.xa - S.cmFace, theta: port.theta * deg, off: off)
             for side in [-1.0, 1.0] {
                 shapes.append(scPatch(at: f.at + f.across * (side * pair), normal: f.normal, across: f.across, up: f.up,
-                                      outline: outline, depth: 0.6 * inch, height: 0.1 * inch, ApolloDresser.cmRCSPort))
+                                      outline: outline, depth: 0.6 * inch, height: S.cmRCSPortRelief * inch,
+                                      ApolloDresser.cmRCSPort))
+            }
+        }
+        return shapes
+    }
+
+    /// The twelve SE-8 nozzles, one in each port, all on the CM, which
+    /// carries the engines (the -pitch pair's too, under the forward heat
+    /// shield when that is a part of its own). Each is linked to its "CM
+    /// RCS" jet when the part has it, so the jet's plume starts at the port.
+    /// A pitch or yaw nozzle's exit is flush with its recess's top, its
+    /// axis the cone's normal; a roll nozzle lies along the surface, its
+    /// exit at the scarfed recess's downstream end and its bell under the
+    /// tape. The -pitch engines run on down to the forward deck, where
+    /// they stand once the forward heat shield has gone.
+    func cmRCSNozzles() -> [VisualShape] {
+        typealias A = ApolloDresser
+        typealias M = CMOuterMouldLine
+        let inch = D.inch, deg = SpacecraftGeometry.degree, pair = S.cmRCSPortSpacing / 2
+        let re = S.cmRCSExitDiameter / 2, bell = S.cmRCSBellLength, top = S.cmRCSPortRelief
+        let throat = [P(0, re), P(0.45 * bell, 0.68 * re), P(bell, 0.36 * re)]
+        var shapes: [VisualShape] = []
+        for port in S.cmRCSPorts {
+            let x = port.xa - S.cmFace, f = cmConeFrame(x: x, theta: port.theta * deg)
+            var profile = throat
+            if port.xa > S.forwardHeatShieldBase {
+                // Along the axis (into the CM, down the cone's normal) to
+                // half an inch under the deck.
+                let reach = (x - (S.forwardHeatShieldBase - S.cmFace)) / sin(M.theta) + top + 0.5
+                profile += [P(bell, S.cmRCSChamberRadius, crease: true), P(reach, S.cmRCSChamberRadius, crease: true),
+                            P(reach, 0)]
+            }
+            for (side, jet) in zip([-1.0, 1.0], port.jets) {
+                let exhaust: Vec3, exit: Vec3
+                switch port.kind {
+                case .pitch, .yaw:
+                    exhaust = f.normal
+                    exit = f.at + f.across * (side * pair * inch) + f.normal * (top * inch)
+                case .roll:
+                    exhaust = f.across * side
+                    let downstream = side * (pair + S.cmRCSRollPort.across - re)
+                    exit = f.at + f.across * (downstream * inch) + f.normal * ((top - re) * inch)
+                }
+                var s = finished(.revolution(profile.map { P($0.x * inch, $0.r * inch, crease: $0.crease) },
+                                             from: local(exit), axis: -exhaust, segments: 16, color: A.dark.colour),
+                                 A.dark, vehicleFrame: false)
+                s.capBase = false
+                s.capTop = false
+                s.twoSided = true
+                let name = "CM RCS " + jet
+                s.thruster = part.thrusters.contains { $0.name == name } ? name : nil
+                shapes.append(s)
             }
         }
         return shapes

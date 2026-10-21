@@ -120,8 +120,8 @@ final class VisualShapeTests: XCTestCase {
 
     // Every nozzle link names a thruster of its part; every main engine of
     // the Saturn V has one bell, a linked revolution (the SPS among them,
-    // whose stiffener and columbium band turn with it too), and each SM RCS
-    // jet its nozzle, as the stand-in SM's SPS and RCS jets.
+    // whose stiffener and columbium band turn with it too), and each SM or
+    // CM RCS jet its nozzle, as the stand-in SM's SPS and RCS jets.
     func testThrusterLinksResolve() {
         for v in vehicles() {
             for p in v.parts {
@@ -138,13 +138,14 @@ final class VisualShapeTests: XCTestCase {
                 let linkedShapes = p.shapes.filter { $0.thruster == t.name }
                 // The bell: an open, two-sided revolution from its exit.
                 let bells = linkedShapes.filter { profile($0) != nil && !$0.capBase && $0.twoSided }
-                let expected = t.groups.contains(.main) || t.name.hasPrefix("SM RCS") ? 1 : 0
+                let rcs = t.name.hasPrefix("SM RCS") || t.name.hasPrefix("CM RCS")
+                let expected = t.groups.contains(.main) || rcs ? 1 : 0
                 XCTAssertEqual(bells.count, expected, t.name)
                 XCTAssertEqual(linkedShapes.count, t.name == "SPS" ? 3 : expected, t.name)
                 linked += bells.count
             }
         }
-        XCTAssertEqual(linked, 11 + 1 + 16)   // 5 F-1, 5 + 1 J-2, the SPS, the SM RCS
+        XCTAssertEqual(linked, 11 + 1 + 16 + 12)   // 5 F-1, 5 + 1 J-2, the SPS, the SM and CM RCS
         // The SM's sixteen R-4D nozzles stand where DB3 Fig. 2-5 puts them
         // whether or not the part has the thrusters (CSMExteriorTests); the
         // stand-in SM's two jets take two of them.

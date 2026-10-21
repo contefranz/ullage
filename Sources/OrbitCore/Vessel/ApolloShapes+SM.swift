@@ -65,6 +65,9 @@ extension ApolloShapeData {
     static let scimitarLength = 19.0                 // in (L)
     static let scimitarHeight = 9.0                  // in off the skin (L)
     static let scimitarThickness = 1.0               // in (L)
+    /// The blade's root edge under the true skin: below the 64-facet
+    /// shell's flats (at most 0.09 in inside the circle) too.
+    static let scimitarRootSink = 0.25               // in (visual)
     /// The high-gain antenna, on CSM-103 and CSM-107 only (A8MR p. 6-25;
     /// A11PK p. 90): four 31 in dishes round an 11 in square horn, its root
     /// at the aft bulkhead's edge at θ_A 127.75° (AOH Figs. 2.8-28, 2.8-30,
@@ -72,7 +75,8 @@ extension ApolloShapeData {
     /// right angles to X, the array's centre about 38 in outboard of the
     /// skin (TRW Fig. 2-2, M). The boom's length is not found (49-58 in on
     /// the TRW sketch, L): a 52 in boom hinged 14 in inboard of the skin
-    /// puts the array 38 in out. Deployed, the dishes look aft.
+    /// puts the array 38 in out. Deployed, the boom runs out square to X
+    /// just aft of the aft bulkhead, and the dishes look aft.
     static let hgaAzimuth = 127.75                   // deg θ_A (H)
     static let hgaDishDiameter = 31.0                // in, A11PK p. 90 (H)
     static let hgaHornWidth = 11.0                   // in, A11PK p. 90 (H)
@@ -259,12 +263,13 @@ extension ApolloDresser {
     /// roots sunk a little into it.
     func scimitars() -> [VisualShape] {
         let inch = D.inch, skin = ApolloDresser.csmRadius
-        let l = S.scimitarLength, h = S.scimitarHeight
+        let l = S.scimitarLength, h = S.scimitarHeight, root = -S.scimitarRootSink
         // Root along the skin, the leading edge sweeping forward to the tip
-        // and the trailing edge curving back to the root (L).
-        // The outline keeps clear of the plate's own axis (b = 0), half an
-        // inch under the skin, so its azimuth has no seam.
-        let outline: [(Double, Double)] = [(0, 0.25), (0.37 * l, 0.25), (0.58 * l, 0.28 * h), (0.79 * l, 0.67 * h),
+        // and the trailing edge curving back to the root (L); b is in
+        // inches off the true skin.
+        // The outline keeps clear of the plate's own axis (b = -0.5), half
+        // an inch under the skin, so its azimuth has no seam.
+        let outline: [(Double, Double)] = [(0, root), (0.37 * l, root), (0.58 * l, 0.28 * h), (0.79 * l, 0.67 * h),
                                            (l, h), (0.76 * l, 0.91 * h), (0.47 * l, 0.7 * h), (0.21 * l, 0.4 * h)]
         let section = outline.map { VisualShape.SectionPoint($0.0 * inch, ($0.1 + 0.5) * inch) }
         return S.scimitarAzimuths.map { azimuth -> VisualShape in
@@ -377,10 +382,12 @@ extension ApolloDresser {
         let out = F.radial(theta), along = F.tangent(theta)
         let hingeRadius = S.csmSkinRadius + S.hgaOutboard - S.hgaBoomLength
         let hinge = Vec3(xa(S.hgaHinge), 0, 0) + out * (hingeRadius * inch)
-        // Stowed, from the hinge: the array's centre a boom's length aft and
-        // 4 in out, its dishes looking in at the nozzle.
+        // Stowed, from the hinge: the boom straight aft to the horn's back,
+        // the array inboard of it with its dishes looking in at the nozzle.
+        // The boom carries no offset across it, so the deploy swings it
+        // square to X at the hinge's station, under the aft bulkhead.
         let lift = S.hgaHornLength / 2
-        let centreOffset: Vec3 = Vec3.unitX * (-S.hgaBoomLength * inch) + out * ((lift + S.hgaDishDepth / 2) * inch)
+        let centreOffset: Vec3 = Vec3.unitX * (-S.hgaBoomLength * inch) - out * (lift * inch)
         var boresight = -out, u = Vec3.unitX, offset = centreOffset
         if deployed {
             // -X -> out, out -> +X.

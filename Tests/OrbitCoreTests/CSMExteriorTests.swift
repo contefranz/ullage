@@ -151,7 +151,8 @@ final class CSMExteriorTests: XCTestCase {
     // The SM's cylinder from its aft bulkhead, Xa 838, to its forward one,
     // Xa 993, 154 in across; the fairing to Xa 1014.72 in sixteen pieces,
     // eight EPS radiators alternating with eight panels; the ECS radiators
-    // over bays 2-3 and 5-6; the scimitars near ±Y_A.
+    // over bays 2-3 and 5-6; the scimitars near ±Y_A, their roots sunk in
+    // the skin.
     func testSMShellRadiatorsAndScimitars() throws {
         let v = stack(.apollo11), sm = try part(v, "SM")
         let shell = sm.shapes[0], at = xa(origin(shell, on: sm, of: v).x)
@@ -193,6 +194,11 @@ final class CSMExteriorTests: XCTestCase {
             XCTAssertEqual(c.map(radius).max()!, 77 + 9, accuracy: 0.1)
             let mean = c.reduce(Vec3.zero, +) / Double(c.count)
             XCTAssertLessThan(apart(theta(mean), azimuth + 90), 2)
+            // The root, the first 0.37 of the blade, under the skin all
+            // along: under the 64-facet shell's flats, at most 0.09 in
+            // inside the true circle, too.
+            let sunk = c.filter { radius($0) < 77 * cos(Double.pi / 64) }.map(\.x)
+            XCTAssertEqual((sunk.max() ?? 0) - (sunk.min() ?? 0), 0.37 * 19 * inch, accuracy: 1e-9)
         }
     }
 
@@ -267,7 +273,7 @@ final class CSMExteriorTests: XCTestCase {
     // is stowed inside the SLA, clear of the SPS nozzle; on the CSM alone,
     // or once a re-dress follows the CSM's separation (event 6), it is
     // deployed at right angles to X, the array 38 in outboard of the skin,
-    // its dishes looking aft.
+    // its dishes looking aft. Its boom never enters the SM's cylinder.
     func testHighGainAntenna() throws {
         func hga(_ p: VesselPart) -> [VisualShape] { p.shapes.filter { $0.material == .apolloHighGainAntenna } }
         XCTAssertTrue(hga(try part(VesselLibrary.apolloCSM(.apollo7), "SM")).isEmpty)
@@ -285,6 +291,17 @@ final class CSMExteriorTests: XCTestCase {
             XCTAssertEqual(height / inch, 11, accuracy: 1e-9)
             let centre = origin(horn, on: sm, of: v) + horn.axis * (horn.length / 2)
             XCTAssertLessThan(apart(theta(centre), 127.75 + 90), 1e-6)
+            // The boom, a 1.5 in tube from the hinge to the horn's back: its
+            // axis keeps out of the cylinder (Xa 838-993, 77 in) by more than
+            // the tube's radius; deployed it runs square to X.
+            let boom = try XCTUnwrap(shapes.first { profile($0).count == 2 })
+            let hinge = origin(boom, on: sm, of: v), along = boom.axis / boom.axis.length
+            for i in 0...200 {
+                let p = hinge + along * (boom.length * Double(i) / 200)
+                if radius(p) < 77 + 1.5 { XCTAssertLessThan(xa(p.x) + 1.5, 838, "boom point \(i)") }
+            }
+            XCTAssertEqual(radius(hinge + along * boom.length), stowed ? 63 : 115, accuracy: 1e-9)
+            if !stowed { XCTAssertEqual(along.x, 0, accuracy: 1e-12) }
             if stowed {
                 // Inside the SLA and clear of the nozzle.
                 let sps = sm.shapes.last { $0.thruster == "SPS" }!
@@ -405,6 +422,59 @@ final class CSMExteriorTests: XCTestCase {
         _ = alone.jettisonAll(event: 30)
         VesselLibrary.dressApollo(alone)
         XCTAssertEqual(ports(try part(alone, "CM")), 12)
+    }
+
+    // Each of the CM's twelve RCS jets has its nozzle, linked to it, so its
+    // plume starts at the nozzle's exit: 2.13 in across (AOH p. 2.5-47),
+    // in a port of its own at the jet's azimuth, along the jet's axis, the
+    // plume clearing the CM. The ports stand within 14 in of the jets'
+    // stations (Xa 1020 and 1100, `ApolloCM`, L); the -pitch engines reach
+    // down to the forward deck. On the stack and on the CM alone, its
+    // cover a part of its own either way.
+    func testCMRCSJetsLeaveTheirPorts() throws {
+        let alone = VesselLibrary.commandModule(.apollo7)
+        VesselLibrary.dressApollo(alone)
+        for v in [stack(.apollo11), alone] {
+            let cm = try part(v, "CM"), cover = try part(v, "Apex cover")
+            // The ports' centres, on their recesses' tops.
+            let ports = [cm, cover].flatMap { (p: VesselPart) -> [Vec3] in
+                p.shapes.filter { $0.material == .apolloCMRCSPort }.map { (s: VisualShape) -> Vec3 in
+                    origin(s, on: p, of: v) + s.axis * s.length
+                }
+            }
+            XCTAssertEqual(ports.count, 12)
+            let jets = cm.thrusters.filter { $0.name.hasPrefix("CM RCS") }
+            XCTAssertEqual(jets.count, 12)
+            var served = Set<Int>()
+            for t in jets {
+                let linked = cm.shapes.filter { $0.thruster == t.name }
+                XCTAssertEqual(linked.count, 1, t.name)
+                let nozzle = try XCTUnwrap(linked.first, t.name), back = nozzle.axis   // into the engine
+                let exit = origin(nozzle, on: cm, of: v) + back * (profile(nozzle)[0].x * inch)
+                XCTAssertEqual(2 * profile(nozzle)[0].r, 2.13, accuracy: 1e-9, t.name)
+                XCTAssertEqual(back.dot(t.direction), 1, accuracy: 1e-9, t.name)
+                // In a port: a round port's centre, a scarfed one's downstream end.
+                let near = try XCTUnwrap(ports.indices.min { (a: Int, b: Int) -> Bool in
+                    (ports[a] - exit).length < (ports[b] - exit).length
+                })
+                XCTAssertLessThan((ports[near] - exit).length / inch, 2.4, t.name)
+                served.insert(near)
+                // At the jet's azimuth: within the pair's 3 in, and a scarfed
+                // exit's 1.3 in further, of the jet's half-plane.
+                let jet = t.position + cm.offset - v.structureOrigin
+                let out = Vec3(0, jet.y, jet.z) / (radius(jet) * inch)
+                XCTAssertGreaterThan(exit.dot(out), 0, t.name)
+                XCTAssertLessThan(abs(exit.y * out.z - exit.z * out.y) / inch, 4.4, t.name)
+                XCTAssertLessThan(abs(xa(exit.x) - xa(jet.x)), 14, t.name)
+                // The plume, 20 in out, is clear of the afterbody's cone.
+                let plume = exit - t.direction * (20 * inch)
+                XCTAssertGreaterThan(radius(plume), CMOuterMouldLine.coneRadius(at: xa(plume.x) - 998), t.name)
+                if t.name.hasPrefix("CM RCS 4") {
+                    XCTAssertLessThan(xa(points([nozzle], on: cm, of: v).map(\.x).min()!), 1081.13, t.name)
+                }
+            }
+            XCTAssertEqual(served.count, 12)
+        }
     }
 
     // MARK: Launch escape system
