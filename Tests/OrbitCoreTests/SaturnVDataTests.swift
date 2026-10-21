@@ -28,9 +28,11 @@ final class SaturnVDataTests: XCTestCase {
         let v = VesselLibrary.saturnV()
         XCTAssertEqual(v.parts.map(\.name), ["S-IC", "S-IC/S-II interstage", "S-II", "S-II/S-IVB interstage",
                                              "S-IVB", "S-IVB ullage rockets", "IU"] + Self.spacecraft + ["LES"])
-        XCTAssertEqual(v.parts.map(\.staging), [.event(1), .event(2), .event(4), .event(4), .event(6), .event(5),
-                                                .event(6)] + Array(repeating: .event(6), count: 6)
-                                                + [.event(7), .fixed, .event(30), .event(31), .event(32), .event(3)])
+        // Typed, or Swift 6.0's type checker on Linux spends its whole 600 s
+        // limit on the literal before it finds the answer.
+        let staging: [StagingRule] = [.event(1), .event(2), .event(4), .event(4), .event(6), .event(5), .event(6)]
+            + Array(repeating: .event(6), count: 6) + [.event(7), .fixed, .event(30), .event(31), .event(32), .event(3)]
+        XCTAssertEqual(v.parts.map(\.staging), staging)
         // Each solid motor has its own grain, named after its set.
         func times(_ name: String, _ n: Int) -> [String] { Array(repeating: name, count: n) }
         var expected: [String] = ["S-IC LOX", "S-IC RP-1"]
