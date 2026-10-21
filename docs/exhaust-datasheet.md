@@ -82,19 +82,19 @@ Every thruster of the Apollo vehicles maps to one family by its name (`ApolloExh
 | family | thrusters | family enum | pc | ε | exit radius | lip half-angle | rated flow (kg/s) | grade |
 |---|---|---|---|---|---|---|---|---|
 | F-1 | "S-IC engine 1"-"5" | keroseneLOX | 982 psia (Betts, H) | 16 (H) | 1.777 m, 139.95 in across: R-3896-1's 961.4 in² throat at 16:1 (H; the dresser's gas side) | 8° (assumed) | 2,602.3: 5,737 lb/s (Betts, H) | M |
-| J-2 | "S-II engine 1"-"5", "S-IVB engine" | hydrogenLOX | 763 psia (Purdue, extract, M) | 27.5 (H) | 0.979 m (the dresser's) | 8° (assumed) | 245.47: 230,000 lbf at 425 s (M) | M |
+| J-2 | "S-II engine 1"-"5", "S-IVB engine" | hydrogenLOX | 763 psia (Purdue, extract, M) | 27.5 (H) | 0.979 m, the gas side (the dresser's) | 8° (assumed) | 245.47: 230,000 lbf at 425 s (M) | M |
 | SPS | "SPS" | hypergolic | 100 psia (AOH, H) | 62.5 (AOH, H) | 1.250 m, 98.4 in across (AOH; the dresser's) | 8° (assumed) | 30.61: 21,080 lbf at 312.34 s | M |
 | SM RCS (R-4D) | "SM RCS A1"-"D4" | hypergolic | 90 psia (A-1080, M) | 40 (AOH, H) | 0.0711 m, 5.6 in across (AOH; the dresser's) | 10° (assumed) | 0.164: 99.8 lbf at 276 s | M |
-| CM RCS (SE-8) | "CM RCS 1A"-"6B" | hypergolic | 139 psia (derived, M) | 9 (AOH, H) | 0.0271 m, 2.13 in across (AOH, H) | 15° (assumed) | 0.153: 93 lbf at 276 s | M |
-| APS attitude (TR-204) | "APS I pitch", "APS I roll/yaw ±t" and Position III's | hypergolic | 100 psia (FER-501 §7.12, H) | 40 (assumed, L) | 0.0816 m (derived from 147 lbf, L) | 15° (assumed) | 0.272 | L |
-| APS ullage (SE-7-1) | "APS I ullage", "APS III ullage" | hypergolic | 100 psia (proxy, L) | 9 (assumed, L) | 0.0281 m (derived from 72 lbf, L) | 15° (assumed) | 0.113 | L |
-| Tower jettison (TE-380) | "Tower jettison motor" | solidOther | 1,330 psia (TN D-6295, H) | 14 (TN D-6295, H) | 0.171 m, one of its two nozzles (TN D-6295, H) | 10° (TN D-6295, H) | 80.2 | M |
+| CM RCS (SE-8) | "CM RCS 1A"-"6B" | hypergolic | 139 psia (derived, M) | 9 (AOH, H) | 0.0271 m, 2.13 in across (AOH, H; the dresser's) | 15° (assumed) | 0.153: 93 lbf at 276 s | M |
+| APS attitude (TR-204) | "APS I pitch", "APS I roll/yaw ±t" and Position III's | hypergolic | 100 psia (FER-501 §7.12, H) | 40 (assumed, L) | 0.0816 m (derived from 147 lbf, L; drawn so) | 15° (assumed) | 0.272 | L |
+| APS ullage (SE-7-1) | "APS I ullage", "APS III ullage" | hypergolic | 100 psia (proxy, L) | 9 (assumed, L) | 0.0281 m (derived from 72 lbf, L; drawn so) | 15° (assumed) | 0.113 | L |
+| Tower jettison (TE-380) | "Tower jettison motor" | solidOther | 1,330 psia (TN D-6295, H) | 14 (TN D-6295, H) | 0.171 m, one of its two nozzles (TN D-6295, H; not yet drawn so, §2.9) | 10° (TN D-6295, H) | 80.2 | M |
 | S-IC retro (TE-M-424) | "S-IC retro motor 1"-"8" | solidOther | 1,650 psia (FER-501, H) | 4.5 (derived, L) | 0.172 m (L) | 15° (assumed) | 200.6 | L |
-| S-II ullage | "S-II ullage motor 1"-"4" | solidOther | 999 psia (FER-501, H) | 7.5 (derived, L) | 0.143 m (L) | 15° (assumed) | 40.7 | L |
-| S-II retro (TE-M-29) | "S-II retro motor 1"-"4" | solidOther | 1,761 psia (FER-501, H) | 4.3 (derived, L) | 0.103 m (L) | 15° (assumed) | 79.6 | L |
-| S-IVB ullage (TX-280) | "S-IVB ullage motor 1", "2" | solidOther | 980 psia (FER-501, H) | 16 (derived, L) | 0.079 m (L) | 15° (assumed) | 6.85 | L |
+| S-II ullage | "S-II ullage motor 1"-"4" | solidOther | 999 psia (FER-501, H) | 7.5 (derived, L) | 0.143 m (L; the port's) | 15° (assumed) | 40.7 | L |
+| S-II retro (TE-M-29) | "S-II retro motor 1"-"4" | solidOther | 1,761 psia (FER-501, H) | 4.3 (derived, L) | 0.103 m (L; drawn so) | 15° (assumed) | 79.6 | L |
+| S-IVB ullage (TX-280) | "S-IVB ullage motor 1", "2" | solidOther | 980 psia (FER-501, H) | 16 (derived, L) | 0.079 m (L; drawn so) | 15° (assumed) | 6.85 | L |
 
-The lip half-angles are assumptions for the plume's initial angle; the dresser's bells leave their exits at about 7.6°.
+The lip half-angles are assumptions for the plume's initial angle; the dresser's bells leave their exits at about 7.6°. Every exit is shared with the dresser's drawing (§2.9).
 
 ### 2.1 F-1
 
@@ -142,7 +142,30 @@ CEA's library lacks four of the ingredients. The deck gives LP-33, per C5H10O2S2
 
 No area ratio was found. Each is the one at which CEA's vacuum thrust coefficient puts the exit of a nozzle delivering the motor's thrust (87,000, 23,000, 34,810 and 3,390 lbf) at 0.9 of its case's diameter: 15.25, 12.5 and 9 in (MAN-503, H) and, for the TX-280, 7 in inferred from its 58.8 lb grain at TP-E-8104's 0.0633 lb/in³ in a 36 in motor (EH 8.30, extract: L).
 
+**The exits.** Each derived exit is the one the dresser draws or places its port at (§2.9).
+
 **The family.** Apollo's Thiokol solids are polysulfide and ammonium perchlorate with little aluminium (the TE-380's 2 %, H; the others' formulations are not in hand), so their exhaust is 2.4-3.8 % alumina by mass and 2.8-5.5 % condensed in all, against the 30 % of an aluminised composite. The specs give them the `solidOther` family with their `aluminaFraction`, not `solidAluminized`; the design report's white-yellow Al2O3 cores would overstate them.
+
+### 2.9 One exit per family, shared with the drawing
+
+The plume starts at the drawn nozzle (OrbitScene's `VesselGeometry`: the last shape the dresser links to the thruster, or for unlinked engines the cone narrowing to it), so each family has one exit radius, which the dresser's drawing (`ApolloShapeData`, the `ApolloShapes` files of tracks VG1-VG3) and the spec (`ApolloExhaust`) both read and cannot drift apart on. The better-sourced side holds the constant and the other reads it: a sourced drawing wins over a derived spec, and a derived spec, tied to sourced thrusts, pressures and cases, wins over a drawing's placeholder.
+
+| family | drawing (VG) | spec (P1) | shared exit, held by | why |
+|---|---|---|---|---|
+| F-1 | gas side from R-3896-1's 961.4 in² throat at 16:1 (H) | `AS506.f1ExitArea`'s 1.793 m (a performance fit) | 139.95 in, the drawing (`ApolloShapeData.f1ThroatArea`, `f1AreaRatio`) | §2.1 |
+| J-2 | gas side √(A_e/π) from the 14.7 in throat at 27.5:1 (H; RJ1's 77 in inside the exit ring, 1.3 mm in), the profile running on out over the ring to the 80.75 in envelope | the same | 77.09 in, the drawing (`ApolloShapeData.j2ExitRadius`) | one expression, now one constant |
+| SPS | AOH 98.4 in (H) | the same | the drawing (`spsExitDiameter`) | as before |
+| SM RCS | AOH 5.6 in (H) | the same | the drawing (`rcsExitDiameter`) | as before |
+| CM RCS | AOH 2.13 in (H); VG3 links its nozzles to the jets | 2.13 in, its own literal | the drawing (`cmRCSExitDiameter`) | same source; the spec reads the drawing, as for the SPS and SM RCS |
+| APS attitude | 5 in placeholder for all four of a module's nozzles (L) | 6.427 in from 147 lbf at 100 psia, 40:1 | 6.427 in, the spec (`ApolloExhaust.apsAttitudeExitDiameter`) | the placeholder had no source |
+| APS ullage | the same 5 in placeholder (L) | 2.211 in from 72 lbf at 100 psia, 9:1 | 2.211 in, the spec (`apsUllageExitDiameter`) | the same |
+| S-II retro | 7 in estimate under the fairing's cap (L) | 8.148 in, 0.9 of the 9 in case (H) for 34,810 lbf at 1,761 psia | 8.148 in, the spec (`sIIRetroExitDiameter`) | the spec's rule ties it to the sourced case; it fits the case and the 16 in fairing |
+| S-IVB ullage (TX-280) | 5 in estimate below its fairing (L) | 6.222 in, 0.9 of the inferred 7 in case for 3,390 lbf at 980 psia | 6.222 in, the spec (`sIVBUllageExitDiameter`) | the same |
+| S-II ullage | an 8 in port (estimate, L) on the fairing's foot; no nozzle drawn | 11.274 in, 0.9 of the 12.5 in case (H) for 23,000 lbf at 999 psia | 11.274 in, the spec (`sIIUllageExitDiameter`) | the same; the port still lies within the fairing's foot |
+| S-IC retro | a port of the case's 15.25 in (H) where the exhaust breaks through the fairing's skin; no nozzle drawn | 13.58 in, the nozzle inside | not shared | the port is the breach, not the nozzle (MAN-503 p. 4-27) |
+| Tower jettison | two nozzles drawn at a 6 in placeholder (L), not linked: the model's one thruster stands for both | 13.471 in, one nozzle's (TN D-6295, H) | not yet shared | the spec is the better sourced, but VG3's ports are flat patches that a 13.5 in exit would stand off the 26 in body; the scarfed exits need redrawing (§7) |
+
+Nothing here changes the vehicle model: masses, thrusters, aerodynamics and the §17 ascent are as they were, and the CEA table keeps its exits (every derived one the spec's).
 
 ## 3. The plume model (`PlumeModel`)
 
@@ -221,18 +244,20 @@ Sunlit ice sublimating in vacuum holds itself near 183 K, not the 208 K radiatio
 | `.testShockCells` | a matched jet keeps De; Ls = 1.306 Dj √(Mj² − 1) | Pack; Tam and Tanna |
 | `.testSimonsMassFlux` | ∫ ρ u_lim dA = ṁ within 1 % (θ_lim below and at 180°) | plan |
 | `.testAfterburningFadesWithAltitude`, `.testRegimesAlongTheFlight`, `.testShutdownShrinksThePlume` | the fade from 28 to 40 km; the flame front; the J-2's faint Mach disk at 67 km, free-molecular flow above; pc, δ0 and the Mach disk shrinking along the F-1's shutdown ramp | D5-15796-1 |
-| `ExhaustSpecTests` | a spec for every Apollo thruster (none for the M0 test vehicles); exit radii equal to the dressed nozzles' (the F-1's gas side included); the specs and their exits equal to the CEA table; the rated flows the vehicle's | plan |
+| `ExhaustSpecTests` | a spec for every Apollo thruster (none for the M0 test vehicles); exit radii equal to the dressed nozzles' for every family whose nozzle is linked (the F-1's and J-2's gas sides, the SPS, SM and CM RCS, the S-II retros, the TX-280s: a bell's first profile point, on the plane bounding it and innermost there, a cone's base); the specs and their exits equal to the CEA table; the rated flows the vehicle's | plan |
+| `SceneExtractorTests.testNozzleExitsAreTheExhaustSpecs` | every nozzle the scene finds, the unlinked APS cones included, has its spec's exit | §2.9 |
 | `ParticleKinematicsTests` | one step and many equal the closed form; RK4; the ballistic limit; quadratic drag against RK4 within 0.5 % and onto the terminal velocity at any step; the golden cases | analytic |
 | `FrostSheddingTests` | Table 20-1's masses by CECO and its shed totals within 1 %; Murphy-Koop against IAPWS within 0.5 %; Hertz-Knudsen; the lifetimes | FER; IAPWS 2011 |
 
 ## 7. Open items
 
-1. **The solids' propellants and nozzles** (L): only the tower jettison motor's formulation and nozzle are in hand. The retros' and ullage motors' Thiokol specifications, or a stage handbook, would replace the TP-E-8104 proxy and the case-diameter rule.
+1. **The solids' propellants and nozzles** (L): only the tower jettison motor's formulation and nozzle are in hand. The retros' and ullage motors' Thiokol specifications, or a stage handbook, would replace the TP-E-8104 proxy and the case-diameter rule, and with it the exits the dresser draws (§2.9).
 2. **The APS area ratios** (L): the TR-204's and SE-7-1's are not found.
 3. **The F-1's turbine film**: its 887 K and its share come through search extracts of R-3896-1 (M); the scanned manual itself was out of the network's reach.
 4. **Lip angles** (assumed) set the plume's initial angle only by a few degrees.
-5. **Shapes for P2's calibration**: the afterburning's fade between 28 and 40 km, the core length and the luminous length are visual grade; the Mach disk's luminosity is a column-density ratio, not a radiance.
-6. **Simons' backflow**: the far field ends at θ_lim; the boundary-layer flow beyond it (the plumes' backflow onto the vehicle) is not modelled.
+5. **The tower jettison motor's drawn nozzles** (§2.9): VG3 draws them at a 6 in placeholder, against TN D-6295's 13.47 in. Drawing them at the spec's exit needs the scarfed exits through the TJM's interstage redrawn, and a link if the plume is to start there.
+6. **Shapes for P2's calibration**: the afterburning's fade between 28 and 40 km, the core length and the luminous length are visual grade; the Mach disk's luminosity is a column-density ratio, not a radiance.
+7. **Simons' backflow**: the far field ends at θ_lim; the boundary-layer flow beyond it (the plumes' backflow onto the vehicle) is not modelled.
 
 ## Sources
 

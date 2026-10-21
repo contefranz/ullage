@@ -107,6 +107,9 @@ extension ApolloShapeData {
     /// clocking is not known: across the outboard engines' radius here.
     static let j2FuelPump = (diameter: 18.0, length: 30.0, offset: 22.0, top: 0.0)       // in; top below the gimbal
     static let j2OxidizerPump = (diameter: 21.0, length: 18.0, offset: 21.0, top: 6.0)   // in; top below the gimbal
+    /// The bell's gas-side exit radius (m), the rating's √(A_e/π): the
+    /// profile's first point, and the plume's exit (`ApolloExhaust.j2`).
+    static var j2ExitRadius: Double { (AS506.j2ExitArea / Double.pi).squareRoot() }
 }
 
 extension ApolloDresser {
@@ -232,7 +235,7 @@ extension ApolloDresser {
     /// while the engine gimbals, at most 7°: 3-5 in at their places).
     func j2Engines(exit: Double) -> [VisualShape] {
         typealias A = ApolloDresser
-        let inch = D.inch, exitRadius = (D.j2ExitArea / Double.pi).squareRoot()
+        let inch = D.inch, exitRadius = S.j2ExitRadius
         return part.thrusters.filter { $0.groups.contains(.main) }.flatMap { t -> [VisualShape] in
             let gimbal = t.position.x + construction.x
             var engine = finished(.revolution(A.j2Profile(exitRadius: exitRadius, length: gimbal - exit),

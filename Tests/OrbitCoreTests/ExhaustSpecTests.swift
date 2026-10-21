@@ -40,35 +40,55 @@ final class ExhaustSpecTests: XCTestCase {
         XCTAssertEqual(spec.aluminaFraction, 0)
     }
 
-    // The exit radius of every thruster whose nozzle the dresser draws (the
-    // F-1s, J-2s, the SPS and the SM RCS jets) is its bell's. Other shapes
-    // may be linked to the thruster too, to turn with its gimbal (an
-    // engine's cocoon and extension, a nozzle's band and stiffener ring);
-    // the scene (OrbitScene's VesselGeometry) starts the plume at the last
-    // linked revolution or frustum, the bell: open at its exit, which is its
-    // profile's first point wherever along the axis that lies, and widest
-    // there.
+    // The exit radius of every thruster whose nozzle the dresser draws and
+    // links to it (the F-1s, J-2s, the SPS, the SM and CM RCS jets, the S-II
+    // retros and the TX-280s) is its spec's: drawing and plume share one
+    // exit per family. Other shapes may be linked to the thruster too, to
+    // turn with its gimbal (an engine's cocoon and extension, a nozzle's
+    // band and stiffener ring); the scene (OrbitScene's VesselGeometry)
+    // starts the plume at the last linked revolution or frustum, the
+    // nozzle, open at its exit. A frustum's exit is its base, the wide end
+    // of a cone narrowing up the thrust. A revolution's is its profile's
+    // first point, the gas side's exit, wherever along the axis that lies:
+    // on the plane that bounds the profile, and the innermost point there,
+    // so that the plume fills the mouth. It need not be the widest point:
+    // the J-2's profile runs on out over its exit ring to the 80.75 in
+    // envelope, wider than the 77 in gas side.
     func testExitRadiiMatchTheDressedNozzles() throws {
         var checked = Set<String>()
         for v in apolloVessels() {
             for p in v.parts {
                 for t in p.thrusters {
-                    guard let bell = p.shapes.last(where: { $0.thruster == t.name && Self.hasExit($0) }) else {
+                    guard let nozzle = p.shapes.last(where: { $0.thruster == t.name && Self.hasExit($0) }) else {
                         continue
                     }
                     let spec = try XCTUnwrap(ExhaustLibrary.spec(for: t, in: p), t.name)
-                    guard case let .revolution(profile, _, _) = bell.kind, let exit = profile.first else {
-                        XCTFail("\(p.name): \(t.name)'s nozzle is not a bell")
-                        continue
+                    XCTAssertFalse(nozzle.capBase, "\(t.name): the nozzle is open at its exit")
+                    switch nozzle.kind {
+                    case let .revolution(profile, _, _):
+                        let exit = try XCTUnwrap(profile.first, t.name)
+                        XCTAssertEqual(exit.r, spec.exitRadius, accuracy: 1e-9, t.name)
+                        let along = profile.map { $0.x - exit.x }
+                        XCTAssertTrue(along.allSatisfy { $0 >= -1e-12 } || along.allSatisfy { $0 <= 1e-12 },
+                                      "\(t.name): the exit plane bounds the nozzle")
+                        let mouth = profile.filter { abs($0.x - exit.x) < 1e-12 }.map(\.r)
+                        XCTAssertEqual(mouth.min(), exit.r, "\(t.name): the gas side is the mouth's edge")
+                    case let .frustum(base, top):
+                        XCTAssertEqual(base, spec.exitRadius, accuracy: 1e-9, t.name)
+                        XCTAssertGreaterThan(base, top, "\(t.name): the cone narrows from its exit")
+                    default:
+                        XCTFail("\(p.name): \(t.name)'s nozzle has no exit")
                     }
-                    XCTAssertFalse(bell.capBase, "\(t.name): the bell is open at its exit")
-                    XCTAssertEqual(exit.r, spec.exitRadius, accuracy: 1e-9, t.name)
-                    XCTAssertEqual(profile.map(\.r).max(), exit.r, "\(t.name): the bell is widest at its exit")
-                    checked.insert(String(t.name.prefix(6)))
+                    checked.insert(try XCTUnwrap(Self.row(of: spec), t.name))
                 }
             }
         }
-        XCTAssertEqual(checked, ["S-IC e", "S-II e", "S-IVB ", "SPS", "SM RCS"])
+        XCTAssertEqual(checked, ["F-1", "J-2", "SPS", "SM RCS", "CM RCS", "S-II retro", "S-IVB ullage"])
+    }
+
+    /// The CEA table's row for `spec`, its family's name.
+    static func row(of spec: ExhaustSpec) -> String? {
+        ApolloExhaust.byTableRow.first { $0.value.spec.source == spec.source }?.key
     }
 
     /// Whether the scene can take a nozzle exit from `shape`, as

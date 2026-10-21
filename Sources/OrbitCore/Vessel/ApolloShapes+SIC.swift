@@ -217,7 +217,11 @@ extension ApolloShapeData {
     static let sIIUllageFairingWidth = 24.0          // in (M)
     static let sIIUllageFairingHeight = 22.0         // in (L)
     static let sIIUllageFairingPastFin = 4.0         // deg anticlockwise of fins A-D, VD2 (M)
-    static let sIIUllageExitDiameter = 8.0           // in, estimate (L)
+    /// The exit port's diameter is the exhaust spec's (`ApolloExhaust
+    /// .sIIUllage`): 11.27 in, 0.9 of the case at which CEA delivers the
+    /// motor's 23,000 lbf at 999 psia (P1, L), which replaced an 8 in
+    /// placeholder so that the port and the plume share it.
+    static let sIIUllageExitDiameter = ApolloExhaust.sIIUllageExitDiameter   // in (L)
     /// The separation ordnance's two fairings at the first plane (D5 Table
     /// 6-II: θ 55° and 235°, instrumented at STA 1568, H); their size is an
     /// estimate (L).

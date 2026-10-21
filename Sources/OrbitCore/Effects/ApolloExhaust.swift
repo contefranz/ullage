@@ -4,9 +4,18 @@ import Foundation
 /// pressure, nozzle and gas from docs/exhaust-datasheet.md, whose gas comes
 /// from the NASA CEA runs in tools/data/cea_apollo_exhaust.csv (frozen at the
 /// throat for the liquids, shifting equilibrium for the solids; the
-/// `ExhaustSpecTests` check these literals against the table). Nozzle exits
-/// that the dresser draws take its own dimensions, so the plumes leave the
-/// drawn bells. None of it feeds thrust or flow.
+/// `ExhaustSpecTests` check these literals against the table). None of it
+/// feeds thrust or flow.
+///
+/// The plumes start at the drawn nozzles, so each engine family has one
+/// exit, which the dresser's drawing and the spec share and cannot drift
+/// apart on: the better sourced of the two. Where the drawing's is sourced
+/// (the F-1's gas side, the J-2's, the SPS's and the RCS engines' AOH
+/// exits) the spec reads the dresser's `ApolloShapeData`; where the
+/// dresser only had a placeholder and this datasheet derives the exit from
+/// the motor's thrust and pressure (the APS engines, the S-II retros and
+/// ullage motors, the TX-280s), the dresser reads the `...ExitDiameter`
+/// constants here.
 public enum ApolloExhaust {
     /// An engine family: its exhaust, and the propellant flow (kg/s) at
     /// which `spec.chamberPressure` holds. A choked throat makes the chamber
@@ -57,10 +66,12 @@ public enum ApolloExhaust {
     /// The J-2: 763 psia at the rated o/f 5.5 and 230,000 lbf at 425 s
     /// (Purdue's table through a search extract, M), 27.5:1. AS-506's S-II
     /// ran it at 5.0, 5.5 and 4.34, its S-IVB at about 4.96: the spec is
-    /// the rated chemistry and the pressure follows the flow.
+    /// the rated chemistry and the pressure follows the flow. The exit is
+    /// the gas side the dresser draws, `ApolloShapeData.j2ExitRadius`: the
+    /// rating's √(A_e/π), 1.3 mm outside RJ1's 77 in.
     public static let j2 = Engine(
         spec: ExhaustSpec(family: .hydrogenLOX, chamberPressure: 763 * psi, areaRatio: D.j2AreaRatio,
-                          exitRadius: (D.j2ExitArea / Double.pi).squareRoot(), lipHalfAngle: 8 * degree,
+                          exitRadius: ApolloShapeData.j2ExitRadius, lipHalfAngle: 8 * degree,
                           exitGamma: 1.2338, molarMass: 0.012755, chamberTemperature: 3_372.93,
                           exitTemperature: 1_194.49, fuelRichFraction: 0.30025,
                           source: "exhaust datasheet §2.2; CEA row J-2", grade: "M"),
@@ -88,11 +99,13 @@ public enum ApolloExhaust {
         ratedFlow: C.rcsFourJetThrust / 4 * C.poundForce / (C.rcsIsp * standardGravity))
 
     /// A CM RCS SE-8: MMH and N2O4 at o/f 2.0, 9:1 through a 2.13 in exit
-    /// (AOH Vol. 1 p. 2.5-47, H); 139 psia, the pressure CEA's thrust
-    /// coefficient needs for its 93 lbf (derived, M).
+    /// (AOH Vol. 1 p. 2.5-47, H), the dresser's (`ApolloShapeData
+    /// .cmRCSExitDiameter`, whose nozzles VG3 links to the jets); 139 psia,
+    /// the pressure CEA's thrust coefficient needs for its 93 lbf (derived,
+    /// M).
     public static let cmRCS = Engine(
         spec: ExhaustSpec(family: .hypergolic, chamberPressure: 139 * psi, areaRatio: 9,
-                          exitRadius: 2.13 / 2 * C.inch, lipHalfAngle: 15 * degree,
+                          exitRadius: ApolloShapeData.cmRCSExitDiameter / 2 * C.inch, lipHalfAngle: 15 * degree,
                           exitGamma: 1.2471, molarMass: 0.022132, chamberTemperature: 3_165.98,
                           exitTemperature: 1_433.80, fuelRichFraction: 0.18777,
                           source: "exhaust datasheet §2.5; CEA row CM RCS", grade: "M"),
@@ -100,20 +113,22 @@ public enum ApolloExhaust {
 
     /// An S-IVB APS attitude engine (TRW TR-204, 147 lbf): MMH and N2O4 at
     /// o/f 1.6 and its nominal 100 psia (AS-501 FER §7.12, H), at a guessed
-    /// 40:1 whose exit the thrust then sizes (L).
+    /// 40:1 whose exit the thrust then sizes (L), `apsAttitudeExitDiameter`,
+    /// at which the dresser draws the APS modules' attitude nozzles.
     public static let apsAttitude = Engine(
         spec: ExhaustSpec(family: .hypergolic, chamberPressure: 100 * psi, areaRatio: 40,
-                          exitRadius: 6.427 / 2 * D.inch, lipHalfAngle: 15 * degree,
+                          exitRadius: apsAttitudeExitDiameter / 2 * D.inch, lipHalfAngle: 15 * degree,
                           exitGamma: 1.2780, molarMass: 0.020331, chamberTemperature: 3_003.90,
                           exitTemperature: 794.05, fuelRichFraction: 0.30372,
                           source: "exhaust datasheet §2.6; CEA row APS attitude", grade: "L"),
         ratedFlow: D.apsAttitudeThrust * D.poundForce / (D.apsAttitudeIsp * standardGravity))
 
     /// An S-IVB APS ullage engine (Rocketdyne SE-7-1, 72 lbf): as the
-    /// attitude engines, at a guessed 9:1 (L).
+    /// attitude engines, at a guessed 9:1 (L); the dresser draws its nozzle
+    /// at `apsUllageExitDiameter`.
     public static let apsUllage = Engine(
         spec: ExhaustSpec(family: .hypergolic, chamberPressure: 100 * psi, areaRatio: 9,
-                          exitRadius: 2.211 / 2 * D.inch, lipHalfAngle: 15 * degree,
+                          exitRadius: apsUllageExitDiameter / 2 * D.inch, lipHalfAngle: 15 * degree,
                           exitGamma: 1.2612, molarMass: 0.020331, chamberTemperature: 3_003.90,
                           exitTemperature: 1_286.53, fuelRichFraction: 0.30372,
                           source: "exhaust datasheet §2.6; CEA row APS ullage", grade: "L"),
@@ -123,7 +138,9 @@ public enum ApolloExhaust {
     /// polysulfide and ammonium perchlorate with 2 % aluminium, 1,330 psia
     /// over its web burn, each of its two 10° conical nozzles 14:1 from a
     /// 10.18 in² throat (TN D-6295, H). One nozzle's exit: the model's one
-    /// thruster stands for both.
+    /// thruster stands for both. The dresser's two nozzles (VG3) are not
+    /// linked to it and are drawn at a 6 in placeholder: their 13.47 in
+    /// scarfed exits need VG3's interstage ports redrawn (an open item).
     public static let towerJettison = Engine(
         spec: ExhaustSpec(family: .solidOther, chamberPressure: 1_330 * psi, areaRatio: 14,
                           exitRadius: 13.471 / 2 * D.inch, lipHalfAngle: 10 * degree,
@@ -135,7 +152,9 @@ public enum ApolloExhaust {
     /// An S-IC retro (Thiokol TE-M-424): polysulfide and ammonium
     /// perchlorate (MSFC-MAN-503, H; TP-E-8104 standing in, L) at Thiokol's
     /// nominal 1,650 psia (AS-501 FER §12.2.1, H); its 4.5:1 exit sized at
-    /// 0.9 of the 15.25 in case (L).
+    /// 0.9 of the 15.25 in case (L). The dresser draws no nozzle for it:
+    /// its port is the breach the exhaust blows through the fairing's skin,
+    /// the case's size (VG1).
     public static let sICRetro = Engine(
         spec: ExhaustSpec(family: .solidOther, chamberPressure: 1_650 * psi, areaRatio: 4.5,
                           exitRadius: 13.580 / 2 * D.inch, lipHalfAngle: 15 * degree,
@@ -146,10 +165,12 @@ public enum ApolloExhaust {
 
     /// An S-II ullage motor: 82 % ammonium perchlorate (MSFC-MAN-503, H; the
     /// rest TP-E-8104's other ingredients, L) at 999 psia (AS-501 FER Table
-    /// 12-3, H); its 7.5:1 exit sized at 0.9 of the 12.5 in case (L).
+    /// 12-3, H); its 7.5:1 exit sized at 0.9 of the 12.5 in case (L),
+    /// `sIIUllageExitDiameter`, the dresser's exit port on its fairing's
+    /// foot (VG1).
     public static let sIIUllage = Engine(
         spec: ExhaustSpec(family: .solidOther, chamberPressure: 999 * psi, areaRatio: 7.5,
-                          exitRadius: 11.274 / 2 * D.inch, lipHalfAngle: 15 * degree,
+                          exitRadius: sIIUllageExitDiameter / 2 * D.inch, lipHalfAngle: 15 * degree,
                           exitGamma: 1.1617, molarMass: 0.030538, chamberTemperature: 2_947.16,
                           exitTemperature: 1_801.70, fuelRichFraction: 0.00045, aluminaFraction: 0.02429,
                           source: "exhaust datasheet §2.8; CEA row S-II ullage", grade: "L"),
@@ -157,10 +178,11 @@ public enum ApolloExhaust {
 
     /// An S-II retro (Thiokol TE-M-29): TP-E-8104 standing in (L) at 1,761
     /// psia (AS-501 FER Table 12-4, H); its 4.3:1 exit sized at 0.9 of the
-    /// 9 in case (L).
+    /// 9 in case (L), `sIIRetroExitDiameter`, at which the dresser draws the
+    /// nozzle under its fairing's cap and places its port (VG2).
     public static let sIIRetro = Engine(
         spec: ExhaustSpec(family: .solidOther, chamberPressure: 1_761 * psi, areaRatio: 4.3,
-                          exitRadius: 8.148 / 2 * D.inch, lipHalfAngle: 15 * degree,
+                          exitRadius: sIIRetroExitDiameter / 2 * D.inch, lipHalfAngle: 15 * degree,
                           exitGamma: 1.1728, molarMass: 0.028836, chamberTemperature: 2_718.84,
                           exitTemperature: 1_741.12, fuelRichFraction: 0.16822, aluminaFraction: 0.03778,
                           source: "exhaust datasheet §2.8; CEA row S-II retro", grade: "L"),
@@ -168,14 +190,30 @@ public enum ApolloExhaust {
 
     /// An S-IVB ullage motor (Thiokol TX-280): TP-E-8104 standing in (L) at
     /// 980 psia (AS-501 FER Table 12-5, H); its 16:1 exit sized at 0.9 of an
-    /// inferred 7 in case (L).
+    /// inferred 7 in case (L), `sIVBUllageExitDiameter`, at which the dresser
+    /// draws the nozzle below its fairing and places its port (VG2).
     public static let sIVBUllage = Engine(
         spec: ExhaustSpec(family: .solidOther, chamberPressure: 980 * psi, areaRatio: 16,
-                          exitRadius: 6.222 / 2 * D.inch, lipHalfAngle: 15 * degree,
+                          exitRadius: sIVBUllageExitDiameter / 2 * D.inch, lipHalfAngle: 15 * degree,
                           exitGamma: 1.1733, molarMass: 0.029227, chamberTemperature: 2_696.89,
                           exitTemperature: 1_360.35, fuelRichFraction: 0.13395, aluminaFraction: 0.03779,
                           source: "exhaust datasheet §2.8; CEA row S-IVB ullage", grade: "L"),
         ratedFlow: D.sIVBUllageMotorPropellant / 2 / D.sIVBUllageMotorBurnTime)
+
+    // The exits (in, across) this datasheet derives where the dresser had
+    // only a placeholder (exhaust datasheet §2.6, §2.8): each the exit
+    // through which CEA's vacuum thrust coefficient delivers the engine's
+    // thrust at its chamber pressure, at an area ratio found nowhere and
+    // taken by kinship (the APS engines) or so that the exit is 0.9 of the
+    // case (the solids). L, but tied to sourced thrusts, pressures and
+    // cases; the 5 to 8 in the dresser drew had no source. The dresser
+    // draws these nozzles, or places these ports, at them (ApolloShapeData
+    // reads them), so plume and drawing share one exit.
+    static let apsAttitudeExitDiameter = 6.427       // in, 147 lbf at 100 psia, 40:1 (L)
+    static let apsUllageExitDiameter = 2.211         // in, 72 lbf at 100 psia, 9:1 (L)
+    static let sIIUllageExitDiameter = 11.274        // in, 23,000 lbf at 999 psia, 7.5:1 (L)
+    static let sIIRetroExitDiameter = 8.148          // in, 34,810 lbf at 1,761 psia, 4.3:1 (L)
+    static let sIVBUllageExitDiameter = 6.222        // in, 3,390 lbf at 980 psia, 16:1 (L)
 
     /// Every family, by its row in tools/data/cea_apollo_exhaust.csv.
     static let byTableRow: [String: Engine] = [

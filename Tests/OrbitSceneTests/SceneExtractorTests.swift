@@ -70,9 +70,12 @@ final class SceneExtractorTests: XCTestCase {
     }
 
     /// The plumes start at the exhaust specs' exits: every nozzle the scene
-    /// finds on the Apollo vehicles (the F-1s, J-2s, the SPS and the SM RCS
-    /// jets, each from the last shape linked to its thruster) has its
-    /// spec's exit radius, however many shapes the dresser links to it.
+    /// finds on the Apollo vehicles has its spec's exit radius, however many
+    /// shapes the dresser links to its thruster. The scene takes the last
+    /// linked shape (the F-1s, J-2s, the SPS, the SM and CM RCS jets, the
+    /// S-II retros and the TX-280s) or, for the APS engines, which the
+    /// dresser does not link, the cone narrowing to each; the dresser and
+    /// the specs share one exit per family.
     func testNozzleExitsAreTheExhaustSpecs() throws {
         var checked = Set<String>()
         for v in [VesselLibrary.saturnV(), VesselLibrary.apolloCSM(.apollo7), VesselLibrary.commandModule(.apollo7)] {
@@ -82,11 +85,13 @@ final class SceneExtractorTests: XCTestCase {
                     guard let nozzle = geometry.nozzles[ObjectIdentifier(t)] else { continue }
                     let spec = try XCTUnwrap(ExhaustLibrary.spec(for: t, in: p), t.name)
                     XCTAssertEqual(nozzle.radius, spec.exitRadius, accuracy: 1e-9, t.name)
-                    checked.insert(String(t.name.prefix(6)))
+                    // The family: its row in the CEA table, which the spec cites.
+                    checked.insert(try XCTUnwrap(spec.source.components(separatedBy: "CEA row ").last, t.name))
                 }
             }
         }
-        XCTAssertEqual(checked, ["S-IC e", "S-II e", "S-IVB ", "SPS", "SM RCS"])
+        XCTAssertEqual(checked, ["F-1", "J-2", "SPS", "SM RCS", "CM RCS", "APS attitude", "APS ullage", "S-II retro",
+                                 "S-IVB ullage"])
     }
 
     /// The S-II retros and the S-IVB's TX-280s are drawn off the physics'
