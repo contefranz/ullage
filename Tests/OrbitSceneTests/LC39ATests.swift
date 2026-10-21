@@ -67,8 +67,10 @@ final class LC39ATests: XCTestCase {
     /// How deep two convex pieces overlap (m): the least overlap of their
     /// projections on the separating-axis candidates, the faces' normals
     /// and the cross products of their edges. Zero or less when a plane
-    /// separates them or they only touch.
-    func overlap(_ a: Piece, _ b: Piece) -> Double {
+    /// separates them or they only touch; `exact`, it is then less the
+    /// largest gap between their projections, a lower bound on how far
+    /// apart they are.
+    func overlap(_ a: Piece, _ b: Piece, exact: Bool = false) -> Double {
         let normals = { (p: Piece) in p.triangles.map { ($0.1 - $0.0).cross($0.2 - $0.0) } }
         let edges = { (p: Piece) in p.triangles.flatMap { [$0.1 - $0.0, $0.2 - $0.1, $0.0 - $0.2] } }
         let ea = distinctDirections(edges(a)), eb = distinctDirections(edges(b))
@@ -79,7 +81,7 @@ final class LC39ATests: XCTestCase {
             let pa = a.points.map { $0.dot(n) }, pb = b.points.map { $0.dot(n) }
             guard let a0 = pa.min(), let a1 = pa.max(), let b0 = pb.min(), let b1 = pb.max() else { return 0 }
             least = min(least, a1 - b0, b1 - a0)
-            if least <= 0 { return least }
+            if least <= 0 && !exact { return least }
         }
         return least
     }
@@ -95,6 +97,58 @@ final class LC39ATests: XCTestCase {
             }
         }
         return out
+    }
+
+    /// The shapes of the vehicle the core stands on the pad that the
+    /// outline leaves out, placed in the site frame through the core's
+    /// placement (its landed position and attitude, the site's deck and
+    /// axes): all but the frustums and surfaces of revolution whose axis,
+    /// placed, is the site's z axis (to 1 mm and 1e-9 rad).
+    func vehicleItems() throws -> [Piece] {
+        let (_, v, landed) = try onPad()
+        let p = LC39A.placement()
+        let (forward, left, up) = axes(p)
+        let deck = Self.system.earth.figure.bodyFixed(latitude: p.latitude, longitude: p.longitude, height: p.height)
+        let att = landed.bodyFixedAttitude, fromDeck = landed.bodyFixedPosition - deck
+        /// A body-fixed direction or offset from the deck in site axes.
+        func inSite(_ b: Vec3) -> Vec3 { Vec3(b.dot(forward), b.dot(left), b.dot(up)) }
+        func direction(_ d: Vec3) -> Vec3 { inSite(att.rotate(d)) }
+        func site(_ q: Vec3) -> Vec3 { inSite(fromDeck + att.rotate(q)) }
+        var out: [Piece] = []
+        for part in v.parts {
+            for s in part.shapes {
+                switch s.kind {
+                case .frustum, .revolution:
+                    let o = site(part.offset + s.origin), a = direction(s.axis).normalized
+                    if (o.x * o.x + o.y * o.y).squareRoot() < 1e-3, (a.x * a.x + a.y * a.y).squareRoot() < 1e-9 { continue }
+                default:
+                    break
+                }
+                let m = s.mesh(offset: part.offset)
+                let q = m.vertices.map { site($0.position) }
+                let triangles = stride(from: 0, to: m.indices.count, by: 3).map { (i: Int) -> (Vec3, Vec3, Vec3) in
+                    (q[Int(m.indices[i])], q[Int(m.indices[i + 1])], q[Int(m.indices[i + 2])])
+                }
+                out.append(Piece(points: q, triangles: triangles))
+            }
+        }
+        return out
+    }
+
+    /// The box round `p`: its least and largest x, y and z.
+    func box(_ p: Piece) -> (low: Vec3, high: Vec3) {
+        var low = Vec3(.infinity, .infinity, .infinity), high = -low
+        for q in p.points {
+            low = Vec3(min(low.x, q.x), min(low.y, q.y), min(low.z, q.z))
+            high = Vec3(max(high.x, q.x), max(high.y, q.y), max(high.z, q.z))
+        }
+        return (low, high)
+    }
+
+    /// Whether boxes `a` and `b` come within `margin` of each other.
+    func near(_ a: (low: Vec3, high: Vec3), _ b: (low: Vec3, high: Vec3), within margin: Double) -> Bool {
+        b.low.x <= a.high.x + margin && a.low.x <= b.high.x + margin && b.low.y <= a.high.y + margin
+            && a.low.y <= b.high.y + margin && b.low.z <= a.high.z + margin && a.low.z <= b.high.z + margin
     }
 
     /// The least of `p`'s horizontal distance from the vehicle's axis less
@@ -297,30 +351,95 @@ final class LC39ATests: XCTestCase {
 
         let (_, v, _) = try onPad()
         let placed = LC39A.VehicleOutline(v, deckAboveBase: LC39A.deckAboveVehicleBase)
-        for z in stride(from: 0.0, through: 120, by: 0.25) {
-            XCTAssertEqual(placed.radius(at: z), o.radius(at: z), accuracy: 1e-9)
+        // The largest radius in each 0.25 m band from below the base to
+        // above the LES, so that no step or ring is missed.
+        func bands(_ outline: LC39A.VehicleOutline) -> [Double] {
+            stride(from: -4.0, to: 120, by: 0.25).map { outline.largestRadius(from: $0, to: $0 + 0.25) }
         }
+        for (a, b) in zip(bands(placed), bands(o)) { XCTAssertEqual(a, b, accuracy: 1e-9) }
+
+        // Only the shapes about the vehicle's axis are in it, the others in
+        // the items: a widened copy of its widest shape, moved off the axis
+        // or tilted, leaves the outline as it was; on the axis it shows.
+        func largest(_ s: VisualShape) -> Double {
+            switch s.kind {
+            case let .frustum(r0, r1): return max(r0, r1)
+            case let .revolution(profile, _, _): return profile.map(\.r).max() ?? 0
+            default: return 0
+            }
+        }
+        func with(_ change: (inout VisualShape) -> Void) throws -> (LC39A.VehicleOutline, LC39A.VehicleItems) {
+            let w = VesselLibrary.saturnV()
+            let round = w.parts.flatMap { part in part.shapes.filter { LC39A.turnsAboutAxis($0, of: part, in: w) }
+                .map { (part, $0) } }
+            let (part, widest) = try XCTUnwrap(round.max { largest($0.1) < largest($1.1) })
+            var copy = widest
+            switch copy.kind {
+            case let .frustum(r0, r1):
+                copy.kind = .frustum(baseRadius: 1.5 * r0, topRadius: 1.5 * r1)
+            case let .revolution(profile, segments, sweep):
+                copy.kind = .revolution(profile: profile.map { VisualShape.ProfilePoint($0.x, 1.5 * $0.r) },
+                                        segments: segments, sweep: sweep)
+            default:
+                XCTFail("not round")
+            }
+            change(&copy)
+            part.shapes.append(copy)
+            return (LC39A.VehicleOutline(w, deckAboveBase: LC39A.deckAboveVehicleBase),
+                    LC39A.VehicleItems(w, deckAboveBase: LC39A.deckAboveVehicleBase))
+        }
+        let items = LC39A.vehicleItems.items.count
+        let tilt = 10 * Double.pi / 180
+        for (name, change) in [("moved", { (s: inout VisualShape) in s.origin = s.origin + Vec3(0, 0.5, 0) }),
+                               ("tilted", { (s: inout VisualShape) in
+                                   s.axis = s.axis * cos(tilt) + s.reference.cross(s.axis) * sin(tilt) })] {
+            let (outline, more) = try with(change)
+            XCTAssertEqual(more.items.count, items + 1, name)
+            XCTAssertEqual(bands(outline), bands(o), name)
+        }
+        let (wider, same) = try with { _ in }
+        XCTAssertEqual(same.items.count, items)
+        XCTAssertGreaterThan(zip(bands(wider), bands(o)).map { $0 - $1 }.max() ?? 0, 0.1,
+                             "a widened shape on the axis widens it")
     }
 
     /// No swing arm goes into the drawn vehicle: extended (T-2 h), every
     /// point of every arm's surface, its corners and edges among them, is at
-    /// least the vehicle's radius at its own height from the vehicle's axis.
-    /// Each umbilical carrier, and arm 9's white room, touches the vehicle
-    /// where it is widest over its height; the trusses stand off.
+    /// least the vehicle's radius at its own height from the vehicle's axis,
+    /// and no arm overlaps the vehicle's shapes off its axis (fins,
+    /// fairings, tunnels, plates and doors; separating axes). Each umbilical
+    /// carrier, and arm 9's white room, touches the vehicle: where it is
+    /// widest over its height, or an item in front of it. The trusses stand
+    /// off.
     func testSwingArmsStayOutsideTheVehicle() throws {
+        let items = try vehicleItems().map { ($0, box($0)) }
+        XCTAssertGreaterThan(items.count, 0)
         for n in 1...9 {
             let arm = try element("Swing arm \(n)")
-            let gaps = pieces(arm, at: -7200).map { clearance($0, LC39A.vehicleOutline) }
-            XCTAssertEqual(gaps.count, 2)
-            for (i, gap) in gaps.enumerated() {
-                XCTAssertGreaterThan(gap, -1e-6, "arm \(n)'s \(i == 0 ? "truss" : "end") is \(-gap) m inside the vehicle")
+            let parts = pieces(arm, at: -7200)
+            XCTAssertEqual(parts.count, 2)
+            var gaps: [Double] = []
+            for (i, piece) in parts.enumerated() {
+                let what = "arm \(n)'s \(i == 0 ? "truss" : n == 9 ? "room" : "carrier")"
+                let gap = clearance(piece, LC39A.vehicleOutline), around = box(piece)
+                // Items further than 0.2 m are further than the checks below need.
+                let apart = items.filter { near(around, $0.1, within: 0.2) }
+                    .map { -overlap(piece, $0.0, exact: true) }.min() ?? .infinity
+                XCTAssertGreaterThan(gap, -1e-6, "\(what) is \(-gap) m inside the vehicle")
+                XCTAssertGreaterThan(apart, -1e-6, "\(what) is \(-apart) m into an item off the vehicle's axis")
+                gaps.append(min(gap, apart))
             }
-            XCTAssertEqual(try XCTUnwrap(gaps.last), 0, accuracy: 1e-3, "arm \(n)'s carrier or room meets the vehicle")
+            XCTAssertEqual(gaps[1], 0, accuracy: 1e-3, "arm \(n)'s carrier or room meets the vehicle")
             XCTAssertGreaterThan(gaps[0], 0.1, "arm \(n)'s truss stands off it")
         }
-        // Arm 9's room stands off the BPC at its floor, outside the real
-        // CM's 1.46 m at the hatch.
-        XCTAssertGreaterThan(LC39A.accessArmRoomRadius, 1.46)
+        // Arm 9's room stands outside the real CM at its floor: the 33°
+        // structural cone, its theoretical apex at Xa 1133.5, under the
+        // leeward ablator's 0.70 in (exterior datasheet §9.1; about 1.46 m).
+        let floorXa = (LC39A.accessArmLevel * foot + LC39A.chamber.floor) / inch + (113.31 - 100.75) - 2756.56
+        let cone = 33 * Double.pi / 180
+        let realCM = ((1133.5 - floorXa) * tan(cone) + 0.70 / cos(cone)) * inch
+        XCTAssertEqual(realCM, 1.46, accuracy: 0.015)
+        XCTAssertGreaterThan(LC39A.accessArmRoomRadius, realCM)
     }
 
     /// The arms swing clear of the LUT: at every angle of every swing, no

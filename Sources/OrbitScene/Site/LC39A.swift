@@ -180,7 +180,8 @@ public enum LC39A {
         public var level: Double
         /// The radius (m) the arm reaches: the drawn vehicle's largest
         /// (`vehicleOutline`) over the height of its umbilical carrier, or of
-        /// arm 9's white room.
+        /// arm 9's white room. An item off the axis in front of it can stop
+        /// the arm further out (`armLength`, `accessArmRoomRadius`).
         public var vehicleRadius: Double
         /// The arm's centreline offset east of the tower's (m, site y).
         public var offset: Double
@@ -227,13 +228,17 @@ public enum LC39A {
     /// Arm 9's level: "the 320-foot level above the launcher base" (A8PK, H).
     static let accessArmLevel = 320.0
     /// Arm 9's white room, centred on the CM's side hatch (Position I, east),
-    /// stands off the drawn vehicle's largest radius over its height: the
-    /// boost protective cover's at the room's floor, Xa 1046 (derived, M).
-    /// The real CM's 1.46 m at the hatch (exterior datasheet §9) lies inside
-    /// today's idealised outer mould line (ibid. §9.1).
+    /// stands off the drawn vehicle's largest radius over its height, or
+    /// the items off its axis in front of the room if they reach further
+    /// east: the boost protective cover's radius at the room's floor, Xa
+    /// 1046 (derived, M). The real CM's 1.46 m at the hatch (exterior
+    /// datasheet §9) lies inside the drawn, idealised outer mould line
+    /// (ibid. §9.1).
     static let accessArmRoomRadius: Double = {
-        let floor = accessArmLevel * foot + chamber.floor
-        return vehicleOutline.largestRadius(from: floor, to: floor + chamber.height)
+        let floor = accessArmLevel * foot + chamber.floor, heights = floor...(floor + chamber.height)
+        let items = vehicleItems.reach(towards: Vec3(0, -1, 0), across: -chamber.depth / 2...chamber.depth / 2,
+                                       heights: heights)
+        return max(vehicleOutline.largestRadius(from: heights.lowerBound, to: heights.upperBound), items ?? 0)
     }()
     /// Arm width: the retracted arms' near face 8.63 m from fin tip A
     /// (FER-503 Table 11-1's available clearance) with fin A 6.76 m from
@@ -275,13 +280,25 @@ public enum LC39A {
     /// nearer corner touches the vehicle where it is widest over the
     /// carrier's height, with the truss's tip clear of it over the tip's
     /// depth; arm 9's to the white room's tower side, the room centred on
-    /// the hatch (derived from the drawn vehicle, L-M).
+    /// the hatch (derived from the drawn vehicle, L-M). Where an item off
+    /// the vehicle's axis (`vehicleItems`) stands further out in front of
+    /// the carrier or the truss's tip, the arm stops on it.
     public static func armLength(_ a: SwingArm) -> Double {
         if a.number == 9 { return towerFaceX - chamber.depth / 2 }
-        let carrierX = reach(a.vehicleRadius, nearSide(a.offset, carrier.side))
-        let trussRadius = vehicleOutline.largestRadius(from: a.height - tipDepth(a), to: a.height)
-        let trussX = reach(trussRadius, nearSide(a.offset, armWidth)) - carrier.length
+        let north = Vec3(1, 0, 0), tip = (a.height - tipDepth(a))...a.height
+        let carrierItems = vehicleItems.reach(towards: north, across: span(a.offset, carrier.side),
+                                              heights: (a.height + carrierHeights.low)...(a.height + carrierHeights.high))
+        let carrierX = max(reach(a.vehicleRadius, nearSide(a.offset, carrier.side)), carrierItems ?? -.infinity)
+        let trussRadius = vehicleOutline.largestRadius(from: tip.lowerBound, to: tip.upperBound)
+        let trussItems = vehicleItems.reach(towards: north, across: span(a.offset, armWidth), heights: tip)
+        let trussX = max(reach(trussRadius, nearSide(a.offset, armWidth)), trussItems ?? -.infinity) - carrier.length
         return towerFaceX - max(carrierX, trussX)
+    }
+
+    /// The site y (m) that something `width` wide centred `offset` off the
+    /// x axis spans.
+    static func span(_ offset: Double, _ width: Double) -> ClosedRange<Double> {
+        (offset - width / 2)...(offset + width / 2)
     }
 
     /// The x (m) at which an upright edge `y` off the site's x axis meets a
@@ -385,14 +402,30 @@ extension MaterialKey {
 // MARK: - Vehicle outline
 
 extension LC39A {
+    /// Whether `s`, a shape of `part`, is a frustum or a surface of
+    /// revolution about `vessel`'s axis: the x axis of the frame it was
+    /// built in, through `structureOrigin`.
+    static func turnsAboutAxis(_ s: VisualShape, of part: VesselPart, in vessel: Vessel) -> Bool {
+        switch s.kind {
+        case .frustum, .revolution:
+            let o = part.offset + s.origin - vessel.structureOrigin
+            let a = s.axis
+            return abs(o.y) < 1e-6 && abs(o.z) < 1e-6 && a.y * a.y + a.z * a.z < 1e-18 * a.lengthSquared
+        default:
+            return false
+        }
+    }
+
     /// The drawn Saturn V's outline: its radius about its axis by height
     /// above the ML deck (m). It holds every shape of a dressed stack that
-    /// turns about the vehicle's axis (`VisualShape.SurfaceFrame.vehicle`):
-    /// the stages' skins, the SLA, the CM and the boost protective cover
-    /// over it, as the straight segments between their profile points that
-    /// the renderer draws. Off-axis items (engines, APS modules, fairings,
-    /// RCS quads, the LES tower's legs) are not in it. The swing arms reach
-    /// it (datasheet §4.1).
+    /// turns about the vehicle's axis (`turnsAboutAxis`): the stages' skins,
+    /// the SLA, the CM and the boost protective cover over it, the centre
+    /// engines, as the straight segments between their profile points that
+    /// the renderer draws. A shape swept through part of a turn counts as a
+    /// whole one (the SLA's four panels make its cone). The shapes off the
+    /// axis or not turning about it (fins, engine fairings, tunnels, plates
+    /// and doors, APS modules, RCS quads, the LES tower's legs) are not in
+    /// it but in `VehicleItems`. The swing arms reach it (datasheet §4.1).
     public struct VehicleOutline {
         struct Segment {
             var z0: Double, r0: Double, z1: Double, r1: Double
@@ -413,9 +446,8 @@ extension LC39A {
             // x = -baseHeight, is `deckAboveBase` below the deck.
             let base = vessel.baseHeight - deckAboveBase
             for part in vessel.parts {
-                for s in part.shapes {
-                    guard case .vehicle = s.surfaceFrame else { continue }
-                    let z = part.offset.x + s.origin.x + base, k = s.axis.x
+                for s in part.shapes where LC39A.turnsAboutAxis(s, of: part, in: vessel) {
+                    let z = part.offset.x + s.origin.x + base, k: Double = s.axis.x > 0 ? 1 : -1
                     switch s.kind {
                     case let .frustum(r0, r1):
                         add(z, r0, z + k * s.length, r1)
@@ -447,10 +479,91 @@ extension LC39A {
         }
     }
 
+    /// The drawn Saturn V's other shapes, those `VehicleOutline` leaves out
+    /// (fins, engine fairings, tunnels, umbilical plates and doors, APS
+    /// modules, RCS quads, the LES tower's legs and motors), as the
+    /// triangles the renderer draws, in the site frame: the vehicle standing
+    /// where the core places it, Position II towards the tower (+x) and
+    /// Position I east (-y). The swing arms stand off them too: a carrier
+    /// that would sink into one stops on it (datasheet §4.1).
+    public struct VehicleItems {
+        struct Item {
+            var low: Vec3, high: Vec3
+            var triangles: [(Vec3, Vec3, Vec3)]
+        }
+
+        var items: [Item] = []
+
+        /// The items of `vessel` standing with its base `deckAboveBase`
+        /// below the deck, as the core places it on the pad.
+        public init(_ vessel: Vessel, deckAboveBase: Double) {
+            let base = vessel.baseHeight - deckAboveBase, axis = vessel.structureOrigin
+            // Vessel axes to site axes: x (nose) up, -y (Position II)
+            // forward, +z (Position I) east, which is -y.
+            func site(_ p: Vec3) -> Vec3 { Vec3(-(p.y - axis.y), -(p.z - axis.z), p.x + base) }
+            for part in vessel.parts {
+                for s in part.shapes where !LC39A.turnsAboutAxis(s, of: part, in: vessel) {
+                    let m = s.mesh(offset: part.offset)
+                    let p = m.vertices.map { site($0.position) }
+                    guard let first = p.first else { continue }
+                    var low = first, high = first
+                    for q in p {
+                        low = Vec3(min(low.x, q.x), min(low.y, q.y), min(low.z, q.z))
+                        high = Vec3(max(high.x, q.x), max(high.y, q.y), max(high.z, q.z))
+                    }
+                    let triangles = stride(from: 0, to: m.indices.count - 2, by: 3).map { i in
+                        (p[Int(m.indices[i])], p[Int(m.indices[i + 1])], p[Int(m.indices[i + 2])])
+                    }
+                    items.append(Item(low: low, high: high, triangles: triangles))
+                }
+            }
+        }
+
+        /// How far the items reach horizontally towards `d` (a horizontal
+        /// unit vector, site frame) within `across`, along up × d, and
+        /// between `heights` above the deck: the largest p·d of their
+        /// surfaces there (m); nil when none is there.
+        public func reach(towards d: Vec3, across: ClosedRange<Double>, heights: ClosedRange<Double>) -> Double? {
+            let e = Vec3(0, 0, 1).cross(d)
+            var best: Double?
+            for item in items {
+                guard item.low.z <= heights.upperBound, item.high.z >= heights.lowerBound else { continue }
+                // The item's box across d: its corners' least and largest p·e.
+                let xs = [item.low.x, item.high.x], ys = [item.low.y, item.high.y]
+                let spread = xs.flatMap { x in ys.map { y in Vec3(x, y, 0).dot(e) } }
+                guard let lo = spread.min(), let hi = spread.max(), lo <= across.upperBound,
+                      hi >= across.lowerBound else { continue }
+                for t in item.triangles {
+                    var polygon = [t.0, t.1, t.2]
+                    polygon = Self.clip(polygon) { $0.dot(e) - across.lowerBound }
+                    polygon = Self.clip(polygon) { across.upperBound - $0.dot(e) }
+                    polygon = Self.clip(polygon) { $0.z - heights.lowerBound }
+                    polygon = Self.clip(polygon) { heights.upperBound - $0.z }
+                    for q in polygon { best = max(best ?? -.infinity, q.dot(d)) }
+                }
+            }
+            return best
+        }
+
+        /// The part of `polygon` where `inside` is not negative.
+        static func clip(_ polygon: [Vec3], _ inside: (Vec3) -> Double) -> [Vec3] {
+            var out: [Vec3] = []
+            for (i, p) in polygon.enumerated() {
+                let q = polygon[(i + 1) % polygon.count]
+                let fp = inside(p), fq = inside(q)
+                if fp >= 0 { out.append(p) }
+                if (fp >= 0) != (fq >= 0) { out.append(p + (q - p) * (fp / (fp - fq))) }
+            }
+            return out
+        }
+    }
+
     /// The vehicle the arms reach: the core's dressed Saturn V, its base
     /// where the core places it, `deckAboveVehicleBase` below the deck.
     /// Apollo 8's stack has the same outline.
     public static let vehicleOutline = VehicleOutline(VesselLibrary.saturnV(), deckAboveBase: deckAboveVehicleBase)
+    /// That vehicle's other shapes, off its axis or not turning about it.
+    public static let vehicleItems = VehicleItems(VesselLibrary.saturnV(), deckAboveBase: deckAboveVehicleBase)
 }
 
 // MARK: - Countdown
