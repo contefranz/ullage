@@ -23,16 +23,24 @@ public final class SceneRenderer {
     /// The output's pixel format (the drawable's).
     public let outputFormat: MTLPixelFormat
     public var settings = RenderSettings()
-    /// CPU encoding and GPU times, smoothed (s).
+    /// CPU encoding and GPU times of the frames that are not split for
+    /// timing, smoothed (s).
     public let times = FrameTimes()
-    /// Time each pass on the GPU (F10, `orbitsnap --timings`): every render
-    /// pass then gets an encoder of its own. The latest finished frame's
-    /// timings are in `lastReport`.
+    /// Time each pass on the GPU (F10, `orbitsnap --timings`). One frame in
+    /// `profileInterval` is split, every render pass in an encoder of its
+    /// own, and timed; the others run as usual, so `times` and the report's
+    /// `gpu` stay the real frame's.
     public var profiling = false
+    public var profileInterval = 4
     public let profiler: GPUProfiler
     private let reports = ReportBox()
-    /// The latest finished frame's GPU times (per pass while profiling).
-    public var lastReport: FrameReport? { reports.value }
+    private var frameCount = 0
+    /// The latest unsplit frame's GPU time, and while profiling the latest
+    /// timed frame's passes.
+    public var lastReport: FrameReport? {
+        guard let gpu = reports.gpu else { return nil }
+        return FrameReport(passes: profiling ? reports.passes : [], gpu: gpu)
+    }
 
     let states: CommonStates
     let meshes = VesselMeshCache()
@@ -121,11 +129,16 @@ public final class SceneRenderer {
         }
         let encodeStart = CACurrentMediaTime()
         let semaphore = inFlight, times = self.times, reports = self.reports
-        let profile = profiling ? profiler.beginFrame() : nil
+        frameCount += 1
+        let profile = profiling && frameCount % max(1, profileInterval) == 0 ? profiler.beginFrame() : nil
         cb.addCompletedHandler { cb in
             let gpu = cb.gpuEndTime - cb.gpuStartTime
-            times.addGPU(gpu)
-            reports.value = FrameReport(passes: profile?.resolve() ?? [], gpu: gpu)
+            if let profile {
+                reports.passes = profile.resolve()
+            } else {
+                times.addGPU(gpu)
+                reports.gpu = gpu
+            }
             semaphore.signal()
             completion?(cb)
         }
@@ -158,13 +171,21 @@ public final class SceneRenderer {
     }
 }
 
-/// The latest frame report, written on Metal's completion thread.
+/// The latest frame times, written on Metal's completion thread.
 final class ReportBox: @unchecked Sendable {
     private let lock = NSLock()
-    private var report: FrameReport?
+    private var lastGPU: Double?
+    private var lastPasses: [PassTiming] = []
 
-    var value: FrameReport? {
-        get { lock.withLock { report } }
-        set { lock.withLock { report = newValue } }
+    /// The latest unsplit frame's GPU time, s.
+    var gpu: Double? {
+        get { lock.withLock { lastGPU } }
+        set { lock.withLock { lastGPU = newValue } }
+    }
+
+    /// The latest timed frame's passes.
+    var passes: [PassTiming] {
+        get { lock.withLock { lastPasses } }
+        set { lock.withLock { lastPasses = newValue } }
     }
 }

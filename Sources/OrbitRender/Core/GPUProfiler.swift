@@ -129,8 +129,8 @@ public struct PassTiming: Equatable, Codable {
     }
 }
 
-/// What a finished frame took: the GPU time of each pass (when profiling)
-/// and of the whole command buffer, s.
+/// What the frames took: the GPU time of each pass in the latest timed
+/// (split) frame while profiling, and the latest unsplit frame's, s.
 public struct FrameReport: Equatable {
     public var passes: [PassTiming]
     public var gpu: Double

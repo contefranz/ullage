@@ -60,7 +60,8 @@ public struct ScenarioScript: Equatable {
     public static func parse(_ line: String) throws -> Command {
         let text = line.trimmingCharacters(in: .whitespaces)
         let parts = text.split(separator: ":", maxSplits: 1).map { String($0).trimmingCharacters(in: .whitespaces) }
-        let word = parts[0].lowercased(), arg = parts.count > 1 ? parts[1] : ""
+        guard let first = parts.first, !first.isEmpty else { throw Failure.unknownCommand(text) }
+        let word = first.lowercased(), arg = parts.count > 1 ? parts[1] : ""
         func number() throws -> Double {
             guard let x = Double(arg), x.isFinite else { throw Failure.badValue(text) }
             return x
@@ -103,8 +104,11 @@ public struct ScenarioScript: Equatable {
     /// extractor's thermal lag.
     public func run(on sim: Simulation, missionClockZero: Epoch?, observe: (Simulation) -> Void = { _ in }) throws {
         let zero = missionClockZero ?? sim.time
+        // Every stretch runs whole: no wall-clock budget, no cap on the
+        // steps one advance may take (0.02 s powered steps at a high warp).
         sim.stepBudget = nil
         sim.maxRealInterval = .infinity
+        sim.maxSubsteps = .max
         for (index, command) in commands.enumerated() {
             let label = "command \(index + 1)"
             switch command {
@@ -116,13 +120,17 @@ public struct ScenarioScript: Equatable {
             case .event(let text):
                 let needle = text.lowercased()
                 let simEvents = sim.events.count
-                let iuEvents = (sim.focus?.flightProgram as? SaturnIU)?.log.count ?? 0
+                // What each IU had logged when the command began; an IU seen
+                // later (none is created in flight) starts from nothing.
+                var logged: [ObjectIdentifier: Int] = [:]
+                for iu in Self.ius(in: sim) { logged[ObjectIdentifier(iu)] = iu.log.count }
                 try runUntil(sim, "\(label), ev:\(text)", observe: observe) { sim in
                     if sim.events.dropFirst(min(simEvents, sim.events.count)).contains(where: {
                         $0.message.lowercased().contains(needle)
                     }) { return true }
-                    let log = (sim.vessels.compactMap { $0.flightProgram as? SaturnIU }.first)?.log ?? []
-                    return log.dropFirst(min(iuEvents, log.count)).contains { $0.event.lowercased().contains(needle) }
+                    return Self.ius(in: sim).contains { iu in
+                        iu.log.dropFirst(logged[ObjectIdentifier(iu)] ?? 0).contains { $0.event.lowercased().contains(needle) }
+                    }
                 }
             case .liftoff:
                 try runUntil(sim, "\(label), liftoff", observe: observe) { $0.focus?.landed == nil }
@@ -167,34 +175,39 @@ public struct ScenarioScript: Equatable {
         sim.vessels.first { $0.name.lowercased().hasPrefix(name.lowercased()) }
     }
 
-    /// Runs `seconds` of simulation time at the simulation's warp, in
-    /// stretches of at most max(1, warp) s.
+    /// The Saturn IUs aboard the simulation's vessels.
+    static func ius(in sim: Simulation) -> [SaturnIU] {
+        sim.vessels.compactMap { $0.flightProgram as? SaturnIU }
+    }
+
+    /// Runs until the simulation is `seconds` on, at its warp, in stretches
+    /// of at most max(1, warp) s, counting the time it actually covered.
     static func advance(_ sim: Simulation, _ seconds: Double, observe: (Simulation) -> Void) {
         sim.paused = false
-        var left = seconds
-        while left > 1e-9 {
-            let chunk = min(left, max(1, sim.warp))
-            sim.advance(by: chunk / sim.warp)
-            left -= chunk
+        let end = sim.time + seconds
+        while end - sim.time > 1e-6 {
+            let before = sim.time
+            sim.advance(by: min(end - sim.time, max(1, sim.warp)) / sim.warp)
             observe(sim)
+            if sim.time - before <= 0 { break }     // the epoch can resolve no finer
         }
     }
 
     /// Runs in steps of 0.1 s of simulation time (times the warp) until
-    /// `done`, at most `limit` s.
+    /// `done`, at most `limit` s of simulation time.
     func runUntil(_ sim: Simulation, _ what: String, observe: (Simulation) -> Void,
                   _ done: (Simulation) -> Bool) throws {
         sim.paused = false
-        var elapsed = 0.0, sinceObserved = 0.0
+        let start = sim.time
+        var observed = sim.time
         while !done(sim) {
-            guard elapsed < limit else { throw Failure.notReached(what, after: elapsed) }
-            let chunk = 0.1 * max(1, sim.warp)
-            sim.advance(by: chunk / sim.warp)
-            elapsed += chunk
-            sinceObserved += chunk
-            if sinceObserved >= max(1, sim.warp) {
+            guard sim.time - start < limit else { throw Failure.notReached(what, after: sim.time - start) }
+            let before = sim.time
+            sim.advance(by: 0.1)
+            if sim.time - before <= 0 { throw Failure.notReached(what, after: sim.time - start) }
+            if sim.time - observed >= max(1, sim.warp) {
                 observe(sim)
-                sinceObserved = 0
+                observed = sim.time
             }
         }
         observe(sim)

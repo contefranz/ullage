@@ -43,7 +43,10 @@ public final class DirectTargetPlan: SceneTargetPlan {
     private var size = RenderSize(width: 0, height: 0)
     private var device: MTLDevice?
     private var memoryless: (color: MTLTexture?, depth: MTLTexture?)
-    private var stored: (color: MTLTexture?, depth: MTLTexture?)
+    private(set) var stored: (color: MTLTexture?, depth: MTLTexture?)
+    /// Frames since the last split one: the stored targets go once timing
+    /// has been off for a while (it splits one frame in a few).
+    private var unsplitFrames = 0
     /// This frame's attachments, kept for the continuations.
     private var current: MTLRenderPassDescriptor?
 
@@ -89,8 +92,14 @@ public final class DirectTargetPlan: SceneTargetPlan {
     public func renderPass(for stage: PassStage, _ f: FrameContext) -> MTLRenderPassDescriptor? {
         guard stage == .opaque else { return nil }
         let split = f.splitsEncoders
-        if split, stored.depth == nil {
-            stored = (sampleCount > 1 ? target(colorFormat, .private) : nil, target(depthFormat, .private))
+        if split {
+            unsplitFrames = 0
+            if stored.depth == nil {
+                stored = (sampleCount > 1 ? target(colorFormat, .private) : nil, target(depthFormat, .private))
+            }
+        } else {
+            unsplitFrames += 1
+            if unsplitFrames > 30, stored.depth != nil { stored = (nil, nil) }
         }
         let color = split ? stored.color : memoryless.color, depth = split ? stored.depth : memoryless.depth
         let pass = MTLRenderPassDescriptor()

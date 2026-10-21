@@ -37,11 +37,15 @@ public final class SnapshotRenderer {
         public let aovs: [(view: DebugView, pixels: [UInt8])]
         /// Median GPU time of each pass over the timed frames.
         public let timings: [PassTiming]
+        /// A timed (split) frame's pixels, which must equal `pixels`; nil
+        /// without timing.
+        public let profiledPixels: [UInt8]?
         public let record: SnapshotRecord
     }
 
     /// Renders `shot`; with `timingFrames` > 0 also renders that many frames
-    /// with the profiler on and keeps each pass's median.
+    /// split and timed, keeping each pass's median, and that many unsplit,
+    /// keeping the median GPU time of the whole frame.
     public func render(_ shot: SnapshotSpec.Shot, timingFrames: Int = 0) throws -> Output {
         let prepared = try shot.prepare(system: system)
         let scene = shot.scene(prepared)
@@ -55,33 +59,41 @@ public final class SnapshotRenderer {
             return target.bytes()
         }
         let pixels = frame(shot.settings)
+        var gpu = r.lastReport?.gpu ?? 0
         var aovs: [(view: DebugView, pixels: [UInt8])] = []
         for view in shot.aovs where view != .none {
             var s = shot.settings
             s.debug.view = view
             aovs.append((view, frame(s)))
         }
-        var timings: [PassTiming] = [], gpu = r.lastReport?.gpu ?? 0
+        var timings: [PassTiming] = [], profiledPixels: [UInt8]?
         if timingFrames > 0 {
             r.profiling = true
-            var samples = [String: [Double]](), order: [String] = [], totals: [Double] = []
+            r.profileInterval = 1
+            var samples = [String: [Double]](), order: [String] = []
             for _ in 0..<timingFrames {
-                _ = frame(shot.settings)
-                guard let report = r.lastReport else { continue }
-                totals.append(report.gpu)
-                for t in report.passes {
+                let image = frame(shot.settings)
+                if profiledPixels == nil { profiledPixels = image }
+                for t in r.lastReport?.passes ?? [] {
                     if samples[t.pass] == nil { order.append(t.pass) }
                     samples[t.pass, default: []].append(t.seconds)
                 }
             }
             r.profiling = false
+            r.profileInterval = 4
             timings = order.map { PassTiming(pass: $0, seconds: Self.median(samples[$0]!)) }
+            var totals: [Double] = []
+            for _ in 0..<timingFrames {
+                _ = frame(shot.settings)
+                if let t = r.lastReport?.gpu { totals.append(t) }
+            }
             gpu = Self.median(totals)
         }
         r.settings = RenderSettings()
         let record = SnapshotRecord(shot: shot, prepared: prepared, scene: scene, gpuSeconds: gpu, timings: timings,
                                     failures: r.failures, gpuFamily: GPUFamily.name(device))
-        return Output(shot: shot, pixels: pixels, aovs: aovs, timings: timings, record: record)
+        return Output(shot: shot, pixels: pixels, aovs: aovs, timings: timings, profiledPixels: profiledPixels,
+                      record: record)
     }
 
     static func median(_ xs: [Double]) -> Double {

@@ -22,7 +22,7 @@ final class ScenarioScriptTests: XCTestCase {
         XCTAssertEqual(try S.parse("autopilot:off"), .autopilot(nil))
         XCTAssertEqual(try S.parse("fail:S-IC engine 1"), .fail("S-IC engine 1"))
         XCTAssertEqual(try S.parse("focus:CSM"), .focus("CSM"))
-        for bad in ["met:soon", "throttle:2", "warp:0", "autopilot:sideways", "t9", "jump", "ev:"] {
+        for bad in ["met:soon", "throttle:2", "warp:0", "autopilot:sideways", "t9", "jump", "ev:", "", "   ", ":5"] {
             XCTAssertThrowsError(try S.parse(bad), bad)
         }
     }
@@ -39,6 +39,31 @@ final class ScenarioScriptTests: XCTestCase {
         XCTAssertEqual(sim.time - scenario.missionClockZero!, 5, accuracy: 1e-4, "within the epoch's rounding")
         XCTAssertGreaterThan(observed, 4)
         XCTAssertFalse(sim.paused)
+    }
+
+    /// A high warp in powered flight still stops where `met:` says: every
+    /// stretch runs whole (0.02 s steps, 25,000 of them in one stretch at
+    /// 1000×), and only the time the simulation covered counts.
+    func testWarpInPoweredFlightReachesTheClockTime() throws {
+        let scenario = try XCTUnwrap(Scenario.named("as506-pad"))
+        let sim = scenario.build(Self.system)
+        try ScenarioScript(["warp:1000", "met:500"]).run(on: sim, missionClockZero: scenario.missionClockZero)
+        XCTAssertEqual(sim.time - scenario.missionClockZero!, 500, accuracy: 1e-3)
+        XCTAssertEqual(sim.warp, 1000)
+    }
+
+    /// `ev:` matches only what an IU logs after the command starts, whichever
+    /// vessel carries the IU: after CSM separation the S-IVB has it and the
+    /// CSM is the focus, and the old "T5: resumed" must not count.
+    func testEventIgnoresWhatTheIUHadLogged() throws {
+        let scenario = try XCTUnwrap(Scenario.named("as506-parking-orbit"))
+        let sim = scenario.build(Self.system)
+        XCTAssertTrue(ScenarioScript.ius(in: sim).contains { $0.log.contains { $0.event == "T5: resumed" } })
+        var script = try ScenarioScript(["stage", "ev:T5: resumed"])
+        script.limit = 20
+        XCTAssertThrowsError(try script.run(on: sim, missionClockZero: scenario.missionClockZero)) { error in
+            guard case .notReached = error as? ScenarioScript.Failure else { return XCTFail("\(error)") }
+        }
     }
 
     /// Space in the parking orbit separates the CSM; `focus` picks a vessel.
@@ -123,6 +148,10 @@ final class SnapshotSpecTests: XCTestCase {
         }
         XCTAssertTrue(events.contains { if case .separation = $0.kind { return true } else { return false } })
         XCTAssertEqual(events.map(\.sequence), events.map(\.sequence).sorted(), "oldest first")
+        XCTAssertEqual(prepared.advanceTransitions.count, prepared.advanceTransitions.filter {
+            if case .event = $0 { return true } else { return false }
+        }.count, "only the journal's records come from the script, not positions from earlier cameras")
+        XCTAssertFalse(prepared.advanceTransitions.isEmpty)
 
         shot.camera.target = "vessel:nothing"
         XCTAssertThrowsError(try shot.prepare(system: Self.system))

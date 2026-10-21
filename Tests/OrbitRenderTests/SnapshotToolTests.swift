@@ -28,6 +28,9 @@ final class SnapshotToolTests: XCTestCase {
         let plain = try s.render(shot)
         let timed = try s.render(shot, timingFrames: 3)
         XCTAssertEqual(timed.pixels, plain.pixels)
+        // A split frame: every pass in its own encoder, the MSAA samples
+        // stored and loaded between them, resolved each time.
+        XCTAssertEqual(try XCTUnwrap(timed.profiledPixels), plain.pixels, "a profiled frame has the same pixels")
         guard try s.renderer(userTextures: false).profiler.isSupported else {
             throw XCTSkip("no timestamp counters on this GPU")
         }
@@ -38,7 +41,48 @@ final class SnapshotToolTests: XCTestCase {
         for t in timed.timings { XCTAssertGreaterThanOrEqual(t.seconds, 0, t.pass) }
         XCTAssertGreaterThan(timed.timings.last!.seconds, 0, "the split overhead is measured")
         let sum = timed.timings.map(\.seconds).reduce(0, +)
-        XCTAssertLessThan(sum, 2 * timed.record.gpuMilliseconds / 1_000, "\(timed.timings)")
+        // The record's GPU time is an unsplit frame's: less than a split
+        // frame's passes and overhead together.
+        XCTAssertGreaterThan(timed.record.gpuMilliseconds, 0)
+        XCTAssertLessThan(sum, 2 * timed.record.gpuMilliseconds / 1_000 + 2 * timed.timings.last!.seconds,
+                          "\(timed.timings)")
+    }
+
+    /// With a debug view on (a P4 pass ends the scene's encoders), timing
+    /// still measures the split overhead and times the view's own encoder.
+    func testTimingWithADebugView() throws {
+        let s = try snapper()
+        guard try s.renderer(userTextures: false).profiler.isSupported else {
+            throw XCTSkip("no timestamp counters on this GPU")
+        }
+        var shot = Self.pad
+        shot.width = 320
+        shot.height = 200
+        shot.settings.debug.view = .normals
+        let timed = try s.render(shot, timingFrames: 2)
+        let names = timed.timings.map(\.pass)
+        XCTAssertTrue(names.contains(FrameProfile.splitOverhead), "\(names)")
+        XCTAssertTrue(names.contains("Debug view"), "\(names)")
+        XCTAssertFalse(names.contains("Markers"), "the overlay is left out under a debug view")
+        XCTAssertEqual(try XCTUnwrap(timed.profiledPixels), timed.pixels)
+    }
+
+    /// Timing keeps stored MSAA targets; they go once it has been off a while.
+    func testStoredTargetsAreReleased() throws {
+        let device = try XCTUnwrap(RenderDevice.shared)
+        let plan = DirectTargetPlan(colorFormat: .bgra8Unorm_srgb, sampleCount: 4)
+        let r = try SceneRenderer(device: device, outputFormat: .bgra8Unorm_srgb,
+                                  passes: [RecordingPass("vessel", .opaque, log: RecordingPass.Log())], plan: plan)
+        guard r.profiler.isSupported else { throw XCTSkip("no timestamp counters on this GPU") }
+        let target = try XCTUnwrap(OffscreenTarget(device: device, width: 64, height: 32))
+        r.profiling = true
+        r.profileInterval = 1
+        r.renderAndWait(FrameGraphTests.emptyScene(), into: target)
+        XCTAssertNotNil(plan.stored.depth)
+        r.profiling = false
+        for _ in 0..<31 { r.renderAndWait(FrameGraphTests.emptyScene(), into: target) }
+        XCTAssertNil(plan.stored.depth)
+        XCTAssertNil(plan.stored.color)
     }
 
     /// The debug views replace the image (and leave the markers out); the
@@ -106,6 +150,11 @@ final class SnapshotToolTests: XCTestCase {
         defer { unsetenv("ORBITSIM_SNAPSHOT_DIR") }
         let r = try s.renderer(userTextures: false)
         let png = try AppSnapshot.write(scene, renderer: r)
+        let second = try AppSnapshot.write(scene, renderer: r)
+        XCTAssertNotEqual(second, png, "a second snapshot in the same second does not overwrite the first")
+        for suffix in [".png", ".pfm", ".depth.png", ".normals.png", ".luminance.png", ".json"] {
+            try FileManager.default.removeItem(at: dir.appendingPathComponent(second.deletingPathExtension().lastPathComponent + suffix))
+        }
         let stem = png.deletingPathExtension().lastPathComponent
         let files = Set(try FileManager.default.contentsOfDirectory(atPath: dir.path))
         XCTAssertEqual(files, [stem + ".png", stem + ".pfm", stem + ".depth.png", stem + ".normals.png",

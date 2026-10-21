@@ -32,9 +32,16 @@ public enum AppSnapshot {
         let dir = directory
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let stamp = DateFormatter()
-        stamp.dateFormat = "yyyyMMdd-HHmmss"
+        stamp.dateFormat = "yyyyMMdd-HHmmss-SSS"
         stamp.locale = Locale(identifier: "en_US_POSIX")
-        let name = "orbitsim-\(stamp.string(from: Date()))"
+        var name = "orbitsim-\(stamp.string(from: Date()))"
+        // Never over an earlier snapshot, even within a millisecond.
+        let base = name
+        var n = 1
+        while FileManager.default.fileExists(atPath: dir.appendingPathComponent("\(name).png").path) {
+            n += 1
+            name = "\(base)-\(n)"
+        }
         let w = Int(scene.camera.viewport.width), h = Int(scene.camera.viewport.height)
         guard let target = OffscreenTarget(device: renderer.device, width: w, height: h) else {
             throw SceneRenderer.Failure.noResources

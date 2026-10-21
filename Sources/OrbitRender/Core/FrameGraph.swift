@@ -78,10 +78,21 @@ public final class FrameGraph {
             encoder?.label = label
             if let encoder { f.bindShared(encoder) }
         }
+        // While timing: one empty continuation of the scene, whose time is
+        // what each split costs (loading and storing the targets); the
+        // profile takes it off each render pass. Taken before anything
+        // ends the scene's encoders (a P4 pass, the frame's end).
+        var overheadMeasured = false
+        func measureSplitOverhead() {
+            guard f.splitsEncoders, !overheadMeasured, encoder != nil, let next = plan.continuation(f) else { return }
+            open(next, FrameProfile.splitOverhead)
+            overheadMeasured = true
+        }
         for stage in PassStage.allCases where stage != .prepare {
             let here = running.filter { $0.stage == stage }
             if !stage.isRenderStage {
                 guard !here.isEmpty else { continue }
+                measureSplitOverhead()
                 encoder?.endEncoding()
                 encoder = nil
                 for p in here {
@@ -112,12 +123,7 @@ public final class FrameGraph {
                 encoder.popDebugGroup()
             }
         }
-        // While timing: one empty continuation of the scene, whose time is
-        // what each split costs (loading and storing the targets); the
-        // profile takes it off each render pass.
-        if f.splitsEncoders, encoder != nil, let next = plan.continuation(f) {
-            open(next, FrameProfile.splitOverhead)
-        }
+        measureSplitOverhead()
         encoder?.endEncoding()
         f.currentPass = nil
     }

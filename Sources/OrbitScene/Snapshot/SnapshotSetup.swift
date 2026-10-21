@@ -9,8 +9,9 @@ extension SnapshotSpec.Shot {
         public let sim: Simulation
         public let camera: OrbitCamera
         public let extractor: SceneExtractor
-        /// What the extractor saw happen while the script ran (the journal's
-        /// events and vessels appearing), which the shot's frame carries too.
+        /// The journal's records the extractor drained while the script ran,
+        /// which the shot's frame carries too. (Vessels appearing and going
+        /// are left out: their positions were measured from earlier cameras.)
         public let advanceTransitions: [RenderScene.Transition]
     }
 
@@ -47,7 +48,8 @@ extension SnapshotSpec.Shot {
         var transitions: [RenderScene.Transition] = []
         try ScenarioScript(advance).run(on: sim, missionClockZero: scenario.missionClockZero) { sim in
             camera.update(sim: sim)
-            transitions += extractor.extract(sim: sim, camera: camera, viewport: viewport, realTime: realTime).transitions
+            transitions += extractor.extract(sim: sim, camera: camera, viewport: viewport, realTime: realTime)
+                .transitions.filter { if case .event = $0 { return true } else { return false } }
         }
         try self.camera.apply(to: &camera, sim: sim)
         sim.paused = true
@@ -55,9 +57,9 @@ extension SnapshotSpec.Shot {
                         advanceTransitions: transitions)
     }
 
-    /// The frame's scene. Its transitions are everything since the scenario
-    /// opened, oldest first, so effects can start every burst still alive
-    /// at its true age, as they would have in the app.
+    /// The frame's scene. Its transitions start with the journal's records
+    /// since the scenario opened, oldest first, so effects can start every
+    /// burst still alive at its true age, as they would have in the app.
     public func scene(_ p: Prepared) -> RenderScene {
         var scene = p.extractor.extract(sim: p.sim, camera: p.camera, viewport: viewport, realTime: realTime,
                                         options: SceneExtractor.Options(showOrbit: showOrbit))
