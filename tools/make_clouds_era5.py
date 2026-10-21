@@ -73,7 +73,8 @@ half to even), so its sha256 is the same on any machine.
 
 Mission presets (UTC; launch, end of the Earth-orbit phase, splashdown):
 - apollo8: 1968-12-21 12:51 launch, 15:41 TLI, 12-27 15:51 splashdown;
-  hourly 12-21T12 to T17, 3-hourly to 12-27T18: 49 + 5 snapshots.
+  hourly 12-21T12 to T17, 3-hourly from T18 to 12-27T18: 6 + 49 = 55
+  snapshots, 257,084,321 bytes.
 - apollo11: 1969-07-16 13:32 launch, 16:22 TLI, 07-24 16:50 splashdown;
   hourly 07-16T13 to T18, 3-hourly to 07-24T18.
 - apollo7: 1968-10-11 15:03 launch, Earth orbit to the 10-22 11:12

@@ -249,12 +249,13 @@ final class CloudFieldTests: XCTestCase {
     }
 
     /// The table parses: the Saturn rows 125-155, every sky in "n/10
-    /// genus" words; AS-503 reads 4/10 cirrus; and the launch overrides
-    /// are its rows.
+    /// genus" words but SA-7's, whose first amount is illegible; AS-503
+    /// reads 4/10 cirrus; and the launch overrides are its rows.
     func testTMX64796TableParses() throws {
         let rows = try tableRows()
         XCTAssertEqual(rows.compactMap { $0["seq"].flatMap(Int.init) }, Array(125...155))
-        for row in rows {
+        XCTAssertEqual(rows.filter { ($0["clouds"] ?? "").contains("?") }.map { $0["vehicle"] }, ["SA-7"])
+        for row in rows where !(row["clouds"] ?? "").contains("?") {
             XCTAssertNotNil(CloudObservation(table: row["clouds"] ?? ""), "\(row["vehicle"] ?? "?"): \(row["clouds"] ?? "")")
         }
         func row(_ vehicle: String) throws -> [String: String] {
@@ -322,6 +323,14 @@ final class CloudFieldTests: XCTestCase {
             XCTAssertEqual(s.low, e.low, accuracy: 0.005, mission)
             XCTAssertEqual(s.mid, e.mid, accuracy: 0.005, mission)
             XCTAssertEqual(s.high, e.high, accuracy: 0.005, mission)
+            if mission == "apollo8" {
+                // Hourly from 1968-12-21 12:00 UTC through TLI (15:41) to
+                // 18:00, then 3-hourly to 12-27 18:00, past the splashdown.
+                let steps = zip(field.utcSeconds, field.utcSeconds.dropFirst()).map { $1 - $0 }
+                XCTAssertEqual(field.utcSeconds.first, -32_443_200)
+                XCTAssertEqual(field.utcSeconds.last, -31_903_200)
+                XCTAssertEqual(steps, Array(repeating: 3600, count: 6) + Array(repeating: 10_800, count: 48))
+            }
         }
         if found == 0 { throw XCTSkip("no fetched .oscloud in Sources/OrbitScene/Resources") }
     }
