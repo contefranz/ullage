@@ -34,13 +34,14 @@
 # comments of meteorological significance" column.
 #
 # Read twice, independently, from crops of the page images, and compared
-# cell by cell (558 cells): 34 differed. 6 were punctuation; 2 were reader 1's
-# misreadings, settled on a closer look (127's time and 148's max wind
-# altitude, now as reader 2 read them); 26 were damaged digits. Those are
-# settled where a source in this repository gives the value (the Apollo 7
-# Mission Report for AS-205, the AS-506 FER), kept where one reader read the
-# digit plainly and the other could not decide (both readings in note), and
-# otherwise left empty.
+# cell by cell (558 cells): 34 differed. 6 were punctuation; 1 was reader 1's
+# misreading, settled on a closer look (148's max wind altitude, now as
+# reader 2 read it); 27 were damaged digits. Those are settled where a
+# source gives the value (in this repository, the Apollo 7 Mission Report
+# for AS-205 and the AS-506 FER; for SA-3's time, 127, which both readers
+# finally read 1945, NASA's launch record, cited in note), kept where one
+# reader read the digit plainly and the other could not decide (both
+# readings in note), and otherwise left empty.
 # grade: H = both readers read the same digits with no doubt; M = they agree
 # after interpretation, or a damaged digit is settled as note says; L = a cell
 # is left empty (or a cloud amount "?") because the digit is illegible or the
@@ -48,7 +49,7 @@
 seq,vehicle,date,time,zone,launch_utc,pad,pressure_n_cm2,temperature_c,rel_humidity_pct,wind_m_s,wind_from_deg,wind_flag,lut_wind_m_s,lut_wind_from_deg,lut_wind_flag,clouds,max_wind_alt_km,max_wind_m_s,max_wind_from_deg,comment,grade,note
 125,SA-1,1961-10-27,1006,EST,1961-10-27T15:06Z,34,10.224,,64,6.4,65,,,,,8/10 cumulus,12.25,47.0,242,"34 min hold at T-120 min, and 32 min hold at T-20 min due to low clouds over launch area affecting camera coverage.",L,"temperature: the second digit is filled in with ink, 25.2 or 26.2"
 126,SA-2,1962-04-25,0901,EST,1962-04-25T14:01Z,34,10.205,24.6,59,3.5,180,,,,,"1/10 stratocumulus, 3/10 cirrostratus",13.50,33.6,261,Project highwater conducted,H,
-127,SA-3,1962-11-16,1945,EST,1962-11-17T00:45Z,34,10.193,23.9,48,4.0,250,,,,,"2/10 cumulus, 4/10 cirrus",13.75,31.3,269,Project highwater conducted,M,"time: the second digit has a 9's closed head and no flat base (reader 1 first read 1245, then 1945 on a closer look; reader 2 1945). SA-3 is usually given as launched about noon EST; the table may be in error there (not checked against a launch record)"
+127,SA-3,1962-11-16,1245,EST,1962-11-16T17:45Z,34,10.193,23.9,48,4.0,250,,,,,"2/10 cumulus, 4/10 cirrus",13.75,31.3,269,Project highwater conducted,M,"time: the second digit is a blot fused with the 4 that reads as a 2 or a 9 (reader 1 first read 1245, then 1945; reader 2 1945). The launch record settles it as 1245: SA-3 lifted off from Complex 34 at 12:45:02 p.m. EST on 16 November 1962, 17:45:02 UTC (NASA SP-4205, Brooks, Grimwood and Swenson, Chariots for Apollo, 1979, Appendix C, Apollo Flight Program). The same appendix gives SA-2 at 09:00:34 a.m. EST, this table's 0901 to the minute"
 128,SA-4,1963-03-28,1512,EST,1963-03-28T20:12Z,34,10.176,23.9,71,6.0,40,,,,,"1/10 cumulus, 1/10 stratocumulus",13.00,,253,,L,"max wind speed: printed 51.x, the last digit's top half is missing (6 or 8)"
 129,SA-5,1964-01-29,1125,EST,1964-01-29T16:25Z,37B,10.278,17.8,59,9.0,38,,,,,"4/10 stratocumulus, 2/10 cirrus",10.75,42.1,,,L,max wind direction: 268 (reader 1) or 288 (reader 2 could not tell 6 from 8)
 130,SA-6,1964-05-28,1207,EST,1964-05-28T17:07Z,37B,10.142,,64,5.0,150,,,,,"1/10 cumulus, 1/10 cirrus",12.50,15.0,96,,L,"temperature: printed 28.x, the last digit's top is missing"

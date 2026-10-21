@@ -332,7 +332,9 @@ Some design notes:
 - Clouds: ERA5 (Hersbach et al. 2020, Copernicus Climate Change Service, CC
   BY 4.0), read from Google's ARCO-ERA5 copy by `tools/make_clouds_era5.py`:
   the zonal climatology in `Sources/OrbitScene/Earth/CloudClimatology.swift`
-  (1961–1990 means), and each mission's hourly field, which you fetch with
+  (1961–1990 means, bundled with this attribution), and each mission's
+  field (hourly around launch and on Apollo 7's last day, 3-hourly
+  otherwise), which you fetch with
   `python3 -I tools/make_clouds_era5.py mission apollo8` into
   `Sources/OrbitScene/Resources` (not in the repository). Contains modified
   Copernicus Climate Change Service information 2026. The sky at the pad at

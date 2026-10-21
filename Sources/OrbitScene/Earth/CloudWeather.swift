@@ -100,7 +100,10 @@ public struct CloudObservation: Equatable {
 /// An observed sky that overrides the field around a place and time: the
 /// pad at launch (docs/m16/design-earth-moon.md: about 50 km). Its weight
 /// is 1 within half `radius` and `hold` of the observation, and falls
-/// smoothly to 0 at `radius` and at `hold + fade`.
+/// smoothly to 0 at `radius` and at `hold + fade`. It is always blended
+/// in, not only where it disagrees with the field: a threshold would make
+/// the sky jump where ERA5's value crosses it, and where the two agree the
+/// blend changes little (docs/m16/plan.md, decision 29).
 public struct CloudOverride: Equatable {
     /// Geodetic latitude and east longitude, rad.
     public var latitude: Double

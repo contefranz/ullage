@@ -4,17 +4,19 @@
 Usage:
     python3 -I tools/make_clouds_era5.py check
     python3 -I tools/make_clouds_era5.py mission apollo8 [--out FILE] [--workers 8]
-    python3 -I tools/make_clouds_era5.py window --start 1968-12-21T12 --hourly-until 1968-12-21T17 \\
-        --end 1968-12-27T18 --out FILE
+    python3 -I tools/make_clouds_era5.py window --start 1969-07-16T13 --hourly-until 1969-07-16T18 \\
+        --end 1969-07-24T18 --out FILE
     python3 -I tools/make_clouds_era5.py pad [--csv tools/data/tmx64796_table1_saturn.csv]
     python3 -I tools/make_clouds_era5.py climatology [--years 1961-1990]
+    python3 -I tools/test_make_clouds_era5.py    # the tool's own tests, offline
 
 `check` prints the store's valid_time_start and stop. `mission` writes a
 preset window (below) to Sources/OrbitScene/Resources/<mission>.oscloud;
-`window` writes any window. `pad` prints ERA5's layers at the pad at the
-launches of AS-205, AS-503 and AS-506 (`--all`: every Saturn launch of TM
-X-64796 Table 1) beside the observed sky. `climatology` prints the
-zonal-mean table of OrbitScene/Earth/CloudClimatology.swift.
+`window` writes any window (the example is the apollo11 preset's). `pad`
+prints ERA5's layers at the pad at the launches of AS-205, AS-503 and
+AS-506 (`--all`: every Saturn launch of TM X-64796 Table 1) beside the
+observed sky. `climatology` prints the zonal-mean table of
+OrbitScene/Earth/CloudClimatology.swift.
 
 Needs Python 3.9 or later and numpy; nothing else (no zarr, xarray or gcsfs).
 On a python.org build of Python for macOS, run its "Install
@@ -50,7 +52,10 @@ Variables, ERA5 name (plane):
 
 Times: snapshots every hour from the window's start to --hourly-until (the
 Earth-orbit phase), then every 3 hours to the end; ERA5's values are
-instantaneous at each hour.
+instantaneous at each hour. `window`'s 3-hourly run starts 3 h after
+--hourly-until, as the apollo11 and apollo7 presets' do (apollo8's starts
+at 18 Z, 1 h after its last hourly snapshot), and --end is always the last
+snapshot, written also when it is off that 3-hourly grid.
 
 OSCLOUD1, little endian:
     8 bytes   magic "OSCLOUD1"
@@ -79,20 +84,27 @@ Mission presets (UTC; launch, end of the Earth-orbit phase, splashdown):
   hourly 07-16T13 to T18, 3-hourly to 07-24T18.
 - apollo7: 1968-10-11 15:03 launch, Earth orbit to the 10-22 11:12
   splashdown; hourly through launch day (10-11T15 to 10-12T00) and the last
-  day (10-21T12 to 10-22T12), 3-hourly between. The whole flight hourly
-  would be 262 snapshots (1.2 GB).
+  day (10-21T12 to 10-22T12), 3-hourly between: 110 snapshots, 514 MB. The
+  whole flight hourly would be 262 snapshots (1.2 GB); Franz chose the
+  split at C1's review (docs/m16/plan.md, decision 29).
+
+Further planes: a reader finds planes by name and skips those it does not
+know, so planes can be added without a new format. ERA5's total column
+cloud liquid and ice water, which would give C2's far regime its optical
+depth from data, are left to C2 (decision 29); until then the layer model's
+typical in-cloud water stands in (OrbitScene/Earth/CloudOptics.swift).
 """
 import argparse
 import concurrent.futures
 import csv
 import datetime as dt
 import hashlib
+import http.client
 import json
 import os
 import struct
 import sys
 import time
-import urllib.error
 import urllib.request
 
 import numpy as np
@@ -141,7 +153,11 @@ PADS = {
 # MARK: Zarr v2 chunks over HTTPS
 
 def fetch(url, first=None, last=None, tries=4):
-    """The bytes of `url`, or of its range first...last (inclusive)."""
+    """The bytes of `url`, or of its range first...last (inclusive), trying
+    `tries` times. URLError, timeouts and dropped connections are OSErrors;
+    a body the server cuts short raises http.client.IncompleteRead, an
+    HTTPException, and is retried too: a mission run makes thousands of
+    requests, and one dropped transfer must not stop it."""
     request = urllib.request.Request(url)
     if first is not None:
         request.add_header("Range", "bytes=%d-%d" % (first, last))
@@ -152,7 +168,7 @@ def fetch(url, first=None, last=None, tries=4):
             if first is not None and len(data) != last - first + 1:
                 raise IOError("short range read of %s" % url)
             return data
-        except (urllib.error.URLError, IOError, TimeoutError) as error:
+        except (OSError, http.client.HTTPException) as error:
             if attempt == tries - 1:
                 raise
             print("  retrying %s (%s)" % (url, error), file=sys.stderr)
@@ -385,13 +401,25 @@ def mission(args):
     write(schedule(MISSIONS[args.name]), out, "mission " + args.name, args.workers)
 
 
+def window_times(start, hourly_until, end):
+    """`window`'s snapshots: every hour from `start` to `hourly_until`, then
+    every 3 hours from 3 h after it (as the apollo11 and apollo7 presets
+    run), and `end` last, also when it is off that 3-hourly grid."""
+    t0, t1, t2 = parse_hour(start), parse_hour(hourly_until), parse_hour(end)
+    if not t0 <= t1 <= t2:
+        raise SystemExit("window: --start, --hourly-until and --end must be in that order")
+    segments = [(start, hourly_until, 1)]
+    if t2 > t1:
+        segments.append(((t1 + dt.timedelta(hours=3)).strftime("%Y-%m-%dT%H"), end, 3))
+    times = schedule(segments)
+    if times[-1] != t2:
+        times.append(t2)
+    return times
+
+
 def window(args):
-    segments = [(args.start, args.hourly_until, 1)]
-    if args.end > args.hourly_until:
-        first = parse_hour(args.hourly_until) + dt.timedelta(hours=3)
-        segments.append((first.strftime("%Y-%m-%dT%H"), args.end, 3))
-    write(schedule(segments), args.out, "window %s to %s, hourly to %s" % (
-        args.start, args.end, args.hourly_until), args.workers)
+    write(window_times(args.start, args.hourly_until, args.end), args.out,
+          "window %s to %s, hourly to %s" % (args.start, args.end, args.hourly_until), args.workers)
 
 
 def bilinear(a, lat, lon):
@@ -474,7 +502,8 @@ def main():
     p = sub.add_parser("window")
     p.add_argument("--start", required=True, help="first hour, e.g. 1968-12-21T12")
     p.add_argument("--hourly-until", required=True, help="last hourly snapshot")
-    p.add_argument("--end", required=True, help="last snapshot (3-hourly after --hourly-until)")
+    p.add_argument("--end", required=True,
+                   help="last snapshot, always written (3-hourly from 3 h after --hourly-until up to it)")
     p.add_argument("--out", required=True)
     p.add_argument("--workers", type=int, default=8)
     p.set_defaults(run=window)

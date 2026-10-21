@@ -10,7 +10,10 @@ import OrbitCore
 /// Made by `python3 -I tools/make_clouds_era5.py climatology --years
 /// 1961-1990` from 12 UTC on the 5th, 15th and 25th of each month (a zonal
 /// mean at one UTC hour spans every local time). Contains modified
-/// Copernicus Climate Change Service information 2026.
+/// Copernicus Climate Change Service information 2026. This small
+/// ERA5-derived table is the bundled fallback of docs/m16/plan.md's
+/// decision 29, committed with its CC BY 4.0 attribution (also in
+/// README); the mission fields are not committed.
 public enum CloudClimatology {
     /// The table's latitude step, degrees: columns run from -90° to 90°.
     public static let step = 5.0

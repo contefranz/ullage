@@ -79,7 +79,9 @@ public struct CloudLayer: Equatable {
 /// The layer model (docs/m16/design-earth-moon.md, clouds): heights from
 /// ERA5's layer definitions and cloud base, condensate from typical
 /// in-cloud values. C2 may tune the values; the structure is the
-/// design's.
+/// design's. Water paths from data (ERA5's total column cloud liquid and
+/// ice water, as extra OSCLOUD1 planes) are left to C2 (docs/m16/plan.md,
+/// decision 29); until then these typical values set the optical depth.
 public enum CloudLayerModel {
     /// The low layer's base where the sample has none, m.
     public static let defaultLowBase = 1_000.0

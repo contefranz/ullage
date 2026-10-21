@@ -143,16 +143,16 @@ The vessel-lighting owner wires these in. Results: the warm, low-sun light on th
 Data, OrbitCore/Bodies/CloudField.swift: format "OSCLOUD1" (start epoch, step, a 0.25° grid of 1440x721, uint8 planes for low, mid and high cover, cloud-base height, and optional u/v winds per layer).
 - Historical, default: ERA5 hourly for each mission's dates, from Google's public ARCO-ERA5 Zarr (gs://gcp-public-data-arco-era5, 1940 onwards) via tools/make_clouds_era5.py. Variables: low/medium/high cloud cover, cloud-base height, 10 m wind, 850/500/250 hPa winds. About 3 MB per hour.
   - Apollo 8: 1968-12-21T12Z to 12-27T18Z.
-  - Apollo 7: October 1968.
+  - Apollo 7: 1968-10-11T15Z to 10-22T12Z, hourly on launch day and the last day and 3-hourly between, 514 MB (owner decision at C1's review, plan.md decision 29; hourly throughout would be 1.2 GB).
   - Apollo 11: July 1969.
   - ERA5 in 1968 is pre-satellite-radiance, so synoptic placement is good and fine structure is not.
   - From lunar distance with a 250 mm lens the Earth spans about 300 px, about 40 km/px, so 0.25° is already at photo resolution there.
-- Fallback with no download: OrbitCore/Bodies/CloudClimatology.swift, zonal-mean cover by month from a small table (ITCZ, subtropical clear belts, storm tracks), driving procedural weather.
+- Fallback with no download: OrbitCore/Bodies/CloudClimatology.swift, zonal-mean cover by month from a small table (ITCZ, subtropical clear belts, storm tracks), driving procedural weather. C1 built it as OrbitScene/Earth/CloudClimatology.swift from ERA5's 1961-1990 means; it is bundled with its CC BY attribution (owner decision at C1's review, plan.md decision 29).
 - Pad truth: the scenario's observed sky from NASA TM X-64796 (Johnson 1973) Table 1, transcribed to tools/data/tmx64796_table1_saturn.csv:
   - AS-503 (Apollo 8), 21 Dec 68, 0751 EST, pad 39A: "4/10 cirrus", 15.0 °C, RH 58%, wind 5.7 m/s from 348°.
   - SA-205 (Apollo 7): "3/10 cumulonimbus".
   - AS-506 (Apollo 11): "1/10 cumulus, 2/10 altocumulus, 9/10 cirrostratus".
-  - The scenario blends a local override (about 50 km radius) into the ERA5 field when the two disagree.
+  - The scenario blends a local override (about 50 km radius) into the ERA5 field. It is always blended in near the pad around launch, not only when the two disagree (owner decision at C1's review, plan.md decision 29).
 - Layer model:
   - low (cumulus/stratocumulus): base from ERA5 cloud-base height, else 1 km; top +1-2 km; cumulonimbus to 12 km where low and high are both high and convective;
   - mid (altostratus/altocumulus): 3-6 km;
@@ -177,7 +177,7 @@ Rendering, three regimes with matched transitions:
 (2) Orbit (20 km to about 5,000 km): march only the slab where the ray meets the 0.5-13 km shell.
 - Steps adapt to the chord (about 10 km at nadir, up to about 800 km at the limb), with noise LOD by distance and the Earth's-shadow test, so the terminator gives pink tops and dark bases. Half or quarter resolution.
 (3) Far (above about 5,000 km, and lunar distance): clouds become a surface layer in PlanetShaders.
-- Optical depth τ(lat, lon) from the field, with the reflectance read from a slab-BRDF LUT (τ, μ0, μ, Δφ).
+- Optical depth τ(lat, lon) from the field, with the reflectance read from a slab-BRDF LUT (τ, μ0, μ, Δφ). C1's field carries cover only, so τ comes from the layer model's typical in-cloud water; ERA5's total column liquid and ice water, if wanted, are added in C2 as extra OSCLOUD1 planes (owner decision at C1's review, plan.md decision 29).
 - That LUT is generated at startup by running the regime-2 volumetric march on a flat slab. The far field therefore matches the near field by construction, and is checked against the two-stream reflectance R = (1−g)τ/(2 + (1−g)τ).
 
 Shadows: a cloud transmittance map in sun space around the camera (512² over about 100 km), used by the surface, the vessels (the Saturn V under the 4/10 cirrus) and the plumes. Far away, an analytic shifted lookup of the coverage map.

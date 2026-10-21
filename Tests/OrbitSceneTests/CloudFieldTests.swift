@@ -75,6 +75,67 @@ final class CloudFieldTests: XCTestCase {
         XCTAssertNil(Self.planes[3].value(Self.planes[3].byte(nil)))
     }
 
+    /// `data` with plane `plane`'s columns and rows in the header set to
+    /// `columns` and `rows`.
+    static func withDimensions(_ data: Data, plane: Int, columns: UInt32, rows: UInt32) -> Data {
+        var d = data
+        let at = d.startIndex + 24 + 32 * plane + 8
+        for (k, v) in [columns, rows].enumerated() {
+            for b in 0..<4 { d[at + 4 * k + b] = UInt8(truncatingIfNeeded: v >> UInt32(8 * b)) }
+        }
+        return d
+    }
+
+    /// A field of the three cover planes, 2 × 2 each, at `snapshots` hours.
+    static func small(snapshots: Int) -> Data {
+        let planes = Array(Self.planes.prefix(3)).map {
+            CloudField.Plane(name: $0.name, columns: 2, rows: 2, offset: $0.offset, scale: $0.scale)
+        }
+        let times = (0..<snapshots).map { t0 + Int64($0) * 3600 }
+        let snapshot = planes.map { [UInt8](repeating: 0, count: $0.count) }
+        return CloudField.encode(planes: planes, utcSeconds: times, note: "small",
+                                 snapshots: Array(repeating: snapshot, count: snapshots))
+    }
+
+    /// A damaged header whose sizes exceed Int throws FormatError, as the
+    /// mission loader's `try?` expects, instead of trapping: a plane's
+    /// columns × rows, the planes' sum, the snapshots' bytes, and the
+    /// header plus those, each past Int.max.
+    func testOversizedDimensionsThrow() throws {
+        let one = Self.small(snapshots: 1)
+        XCTAssertNoThrow(try CloudField(data: one))
+        func failure(_ data: Data) -> CloudField.FormatError? {
+            do {
+                _ = try CloudField(data: data)
+                return nil
+            } catch {
+                return error as? CloudField.FormatError
+            }
+        }
+        // 0xFFFFFFFF² overflows a plane's count, from memory and from a file.
+        let huge = Self.withDimensions(one, plane: 0, columns: .max, rows: .max)
+        XCTAssertEqual(failure(huge), .badPlane("lcc"))
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("cloudfield-\(UUID()).oscloud")
+        try huge.write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+        XCTAssertThrowsError(try CloudField(contentsOf: url)) {
+            XCTAssertEqual($0 as? CloudField.FormatError, .badPlane("lcc"))
+        }
+        // Three planes of 2³¹ × 2³¹ = 2⁶² bytes: their sum overflows.
+        var sum = one
+        for p in 0..<3 { sum = Self.withDimensions(sum, plane: p, columns: 1 << 31, rows: 1 << 31) }
+        XCTAssertEqual(failure(sum), .truncated)
+        // 2²⁸ × 2²⁸ = 2⁵⁶ bytes a snapshot, 200 snapshots: the data overflows.
+        let many = Self.withDimensions(Self.small(snapshots: 200), plane: 0, columns: 1 << 28, rows: 1 << 28)
+        XCTAssertEqual(failure(many), .truncated)
+        // (2³¹ + 8)(2³² - 16) = 2⁶³ - 128 bytes and the other planes' 8 fit
+        // in Int; the header's 137 bytes on top do not.
+        let edge = Self.withDimensions(one, plane: 0, columns: (1 << 31) + 8, rows: UInt32.max - 15)
+        XCTAssertEqual(failure(edge), .truncated)
+        // Large but representable: truncated, as before.
+        XCTAssertEqual(failure(Self.withDimensions(one, plane: 1, columns: 1 << 20, rows: 1 << 10)), .truncated)
+    }
+
     /// Bilinear in space reproduces a field linear across its grid, linear
     /// in time between the snapshots around a time, wrapping in longitude.
     func testInterpolationInSpaceTimeAndLongitudeWrap() throws {
@@ -281,6 +342,31 @@ final class CloudFieldTests: XCTestCase {
             XCTAssertEqual(stamp, r["launch_utc"], mission)
         }
         XCTAssertEqual(try XCTUnwrap(CloudObservation(table: try row("AS-205")["clouds"] ?? "")).convective, true)
+    }
+
+    /// Every launch_utc is the printed date and time in the printed zone
+    /// (EST = UTC-5, EDT = UTC-4). SA-3's damaged time is the launch
+    /// record's: 12:45:02 p.m. EST on 16 November 1962 (NASA SP-4205,
+    /// Appendix C), not the 19:45 the blot can also be read as.
+    func testTMX64796LaunchTimes() throws {
+        let rows = try tableRows()
+        let local = DateFormatter(), utc = DateFormatter()
+        for f in [local, utc] { f.locale = Locale(identifier: "en_US_POSIX") }
+        local.dateFormat = "yyyy-MM-dd HHmm"
+        utc.dateFormat = "yyyy-MM-dd'T'HH:mm'Z'"
+        utc.timeZone = TimeZone(secondsFromGMT: 0)
+        let offsets: [String: Int] = ["EST": -5, "EDT": -4]
+        for r in rows {
+            let vehicle = r["vehicle"] ?? "?"
+            let hours = try XCTUnwrap(offsets[r["zone"] ?? ""], vehicle)
+            local.timeZone = TimeZone(secondsFromGMT: hours * 3600)
+            let printed = "\(r["date"] ?? "") \(r["time"] ?? "")"
+            let launch = try XCTUnwrap(local.date(from: printed), vehicle)
+            XCTAssertEqual(utc.string(from: launch), r["launch_utc"], vehicle)
+        }
+        let sa3 = try XCTUnwrap(rows.first { $0["vehicle"] == "SA-3" })
+        XCTAssertEqual(sa3["time"], "1245")
+        XCTAssertEqual(sa3["launch_utc"], "1962-11-16T17:45Z")
     }
 
     /// ERA5 at the pad at launch (`make_clouds_era5.py pad`, run on

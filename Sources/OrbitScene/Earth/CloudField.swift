@@ -199,12 +199,22 @@ public final class CloudField {
         let noteStart = h.startIndex + noteAt + 4
         note = String(decoding: h.subdata(in: noteStart..<noteStart + noteBytes), as: UTF8.self)
 
+        // Sizes from a damaged header can exceed Int: a plane's count, the
+        // snapshot's bytes or the file's must throw, not trap.
         var offsets: [Int] = [], total = 0
         for plane in planes {
             offsets.append(total)
-            total += plane.count
+            let count = plane.columns.multipliedReportingOverflow(by: plane.rows)
+            guard !count.overflow else { throw FormatError.badPlane(plane.name) }
+            let sum = total.addingReportingOverflow(count.partialValue)
+            guard !sum.overflow else { throw FormatError.truncated }
+            total = sum.partialValue
         }
-        guard length >= size + n * total else { throw FormatError.truncated }
+        let snapshotsBytes = n.multipliedReportingOverflow(by: total)
+        let fileBytes = size.addingReportingOverflow(snapshotsBytes.partialValue)
+        guard !snapshotsBytes.overflow, !fileBytes.overflow, length >= fileBytes.partialValue else {
+            throw FormatError.truncated
+        }
         for name in Self.coverPlanes where !planes.contains(where: { $0.name == name }) {
             throw FormatError.badPlane(name)
         }
