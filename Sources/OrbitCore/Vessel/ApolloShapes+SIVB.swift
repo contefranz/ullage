@@ -22,18 +22,22 @@ extension ApolloShapeData {
     /// fairing's forward end. On the fin diagonals, where the physics has
     /// them (`AS506`): VD2 found the white fairing on fin A's (503-064, M).
     /// Each motor sits so that its fairing leaves the cone where VD2
-    /// measured the fairing's foot, 16 in across (VD2's 5.4°); its axis 14
-    /// in over the fairing's flat, the forward end and the cap are
+    /// measured the fairing's foot, 16 in across (VD2's 5.4°), and the
+    /// fairing, cap and all, ends at VD2's measured top: the motor's
+    /// forward end just under it (the motor's aft end then at STA 2519.5,
+    /// within the interstage), the cap over the nozzle filling the rest.
+    /// The axis 14 in over the fairing's flat and the forward end are
     /// estimates within the sourced span.
     static let sIIRetroCaseDiameter = 9.0            // in, M503 p. 5-26 (H)
     static let sIIRetroLength = 104.68               // in overall, M503 p. 5-26 (H)
     static let sIIRetroTilt = 3.0                    // deg, M503 p. 5-26 (H)
-    static let sIIRetroForwardEnd = 2_629.0          // STA, within 2519-2633 (M)
+    static let sIIRetroForwardEnd = 2_624.0          // STA, within 2519-2633 and under VD2's top (M)
     static let sIIRetroFairingFoot = 2_582.7         // STA, VD2 503-064 (M)
+    static let sIIRetroFairingTop = 2_626.2          // STA, VD2 503-064 (M)
     static let sIIRetroFairingWidth = 16.0           // in, VD2 503-064 (M)
     static let sIIRetroFairingRise = 14.0            // in, estimate (L)
-    static let sIIRetroCapLength = 6.0               // in beyond the nozzle, estimate (L)
     static let sIIRetroExitDiameter = 7.0            // in, estimate (L)
+    static let sIIRetroNozzleLength = 5.0            // in, estimate (L)
 
     // MARK: S-IVB
 
@@ -74,8 +78,8 @@ extension ApolloShapeData {
     /// II and IV (D5 Fig. 5-7, M; TMX Fig. 2 draws one at about 117°), where
     /// the physics has the motors on the diagonals (`AS506`, L). Their size
     /// is scaled off TMX Fig. 2; each motor's nozzle stands out of its
-    /// fairing's foot at the motor's radius, canted as the physics has it
-    /// (`AS506.sIVBUllageMotorCant`, M).
+    /// fairing's foot at the motor's radius, canted out as the physics has
+    /// it (`AS506.sIVBUllageMotorCant`, M), and carries the motor's plume.
     static let sIVBUllageFairingOffset = 17.5        // deg from the fin line towards the Position (M)
     static let sIVBUllageFairingBottom = 2_748.0     // STA, scaled (L)
     static let sIVBUllageFairingTop = 2_808.0        // STA, scaled (L)
@@ -166,17 +170,19 @@ extension ApolloDresser {
         var cone = revolution([P(D.station(D.sIITop), A.body), P(D.station(D.sIVBAftSkirt), A.upper)], at: .zero,
                               segments: S.interstageSegments, A.white)
         upperStageOpen(&cone)
-        return [cone] + sIIRetros().fairings
+        return [cone] + sIIRetros().shapes
     }
 
     /// Each S-II retro's fixed fairing with its nozzle cap: a prism along
-    /// the motor's axis, tilted 3° out, from inside the cone to just past
-    /// the nozzle, a half-round over the motor on straight sides down to a
-    /// flat below the cone. Its port is the nozzle's exit at the motor's
-    /// forward end, the exhaust leaving against the motor's thrust. The
-    /// fairings stand on the motors' diagonals, or on fins A-D without
-    /// motors.
-    func sIIRetros() -> (fairings: [VisualShape], ports: [VisualAttachment]) {
+    /// the motor's axis, tilted 3° out, from inside the cone to VD2's top
+    /// just past the nozzle, a half-round over the motor on straight sides
+    /// down to a flat below the cone. Its port is the nozzle's exit at the
+    /// motor's forward end, the exhaust leaving against the motor's thrust;
+    /// the nozzle, inside the fairing under the cap, is linked to the motor
+    /// so that its plume starts there (`VesselGeometry`), not at the
+    /// physics' thrust point. The fairings stand on the motors' diagonals,
+    /// or on fins A-D without motors.
+    func sIIRetros() -> (shapes: [VisualShape], ports: [VisualAttachment]) {
         typealias A = ApolloDresser
         let inch = D.inch, tilt = S.sIIRetroTilt * D.degree
         let motors = part.thrusters.filter { $0.isSolid && $0.name.contains("retro") }
@@ -200,13 +206,16 @@ extension ApolloDresser {
             let a = Double.pi * Double(k) / 8
             section.append(.init(rise + half * sin(a), half * cos(a)))
         }
-        let exit = (forward - start) / cos(tilt), cap = S.sIIRetroCapLength * inch
+        // The flat's forward corners, the fairing's forward end, at VD2's
+        // top: the flat stands `rise * sin(tilt)` forward of the axis.
+        let exit = (forward - start) / cos(tilt)
+        let cap = (D.station(S.sIIRetroFairingTop) - forward - rise * sin(tilt)) / cos(tilt)
         let stations: [VisualShape.PrismStation] = [
             .init(0), .init(exit - 4 * inch), .init(exit, width: 0.92, height: 0.92),
             .init(exit + 0.5 * cap, width: 0.75, height: 0.75), .init(exit + cap, width: 0.45, height: 0.45),
         ]
 
-        var fairings: [VisualShape] = [], ports: [VisualAttachment] = []
+        var shapes: [VisualShape] = [], ports: [VisualAttachment] = []
         for (k, out) in outs.enumerated() {
             let along = Vec3.unitX * cos(tilt) + out * sin(tilt)
             let up = out * cos(tilt) - Vec3.unitX * sin(tilt)
@@ -214,14 +223,19 @@ extension ApolloDresser {
             var fairing = finished(.prism(section, from: local(flat), axis: along, reference: up, stations: stations,
                                           color: A.white.colour), A.white)
             fairing.surfaceFrame = .vehicle(partOrigin: construction)
-            fairings.append(fairing)
+            shapes.append(fairing)
             guard k < motors.count else { continue }
             let nozzle = Vec3(forward, 0, 0) + out * axisRadius(forward)
+            var cone = upperStageNozzle(exit: nozzle, thrust: motors[k].direction,
+                                        exitRadius: S.sIIRetroExitDiameter / 2 * inch,
+                                        length: S.sIIRetroNozzleLength * inch)
+            cone.thruster = motors[k].name
+            shapes.append(cone)
             ports.append(VisualAttachment(name: motors[k].name, kind: .retroPort, position: local(nozzle),
                                           direction: -motors[k].direction,
                                           radius: S.sIIRetroExitDiameter / 2 * inch, thruster: motors[k].name))
         }
-        return (fairings, ports)
+        return (shapes, ports)
     }
 
     // MARK: S-IVB
@@ -314,7 +328,11 @@ extension ApolloDresser {
 
     /// The two TX-280s' fairings and nozzles, `sIVBUllageFairingOffset`
     /// off the motors' fin diagonals (fins B and D without motors) towards
-    /// Positions II and IV, and their exits, the exhaust aft and out.
+    /// Positions II and IV, and their exits, the exhaust aft and out. Each
+    /// nozzle is linked to its motor, so that the motor's plume starts at
+    /// the nozzle's exit, the port (`VesselGeometry`), not at the physics'
+    /// thrust point on the fin line, 17.5° round on bare skin; the plume's
+    /// axis stays the physics' exhaust, 10° off the nozzle's.
     func sIVBUllageRockets() -> (shapes: [VisualShape], ports: [VisualAttachment]) {
         typealias A = ApolloDresser
         let inch = D.inch, r = A.upper, cant = D.sIVBUllageMotorCant * D.degree, nozzle = S.sIVBUllageNozzle
@@ -332,9 +350,14 @@ extension ApolloDresser {
                                             taperTop: S.sIVBUllageFairingTaper * inch, A.white))
             let thrust = Vec3.unitX * cos(cant) - out * sin(cant)
             let exit = Vec3(bottom, 0, 0) + out * D.sIVBUllageMotorRadius - thrust * (nozzle.length * inch)
-            shapes.append(upperStageNozzle(exit: exit, thrust: thrust, exitRadius: nozzle.exitDiameter / 2 * inch,
-                                           length: nozzle.length * inch))
-            guard k < motors.count else { continue }
+            var cone = upperStageNozzle(exit: exit, thrust: thrust, exitRadius: nozzle.exitDiameter / 2 * inch,
+                                        length: nozzle.length * inch)
+            guard k < motors.count else {
+                shapes.append(cone)
+                continue
+            }
+            cone.thruster = motors[k].name
+            shapes.append(cone)
             ports.append(VisualAttachment(name: motors[k].name, kind: .ullageExit, position: local(exit),
                                           direction: -thrust, radius: nozzle.exitDiameter / 2 * inch,
                                           thruster: motors[k].name))

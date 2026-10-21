@@ -116,8 +116,10 @@ final class VisualShapeTests: XCTestCase {
     }
 
     // Every nozzle link names a thruster of its part; every main engine of
-    // the Saturn V has one bell (the SPS among them) and each SM RCS jet its
-    // nozzle, as the stand-in SM's SPS and RCS jets.
+    // the Saturn V has one bell (the SPS among them), each SM RCS jet its
+    // nozzle and each S-II retro and S-IVB ullage motor its nozzle, drawn
+    // off the physics' thrust point (UpperStagesExteriorTests), as the
+    // stand-in SM's SPS and RCS jets.
     func testThrusterLinksResolve() {
         for v in vehicles() {
             for p in v.parts {
@@ -132,11 +134,12 @@ final class VisualShapeTests: XCTestCase {
         for p in stack.parts {
             for t in p.thrusters {
                 let bells = p.shapes.filter { $0.thruster == t.name }
-                XCTAssertEqual(bells.count, t.groups.contains(.main) || t.name.hasPrefix("SM RCS") ? 1 : 0, t.name)
+                let nozzled = ["SM RCS", "S-II retro", "S-IVB ullage"].contains { t.name.hasPrefix($0) }
+                XCTAssertEqual(bells.count, t.groups.contains(.main) || nozzled ? 1 : 0, t.name)
                 linked += bells.count
             }
         }
-        XCTAssertEqual(linked, 11 + 1 + 16)   // 5 F-1, 5 + 1 J-2, the SPS, the SM RCS
+        XCTAssertEqual(linked, 11 + 1 + 16 + 4 + 2)   // 5 F-1, 5 + 1 J-2, the SPS, the SM RCS, the retros, TX-280s
         let real = stack.parts.first { $0.name == "SM" }!
         XCTAssertEqual(real.shapes.count, 1 + 1 + 4 + 16)
 

@@ -181,9 +181,9 @@ final class UpperStagesExteriorTests: XCTestCase {
     }
 
     // The heat shield, its aft face at S-II station 44 (STA 1608): 160 in
-    // out, cut 48 in round each engine's axis, where each curtain hangs from
-    // its edge. Its aft face's area is the disc's less the five holes, as
-    // polygons: the rim a 48-gon, the outboard holes 16-gons, the centre
+    // out, cut 48 in round each engine's axis, where each curtain rises
+    // from its edge. Its aft face's area is the disc's less the five holes,
+    // as polygons: the rim a 48-gon, the outboard holes 16-gons, the centre
     // one a 32-gon.
     func testSIIHeatShieldAndCurtains() throws {
         let sII = try part("S-II")
@@ -214,43 +214,27 @@ final class UpperStagesExteriorTests: XCTestCase {
         let expected = (polygon(48, 160) - 4 * polygon(16, 48) - polygon(32, 48)) * inch * inch
         XCTAssertEqual(area / expected, 1, accuracy: 1e-9)
 
+        // Each curtain: at D5's probes, S-II station 48 (STA 1612), 48 in
+        // from its engine's axis, 4 in above the shield's aft face; up to
+        // there from the shield's forward face round the hole, and down
+        // from there to its engine, centred on it.
         let curtains = sII.shapes.filter { $0.material == .apolloCanvas }
         XCTAssertEqual(curtains.count, 5)
+        XCTAssertEqual(S.sIICurtainStation - S.sIIHeatShieldStation, 48 - 44)
         for c in curtains {
-            let top = try XCTUnwrap(profile(c)?.first)
-            XCTAssertEqual(top.r / inch, 48, accuracy: 1e-9)
-            XCTAssertEqual((c.origin.x + construction(sII).x + top.x) / inch, 1_608, accuracy: 1e-9)
-        }
-    }
-
-    // The S-II ullage motors' fairings and exits, for the S-IC/S-II
-    // interstage: about 16 in (4-5°) anticlockwise of the fin lines (VD2),
-    // from STA 1563.56 to 1710.65, 24 in wide; the exits at the motors'
-    // nozzles just above STA 1564, at the physics' radius, aft and 10° out.
-    func testSIIUllageFairingsForTheInterstage() throws {
-        let interstage = try part("S-IC/S-II interstage")
-        let dresser = ApolloDresser(part: interstage, construction: construction(interstage), apexCovered: true,
-                                    variant: .apollo11)
-        let offset = 16 / 198.0 * 180 / Double.pi
-        XCTAssertEqual(offset, 4.63, accuracy: 0.01)
-        let fairings = dresser.sIIUllageFairings()
-        XCTAssertEqual(fairings.count, 4)
-        for (k, f) in fairings.enumerated() {
-            XCTAssertEqual(angle(theta(of: f, on: interstage), 45 + 90 * Double(k) + offset), 0, accuracy: 1e-6)
-            let x = points(f, on: interstage).map { $0.x / inch }
-            XCTAssertEqual(x.min()!, 1_563.56, accuracy: 1e-6)
-            XCTAssertEqual(x.max()!, 1_710.65, accuracy: 1e-6)
-        }
-        let exits = dresser.sIIUllageExits()
-        XCTAssertEqual(exits.compactMap(\.thruster), (1...4).map { "S-II ullage motor \($0)" })
-        for (k, e) in exits.enumerated() {
-            let c = e.position + construction(interstage)
-            XCTAssertEqual(e.kind, .ullageExit)
-            XCTAssertEqual(c.x / inch, 1_565, accuracy: 1e-9)
-            XCTAssertEqual(Vec3(0, c.y, c.z).length, AS506.sIIUllageMotorRadius, accuracy: 1e-12)
-            XCTAssertEqual(angle(theta(c), 45 + 90 * Double(k) + offset), 0, accuracy: 1e-9)
-            XCTAssertEqual(acos(-e.direction.x) * 180 / Double.pi, 10, accuracy: 1e-9)
-            XCTAssertGreaterThan(Vec3(0, e.direction.y, e.direction.z).dot(Vec3(0, c.y, c.z)), 0)
+            let points = try XCTUnwrap(profile(c)).map { p in
+                (sta: (c.origin.x + construction(sII).x + p.x) / inch, r: p.r / inch)
+            }
+            XCTAssertEqual(points.count, 3)
+            XCTAssertEqual(points[0].sta, 1_610, accuracy: 1e-9)
+            XCTAssertEqual(points[0].r, 48, accuracy: 1e-9)
+            XCTAssertEqual(points[1].sta, 1_612, accuracy: 1e-9)
+            XCTAssertEqual(points[1].r, 48, accuracy: 1e-9)
+            XCTAssertEqual(points.map(\.sta).max()!, 1_612, accuracy: 1e-9)
+            XCTAssertEqual(points[2].sta, 1_612 - S.sIICurtainSag, accuracy: 1e-9)
+            XCTAssertLessThan(points[2].r, 48)
+            XCTAssertTrue(axes.contains { a in abs(a.y - c.origin.y - construction(sII).y) < 1e-12
+                && abs(a.z - c.origin.z - construction(sII).z) < 1e-12 })
         }
     }
 
@@ -258,7 +242,9 @@ final class UpperStagesExteriorTests: XCTestCase {
 
     // The cone from 396 to 260 in over STA 2519-2746.5, a 16°44′ half-angle
     // (TMX) to 0.1°; four retro fairings on the fin diagonals, each leaving
-    // the cone at STA 2582.7 (VD2) and standing 6 in proud by 2600.
+    // the cone at STA 2582.7 (VD2), standing 6 in proud by 2600 and ending,
+    // cap and all, at VD2's measured top, STA 2626.2 (503-064), inside its
+    // white region.
     func testInterstageAndRetroFairings() throws {
         let interstage = try part("S-II/S-IVB interstage")
         let cone = try XCTUnwrap(profile(interstage.shapes[0]))
@@ -278,17 +264,41 @@ final class UpperStagesExteriorTests: XCTestCase {
             XCTAssertEqual(proud, 6.1, accuracy: 0.2)
         }
         XCTAssertEqual(silhouette(sta: 2_600, theta: 0), coneRadius(2_600), accuracy: 1e-6)
+        for f in fairings {
+            let x = points(f, on: interstage).map { $0.x / inch }
+            XCTAssertEqual(x.max()!, 2_626.2, accuracy: 1e-6)
+        }
+        for t in [45.0, 135, 225, 315] {
+            XCTAssertEqual(silhouette(sta: 2_626.3, theta: t), coneRadius(2_626.3), accuracy: 1e-6)
+        }
     }
 
-    // The retro ports: at each motor's nozzle, the forward end (STA 2629)
+    /// The part's one shape linked to thruster `name`, a small engine's
+    /// nozzle: a frustum from its exit (its origin and base, which
+    /// `VesselGeometry` takes for the plume's start) up along the thrust,
+    /// and its exit radius.
+    func linkedNozzle(_ name: String, on p: VesselPart) throws -> (shape: VisualShape, exitRadius: Double) {
+        let linked = p.shapes.filter { $0.thruster == name }
+        XCTAssertEqual(linked.count, 1, name)
+        let s = try XCTUnwrap(linked.first, name)
+        guard case let .frustum(base, top) = s.kind, base > top else {
+            struct NotANozzle: Error { let name: String }
+            throw NotANozzle(name: name)
+        }
+        return (s, base)
+    }
+
+    // The retro ports: at each motor's nozzle, the forward end (STA 2624)
     // of a 104.68 in motor that starts after STA 2519 and whose 9 in case
     // fits its fairing, outside the cone, on the motor's diagonal, the
-    // exhaust against its thrust. They stay put when the S-II and the
-    // interstage leave.
+    // exhaust against its thrust; the nozzle under the cap, linked to the
+    // motor, so that the plume starts at the port. They stay put when the
+    // S-II and the interstage leave.
     func testRetroPorts() throws {
         let tilt = S.sIIRetroTilt * Double.pi / 180
         XCTAssertGreaterThanOrEqual(S.sIIRetroForwardEnd - S.sIIRetroLength * cos(tilt), 2_519)
         XCTAssertLessThanOrEqual(S.sIIRetroForwardEnd, 2_633)
+        XCTAssertLessThan(S.sIIRetroForwardEnd, S.sIIRetroFairingTop)
         XCTAssertGreaterThan(S.sIIRetroFairingWidth / 2, S.sIIRetroCaseDiameter / 2)
         let stack = VesselLibrary.saturnV()
         let interstage = try part("S-II/S-IVB interstage", of: stack)
@@ -300,12 +310,16 @@ final class UpperStagesExteriorTests: XCTestCase {
             let motor = try XCTUnwrap(interstage.thrusters.first { $0.name == port.thruster })
             let c = port.position + construction(interstage, of: stack)
             before.append(c)
-            XCTAssertEqual(c.x / inch, 2_629, accuracy: 1e-9)
+            XCTAssertEqual(c.x / inch, 2_624, accuracy: 1e-9)
             let r = Vec3(0, c.y, c.z).length / inch
-            XCTAssertGreaterThan(r, 198 - (2_629 - 2_519) * slope + 4)
+            XCTAssertGreaterThan(r, 198 - (2_624 - 2_519) * slope + 4)
             XCTAssertEqual(angle(theta(c), 45 + 90 * Double(k)), 0, accuracy: 1e-9)
             XCTAssertEqual((port.direction + motor.direction).length, 0, accuracy: 1e-12)
             XCTAssertEqual(port.radius / inch, 3.5, accuracy: 1e-12)
+            let nozzle = try linkedNozzle(motor.name, on: interstage)
+            XCTAssertEqual((nozzle.shape.origin - port.position).length, 0, accuracy: 1e-12)
+            XCTAssertEqual((nozzle.shape.axis + port.direction).length, 0, accuracy: 1e-12)
+            XCTAssertEqual(nozzle.exitRadius, port.radius, accuracy: 1e-12)
         }
         let spent = try XCTUnwrap(stack.jettison(event: 4))
         VesselLibrary.dressApollo(spent)
@@ -383,9 +397,12 @@ final class UpperStagesExteriorTests: XCTestCase {
     // The two TX-280 fairings, diametrically opposite, 17.5° off the fin B
     // and D diagonals towards Positions II and IV (D5: 15-20°), on the aft
     // skirt from STA 2748; their exits at the nozzles below, aft and 35°
-    // out. They leave with their part, where they were.
+    // out, each nozzle linked to its motor so that the plume starts at the
+    // exit. Fairings, nozzles and exits leave with their part at the
+    // ullage jettison (event 5), where they were on the stack.
     func testTX280Fairings() throws {
-        let rockets = try part("S-IVB ullage rockets")
+        let stack = VesselLibrary.saturnV()
+        let rockets = try part("S-IVB ullage rockets", of: stack)
         let fairings = rockets.shapes.filter(isPrism)
         let thetas = fairings.map { theta(of: $0, on: rockets) }
         XCTAssertEqual(thetas.count, 2)
@@ -402,12 +419,35 @@ final class UpperStagesExteriorTests: XCTestCase {
         XCTAssertEqual(exits.compactMap(\.thruster), ["S-IVB ullage motor 1", "S-IVB ullage motor 2"])
         let cant = AS506.sIVBUllageMotorCant * Double.pi / 180
         for (e, t) in zip(exits, thetas) {
-            let c = e.position + construction(rockets)
+            let c = e.position + construction(rockets, of: stack)
             XCTAssertEqual(c.x / inch, 2_748 - 5 * cos(cant), accuracy: 1e-9)
             XCTAssertEqual(Vec3(0, c.y, c.z).length / inch, AS506.sIVBUllageMotorRadius / inch + 5 * sin(cant),
                            accuracy: 1e-9)
             XCTAssertEqual(angle(theta(c), t), 0, accuracy: 1e-9)
             XCTAssertEqual(acos(-e.direction.x), cant, accuracy: 1e-12)
+            let nozzle = try linkedNozzle(try XCTUnwrap(e.thruster), on: rockets)
+            XCTAssertEqual((nozzle.shape.origin - e.position).length, 0, accuracy: 1e-12)
+            XCTAssertEqual((nozzle.shape.axis + e.direction).length, 0, accuracy: 1e-12)
+            XCTAssertEqual(nozzle.exitRadius, e.radius, accuracy: 1e-12)
+        }
+
+        // Jettisoned and dressed on its own: every port and every vertex of
+        // its shapes where it was, in the construction frame.
+        let ports = exits.map { $0.position + construction(rockets, of: stack) }
+        let vertices = rockets.shapes.map { points($0, on: rockets) }
+        let spent = try XCTUnwrap(stack.jettison(event: 5))
+        XCTAssertTrue(spent.parts.contains { $0 === rockets })
+        VesselLibrary.dressApollo(spent)
+        let after = rockets.attachments.filter { $0.kind == .ullageExit }.map {
+            $0.position + construction(rockets, of: spent)
+        }
+        XCTAssertEqual(after.count, 2)
+        for (a, b) in zip(ports, after) { XCTAssertEqual((a - b).length, 0, accuracy: 1e-9) }
+        XCTAssertEqual(rockets.shapes.count, vertices.count)
+        for (s, before) in zip(rockets.shapes, vertices) {
+            let now = s.mesh(offset: construction(rockets, of: spent)).vertices.map(\.position)
+            XCTAssertEqual(now.count, before.count)
+            for (a, b) in zip(now, before) { XCTAssertEqual((a - b).length, 0, accuracy: 1e-9) }
         }
     }
 

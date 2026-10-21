@@ -1,7 +1,8 @@
 import Foundation
 
-// The S-II, the ullage-motor fairings it leaves on the S-IC/S-II
-// interstage, and the J-2 it shares with the S-IVB (track VG2).
+// The S-II and the J-2 it shares with the S-IVB (track VG2). The S-II
+// ullage motors' fairings and exits stand on the S-IC/S-II interstage and
+// are VG1's (ApolloShapes+SIC.swift).
 //
 // Values are the exterior datasheet's (docs/SaturnV-CSM-exterior-
 // datasheet.md §3, §4, §8.2), with its source keys and grades. "Scaled"
@@ -33,13 +34,16 @@ extension ApolloShapeData {
     static let sIILOXBulkheadEquator = 1_848.0       // STA (XB 284), 2644-D (M)
     static let sIILH2BulkheadEquator = 2_387.0       // STA (XB 823), 2644-D (M)
     /// The fibreglass-honeycomb heat shield, its aft face at S-II station
-    /// 44, and a flexible curtain round each engine about 48 in from its
-    /// axis (curtain probes at S-II station 48). The shield's edge is an
-    /// estimate just outside the outboard curtains (105 + 48 in), the
-    /// curtains' sag another.
+    /// 44, and a flexible curtain round each engine, its probes at S-II
+    /// station 48 about 48 in from the engine's axis: the curtain's outer
+    /// edge is there, 4 in above the shield's aft face, and rises to it
+    /// from the shield's forward face round the hole. The shield's edge is
+    /// an estimate just outside the outboard curtains (105 + 48 in); the
+    /// curtains' sag from that edge to the engine is another.
     static let sIIHeatShieldStation = 1_608.0        // STA, D5 Table 4-III (M)
     static let sIIHeatShieldRadius = 160.0           // in, estimate (L)
     static let sIIHeatShieldThickness = 2.0          // in, estimate (L)
+    static let sIICurtainStation = 1_612.0           // STA (S-II station 48), D5 Table 4-IV (M)
     static let sIICurtainRadius = 48.0               // in from each engine's axis, D5 Table 4-IV (M)
     static let sIICurtainSag = 6.0                   // in, estimate (L)
     /// The systems tunnel: semicircular, 22 in wide, about 60 ft long from
@@ -74,27 +78,6 @@ extension ApolloShapeData {
     static let sIIAntennaAzimuth = 99.0              // deg, scaled (L)
     static let sIICommandAntenna = (tall: 11.0, wide: 8.0, proud: 2.0)      // in, scaled (L)
     static let sIITelemetryAntenna = (tall: 14.0, wide: 14.0, proud: 2.0)   // in, scaled (L)
-
-    // MARK: S-II ullage motors, on the S-IC/S-II interstage
-
-    /// Four on AS-503 and AS-506, 89 in long and 12-1/2 in across, their
-    /// nozzles just above the first separation plane, canted 10° outward,
-    /// each in a fairing from STA 1563.56 to a pointed top. VD2 found the
-    /// fairings about 16 in (4-5°) anticlockwise of the fin lines
-    /// (503-050/051/053, M), not at Positions I-IV where the physics has the
-    /// motors (`AS506`, L); the motors' radius is the physics'. BCD prints
-    /// the top as XB 176.68 and 3.725 m (XB 146.65): TMX Fig. 2 draws
-    /// AS-501's fairings tapering to about STA 1700 and M503 Fig. 5-22 one
-    /// about 1.4 motor lengths long, so the metre value is taken. The width
-    /// is VD2's 7° white strips at 198 in (M).
-    static let sIIUllageMotorLength = 89.0           // in, M503 p. 5-24 (H)
-    static let sIIUllageMotorDiameter = 12.5         // in, M503 p. 5-24 (H)
-    static let sIIUllageFairingOffset = 16.0         // in of arc at 198 in, VD2 (M)
-    static let sIIUllageFairingBottom = 1_563.56     // STA (XB -0.44), BCD (H)
-    static let sIIUllageFairingTop = 1_710.65        // STA (XB 146.65), BCD's metre value (L)
-    static let sIIUllageFairingWidth = 24.0          // in, VD2 (M)
-    static let sIIUllageNozzleExit = 1_565.0         // STA, "just above" STA 1564, M503 p. 5-24 (M)
-    static let sIIUllageExitDiameter = 10.0          // in, estimate (L)
 
     // MARK: J-2
 
@@ -186,10 +169,11 @@ extension ApolloDresser {
     }
 
     /// The heat shield, its aft face at S-II station 44, with a hole of 48
-    /// in radius round each engine's axis, and a curtain from each hole's
-    /// edge sagging to its engine. The shield is eight plates, one per octant
-    /// between a Position and a fin line, each with half an outboard hole
-    /// and an eighth of the centre one cut out of it.
+    /// in radius round each engine's axis, and a curtain round each hole:
+    /// up its edge from the shield's forward face to S-II station 48, where
+    /// D5 probes it, then sagging to its engine. The shield is eight plates,
+    /// one per octant between a Position and a fin line, each with half an
+    /// outboard hole and an eighth of the centre one cut out of it.
     func sIIBase() -> [VisualShape] {
         typealias A = ApolloDresser
         let inch = D.inch, aft = D.station(S.sIIHeatShieldStation)
@@ -223,64 +207,21 @@ extension ApolloDresser {
             s.surfaceFrame = .vehicle(partOrigin: construction)
             return s
         }
+        let probes = D.station(S.sIICurtainStation), forwardFace = aft + thickness
         let curtains = part.thrusters.filter { $0.groups.contains(.main) }.map { t -> VisualShape in
             let exit = D.station(D.sIIJ2ExitStation), gimbal = t.position.x + construction.x
             let profile = ApolloDresser.j2Profile(exitRadius: (D.j2ExitArea / Double.pi).squareRoot(),
                                                   length: gimbal - exit)
             let sag = S.sIICurtainSag * inch
-            let engine = ApolloDresser.outerRadius(of: profile, at: aft - sag - exit)
+            let engine = ApolloDresser.outerRadius(of: profile, at: probes - sag - exit)
             let axis = t.position + construction
-            var curtain = revolution([P(0, S.sIICurtainRadius * inch), P(-sag, engine + 0.5 * inch)],
-                                     at: Vec3(aft, axis.y, axis.z), segments: 48, A.canvas)
+            var curtain = revolution([P(forwardFace - probes, hole, crease: true), P(0, hole, crease: true),
+                                      P(-sag, engine + 0.5 * inch)],
+                                     at: Vec3(probes, axis.y, axis.z), segments: 48, A.canvas)
             upperStageOpen(&curtain)
             return curtain
         }
         return shield + curtains
-    }
-
-    // MARK: S-II ullage motors (the S-IC/S-II interstage's part)
-
-    /// The S-II ullage motors' azimuths (deg): `sIIUllageFairingOffset`
-    /// anticlockwise of fins A-D.
-    static var sIIUllageAzimuths: [Double] {
-        let offset = S.sIIUllageFairingOffset / (D.bodyDiameter / 2) * 180 / Double.pi
-        return [45.0, 135.0, 225.0, 315.0].map { $0 + offset }
-    }
-
-    /// The four S-II ullage motors' fairings, for the S-IC/S-II interstage
-    /// to draw (ApolloShapes+SIC.swift): from STA 1563.56, just below the
-    /// first separation plane, cut square over the nozzles, to a pointed
-    /// top, 16 in proud round the 12-1/2 in motors at the physics' radius.
-    func sIIUllageFairings() -> [VisualShape] {
-        typealias A = ApolloDresser
-        let inch = D.inch, r = A.body
-        let motorOut = D.sIIUllageMotorRadius - r + S.sIIUllageMotorDiameter / 2 * inch
-        let depth = motorOut + 1.5 * inch
-        let bottom = D.station(S.sIIUllageFairingBottom), top = D.station(S.sIIUllageFairingTop)
-        let motorTop = D.station(S.sIIUllageNozzleExit) + S.sIIUllageMotorLength * inch
-        return A.sIIUllageAzimuths.map { theta in
-            upperStageFairing(skinDirection(theta), skin: r, from: bottom, to: top,
-                              width: S.sIIUllageFairingWidth * inch, depth: depth, taperTop: top - motorTop,
-                              A.white)
-        }
-    }
-
-    /// The S-II ullage motors' nozzle exits at their fairings' feet, for the
-    /// S-IC/S-II interstage: one per "S-II ullage motor" of the part, in
-    /// order round fins A-D, the exhaust aft and canted 10° outward at the
-    /// fairing's azimuth. The motors themselves stay where the physics has
-    /// them, at Positions I-IV.
-    func sIIUllageExits() -> [VisualAttachment] {
-        let motors = part.thrusters.filter { $0.isSolid && $0.name.contains("ullage") }
-        let cant = D.sIIUllageMotorCant * D.degree
-        return zip(motors, ApolloDresser.sIIUllageAzimuths).map { t, theta in
-            let out = skinDirection(theta)
-            let outward = Vec3(0, out.y, out.z)
-            let exit = Vec3(D.station(S.sIIUllageNozzleExit), 0, 0) + outward * D.sIIUllageMotorRadius
-            return VisualAttachment(name: t.name, kind: .ullageExit, position: local(exit),
-                                    direction: outward * sin(cant) - Vec3.unitX * cos(cant),
-                                    radius: S.sIIUllageExitDiameter / 2 * D.inch, thruster: t.name)
-        }
     }
 
     // MARK: J-2
