@@ -401,29 +401,117 @@ final class PlanetQuadtreeTests: XCTestCase {
         XCTAssertEqual(PlanetQuadtree.morphTargets(column: 1, row: 1).map { [$0.0, $0.1, $0.2, $0.3] }, [0, 0, 2, 2])
     }
 
-    /// The vertices along `edge` of a tile's `n`-quad grid, counter-clockwise
-    /// round the tile seen from outside.
-    func edgeVertices(_ key: TileKey, _ edge: TileKey.Edge, _ n: Int) -> [Vec3] {
-        (0 ... n).map { k -> Vec3 in
-            let t = Double(k) / Double(n)
+    /// The grid points along `edge` of a tile's `n`-quad grid, as (column,
+    /// row), counter-clockwise round the tile seen from outside.
+    func edgeIndices(_ edge: TileKey.Edge, _ n: Int) -> [(Int, Int)] {
+        (0 ... n).map { k -> (Int, Int) in
             switch edge {
-            case .minV: return key.direction(localU: t, localV: 0)
-            case .maxU: return key.direction(localU: 1, localV: t)
-            case .maxV: return key.direction(localU: 1 - t, localV: 1)
-            case .minU: return key.direction(localU: 0, localV: 1 - t)
+            case .minV: return (k, 0)
+            case .maxU: return (n, k)
+            case .maxV: return (n - k, n)
+            case .minU: return (0, n - k)
             }
         }
     }
 
-    /// No cracks between neighbouring tiles: in each selection, neighbours
-    /// differ by at most one level; where they differ, every vertex on the
-    /// finer tile's shared edge is fully morphed, and its even vertices are
-    /// the coarser tile's consecutive edge vertices, so the morphed edge is
-    /// the coarse edge; where they do not, the shared vertices coincide and
-    /// morph alike. Views: the pad, also under a tight budget, near a cube
-    /// corner, the limb from orbit under a tight budget and at warp, a grid
-    /// too coarse for its tiles, and the Moon's terrain on its relief at
-    /// 15 km over a face edge.
+    func gridDirection(_ key: TileKey, _ i: Int, _ j: Int, _ n: Int) -> Vec3 {
+        key.direction(localU: Double(i) / Double(n), localV: Double(j) / Double(n))
+    }
+
+    /// Where MR2 draws vertex (i, j) of tile `t`'s `n`-quad grid
+    /// (planet-tiles.md): its own point, placed with its level's heights,
+    /// moved toward its morph target (`morphTargets`), placed with the
+    /// parent level's, by the morph `Tile.morph(column:row:gridSize:
+    /// distance:)` gives at its own point's distance. `place` puts a figure
+    /// direction at a level's height.
+    func drawn(_ t: PlanetQuadtree.Tile, _ i: Int, _ j: Int, _ n: Int, camera: Vec3,
+               place: (Vec3, Int) -> Vec3) -> Vec3 {
+        let level = t.key.level
+        let own = place(gridDirection(t.key, i, j, n), level)
+        let m = t.morph(column: i, row: j, gridSize: n, distance: (own - camera).length)
+        guard m > 0 else { return own }
+        let target: Vec3
+        if let (i0, j0, i1, j1) = PlanetQuadtree.morphTargets(column: i, row: j) {
+            let p0 = place(gridDirection(t.key, i0, j0, n), level - 1)
+            let p1 = place(gridDirection(t.key, i1, j1, n), level - 1)
+            target = (p0 + p1) / 2
+        } else {
+            target = place(gridDirection(t.key, i, j, n), level - 1)
+        }
+        return own + (target - own) * m
+    }
+
+    /// The distance from `p` to the segment from `a` to `b`.
+    func distance(_ p: Vec3, toSegment a: Vec3, _ b: Vec3) -> Double {
+        let ab = b - a
+        let t = min(1, max(0, (p - a).dot(ab) / ab.lengthSquared))
+        return (p - (a + ab * t)).length
+    }
+
+    /// The selected tile that covers same-level tile `k`: itself or an
+    /// ancestor; nil if `k` is split (finer) or culled.
+    func cover(_ k: TileKey, _ byID: [UInt64: PlanetQuadtree.Tile]) -> PlanetQuadtree.Tile? {
+        var level = k.level
+        while true {
+            if let t = byID[k.ancestor(atLevel: level).id] { return t }
+            if level == 0 { return nil }
+            level -= 1
+        }
+    }
+
+    /// What same-level tile `k`'s area holds in a selection, seen from a
+    /// tile it touches: a selected tile of its level, part of a coarser one,
+    /// or selected tiles among `quarters` (its children that touch).
+    func expectedSeam(_ k: TileKey, quarters: [Int], _ byID: [UInt64: PlanetQuadtree.Tile]) -> PlanetQuadtree.Seam {
+        if byID[k.id] != nil { return .level }
+        if cover(k, byID) != nil { return .coarser }
+        return quarters.contains { byID[k.children[$0].id] != nil } ? .finer : .level
+    }
+
+    /// The seams of tile `a` in a selection, from their definition
+    /// (`Tile.seams`): each edge's neighbour, and the greatest of each
+    /// corner's other tiles.
+    func assertSeams(_ a: PlanetQuadtree.Tile, _ byID: [UInt64: PlanetQuadtree.Tile], _ name: String,
+                     file: StaticString = #filePath, line: UInt = #line) {
+        // `TileKey.children` indices along each edge, and at each corner.
+        let along: [TileKey.Edge: [Int]] = [.minU: [0, 2], .maxU: [1, 3], .minV: [0, 1], .maxV: [2, 3]]
+        let atCorner = [0, 1, 3, 2]
+        for edge in TileKey.Edge.allCases {
+            let (k, back) = a.key.neighborAndEdge(edge)
+            XCTAssertEqual(a.seam(edge), expectedSeam(k, quarters: along[back]!, byID), "\(name): \(a.key) \(edge)",
+                           file: file, line: line)
+        }
+        for corner in 0 ..< 4 {
+            var expected = PlanetQuadtree.Seam.level
+            for (k, c) in a.key.tilesAround(corner: corner) where k != a.key {
+                let m = expectedSeam(k, quarters: [atCorner[c]], byID)
+                if m.rawValue > expected.rawValue { expected = m }
+            }
+            XCTAssertEqual(a.seam(corner: corner), expected, "\(name): \(a.key) corner \(corner)", file: file, line: line)
+        }
+    }
+
+    /// No cracks between neighbouring tiles, on either side of a level
+    /// change: tiles that touch, across an edge or at a corner, differ by
+    /// at most one level, every tile's seams are what it meets, and along
+    /// every edge two selected tiles share, the vertices MR2 draws (`drawn`)
+    /// meet. Each level has its own heights (as a pyramid's levels do), so a
+    /// vertex drawn with another level's heights, or a coarse vertex
+    /// morphing where the finer side cannot follow, opens a gap:
+    /// - same level: the shared vertices are drawn at the same points;
+    /// - finer beside coarser: the finer tile's even vertices are drawn at
+    ///   the coarse tile's consecutive drawn vertices, and its odd ones on
+    ///   the coarse tile's drawn segments between them (T-junctions).
+    ///
+    /// Views: the pad, also under a tight budget, near a cube corner, the
+    /// limb from orbit under a tight budget and at warp, a grid too coarse
+    /// for its tiles, which the balancing pass splits, the Moon's terrain on
+    /// its relief at 15 km over a face edge, and the Moon setup
+    /// planet-tiles.md recommends, budget-biased. The fine side is fully
+    /// morphed by distance everywhere. Under the heavier biases and beside
+    /// balancing splits, coarse tiles' shared-edge vertices lie past their
+    /// morph start, where only the seams keep them on their own grid; in the
+    /// other views the distance morph alone already does.
     func testNoCracksBetweenNeighbouringLevels() {
         let n = 16
         let cornerDirection = Vec3(1, 1, 1).normalized
@@ -434,83 +522,180 @@ final class PlanetQuadtreeTests: XCTestCase {
         let coarseGrid = PlanetQuadtree(.init(figure: .sphere(moonRadius), maxLevel: 14, samplesPerTile: 16,
                                               pixelError: 200))
         let edgeOfFace = Ellipsoid.sphere(moonRadius).geodeticCoordinates(figureDirection: Vec3(1, 0.999, 0.2))
-        let cases: [(String, PlanetQuadtree, PlanetQuadtree.View, (Vec3) -> Double)] = [
-            ("pad", fineEarth, look(fineEarth, lat: 28.6, lon: -80.6, altitude: 100, heading: 90, pitch: -2), { _ in 0 }),
+        let moonView = look(moon(), lat: edgeOfFace.latitude / deg, lon: edgeOfFace.longitude / deg,
+                            altitude: 15_000, heading: 80, pitch: -12)
+        let relief: (Vec3) -> Double = { d in 8_000 * sin(5 * d.x) * cos(3 * d.y) + 800 * d.z }
+        let flat: (Vec3) -> Double = { _ in 0 }
+        // (name, quadtree, view, terrain, whether the distance morph alone
+        // keeps the coarse side's shared-edge vertices on their own grid).
+        let cases: [(String, PlanetQuadtree, PlanetQuadtree.View, (Vec3) -> Double, Bool)] = [
+            ("pad", fineEarth, look(fineEarth, lat: 28.6, lon: -80.6, altitude: 100, heading: 90, pitch: -2), flat,
+             true),
+            // Bias 3.5.
             ("pad, budget", earth(maxLevel: 16, budget: 48),
-             look(fineEarth, lat: 28.6, lon: -80.6, altitude: 100, heading: 90, pitch: -2), { _ in 0 }),
+             look(fineEarth, lat: 28.6, lon: -80.6, altitude: 100, heading: 90, pitch: -2), flat, false),
             ("cube corner", earth(maxLevel: 12),
              look(earth(maxLevel: 12), lat: g.latitude / deg + 1, lon: g.longitude / deg - 2, altitude: 1_000_000,
-                  heading: 20, pitch: -70),
-             { _ in 0 }),
+                  heading: 20, pitch: -70), flat, true),
+            // Bias 1.5.
             ("limb, budget", earth(maxLevel: 12, budget: 96),
-             look(earth(maxLevel: 12), lat: 28.6, lon: -80.6, altitude: 185_000, heading: 72, pitch: -15), { _ in 0 }),
-            ("limb, warp", earth(maxLevel: 12), leoWarp, { _ in 0 }),
+             look(earth(maxLevel: 12), lat: 28.6, lon: -80.6, altitude: 185_000, heading: 72, pitch: -15), flat,
+             true),
+            ("limb, warp", earth(maxLevel: 12), leoWarp, flat, true),
             // Detail distances shorter than the tiles (pixelError 200 on
             // 16-sample tiles) make the selection two or more levels
             // finer than a neighbour around the camera: the balancing pass
             // must split.
-            ("coarse grid", coarseGrid, look(coarseGrid, lat: 3, lon: 40, altitude: 10, heading: 30, pitch: 0),
-             { _ in 0 }),
-            ("moon", moon(maxLevel: 12, budget: 3_000),
-             look(moon(), lat: edgeOfFace.latitude / deg, lon: edgeOfFace.longitude / deg, altitude: 15_000,
-                  heading: 80, pitch: -12),
-             { d in 8_000 * sin(5 * d.x) * cos(3 * d.y) + 800 * d.z }),
+            ("coarse grid", coarseGrid, look(coarseGrid, lat: 3, lon: 40, altitude: 10, heading: 30, pitch: 0), flat,
+             false),
+            ("moon", moon(maxLevel: 12, budget: 3_000), moonView, relief, true),
+            // Bias 2.5.
+            ("moon, budget", moon(maxLevel: 16, budget: 384), moonView, relief, false),
         ]
         var acrossFaces = 0, balanced = 0
-        for (name, q, view, height) in cases {
+        for (name, q, view, height, distanceHolds) in cases {
             let s = q.select(view)
-            balanced += s.balanceSplits
             let f = q.parameters.figure
-            func vertex(_ d: Vec3) -> Vec3 { f.surfacePoint(figureDirection: d) + d * height(d) }
+            // Each level's heights differ from the next's by half a metre.
+            func place(_ d: Vec3, _ level: Int) -> Vec3 {
+                let h: Double = height(d) + 0.5 * Double(level)
+                return f.surfacePoint(figureDirection: d) + d.normalized * h
+            }
+            func draw(_ t: PlanetQuadtree.Tile, _ ij: (Int, Int)) -> Vec3 {
+                drawn(t, ij.0, ij.1, n, camera: view.position, place: place)
+            }
+            // The morph by distance alone, on the terrain without the levels' offsets.
+            func byDistance(_ t: PlanetQuadtree.Tile, _ ij: (Int, Int)) -> Double {
+                let d = gridDirection(t.key, ij.0, ij.1, n)
+                let p = f.surfacePoint(figureDirection: d) + d.normalized * height(d)
+                return t.morph(atDistance: (p - view.position).length)
+            }
             var byID: [UInt64: PlanetQuadtree.Tile] = [:]
             for t in s.tiles { byID[t.key.id] = t }
-            var finerCoarser = 0
+            var finerCoarser = 0, pinned = 0
             for a in s.tiles {
+                assertSeams(a, byID, name)
+                // Tiles that touch a corner are within a level of each other.
+                for corner in 0 ..< 4 {
+                    for (k, _) in a.key.tilesAround(corner: corner) {
+                        guard let b = cover(k, byID) else { continue }
+                        XCTAssertLessThanOrEqual(a.key.level - b.key.level, 1, "\(name): \(a.key) touches \(b.key)")
+                    }
+                }
                 for edge in TileKey.Edge.allCases {
                     let (k, back) = a.key.neighborAndEdge(edge)
-                    var cover: PlanetQuadtree.Tile? = byID[k.id]
-                    var level = k.level
-                    while cover == nil && level > 0 {
-                        level -= 1
-                        cover = byID[k.ancestor(atLevel: level).id]
-                    }
-                    guard let b = cover else { continue }      // finer, or culled
+                    guard let b = cover(k, byID) else { continue }      // finer, or culled
                     XCTAssertLessThanOrEqual(a.key.level - b.key.level, 1, "\(name): \(a.key) beside \(b.key)")
-                    let mine = edgeVertices(a.key, edge, n)
+                    let mine = edgeIndices(edge, n)
                     if b.key.level == a.key.level {
-                        let theirs = Array(edgeVertices(b.key, back, n).reversed())
+                        let theirs = Array(edgeIndices(back, n).reversed())
                         for (p, q) in zip(mine, theirs) {
-                            XCTAssertLessThan((p - q).length, 1e-15, "\(name): \(a.key) \(edge)")
-                            let mp = a.morph(atDistance: (vertex(p) - view.position).length)
-                            let mq = b.morph(atDistance: (vertex(q) - view.position).length)
-                            XCTAssertEqual(mp, mq, accuracy: 1e-9, "\(name): \(a.key) \(edge)")
+                            let dp = gridDirection(a.key, p.0, p.1, n), dq = gridDirection(b.key, q.0, q.1, n)
+                            XCTAssertLessThan((dp - dq).length, 1e-15, "\(name): \(a.key) \(edge)")
+                            let gap = (draw(a, p) - draw(b, q)).length
+                            XCTAssertLessThan(gap, 1e-6, "\(name): \(a.key) \(edge) beside \(b.key)")
                         }
                         continue
                     }
                     guard b.key.level == a.key.level - 1 else { continue }
                     finerCoarser += 1
                     if a.key.face != b.key.face { acrossFaces += 1 }
-                    for p in mine {
-                        let m = a.morph(atDistance: (vertex(p) - view.position).length)
-                        XCTAssertGreaterThanOrEqual(m, 1 - 1e-12, "\(name): \(a.key) \(edge) beside \(b.key)")
-                    }
-                    // The even vertices are consecutive vertices of the coarse edge.
-                    let coarse = edgeVertices(b.key, back, n)
+                    // The finer tile's even vertices are consecutive grid
+                    // points of the coarse edge, drawn at the same points.
+                    let coarse = edgeIndices(back, n)
+                    let coarseDirections = coarse.map { gridDirection(b.key, $0.0, $0.1, n) }
                     var indices: [Int] = []
                     for p in stride(from: 0, through: n, by: 2).map({ mine[$0] }) {
-                        if let j = coarse.firstIndex(where: { ($0 - p).length < 1e-14 }) { indices.append(j) }
+                        let d = gridDirection(a.key, p.0, p.1, n)
+                        guard let j = coarseDirections.firstIndex(where: { ($0 - d).length < 1e-14 }) else { continue }
+                        indices.append(j)
+                        let gap = (draw(a, p) - draw(b, coarse[j])).length
+                        XCTAssertLessThan(gap, 1e-6, "\(name): \(a.key) \(edge) beside \(b.key)")
                     }
                     XCTAssertEqual(indices.count, n / 2 + 1, "\(name): \(a.key) \(edge) beside \(b.key)")
+                    guard indices.count == n / 2 + 1 else { continue }
                     for (i, j) in zip(indices, indices.dropFirst()) {
                         XCTAssertEqual(abs(i - j), 1, "\(name): \(a.key) \(edge) beside \(b.key)")
                     }
+                    // Its odd vertices lie on the coarse edge as drawn.
+                    for k in stride(from: 1, to: n, by: 2) {
+                        let p = draw(a, mine[k])
+                        let q0 = draw(b, coarse[indices[k / 2]]), q1 = draw(b, coarse[indices[k / 2 + 1]])
+                        XCTAssertLessThan(distance(p, toSegment: q0, q1), 1e-6, "\(name): \(a.key) \(edge) beside \(b.key)")
+                    }
+                    // The fine side: fully morphed by distance too. The
+                    // coarse side: count the vertices only the seams pin.
+                    for p in mine {
+                        XCTAssertEqual(byDistance(a, p), 1, accuracy: 1e-12, "\(name): \(a.key) \(edge)")
+                    }
+                    pinned += indices.filter { byDistance(b, coarse[$0]) > 0 }.count
                 }
             }
             XCTAssertGreaterThan(finerCoarser, 0, name)
+            if distanceHolds { XCTAssertEqual(pinned, 0, name) } else { XCTAssertGreaterThan(pinned, 0, name) }
+            if name == "coarse grid" { balanced = s.balanceSplits }
         }
         XCTAssertGreaterThan(acrossFaces, 0)
-        // The balancing pass did split tiles somewhere, and its splits held up.
+        // The balancing pass did split tiles, and its splits held up.
         XCTAssertGreaterThan(balanced, 0)
+    }
+
+    /// The balancing pass and the seams on a tree built by hand on face +x:
+    /// level-2 leaves, three of them split into level-3 leaves, and one of
+    /// those, 3/4/4, into level 4. Its quarter 4/8/8 then touches the
+    /// level-2 leaf 2/1/1 at a corner only: an edge-only pass would leave
+    /// three levels meeting there; this one splits 2/1/1, and nothing else.
+    /// The seams then name what each edge and corner meets.
+    func testBalancingAndSeamsOnATreeBuiltByHand() {
+        let q = moon(maxLevel: 8, relief: 0 ... 0)
+        let view = PlanetQuadtree.View(position: Vec3(3 * moonRadius, 0, 0), pixelAngle: 1e-3)
+        var pass = PlanetQuadtree.Pass(context: .init(view, q.parameters), levelLimit: 8, detail: 1)
+        func key(_ l: Int, _ x: Int, _ y: Int) -> TileKey { TileKey(face: .posX, level: l, x: x, y: y) }
+        let split = PlanetQuadtree.Pass.split
+        func divide(_ k: TileKey) {
+            pass.nodes[k.id] = split
+            for c in k.children { pass.nodes[c.id] = 1e9 }
+        }
+        divide(.root(.posX))
+        for c in TileKey.root(.posX).children { divide(c) }
+        for (x, y) in [(1, 2), (2, 1), (2, 2)] { divide(key(2, x, y)) }
+        divide(key(3, 4, 4))
+        pass.leafCount = pass.nodes.sorted().filter { $0.value >= 0 }.count
+        XCTAssertEqual(pass.leafCount, 13 + 11 + 4)
+        XCTAssertTrue(pass.balance(budget: 1_000))
+        XCTAssertEqual(pass.balanceSplits, 1)
+        XCTAssertEqual(pass.nodes[key(2, 1, 1).id], split)
+        XCTAssertEqual(pass.leafCount, 12 + 15 + 4)
+
+        var tiles: [TileKey: PlanetQuadtree.Tile] = [:]
+        for t in pass.tiles(morphStartRatio: 2.0 / 3) { tiles[t.key] = t }
+        let fine = tiles[key(4, 8, 8)]!
+        XCTAssertEqual(TileKey.Edge.allCases.map { fine.seam($0) }, [.coarser, .level, .coarser, .level])
+        XCTAssertEqual((0 ..< 4).map { fine.seam(corner: $0) }, [.coarser, .coarser, .level, .coarser])
+        // Its grid: pinned to the parent's along the coarse edges and
+        // corners, by distance inside and along the level edges.
+        XCTAssertEqual(fine.morph(column: 0, row: 7, gridSize: 16, distance: 0), 1)
+        XCTAssertEqual(fine.morph(column: 7, row: 0, gridSize: 16, distance: 0), 1)
+        XCTAssertEqual(fine.morph(column: 16, row: 16, gridSize: 16, distance: 0), 0)
+        XCTAssertEqual(fine.morph(column: 16, row: 7, gridSize: 16, distance: 0), 0)
+        XCTAssertEqual(fine.morph(column: 16, row: 7, gridSize: 16, distance: 1e12), 1)
+        XCTAssertEqual(fine.morph(column: 5, row: 5, gridSize: 16, distance: 1e12), 1)
+        // 3/3/4 meets the level-4 tiles across +u: pinned to its own grid there.
+        let coarse = tiles[key(3, 3, 4)]!
+        XCTAssertEqual(TileKey.Edge.allCases.map { coarse.seam($0) }, [.level, .finer, .level, .level])
+        XCTAssertEqual((0 ..< 4).map { coarse.seam(corner: $0) }, [.level, .finer, .finer, .level])
+        XCTAssertEqual(coarse.morph(column: 16, row: 9, gridSize: 16, distance: 1e12), 0)
+        XCTAssertEqual(coarse.morph(column: 16, row: 16, gridSize: 16, distance: 1e12), 0)
+        XCTAssertEqual(coarse.morph(column: 0, row: 9, gridSize: 16, distance: 1e12), 1)
+        // A level-2 leaf beside the split 2/1/2, and that split's quarter beside it.
+        XCTAssertEqual(tiles[key(2, 0, 2)]!.seam(.maxU), .finer)
+        XCTAssertEqual(tiles[key(3, 2, 4)]!.seam(.minU), .coarser)
+        XCTAssertEqual(tiles[key(3, 2, 4)]!.seam(corner: 0), .coarser)
+        // The balancing split's quarter at the corner: level all round but
+        // for 4/8/8, finer, at its corner 2.
+        let quarter = tiles[key(3, 3, 3)]!
+        XCTAssertEqual(TileKey.Edge.allCases.map { quarter.seam($0) }, [.level, .level, .level, .level])
+        XCTAssertEqual((0 ..< 4).map { quarter.seam(corner: $0) }, [.level, .level, .finer, .level])
     }
 
     // MARK: Motion
@@ -519,7 +704,8 @@ final class PlanetQuadtreeTests: XCTestCase {
     /// frames: in the parking orbit at 7.4 km/s over the ground, 1× leaves
     /// the selection alone (tiles down to 493 m are allowed), 10× stops at
     /// level 10 (9.8 km tiles against 4 × 1.2 km), 1000× at level 4 (626 km
-    /// against 4 × 123 km), and the count falls with warp.
+    /// against 4 × 123 km), and the count falls with warp. Zero frames per
+    /// tile switches the bias off.
     func testMotionBiasCoarsensUnderWarp() {
         let q = earth(maxLevel: 12)
         var v = look(q, lat: 28.6, lon: -80.6, altitude: 185_000, heading: 72, pitch: -40)
@@ -546,6 +732,20 @@ final class PlanetQuadtreeTests: XCTestCase {
             previous = s
         }
         XCTAssertLessThan(previous.tiles.count, still.tiles.count)
+
+        // No frames per tile switches the bias off, and a ground speed so
+        // small that its distance per frame underflows to a subnormal sets
+        // no limit: neither may trap on an infinite ratio.
+        var p = q.parameters
+        p.minimumFramesPerTile = 0
+        v.warp = 1_000
+        XCTAssertEqual(PlanetQuadtree(p).motionLevelLimit(v), 12)
+        XCTAssertEqual(PlanetQuadtree(p).select(v), still)
+        p.minimumFramesPerTile = -1
+        XCTAssertEqual(PlanetQuadtree(p).motionLevelLimit(v), 12)
+        v.groundSpeed = 1e-320; v.warp = 1
+        XCTAssertEqual(q.motionLevelLimit(v), 12)
+        XCTAssertEqual(q.select(v), still)
     }
 
     /// Ground speed is the camera's horizontal body-fixed velocity scaled

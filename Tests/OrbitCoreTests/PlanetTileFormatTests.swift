@@ -190,8 +190,9 @@ final class PlanetTileFormatTests: XCTestCase {
     }
 
     /// No-data texels read as nil, a lookup touching one is nil, and the
-    /// index's range leaves them out; values quantise to the nearest raw
-    /// step and clamp to Int16.
+    /// index's range leaves them out; values that are not finite (a
+    /// resampler's NaN over a gap) are no data too; values quantise to the
+    /// nearest raw step and clamp to Int16.
     func testNoDataAndQuantisation() throws {
         let layout = moonLayout()
         let k = TileKey(face: .negX, level: 1, x: 0, y: 1)
@@ -200,6 +201,8 @@ final class PlanetTileFormatTests: XCTestCase {
         values[5 * 12 + 6] = nil     // an interior texel
         values[7] = 1e9              // clamps to Int16.max / 64
         values[8] = 3.0 / 256        // rounds to 1/64
+        values[9] = .nan
+        values[10] = -.infinity
         let url = directory.appendingPathComponent("n.ostiles")
         let w = try PlanetTileWriter(url: url, layout: layout)
         try w.add(k, values: values)
@@ -208,6 +211,8 @@ final class PlanetTileFormatTests: XCTestCase {
         let t = try XCTUnwrap(file.tile(k))
         XCTAssertNil(t.value(column: 0, row: 0))
         XCTAssertNil(t.value(column: 6, row: 5))
+        XCTAssertNil(t.value(column: 9, row: 0))
+        XCTAssertNil(t.value(column: 10, row: 0))
         XCTAssertEqual(t.raw(column: 6, row: 5), Int(Int16.min))
         XCTAssertEqual(t.value(column: 7, row: 0), Double(Int16.max) / 64)
         XCTAssertEqual(t.value(column: 8, row: 0), 1.0 / 64)
@@ -247,7 +252,8 @@ final class PlanetTileFormatTests: XCTestCase {
     }
 
     /// The writer refuses duplicates, tiles past the pyramid, payloads of
-    /// the wrong size and no data in a layer without a no-data value.
+    /// the wrong size, no data (nil or NaN) in a layer without a no-data
+    /// value, and value ranges a Float32 index entry cannot hold.
     func testWriterRefusesBadTiles() throws {
         var layout = moonLayout(maxLevel: 1)
         let w = try PlanetTileWriter(url: directory.appendingPathComponent("w.ostiles"), layout: layout)
@@ -263,13 +269,24 @@ final class PlanetTileFormatTests: XCTestCase {
         layout.noData = nil
         let v = try PlanetTileWriter(url: directory.appendingPathComponent("v.ostiles"), layout: layout)
         XCTAssertThrowsError(try v.add(.root(.posX), values: [nil] + ten.dropLast()))
+        XCTAssertThrowsError(try v.add(.root(.posX), values: [.nan] + ten.dropLast())) {
+            XCTAssertEqual($0 as? PlanetTileError, .badTile(.root(.posX), "no data in a layer without a no-data value"))
+        }
+        // Image tiles' ranges must fit a Float32.
+        let jpeg = PlanetTileLayout(format: .jpeg, tileSize: 256, border: 4, channels: 3, maxLevel: 1, bodyID: 399,
+                                    figure: .wgs84)
+        let i = try PlanetTileWriter(url: directory.appendingPathComponent("i.ostiles"), layout: jpeg)
+        XCTAssertThrowsError(try i.add(.root(.posX), payload: Data([1]), range: 0 ... .infinity))
+        XCTAssertThrowsError(try i.add(.root(.posX), payload: Data([1]), range: -1e39 ... 0))
+        XCTAssertNoThrow(try i.add(.root(.posX), payload: Data([1]), range: -3e38 ... 3e38))
         layout.scale = 0
         XCTAssertThrowsError(try PlanetTileWriter(url: directory.appendingPathComponent("z.ostiles"), layout: layout))
     }
 
     /// Damaged files: a flipped payload byte fails `verify`, and a wrong
-    /// magic, a truncated index, an unsorted index and a bad sample format
-    /// fail to open.
+    /// magic, a truncated index, an unsorted index, a bad sample format and
+    /// an index entry whose value range is reversed or not finite fail to
+    /// open.
     func testDamagedFiles() throws {
         let url = try write("d.ostiles", moonLayout(), pyramid(.negX, through: 1), terrain)
         let good = try Data(contentsOf: url)
@@ -300,6 +317,20 @@ final class PlanetTileFormatTests: XCTestCase {
         unsorted.replaceSubrange(index ..< index + 8, with: second)
         unsorted.replaceSubrange(index + 32 ..< index + 40, with: first)
         XCTAssertThrowsError(try PlanetTileFile(data: unsorted))
+        // A second entry's value range reversed, or not finite: refused on
+        // opening, not trapping in `valueRange` later.
+        let e = index + 32
+        for (minimum, maximum) in [(Float(5), Float(1)), (.nan, 1), (0, .nan), (-.infinity, 0), (0, .infinity)] {
+            var range = good
+            var bytes = Data()
+            bytes.appendLittleEndian(minimum.bitPattern)
+            bytes.appendLittleEndian(maximum.bitPattern)
+            range.replaceSubrange(e + 20 ..< e + 28, with: bytes)
+            XCTAssertThrowsError(try PlanetTileFile(data: range), "\(minimum) to \(maximum)") {
+                guard case .badTile(let key, _)? = $0 as? PlanetTileError else { return XCTFail("\($0)") }
+                XCTAssertEqual(key, file.entries[1].key)
+            }
+        }
         // A slice of a larger buffer parses like the file itself.
         let slice = (Data([1, 2, 3]) + good).dropFirst(3)
         XCTAssertEqual(try PlanetTileFile(data: slice).entries, file.entries)

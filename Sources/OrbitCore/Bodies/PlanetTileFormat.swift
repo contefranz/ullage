@@ -32,7 +32,8 @@ import Foundation
 //     8  8  UInt64  payload offset
 //    16  4  UInt32  payload length
 //    20  4  Float32 the least value of the tile's samples, borders included
-//    24  4  Float32 the greatest (both 0 for images)
+//    24  4  Float32 the greatest (both 0 for images); both finite, least
+//                   first, or the file does not open
 //    28  4  UInt32  the payload's CRC-32 (IEEE 802.3)
 // Payloads start on 16-byte boundaries. A tile is (n + 2b)² texels: texel
 // (i, j), column i and row j counted from the outer edge of the border, is
@@ -217,9 +218,13 @@ public struct PlanetTileFile {
             if let expected = layout.rawPayloadLength, length != expected {
                 throw PlanetTileError.badTile(key, "payload of \(length) bytes, not \(expected)")
             }
+            // `valueRange` makes a range of them, every frame for the quadtree.
+            let minimum = Double(r.f32(e + 20)), maximum = Double(r.f32(e + 24))
+            guard minimum.isFinite, maximum.isFinite, minimum <= maximum else {
+                throw PlanetTileError.badTile(key, "value range \(minimum) to \(maximum)")
+            }
             entries.append(PlanetTileEntry(key: key, offset: Int(offset), length: length,
-                                           minimum: Double(r.f32(e + 20)), maximum: Double(r.f32(e + 24)),
-                                           checksum: r.u32(e + 28)))
+                                           minimum: minimum, maximum: maximum, checksum: r.u32(e + 28)))
             ids.append(id)
         }
         self.layout = layout; self.metadata = metadata; self.entries = entries; self.ids = ids; self.data = data
@@ -402,7 +407,8 @@ public final class PlanetTileWriter {
 
     /// Adds a tile's encoded payload. For raw formats it must be the tile's
     /// samples as stored, and its value range is computed; images take the
-    /// range given (none: 0...0).
+    /// range given (none: 0...0). The range must be finite as a Float32,
+    /// which the reader checks.
     public func add(_ key: TileKey, payload: Data, range: ClosedRange<Double>? = nil) throws {
         guard !finished, key.level <= layout.maxLevel, entries[key.id] == nil else {
             throw PlanetTileError.badTile(key, finished ? "file finished" : "duplicate or deeper than maxLevel")
@@ -420,6 +426,9 @@ public final class PlanetTileWriter {
             } else {
                 lo = 0; hi = 0
             }
+        }
+        guard PlanetTileWriter.float(lo, .down).isFinite && PlanetTileWriter.float(hi, .up).isFinite else {
+            throw PlanetTileError.badTile(key, "value range \(lo) to \(hi) past Float32")
         }
         let padding = Int((16 - position % 16) % 16)
         try handle.write(contentsOf: Data(count: padding))
@@ -445,16 +454,17 @@ public final class PlanetTileWriter {
     }
 
     /// Adds a raw tile from values in the layer's units, quantised to the
-    /// nearest raw sample (clamped to the format); nil is no data.
+    /// nearest raw sample (clamped to the format). nil is no data, and so is
+    /// a value that is not finite, such as a resampler's NaN over a gap.
     public func add(_ key: TileKey, values: [Double?]) throws {
         guard let range = layout.format.rawRange else { throw PlanetTileError.badTile(key, "values for an image layer") }
+        if layout.noData == nil && values.contains(where: { !($0?.isFinite ?? false) }) {
+            throw PlanetTileError.badTile(key, "no data in a layer without a no-data value")
+        }
         let raw = values.map { value -> Int in
-            guard let value else { return layout.noData ?? range.lowerBound }
+            guard let value, value.isFinite else { return layout.noData ?? range.lowerBound }
             let r = ((value - layout.offset) / layout.scale).rounded()
             return Int(min(max(r, Double(range.lowerBound)), Double(range.upperBound)))
-        }
-        if values.contains(where: { $0 == nil }) && layout.noData == nil {
-            throw PlanetTileError.badTile(key, "no data in a layer without a no-data value")
         }
         try add(key, rawSamples: raw)
     }

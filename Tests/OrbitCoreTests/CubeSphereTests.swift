@@ -275,6 +275,59 @@ final class CubeSphereTests: XCTestCase {
         }
     }
 
+    /// The tiles round each corner of every tile, levels 0 to 4: four, or
+    /// three at the cube's corners, distinct, this tile among them at the
+    /// corner asked, each one's named corner the same direction, the same
+    /// set seen from each of them, and the two edge neighbours there among
+    /// them; the diagonal neighbour is the fourth. At levels 0 to 2, against
+    /// every tile with a corner there; and inside a face, the 2 × 2 block
+    /// round the grid point.
+    func testTilesAroundCorners() {
+        let edgesAt: [[TileKey.Edge]] = [[.minU, .minV], [.maxU, .minV], [.maxU, .maxV], [.minU, .maxV]]
+        for level in 0 ... 4 {
+            let n = 1 << level
+            let all = CubeSphere.Face.allCases.flatMap { f in
+                (0 ..< n).flatMap { y in (0 ..< n).map { TileKey(face: f, level: level, x: $0, y: y) } }
+            }
+            for k in all {
+                for corner in 0 ..< 4 {
+                    let around = k.tilesAround(corner: corner)
+                    let p = k.corners[corner]
+                    let dxy: Double = abs(abs(p.x) - abs(p.y)), dyz: Double = abs(abs(p.y) - abs(p.z))
+                    let cubeCorner = dxy < 1e-12 && dyz < 1e-12
+                    XCTAssertEqual(around.count, cubeCorner ? 3 : 4, "\(k) \(corner)")
+                    let keys = Set(around.map(\.key))
+                    XCTAssertEqual(keys.count, around.count, "\(k) \(corner)")
+                    XCTAssertTrue(around.contains { $0.key == k && $0.corner == corner }, "\(k) \(corner)")
+                    for (t, c) in around {
+                        XCTAssertEqual(t.level, level)
+                        XCTAssertLessThan((t.corners[c] - p).length, 1e-15, "\(k) \(corner): \(t) \(c)")
+                        XCTAssertEqual(Set(t.tilesAround(corner: c).map(\.key)), keys, "\(k) \(corner): \(t) \(c)")
+                    }
+                    for e in edgesAt[corner] { XCTAssertTrue(keys.contains(k.neighbor(e)), "\(k) \(corner) \(e)") }
+                    // The diagonal one is the fourth, absent at a cube corner.
+                    let edgeNeighbours = Set(edgesAt[corner].map { k.neighbor($0) } + [k])
+                    if let d = k.diagonalNeighbor(corner: corner) {
+                        XCTAssertFalse(cubeCorner)
+                        XCTAssertFalse(edgeNeighbours.contains(d.key), "\(k) \(corner)")
+                        XCTAssertTrue(around.contains { $0.key == d.key && $0.corner == d.corner }, "\(k) \(corner)")
+                    } else {
+                        XCTAssertTrue(cubeCorner, "\(k) \(corner)")
+                    }
+                    if level <= 2 {
+                        let touching = all.filter { t in t.corners.contains { ($0 - p).length < 1e-12 } }
+                        XCTAssertEqual(Set(touching), keys, "\(k) \(corner)")
+                    }
+                }
+            }
+        }
+        let k = TileKey(face: .negY, level: 5, x: 9, y: 20)
+        XCTAssertEqual(Set(k.tilesAround(corner: 2).map(\.key)),
+                       Set([(9, 20), (10, 20), (9, 21), (10, 21)].map { TileKey(face: .negY, level: 5, x: $0.0, y: $0.1) }))
+        XCTAssertEqual(k.diagonalNeighbor(corner: 2)?.key, TileKey(face: .negY, level: 5, x: 10, y: 21))
+        XCTAssertEqual(k.diagonalNeighbor(corner: 2)?.corner, 0)
+    }
+
     /// Directions on face edges and corners go to one tile, deterministically,
     /// whose square holds them; just inside each face they go to that face.
     func testContainingAtEdgesAndCorners() {

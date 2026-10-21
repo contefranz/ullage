@@ -24,13 +24,25 @@ import OrbitCore
 ///   ρ the occluder's radius (`horizonAngle`).
 /// - The view frustum's four side planes, against a cap around the tile.
 ///
-/// Neighbouring selected tiles differ by at most one level: a pass splits
-/// any tile with a neighbour two or more levels finer. A tile at level ℓ
-/// geomorphs to its parent's grid between `morphStart` and `morphEnd`
-/// (where its parent becomes fine enough), so it is fully morphed wherever
-/// it meets a coarser neighbour, whose whole volume lies beyond that
-/// distance, and the two meshes share their edge: no cracks
-/// (`morphTargets` gives the vertex rule).
+/// Selected tiles that touch, across an edge or only at a corner, differ by
+/// at most one level: a pass splits any tile that touches one two or more
+/// levels finer. A tile at level ℓ geomorphs to its parent's grid between
+/// `morphStart` and `morphEnd` (where its parent becomes fine enough). Where
+/// two levels meet, the finer tile's vertices take its parent's grid (morph
+/// 1) and the coarser tile's keep their own (morph 0), so the two meshes
+/// share their edge: no cracks (`Tile.seams` says where, `Tile.morph(column:
+/// row:gridSize:distance:)` and `morphTargets` give the vertex rule).
+///
+/// The distances alone do not ensure that. Selection bounds only the
+/// nearest point of a tile's volume, so a coarse tile's vertices on an
+/// edge it shares with a finer tile can lie a tile diagonal plus its height
+/// range beyond its detail distance: past its morph start once that margin
+/// passes `morphStartRatio` of the detail distance. The budget bias shrinks
+/// detail distances but not tiles, so it gets there (2.5 to 3.5 octaves in
+/// the tests' views), as does a grid too coarse for its tiles; and a
+/// balancing split's children are fully morphed by distance. The seams pin
+/// those vertices. Where the distance bands do hold, the pins agree with
+/// them and change nothing.
 ///
 /// Two biases coarsen the selection, both uniformly so that the ranges stay
 /// consistent:
@@ -128,6 +140,20 @@ public struct PlanetQuadtree {
         }
     }
 
+    /// What a tile's edge or corner meets, which pins the morph of its
+    /// vertices there (`Tile.morph(column:row:gridSize:distance:)`).
+    public enum Seam: UInt16 {
+        /// Tiles of its own level, or none (culled): the vertices morph by
+        /// their distance, as the neighbours' do.
+        case level = 0
+        /// A finer tile: the vertices keep the tile's own grid (morph 0),
+        /// which the finer tile's edge morphs to.
+        case finer = 1
+        /// A coarser tile: the vertices take the parent's grid (morph 1),
+        /// which is the coarser tile's own.
+        case coarser = 2
+    }
+
     /// A selected tile.
     public struct Tile: Equatable {
         public let key: TileKey
@@ -139,12 +165,52 @@ public struct PlanetQuadtree {
         /// `morphEnd`. Both infinite at level 0, which has no parent.
         public let morphStart: Double
         public let morphEnd: Double
+        /// The seams, two bits each (`Seam.rawValue`): the four edges in
+        /// bits 0-7, by `TileKey.Edge.rawValue`, then the four corners in
+        /// bits 8-15, in the order of `TileKey.corners`. A corner is
+        /// `.coarser` if any tile touching it is, else `.finer` if any is.
+        /// MR2 uploads it per instance as it is.
+        public let seams: UInt16
+
+        init(key: TileKey, distance: Double, morphStart: Double, morphEnd: Double, seams: UInt16 = 0) {
+            self.key = key; self.distance = distance; self.morphStart = morphStart; self.morphEnd = morphEnd
+            self.seams = seams
+        }
+
+        public func seam(_ edge: TileKey.Edge) -> Seam { Seam(rawValue: seams >> (2 * edge.rawValue) & 3)! }
+
+        public func seam(corner: Int) -> Seam { Seam(rawValue: seams >> (8 + 2 * corner) & 3)! }
 
         /// The morph factor of a vertex `distance` (m) from the camera: 0
         /// keeps the tile's own grid, 1 is its parent's.
         public func morph(atDistance distance: Double) -> Double {
             guard morphEnd.isFinite else { return 0 }
             return min(1, max(0, (distance - morphStart) / (morphEnd - morphStart)))
+        }
+
+        /// The morph factor of vertex (column `i` along u, row `j` along v)
+        /// of the tile's `n`-quad grid, `distance` (m) from the camera
+        /// (placed with the tile's own heights): pinned by the seam its
+        /// corner or edge lies on, else `morph(atDistance:)`.
+        public func morph(column i: Int, row j: Int, gridSize n: Int, distance: Double) -> Double {
+            let onU = i == 0 || i == n, onV = j == 0 || j == n
+            let seam: Seam
+            if onU && onV {
+                // Corners 0 to 3: (0, 0), (n, 0), (n, n), (0, n).
+                let corner: Int = j == 0 ? (i == 0 ? 0 : 1) : (i == 0 ? 3 : 2)
+                seam = self.seam(corner: corner)
+            } else if onU {
+                seam = self.seam(i == 0 ? .minU : .maxU)
+            } else if onV {
+                seam = self.seam(j == 0 ? .minV : .maxV)
+            } else {
+                seam = .level
+            }
+            switch seam {
+            case .level: return morph(atDistance: distance)
+            case .finer: return 0
+            case .coarser: return 1
+            }
         }
     }
 
@@ -158,7 +224,7 @@ public struct PlanetQuadtree {
         public let levelLimit: Int
         /// Nodes tested, the selection's cost.
         public let nodesVisited: Int
-        /// Tiles split to keep neighbours within a level of each other.
+        /// Tiles split to keep tiles that touch within a level of each other.
         let balanceSplits: Int
     }
 
@@ -177,13 +243,17 @@ public struct PlanetQuadtree {
     }
 
     /// The deepest level whose tiles take at least `minimumFramesPerTile`
-    /// frames for the ground to cross: a tile spans a · (π/2)/2^level.
+    /// frames for the ground to cross: a tile spans a · (π/2)/2^level. No
+    /// limit when the ground stands still or `minimumFramesPerTile` is 0 or
+    /// less (the bias off).
     public func motionLevelLimit(_ view: View) -> Int {
         let p = parameters
         let perFrame = view.groundSpeed * view.warp * view.frameInterval
-        guard perFrame > 0 else { return p.maxLevel }
+        guard perFrame > 0, p.minimumFramesPerTile > 0 else { return p.maxLevel }
         let face = p.figure.equatorialRadius * Double.pi / 2
         let ratio = face / (p.minimumFramesPerTile * perFrame)
+        // A product that underflows to a subnormal leaves the ratio infinite.
+        guard ratio.isFinite else { return p.maxLevel }
         guard ratio >= 1 else { return 0 }
         return min(p.maxLevel, Int(log2(ratio).rounded(.down)))
     }
@@ -447,7 +517,7 @@ extension PlanetQuadtree {
         let detail0: Double
         /// The tree as selected, by key id: a leaf's distance (m), or
         /// `Pass.split`. Culled tiles are absent.
-        var nodes: [UInt64: Double] = [:]
+        var nodes = NodeTable()
         static let split = -1.0
         var visited = 0
         var leafCount = 0
@@ -461,7 +531,9 @@ extension PlanetQuadtree {
 
         /// Selects and balances; false if it stopped on passing `budget` leaves.
         mutating func run(budget: Int) -> Bool {
-            nodes.reserveCapacity(4 * min(budget, 4_096))
+            // Splits and leaves come to about 4/3 of the leaves; the table
+            // grows past that if it must.
+            nodes = NodeTable(capacity: 2 * min(budget, 1_024))
             var stack: [(key: TileKey, quad: Quad)] = TileKey.roots.reversed().map { ($0, Quad($0)) }
             while let (key, quad) = stack.popLast() {
                 visited += 1
@@ -478,38 +550,58 @@ extension PlanetQuadtree {
             return balance(budget: budget)
         }
 
-        /// Splits every leaf with a neighbour two or more levels finer, until
-        /// none has (a restricted quadtree). A leaf split here is beyond its
-        /// own detail distance, so its children are fully morphed: they draw
-        /// as it did.
+        /// Splits every leaf that touches one two or more levels finer,
+        /// across an edge or only at a corner, until none does (a restricted
+        /// quadtree, also diagonally: where tiles of three levels met at a
+        /// corner, no heights could agree there). A leaf split here is
+        /// beyond its own detail distance, so its children are fully morphed
+        /// by distance; the seams pin their edges toward the finer tile to
+        /// their own grid (`tiles`).
         mutating func balance(budget: Int) -> Bool {
-            var queue = nodes.compactMap { $0.value >= 0 ? $0.key : nil }.sorted().compactMap(TileKey.init(id:))
+            var queue = nodes.sorted().compactMap { $0.value >= 0 ? TileKey(id: $0.id) : nil }
             var head = 0
             while head < queue.count {
                 let key = queue[head]
                 head += 1
                 guard key.level >= 2, let state = nodes[key.id], state >= 0 else { continue }
-                for edge in TileKey.Edge.allCases {
-                    guard let coarse = coarseLeaf(covering: key.neighbor(edge)), coarse.level <= key.level - 2 else {
+                // The same-level tiles that touch it: across its edges, and
+                // diagonally at its corners.
+                var split = false
+                for k in 0 ..< 8 {
+                    let neighbour: TileKey
+                    if k < 4 {
+                        neighbour = key.neighbor(TileKey.Edge(rawValue: k)!)
+                    } else if let d = key.diagonalNeighbor(corner: k - 4) {
+                        neighbour = d.key
+                    } else {
                         continue
                     }
-                    nodes[coarse.id] = Pass.split
-                    leafCount -= 1
-                    balanceSplits += 1
-                    var children: [(key: TileKey, quad: Quad)] = []
-                    Quad(coarse).pushQuarters(of: coarse, onto: &children)
-                    for (child, quad) in children {
-                        visited += 1
-                        guard let distance = context.test(child, quad) else { continue }
-                        nodes[child.id] = distance
-                        leafCount += 1
-                        queue.append(child)
-                    }
+                    guard let coarse = coarseLeaf(covering: neighbour), coarse.level <= key.level - 2 else { continue }
+                    splitForBalance(coarse, queue: &queue)
+                    split = true
                     if leafCount > budget { return false }
-                    queue.append(key)
                 }
+                // A split three or more levels up leaves its children still
+                // too coarse: look again.
+                if split { queue.append(key) }
             }
             return true
+        }
+
+        /// Splits leaf `coarse` for `balance`, queueing its children.
+        mutating func splitForBalance(_ coarse: TileKey, queue: inout [TileKey]) {
+            nodes[coarse.id] = Pass.split
+            leafCount -= 1
+            balanceSplits += 1
+            var children: [(key: TileKey, quad: Quad)] = []
+            Quad(coarse).pushQuarters(of: coarse, onto: &children)
+            for (child, quad) in children {
+                visited += 1
+                guard let distance = context.test(child, quad) else { continue }
+                nodes[child.id] = distance
+                leafCount += 1
+                queue.append(child)
+            }
         }
 
         /// The leaf two or more levels coarser than `key` whose area holds
@@ -528,13 +620,147 @@ extension PlanetQuadtree {
         func tiles(morphStartRatio: Double) -> [Tile] {
             var out: [Tile] = []
             out.reserveCapacity(leafCount)
-            for (id, distance) in nodes.sorted(by: { $0.key < $1.key }) where distance >= 0 {
+            for (id, distance) in nodes.sorted() where distance >= 0 {
                 let key = TileKey(id: id)!, level = key.level
                 // A tile's band runs from its own detail distance to its parent's.
                 let end = level == 0 ? Double.infinity : detail(level - 1)
                 let start = level == 0 ? Double.infinity : detail(level) * (1 + morphStartRatio)
-                out.append(Tile(key: key, distance: distance, morphStart: start, morphEnd: end))
+                out.append(Tile(key: key, distance: distance, morphStart: start, morphEnd: end, seams: seams(of: key)))
             }
+            return out
+        }
+
+        /// A selected tile's seams (`Tile.seams`): what it meets across each
+        /// edge and round each corner.
+        func seams(of key: TileKey) -> UInt16 {
+            var bits: UInt16 = 0, splitEdges = 0
+            for e in 0 ..< 4 {
+                let (neighbour, back) = key.neighborAndEdge(TileKey.Edge(rawValue: e)!)
+                // The neighbour's two quarters along its edge toward this tile.
+                let x = 2 * neighbour.x, y = 2 * neighbour.y
+                let (a, b): ((Int, Int), (Int, Int))
+                switch back {
+                case .minU: (a, b) = ((x, y), (x, y + 1))
+                case .maxU: (a, b) = ((x + 1, y), (x + 1, y + 1))
+                case .minV: (a, b) = ((x, y), (x + 1, y))
+                case .maxV: (a, b) = ((x, y + 1), (x + 1, y + 1))
+                }
+                let state = nodes[neighbour.id]
+                if state == Pass.split { splitEdges |= 1 << e }
+                bits |= seam(neighbour, state, quarters: a, b).rawValue << (2 * e)
+            }
+            // A corner's seam is the greatest (coarser over finer over level)
+            // of the tiles round it.
+            for corner in 0 ..< 4 {
+                // The corner's edges: minU or maxU, then minV or maxV.
+                let e1 = corner == 1 || corner == 2 ? 1 : 0, e2 = corner >= 2 ? 3 : 2
+                var s = Seam.level.rawValue
+                if splitEdges & (1 << e1 | 1 << e2) == 0 {
+                    // Unsplit, the edge neighbours hold there what they hold
+                    // along the edges; then only the diagonal one is left.
+                    let s1: UInt16 = bits >> (2 * e1) & 3, s2: UInt16 = bits >> (2 * e2) & 3
+                    s = max(s1, s2)
+                    if s != Seam.coarser.rawValue, let (d, c) = key.diagonalNeighbor(corner: corner) {
+                        let q = Pass.quarter(of: d, atCorner: c)
+                        s = max(s, seam(d, nodes[d.id], quarters: q, q).rawValue)
+                    }
+                } else {
+                    key.forEachTile(aroundCorner: corner) { t, c in
+                        guard t != key else { return }
+                        let q = Pass.quarter(of: t, atCorner: c)
+                        s = max(s, seam(t, nodes[t.id], quarters: q, q).rawValue)
+                    }
+                }
+                bits |= s << (8 + 2 * corner)
+            }
+            return bits
+        }
+
+        /// The (column, row) of `t`'s quarter at its corner `corner`.
+        static func quarter(of t: TileKey, atCorner corner: Int) -> (Int, Int) {
+            let i = corner == 1 || corner == 2 ? 1 : 0, j = corner >= 2 ? 1 : 0
+            return (2 * t.x + i, 2 * t.y + j)
+        }
+
+        /// What the area of `t`, a tile at the level of the one asking,
+        /// holds where it touches, `state` being its node: a leaf of that
+        /// level (`.level`), part of a coarser leaf (`.coarser`), or, split,
+        /// finer tiles in one of its quarters `a` and `b` (column, row) that
+        /// touch (`.finer`). Nothing selected there (culled) is `.level`.
+        func seam(_ t: TileKey, _ state: Double?, quarters a: (Int, Int), _ b: (Int, Int)) -> Seam {
+            if let state {
+                if state >= 0 { return .level }
+                let l = t.level + 1
+                let qa = TileKey(face: t.face, level: l, x: a.0, y: a.1)
+                let qb = TileKey(face: t.face, level: l, x: b.0, y: b.1)
+                return nodes[qa.id] != nil || nodes[qb.id] != nil ? .finer : .level
+            }
+            var level = t.level - 1
+            while level >= 0 {
+                if let state = nodes[t.ancestor(atLevel: level).id] { return state >= 0 ? .coarser : .level }
+                level -= 1
+            }
+            return .level
+        }
+    }
+
+    /// A pass's nodes by tile id: open addressing with linear probing on a
+    /// multiplicative hash. Balancing and seams look up several neighbours
+    /// per tile, and this is a few times faster at it than a Dictionary's
+    /// seeded hashing. Nodes are only ever added or changed.
+    struct NodeTable {
+        /// No tile id has bit 63 set.
+        static let empty = UInt64.max
+        private var keys: [UInt64]
+        private var values: [Double]
+        private var shift: UInt64
+        private(set) var count = 0
+
+        /// Room for `capacity` nodes at most half full; it grows past that.
+        init(capacity: Int = 0) {
+            var size = 16, bits: UInt64 = 4
+            while size < 2 * capacity { size *= 2; bits += 1 }
+            keys = Array(repeating: NodeTable.empty, count: size)
+            values = Array(repeating: 0, count: size)
+            shift = 64 - bits
+        }
+
+        /// The slot that holds `id`, or the empty one where it would go.
+        private func slot(_ id: UInt64) -> Int {
+            let mask = keys.count - 1
+            var i = Int(truncatingIfNeeded: (id &* 0x9E37_79B9_7F4A_7C15) >> shift)
+            while keys[i] != id && keys[i] != NodeTable.empty { i = (i + 1) & mask }
+            return i
+        }
+
+        subscript(id: UInt64) -> Double? {
+            get {
+                let i = slot(id)
+                return keys[i] == id ? values[i] : nil
+            }
+            set {
+                guard let value = newValue else { preconditionFailure("nodes are never removed") }
+                var i = slot(id)
+                if keys[i] != id {
+                    if 2 * (count + 1) > keys.count {
+                        var bigger = NodeTable(capacity: keys.count)
+                        for (k, v) in zip(keys, values) where k != NodeTable.empty { bigger[k] = v }
+                        self = bigger
+                        i = slot(id)
+                    }
+                    keys[i] = id
+                    count += 1
+                }
+                values[i] = value
+            }
+        }
+
+        /// The nodes, by ascending id.
+        func sorted() -> [(id: UInt64, value: Double)] {
+            var out: [(id: UInt64, value: Double)] = []
+            out.reserveCapacity(count)
+            for (k, v) in zip(keys, values) where k != NodeTable.empty { out.append((k, v)) }
+            out.sort { $0.id < $1.id }
             return out
         }
     }

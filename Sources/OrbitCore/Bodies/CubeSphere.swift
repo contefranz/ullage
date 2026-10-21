@@ -359,6 +359,78 @@ public struct TileKey: Hashable, Comparable, Codable, CustomStringConvertible {
         case .maxV: return axes.v
         }
     }
+
+    /// The tiles at this level that touch this tile's corner `corner` (0 to
+    /// 3, in the order of `corners`), this one included, each with the index
+    /// of its own corner there: four, or three at the cube's corners.
+    public func tilesAround(corner: Int) -> [(key: TileKey, corner: Int)] {
+        var out: [(key: TileKey, corner: Int)] = []
+        forEachTile(aroundCorner: corner) { out.append(($0, $1)) }
+        return out
+    }
+
+    /// The tile at this level that touches this one only at its corner
+    /// `corner`, with the index of its own corner there; nil at the cube's
+    /// corners, where the three tiles round it all share edges.
+    public func diagonalNeighbor(corner: Int) -> (key: TileKey, corner: Int)? {
+        precondition(corner >= 0 && corner < 4, "tile corner \(corner)")
+        let n = tilesAcross
+        let i = corner == 1 || corner == 2 ? 1 : 0, j = corner >= 2 ? 1 : 0
+        let cx = x + i, cy = y + j
+        if cx > 0 && cx < n && cy > 0 && cy < n {
+            // Inside the face: across the grid point, at the opposite corner.
+            return (TileKey(face: face, level: level, x: 2 * cx - 1 - x, y: 2 * cy - 1 - y), (corner + 2) % 4)
+        }
+        // Off a face edge: the one round the corner that is neither this
+        // tile nor a neighbour across one of the corner's two edges.
+        let a = neighbor(i == 0 ? .minU : .maxU), b = neighbor(j == 0 ? .minV : .maxV)
+        var diagonal: (key: TileKey, corner: Int)?
+        forEachTile(aroundCorner: corner) { t, c in
+            if t != self && t != a && t != b { diagonal = (t, c) }
+        }
+        return diagonal
+    }
+
+    /// `tilesAround(corner:)` without building an array: calls `body` with
+    /// each tile and the index of its corner at this one's. Exact, in
+    /// integers, across face edges and at the cube's corners too.
+    public func forEachTile(aroundCorner corner: Int, _ body: (TileKey, Int) -> Void) {
+        precondition(corner >= 0 && corner < 4, "tile corner \(corner)")
+        let n = tilesAcross
+        let i = corner == 1 || corner == 2 ? 1 : 0, j = corner >= 2 ? 1 : 0
+        let cx = x + i, cy = y + j
+        if cx > 0 && cx < n && cy > 0 && cy < n {
+            // Inside the face: the four tiles round the grid point.
+            body(TileKey(face: face, level: level, x: cx - 1, y: cy - 1), 2)
+            body(TileKey(face: face, level: level, x: cx, y: cy - 1), 3)
+            body(TileKey(face: face, level: level, x: cx, y: cy), 0)
+            body(TileKey(face: face, level: level, x: cx - 1, y: cy), 1)
+            return
+        }
+        // On a face edge: the corner point in units of half a tile from the
+        // cube's centre, whose half-side is then n. Every face whose plane
+        // holds it has the tiles whose centres lie one unit off it along
+        // both of its axes and inside it.
+        let axes = face.axes
+        let a = 2 * cx - n, b = 2 * cy - n
+        let px: Int = n * axes.normal.x + a * axes.u.x + b * axes.v.x
+        let py: Int = n * axes.normal.y + a * axes.u.y + b * axes.v.y
+        let pz: Int = n * axes.normal.z + a * axes.u.z + b * axes.v.z
+        for f in CubeSphere.Face.allCases {
+            let fa = f.axes
+            let height: Int = px * fa.normal.x + py * fa.normal.y + pz * fa.normal.z
+            guard height == n else { continue }
+            let pa: Int = px * fa.u.x + py * fa.u.y + pz * fa.u.z
+            let pb: Int = px * fa.v.x + py * fa.v.y + pz * fa.v.z
+            // Corner c of a tile lies at (-su, -sv) from its centre.
+            for c in 0 ..< 4 {
+                let su = c == 0 || c == 3 ? 1 : -1, sv = c <= 1 ? 1 : -1
+                let ca = pa + su, cb = pb + sv
+                guard abs(ca) < n && abs(cb) < n else { continue }
+                body(TileKey(face: f, level: level, x: (ca + n - 1) / 2, y: (cb + n - 1) / 2), c)
+            }
+        }
+    }
 }
 
 // MARK: - Figure directions
