@@ -93,7 +93,8 @@ final class VisualShapeTests: XCTestCase {
 
     // A separation keeps the construction frame: the CM leaving the SM with
     // its apex cover and parachutes draws where it was drawn on the stack,
-    // dressed again or not. Without the cover the CM has its apex.
+    // dressed again or not. Without the cover the CM's afterbody runs on up
+    // to the docking interface, 112.25 in above the face (datasheet §9.1).
     func testShapesSurviveSeparation() {
         let split = splitStack()
         let leaving = split.parts.filter { ["CM", "Apex cover", "Drogue parachutes", "Main parachutes"].contains($0.name) }
@@ -110,14 +111,17 @@ final class VisualShapeTests: XCTestCase {
         }
         let cover = cm.separate(parts: cm.parts.filter { $0.name == "Apex cover" }, name: "Apex cover")!
         VesselLibrary.dressApollo(cm)
-        let apex = cm.parts.first { $0.name == "CM" }!.shapes.compactMap(profile).last!.last!
-        XCTAssertEqual(apex.x / inch, 127, accuracy: 1e-9)
-        XCTAssertEqual(cover.parts[0].shapes.count, 1)
+        let shapes = cm.parts.first { $0.name == "CM" }!.shapes
+        let afterbody = shapes.first { $0.origin == shapes[0].origin && $0.emissive == .none }!
+        XCTAssertEqual(profile(afterbody)!.map(\.x).max()! / inch, 1_110.25 - 998, accuracy: 1e-9)
+        // The forward heat shield and its -pitch RCS ports.
+        XCTAssertEqual(cover.parts[0].shapes.count, 1 + 2)
     }
 
     // Every nozzle link names a thruster of its part; every main engine of
-    // the Saturn V has one bell (the SPS among them) and each SM RCS jet its
-    // nozzle, as the stand-in SM's SPS and RCS jets.
+    // the Saturn V has one bell, a linked revolution (the SPS among them,
+    // whose stiffener and columbium band turn with it too), and each SM RCS
+    // jet its nozzle, as the stand-in SM's SPS and RCS jets.
     func testThrusterLinksResolve() {
         for v in vehicles() {
             for p in v.parts {
@@ -131,19 +135,23 @@ final class VisualShapeTests: XCTestCase {
         var linked = 0
         for p in stack.parts {
             for t in p.thrusters {
-                let bells = p.shapes.filter { $0.thruster == t.name }
-                XCTAssertEqual(bells.count, t.groups.contains(.main) || t.name.hasPrefix("SM RCS") ? 1 : 0, t.name)
+                let linkedShapes = p.shapes.filter { $0.thruster == t.name }
+                // The bell: an open, two-sided revolution from its exit.
+                let bells = linkedShapes.filter { profile($0) != nil && !$0.capBase && $0.twoSided }
+                let expected = t.groups.contains(.main) || t.name.hasPrefix("SM RCS") ? 1 : 0
+                XCTAssertEqual(bells.count, expected, t.name)
+                XCTAssertEqual(linkedShapes.count, t.name == "SPS" ? 3 : expected, t.name)
                 linked += bells.count
             }
         }
         XCTAssertEqual(linked, 11 + 1 + 16)   // 5 F-1, 5 + 1 J-2, the SPS, the SM RCS
+        // The SM's sixteen R-4D nozzles stand where DB3 Fig. 2-5 puts them
+        // whether or not the part has the thrusters (CSMExteriorTests); the
+        // stand-in SM's two jets take two of them.
         let real = stack.parts.first { $0.name == "SM" }!
-        XCTAssertEqual(real.shapes.count, 1 + 1 + 4 + 16)
-
         let sm = splitStack().parts.first { $0.name == "SM" }!
         XCTAssertEqual(Set(sm.shapes.compactMap(\.thruster)), ["SPS", "SM RCS A1", "SM RCS C1"])
-        // With RCS thrusters the layout's 16 static jets give way to them.
-        XCTAssertEqual(sm.shapes.count, 1 + 1 + 4 + 2)
+        XCTAssertEqual(sm.shapes.count, real.shapes.count)
     }
 
     // Each bell's exit radius is √(A_e/π) of its engine's exit area, its
@@ -175,22 +183,24 @@ final class VisualShapeTests: XCTestCase {
             }
         }
         // SPS: 98.4 in inside diameter at the nozzle extension's exit (AOH
-        // 2.4-43), Xa 715 to the gimbal at Xa 833 (datasheet §4).
+        // 2.4-43), Xa 721.3 to the gimbal at Xa 833.2 (DB3 Fig. 2-10). The
+        // bell is the last of the SPS's linked shapes, whose exit the scene
+        // takes for the plume's.
         let sm = stack.parts.first { $0.name == "SM" }!
-        let sps = sm.shapes.first { $0.thruster == "SPS" }!
+        let sps = sm.shapes.last { $0.thruster == "SPS" }!
         XCTAssertEqual(profile(sps)!.first!.r / inch, 49.2, accuracy: 1e-9)
         let x = (sm.offset - stack.structureOrigin).x + sps.origin.x
-        XCTAssertEqual(x, xa(715), accuracy: 1e-9)
-        XCTAssertEqual(x + sps.length, xa(833), accuracy: 1e-9)
+        XCTAssertEqual(x, xa(721.3), accuracy: 1e-9)
+        XCTAssertEqual(x + sps.length, xa(833.2), accuracy: 1e-9)
     }
 
     // The CM's outer mould line (TM X-1243 Fig. 1; CSM News Reference): a
     // 184.8 in spherical heat shield, a 7.8 in toroidal shoulder at 77 in,
-    // a 33° afterbody, 10 ft 7 in from the face, which sits at Xa 1000
-    // (TN D-5399 Table II).
+    // a 33° afterbody up to the docking interface, Xa 1110.25 (DB3 Figs.
+    // 2-2, 2-10), on the face at Xa 998 (datasheet §9.1, from TN D-5399).
     func testCommandModuleOuterMouldLine() throws {
         // The stack without its apex cover (staging event 30): the CM has
-        // its apex.
+        // its forward heat shield.
         let stack = VesselLibrary.saturnV()
         stack.jettison(event: 30)
         VesselLibrary.dressApollo(stack)
@@ -198,7 +208,7 @@ final class VisualShapeTests: XCTestCase {
         let heatShield = try XCTUnwrap(csm.shapes.first { $0.emissive == .heatShield })
         let afterbody = try XCTUnwrap(csm.shapes.first { $0.origin == heatShield.origin && $0.emissive == .none })
         let face = ((csm.offset - stack.structureOrigin).x + heatShield.origin.x) / inch - AS506.apolloStationOffset
-        XCTAssertEqual(face, 1000, accuracy: 1e-9)
+        XCTAssertEqual(face, 998, accuracy: 1e-9)
         let hs = profile(heatShield)!.map { (x: $0.x / inch, r: $0.r / inch) }
         let ab = profile(afterbody)!.map { (x: $0.x / inch, r: $0.r / inch) }
 
@@ -213,9 +223,11 @@ final class VisualShapeTests: XCTestCase {
             XCTAssertEqual(((p.x - maximum.x) * (p.x - maximum.x) + (p.r - 77 + 7.8) * (p.r - 77 + 7.8)).squareRoot(),
                            7.8, accuracy: 1e-9)
         }
-        // The cone at 33° from the shoulder, and the apex 127 in from the face.
+        // The cone at 33° from the shoulder to the docking interface, 112.25
+        // in from the face; then the tunnel down to the forward hatch.
         XCTAssertEqual(atan2(ab[0].r - ab[1].r, ab[1].x - ab[0].x) * 180 / Double.pi, 33, accuracy: 1e-9)
-        XCTAssertEqual(ab.last!.x, 127, accuracy: 1e-9)
+        XCTAssertEqual(ab[1].x, 112.25, accuracy: 1e-9)
+        XCTAssertEqual(ab.map(\.x).max()!, 112.25, accuracy: 1e-9)
         XCTAssertEqual(ab.last!.r, 0, accuracy: 1e-9)
         // The face from the CG: Apollo 7's CM CG, Xa 1040.8 (Mission Report
         // Table A.5-I), sits at x_cg/d ≈ 0.27 from it (TN D-5276 Table I:
@@ -226,17 +238,19 @@ final class VisualShapeTests: XCTestCase {
         XCTAssertFalse(heatShield.capTop)
     }
 
-    // The SLA: a 7 ft ring under four 21 ft panels, each a quarter turn
-    // about its axis, whose projected area is 68-FM-160's 239 ft².
+    // The SLA: the ring under four panels hinged at Xa 583.2 (datasheet
+    // §12), each a quarter turn about its axis, whose projected area, 243
+    // ft² on that hinge line, is 1.7 % over 68-FM-160's 239 ft² (the drag
+    // the physics keeps).
     func testSLAPanels() {
         let v = splitStack()
         let ring = v.parts.first { $0.name == "SLA ring" }!.shapes[0]
-        XCTAssertEqual(ring.length / 0.3048, 7, accuracy: 1e-9)
+        XCTAssertEqual(ring.length / inch, 583.2 - 502, accuracy: 1e-9)
         XCTAssertFalse(ring.capBase || ring.capTop)
         var centres: [Vec3] = []
         for n in 1...4 {
             let p = v.parts.first { $0.name == "SLA panel \(n)" }!, panel = p.shapes[0]
-            XCTAssertEqual(panel.length / 0.3048, 21, accuracy: 1e-9)
+            XCTAssertEqual(panel.length / inch, 838 - 583.2, accuracy: 1e-9)
             guard case let .revolution(_, _, sweep) = panel.kind else { return XCTFail() }
             XCTAssertEqual(sweep.upperBound - sweep.lowerBound, Double.pi / 2, accuracy: 1e-12)
             let centre = panel.radial((sweep.lowerBound + sweep.upperBound) / 2)
@@ -246,7 +260,7 @@ final class VisualShapeTests: XCTestCase {
             for i in stride(from: 0, to: t.count, by: 3) {
                 area += 0.5 * (t[i + 1].position - t[i].position).cross(t[i + 2].position - t[i].position).dot(centre)
             }
-            XCTAssertEqual(area / (0.3048 * 0.3048), 239, accuracy: 0.01 * 239, "panel \(n)")
+            XCTAssertEqual(area / (0.3048 * 0.3048), 239, accuracy: 0.02 * 239, "panel \(n)")
             XCTAssertTrue(panel.twoSided)
         }
         // Panel 1 at +Z_A, 2 at -Z_A, 3 at +Y_A, 4 at -Y_A (68-FM-160).
