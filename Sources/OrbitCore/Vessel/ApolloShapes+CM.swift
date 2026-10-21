@@ -15,8 +15,11 @@ extension ApolloShapeData {
     // The Block II CM has no such apex: its forward heat shield ends at the
     // docking interface, with the docking ring in its opening (datasheet
     // §9.1, §14 item 10). The idealised cone stays: placed on the face at Xa
-    // 998 it is 19.8 in across the top there, the real CM about 16.5 in
-    // (M); TM X-1243's afterbody lies a little outside the real one.
+    // 998 it is 19.8 in from the axis there, the real CM about 16.5 in (M),
+    // so the forward heat shield's top keeps a 3.3 in ledge round the
+    // docking ring. TM X-1243's afterbody lies a little outside the real
+    // one: no 33° cone tangent to a 77 in shoulder at Xa 1020 passes through
+    // the real apex (the structural cone's Xa 1133.5 and the ablator).
 
     static let cmMaxRadius = 77.0                    // in, TM X-1243 symbols: "77 inches for full-scale command module" (H)
     static let cmHeatShieldRadius = 184.8            // in, design-entry (M); TM X-1243 Fig. 1(b) 8.32 in at 0.045 scale = 184.9 (H)
@@ -282,7 +285,7 @@ extension ApolloDresser {
     /// `theta` (rad), pushed out by `off` (in): the construction point, the
     /// outward normal, and the directions round and up the cone.
     func cmConeFrame(x: Double, theta: Double, off: Double = 0) -> (at: Vec3, normal: Vec3, across: Vec3, up: Vec3) {
-        typealias F = SpacecraftFrame
+        typealias F = SpacecraftGeometry
         typealias M = CMOuterMouldLine
         let p = M.cone(at: x, off: off), out = F.radial(theta), c = M.theta
         let at = Vec3(cm(p.x), 0, 0) + out * (p.r * D.inch)
@@ -300,7 +303,7 @@ extension ApolloDresser {
         let width = S.cmHatchWidth / M.coneRadius(at: mid) / 2
         let profile = [P(0, lo.r - sink), P(0, lo.r), P(hi.x - lo.x, hi.r), P(hi.x - lo.x, hi.r - sink)]
         var s = revolution(profile.map { P($0.x * inch, $0.r * inch, crease: true) }, at: Vec3(cm(lo.x), 0, 0),
-                           reference: SpacecraftFrame.radial(0), sweep: -width...width, finish)
+                           reference: SpacecraftGeometry.radial(0), sweep: -width...width, finish)
         s.capBase = false
         s.capTop = false
         return s
@@ -313,7 +316,7 @@ extension ApolloDresser {
         let inch = D.inch, w = S.cmWindowFrame * inch
         var shapes: [VisualShape] = []
         for window in S.cmWindows {
-            let f = cmConeFrame(x: window.xa - S.cmFace, theta: window.theta * SpacecraftFrame.degree)
+            let f = cmConeFrame(x: window.xa - S.cmFace, theta: window.theta * SpacecraftGeometry.degree)
             let pane: [(Double, Double)]
             switch window.shape {
             case let .square(side):
@@ -324,7 +327,7 @@ extension ApolloDresser {
                 let b = base / 2 * inch, h = height * inch
                 pane = [(-b, -h / 3), (b, -h / 3), (0, 2 * h / 3)]
             case let .round(diameter):
-                pane = ApolloDresser.ellipse(diameter / 2 * inch, diameter / 2 * inch, count: 16)
+                pane = SpacecraftGeometry.ellipse(diameter / 2 * inch, diameter / 2 * inch, count: 16)
             }
             shapes.append(scPatch(at: f.at, normal: f.normal, across: f.across, up: f.up, outline: pane,
                                   depth: 0.9 * inch, height: 0.25 * inch, A.cmWindow))
@@ -333,7 +336,7 @@ extension ApolloDresser {
                                               majorRadius: diameter / 2 * inch + w / 2, minorRadius: w / 2, segments: 24,
                                               minorSegments: 8, color: A.cmWindowFrame.colour), A.cmWindowFrame))
             } else {
-                let outer = ApolloDresser.offsetPolygon(pane, by: w)
+                let outer = SpacecraftGeometry.offsetPolygon(pane, by: w)
                 for i in pane.indices {
                     let j = (i + 1) % pane.count
                     shapes.append(scPatch(at: f.at, normal: f.normal, across: f.across, up: f.up,
@@ -349,15 +352,15 @@ extension ApolloDresser {
     /// aft: dark recesses in the tape, each pair side by side round the CM,
     /// on its surface pushed out by `off` (in; the BPC's blow-out ports).
     func cmRCSPorts(forward: Bool, off: Double = 0) -> [VisualShape] {
-        let inch = D.inch, pair = S.cmRCSPortSpacing / 2 * inch, deg = SpacecraftFrame.degree
+        let inch = D.inch, pair = S.cmRCSPortSpacing / 2 * inch, deg = SpacecraftGeometry.degree
         var shapes: [VisualShape] = []
         for port in S.cmRCSPorts where (port.xa > S.forwardHeatShieldBase) == forward {
             let outline: [(Double, Double)]
             switch port.kind {
             case .pitch, .yaw:
-                outline = ApolloDresser.ellipse(S.cmRCSPortRadius * inch, S.cmRCSPortRadius * inch)
+                outline = SpacecraftGeometry.ellipse(S.cmRCSPortRadius * inch, S.cmRCSPortRadius * inch)
             case .roll:
-                outline = ApolloDresser.ellipse(S.cmRCSRollPort.across * inch, S.cmRCSRollPort.up * inch)
+                outline = SpacecraftGeometry.ellipse(S.cmRCSRollPort.across * inch, S.cmRCSRollPort.up * inch)
             }
             let f = cmConeFrame(x: port.xa - S.cmFace, theta: port.theta * deg, off: off)
             for side in [-1.0, 1.0] {
@@ -374,25 +377,5 @@ extension ApolloDresser {
         let a = azimuth * Double.pi / 180, inch = D.inch, base = S.forwardHeatShieldBase - S.cmFace
         let d = ApolloAxes.direction(xa: 0, ya: cos(a), za: sin(a)) * ((S.tunnelRadius + radius + 1) * inch)
         return frustum(cm(base), cm(base + height), radius * inch, radius * inch, finish, y: d.y, z: d.z)
-    }
-
-    /// The convex counter-clockwise polygon `p` grown by `d` on every side.
-    static func offsetPolygon(_ p: [(Double, Double)], by d: Double) -> [(Double, Double)] {
-        let n = p.count
-        // Each edge's line moved out along its outward normal (to the right
-        // of a counter-clockwise edge).
-        let lines = (0..<n).map { i -> (point: (Double, Double), dir: (Double, Double)) in
-            let a = p[i], b = p[(i + 1) % n], l = ((b.0 - a.0) * (b.0 - a.0) + (b.1 - a.1) * (b.1 - a.1)).squareRoot()
-            let dir = ((b.0 - a.0) / l, (b.1 - a.1) / l)
-            return ((a.0 + dir.1 * d, a.1 - dir.0 * d), dir)
-        }
-        // Vertex i where the moved lines of edges i - 1 and i meet.
-        return (0..<n).map { i -> (Double, Double) in
-            let e = lines[(i + n - 1) % n], f = lines[i]
-            let det = e.dir.0 * f.dir.1 - e.dir.1 * f.dir.0
-            let dx = f.point.0 - e.point.0, dy = f.point.1 - e.point.1
-            let t = (dx * f.dir.1 - dy * f.dir.0) / det
-            return (e.point.0 + e.dir.0 * t, e.point.1 + e.dir.1 * t)
-        }
     }
 }

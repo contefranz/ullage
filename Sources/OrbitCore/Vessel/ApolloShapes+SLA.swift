@@ -72,7 +72,7 @@ extension MaterialKey {
 extension ApolloDresser {
     static let slaCork = Finish(colour: (0.9, 0.9, 0.88), material: .apolloSLACork)
     static let slaSeam = Finish(colour: (0.84, 0.84, 0.82), material: .apolloSLASeam)
-    static let ltaB = Finish(colour: (0.86, 0.86, 0.85), material: .apolloLTAB)
+    static let ltaBWhite = Finish(colour: (0.86, 0.86, 0.85), material: .apolloLTAB)
 
     func slaShapes() -> [VisualShape]? {
         let name = part.name
@@ -130,7 +130,7 @@ extension ApolloDresser {
     /// Panel `n` (1-4): a quarter turn of the SLA's cone about its axis
     /// (first), and the halves of the splice plates along its two seams.
     func slaPanel(_ n: Int) -> [VisualShape] {
-        typealias F = SpacecraftFrame
+        typealias F = SpacecraftGeometry
         let axis = S.slaPanels[n - 1], centre = ApolloAxes.direction(xa: 0, ya: axis.ya, za: axis.za)
         var panel = revolution([P(0, slaRadius(S.slaHinge)), P(xa(D.slaTop) - xa(S.slaHinge), slaRadius(D.slaTop))],
                                at: Vec3(xa(S.slaHinge), 0, 0), reference: centre, segments: 96,
@@ -168,19 +168,19 @@ extension ApolloDresser {
     /// fixed panels' rim.
     func ltaB() -> [VisualShape] {
         typealias A = ApolloDresser
-        typealias F = SpacecraftFrame
+        typealias F = SpacecraftGeometry
         let inch = D.inch, rd = S.ltaBDrumDiameter / 2, rf = S.ltaBFlangeDiameter / 2
         let height = S.ltaBFace - S.ltaBBase, flange = height - S.ltaBFlangeDepth
         let deck = height - S.ltaBDeckDepth, inner = rd - S.ltaBWall
         let drumProfile = [P(0, 0), P(0, rd, crease: true), P(height, rd, crease: true), P(height, inner, crease: true),
                            P(deck, inner, crease: true), P(deck, 0)]
         let drum = revolution(drumProfile.map { P($0.x * inch, $0.r * inch, crease: $0.crease) },
-                              at: Vec3(xa(S.ltaBBase), 0, 0), segments: 64, A.ltaB)
+                              at: Vec3(xa(S.ltaBBase), 0, 0), segments: 64, A.ltaBWhite)
         // The flange, its segments as facets; its inner face inside the drum.
         let lip = 0.05
         let flangeProfile = [P(flange, rd - 0.5), P(flange, rf), P(height + lip, rf), P(height + lip, rd - 0.5)]
         var ring = revolution(flangeProfile.map { P(($0.x - flange) * inch, $0.r * inch, crease: true) },
-                              at: Vec3(xa(S.ltaBBase + flange), 0, 0), segments: S.ltaBFlangeSegments, A.ltaB)
+                              at: Vec3(xa(S.ltaBBase + flange), 0, 0), segments: S.ltaBFlangeSegments, A.ltaBWhite)
         ring.faceted = true
         ring.capBase = false
         ring.capTop = false
@@ -194,14 +194,14 @@ extension ApolloDresser {
                 let start = Vec3(xa(mid), 0, 0) + b * (sign * offset * inch) - a * (span / 2 * inch)
                 shapes.append(finished(.box(from: local(start), length: span * inch, width: S.ltaBBeamDepth * inch,
                                             height: S.ltaBBeamWidth * inch, axis: a, reference: .unitX,
-                                            color: A.ltaB.colour), A.ltaB))
+                                            color: A.ltaBWhite.colour), A.ltaBWhite))
             }
         }
         let deckX = S.ltaBFace - S.ltaBDeckDepth
         shapes.append(revolution([P(0, 0), P(0, S.ltaBHubRadius * inch, crease: true),
                                   P(S.ltaBHubHeight * inch, S.ltaBHubRadius * inch, crease: true),
                                   P(S.ltaBHubHeight * inch, 0)],
-                                 at: Vec3(xa(deckX - 0.5), 0, 0), segments: 32, A.ltaB))
+                                 at: Vec3(xa(deckX - 0.5), 0, 0), segments: 32, A.ltaBWhite))
 
         // The struts: from each support point inside the rim to the drum's
         // wall either side of it.
@@ -212,7 +212,7 @@ extension ApolloDresser {
             for side in [-1.0, 1.0] {
                 let foot = Vec3(xa(S.ltaBStrutFoot), 0, 0)
                     + F.radial(theta + side * S.ltaBStrutSpread * F.degree) * (rd * inch)
-                shapes.append(scTube(foot, top, radius: S.ltaBStrutRadius * inch, A.ltaB))
+                shapes.append(scTube(foot, top, radius: S.ltaBStrutRadius * inch, A.ltaBWhite))
             }
         }
         return shapes
@@ -232,7 +232,7 @@ extension ApolloDresser {
     }
 }
 
-extension SpacecraftFrame {
+extension SpacecraftGeometry {
     /// The vehicle azimuth (rad) of the construction direction `d`.
     static func vehicleAzimuth(of d: Vec3) -> Double { VisualShape.vehicleAzimuth(y: d.y, z: d.z) }
 }

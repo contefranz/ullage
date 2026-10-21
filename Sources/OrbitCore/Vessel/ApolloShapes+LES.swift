@@ -166,6 +166,7 @@ extension ApolloDresser {
         let joint = S.bpcJoint - S.cmFace, apex = S.bpcApex - S.cmFace
         let shoulder = M.heatShield.filter { $0.nx >= -1e-9 }.map { P($0.x + soft * $0.nx, $0.r + soft * $0.nr) }
         let lower = M.cone(at: joint, off: soft), upper = M.cone(at: joint, off: hard)
+        // The aft edge just outside the SM fairing's top, 77 in out.
         let softProfile = [P(S.bpcAftEdge - S.cmFace, S.cmMaxRadius + 0.1)] + shoulder + [P(lower.x, lower.r)]
         // The hard section's cone ends on the sphere through the apex
         // tangent to it.
@@ -186,10 +187,10 @@ extension ApolloDresser {
         var shapes = [shell(softProfile, A.bpcSoft), shell(hardProfile, A.bpcHard)]
 
         if let window = S.cmWindows.first(where: { $0.number == S.bpcWindow }) {
-            let f = cmConeFrame(x: window.xa - S.cmFace, theta: window.theta * SpacecraftFrame.degree, off: soft)
+            let f = cmConeFrame(x: window.xa - S.cmFace, theta: window.theta * SpacecraftGeometry.degree, off: soft)
             let r = S.bpcWindowDiameter / 2 * inch
             shapes.append(scPatch(at: f.at, normal: f.normal, across: f.across, up: f.up,
-                                  outline: A.ellipse(r, r, count: 16), depth: 0.5 * inch, height: 0.1 * inch,
+                                  outline: SpacecraftGeometry.ellipse(r, r, count: 16), depth: 0.5 * inch, height: 0.1 * inch,
                                   A.cmWindow))
         }
         shapes.append(cmHatch(off: soft + S.cmHatchRelief, A.bpcSoft))
@@ -244,7 +245,7 @@ extension ApolloDresser {
     /// canard section, its nozzle's exit on -Z_A.
     func lesMotors() -> [VisualShape] {
         typealias A = ApolloDresser
-        typealias F = SpacecraftFrame
+        typealias F = SpacecraftGeometry
         let inch = D.inch, body = S.lesBodyDiameter / 2
         let skirtLength = (S.lesSkirtTop - S.lesTowerTop) * inch
         var skirt = revolution([P(0, S.skirtBaseDiameter / 2 * inch), P(skirtLength, S.skirtTopDiameter / 2 * inch, crease: true),
@@ -288,7 +289,7 @@ extension ApolloDresser {
             let exhaust: Vec3 = Vec3.unitX * -cos(tjmCant) + out * sin(tjmCant)
             let skin = Vec3(lesX(S.tjmNozzleStation), 0, 0) + out * (body * inch)
             shapes.append(scPatch(at: skin, normal: out, across: F.tangent(theta), up: .unitX,
-                                  outline: A.ellipse((er + 0.5) * inch, (er + 1) * inch), depth: 0.5 * inch,
+                                  outline: SpacecraftGeometry.ellipse((er + 0.5) * inch, (er + 1) * inch), depth: 0.5 * inch,
                                   height: 0.08 * inch, A.cmRCSPort))
             shapes.append(lesNozzle(tjmNozzle, exit: Vec3(lesX(S.tjmNozzleStation), 0, 0) + out * (tjmCentre * inch),
                                    exhaust: exhaust))
@@ -307,7 +308,7 @@ extension ApolloDresser {
         shapes.append(lesNozzle(pcmNozzle, exit: exit, exhaust: minusZ))
         let r = S.pitchMotorExitRadius * inch
         shapes.append(scPatch(at: exit, normal: minusZ, across: F.tangent(0), up: .unitX,
-                              outline: A.ellipse(r, r, count: 16), depth: 0.5 * inch, height: 0.08 * inch, A.cmRCSPort))
+                              outline: SpacecraftGeometry.ellipse(r, r, count: 16), depth: 0.5 * inch, height: 0.08 * inch, A.cmRCSPort))
         return shapes
     }
 
@@ -329,7 +330,7 @@ extension ApolloDresser {
     /// Q-ball; the two stowed canards on it; the Q-ball to its rounded tip.
     func lesNose() -> [VisualShape] {
         typealias A = ApolloDresser
-        typealias F = SpacecraftFrame
+        typealias F = SpacecraftGeometry
         let inch = D.inch, body = S.lesBodyDiameter / 2, slope = tan(S.lesNoseHalfAngle * F.degree)
         /// The nose cone's radius at `xl`.
         func cone(_ xl: Double) -> Double { body - (xl - S.lesNoseConeBase) * slope }

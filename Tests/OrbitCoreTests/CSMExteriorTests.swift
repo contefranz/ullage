@@ -206,7 +206,7 @@ final class CSMExteriorTests: XCTestCase {
         let housings = sm.shapes.filter { $0.material == .apolloSMRCSHousing }
         XCTAssertEqual(housings.count, 4)
         for (housing, azimuth) in zip(housings, [262.75, 352.75, 82.75, 172.75]) {
-            let c = points([housing], on: sm, of: v), out = SpacecraftFrame.radial((azimuth + 90) * Double.pi / 180)
+            let c = points([housing], on: sm, of: v), out = SpacecraftGeometry.radial((azimuth + 90) * Double.pi / 180)
             XCTAssertEqual(c.map { $0.dot(out) }.max()! / inch, 83.56, accuracy: 1e-6)
             XCTAssertEqual(xa((c.map(\.x).max()! + c.map(\.x).min()!) / 2), 958.97, accuracy: 1e-6)
             XCTAssertEqual(xa(c.map(\.x).max()!) - xa(c.map(\.x).min()!), 13.5, accuracy: 1e-6)
@@ -225,7 +225,7 @@ final class CSMExteriorTests: XCTestCase {
             // The thrust line through the exit meets the quad's point.
             let quad = ["A": 262.75, "B": 352.75, "C": 82.75, "D": 172.75][String(t.name.dropFirst(7).prefix(1))]!
             let roll = abs(back.x) < 1e-9
-            let out = SpacecraftFrame.radial((quad + 90) * Double.pi / 180)
+            let out = SpacecraftGeometry.radial((quad + 90) * Double.pi / 180)
             let meet = Vec3(AS506.apolloStation(958.97), 0, 0) + out * ((roll ? 83.0 : 82.36) * inch)
             let d = meet - exit, miss = d - back * d.dot(back)
             XCTAssertEqual(miss.length, 0, accuracy: 1e-9, t.name)

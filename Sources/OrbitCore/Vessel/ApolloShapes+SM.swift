@@ -2,7 +2,7 @@ import Foundation
 
 // The service module: its shell and fairing, radiators, SM RCS quads, VHF
 // scimitars, high-gain antenna and SPS (track VG3); and the geometry the
-// spacecraft's files share (`SpacecraftFrame`, the `sc` helpers).
+// spacecraft's files share (`SpacecraftGeometry`, the `sc` helpers).
 
 extension ApolloShapeData {
     // MARK: Service module (datasheet §10)
@@ -116,12 +116,13 @@ extension MaterialKey {
     public static let apolloSPSColumbium: MaterialKey = "apollo.sps.columbium"
 }
 
-/// Directions about the vehicle's axis in the construction frame, for the
-/// spacecraft's shapes. The vehicle azimuth θ runs from Position I (+z)
+/// The spacecraft files' shared geometry: directions about the vehicle's
+/// axis in the construction frame, a bell's contour, small outlines. The
+/// vehicle azimuth θ runs from Position I (+z)
 /// towards Position II (-y), right-handed about +x; the AOH's θ_A runs from
 /// +Y_A (Position II) towards +Z_A (Position III), so θ = θ_A + 90°
 /// (datasheet conventions).
-enum SpacecraftFrame {
+enum SpacecraftGeometry {
     static let degree = Double.pi / 180
 
     /// The unit vector away from the axis at vehicle azimuth `theta` (rad).
@@ -137,11 +138,59 @@ enum SpacecraftFrame {
     static let apolloReference = Vec3(0, -1, 0)
 }
 
+extension SpacecraftGeometry {
+    /// The radius of a bell's divergent `contour` (from the exit up, the
+    /// radius falling) at `x` along it.
+    static func contourRadius(_ contour: [VisualShape.ProfilePoint], at x: Double) -> Double {
+        for (a, b) in zip(contour, contour.dropFirst()) where x >= a.x && x <= b.x {
+            return a.r + (b.r - a.r) * (x - a.x) / (b.x - a.x)
+        }
+        return x < contour[0].x ? contour[0].r : contour[contour.count - 1].r
+    }
+
+    /// Where a bell's divergent `contour` has radius `r`.
+    static func contourStation(_ contour: [VisualShape.ProfilePoint], radius r: Double) -> Double {
+        for (a, b) in zip(contour, contour.dropFirst()) where r <= a.r && r >= b.r {
+            return a.x + (b.x - a.x) * (a.r - r) / (a.r - b.r)
+        }
+        return r > contour[0].r ? contour[0].x : contour[contour.count - 1].x
+    }
+
+    /// `count` points round an ellipse of semi-axes `a` (across) and `b`
+    /// (up), counter-clockwise.
+    static func ellipse(_ a: Double, _ b: Double, count: Int = 12) -> [(Double, Double)] {
+        (0..<count).map { i -> (Double, Double) in
+            let t = 2 * Double.pi * Double(i) / Double(count)
+            return (a * cos(t), b * sin(t))
+        }
+    }
+
+    /// The convex counter-clockwise polygon `p` grown by `d` on every side.
+    static func offsetPolygon(_ p: [(Double, Double)], by d: Double) -> [(Double, Double)] {
+        let n = p.count
+        // Each edge's line moved out along its outward normal (to the right
+        // of a counter-clockwise edge).
+        let lines = (0..<n).map { i -> (point: (Double, Double), dir: (Double, Double)) in
+            let a = p[i], b = p[(i + 1) % n], l = ((b.0 - a.0) * (b.0 - a.0) + (b.1 - a.1) * (b.1 - a.1)).squareRoot()
+            let dir = ((b.0 - a.0) / l, (b.1 - a.1) / l)
+            return ((a.0 + dir.1 * d, a.1 - dir.0 * d), dir)
+        }
+        // Vertex i where the moved lines of edges i - 1 and i meet.
+        return (0..<n).map { i -> (Double, Double) in
+            let e = lines[(i + n - 1) % n], f = lines[i]
+            let det = e.dir.0 * f.dir.1 - e.dir.1 * f.dir.0
+            let dx = f.point.0 - e.point.0, dy = f.point.1 - e.point.1
+            let t = (dx * f.dir.1 - dy * f.dir.0) / det
+            return (e.point.0 + e.dir.0 * t, e.point.1 + e.dir.1 * t)
+        }
+    }
+}
+
 extension ApolloDresser {
     static let smRadiator = Finish(colour: (0.88, 0.88, 0.86), material: .apolloSMRadiator)
     static let smRCSHousing = Finish(colour: (0.86, 0.86, 0.84), material: .apolloSMRCSHousing)
     static let smScimitar = Finish(colour: (0.8, 0.8, 0.8), material: .apolloSMScimitar)
-    static let highGainAntenna = Finish(colour: (0.88, 0.88, 0.86), material: .apolloHighGainAntenna)
+    static let hgaWhite = Finish(colour: (0.88, 0.88, 0.86), material: .apolloHighGainAntenna)
     static let spsColumbium = Finish(colour: (0.3, 0.3, 0.33), material: .apolloSPSColumbium)
 
     func smShapes() -> [VisualShape]? {
@@ -173,14 +222,14 @@ extension ApolloDresser {
     /// The CM/SM fairing, open at the top round the CM's heat shield: its
     /// pieces, EPS radiators alternating with honeycomb panels.
     func smFairing() -> [VisualShape] {
-        let inch = D.inch, r = ApolloDresser.csmRadius, deg = SpacecraftFrame.degree
+        let inch = D.inch, r = ApolloDresser.csmRadius, deg = SpacecraftGeometry.degree
         let height = (S.smFairingTop - S.smForwardBulkhead) * inch
         let width = 360.0 / Double(S.smFairingPieces)
         return (0..<S.smFairingPieces).map { i -> VisualShape in
             let start = (S.smFairingPhase + width * Double(i)) * deg
             let finish = i % 2 == 0 ? ApolloDresser.smRadiator : ApolloDresser.aluminium
             var s = revolution([P(0, r), P(height, r)], at: Vec3(xa(S.smForwardBulkhead), 0, 0),
-                               reference: SpacecraftFrame.apolloReference, segments: 64,
+                               reference: SpacecraftGeometry.apolloReference, segments: 64,
                                sweep: start...(start + width * deg), finish)
             s.capBase = false
             s.capTop = false
@@ -192,13 +241,13 @@ extension ApolloDresser {
     /// The two ECS radiator panels, standing just off the skin with their
     /// edges showing.
     func ecsRadiators() -> [VisualShape] {
-        let inch = D.inch, r = ApolloDresser.csmRadius, deg = SpacecraftFrame.degree
+        let inch = D.inch, r = ApolloDresser.csmRadius, deg = SpacecraftGeometry.degree
         let h = S.radiatorStandOff * inch, height = (S.ecsRadiatorTop - S.ecsRadiatorBottom) * inch
         let profile = [P(0, r - h, crease: true), P(0, r + h, crease: true), P(height, r + h, crease: true),
                        P(height, r - h, crease: true)]
         return S.ecsRadiators.map { bays -> VisualShape in
             var s = revolution(profile, at: Vec3(xa(S.ecsRadiatorBottom), 0, 0),
-                               reference: SpacecraftFrame.apolloReference, segments: 64,
+                               reference: SpacecraftGeometry.apolloReference, segments: 64,
                                sweep: (bays.lowerBound * deg)...(bays.upperBound * deg), ApolloDresser.smRadiator)
             s.capBase = false
             s.capTop = false
@@ -219,7 +268,7 @@ extension ApolloDresser {
                                            (l, h), (0.76 * l, 0.91 * h), (0.47 * l, 0.7 * h), (0.21 * l, 0.4 * h)]
         let section = outline.map { VisualShape.SectionPoint($0.0 * inch, ($0.1 + 0.5) * inch) }
         return S.scimitarAzimuths.map { azimuth -> VisualShape in
-            let theta = SpacecraftFrame.theta(apollo: azimuth), out = SpacecraftFrame.radial(theta)
+            let theta = SpacecraftGeometry.theta(apollo: azimuth), out = SpacecraftGeometry.radial(theta)
             let root = Vec3(xa(S.scimitarStation - l / 2), 0, 0) + out * (skin - 0.5 * inch)
             return finished(.plate(section, at: local(root), axis: .unitX, reference: out,
                                    thickness: S.scimitarThickness * inch,
@@ -242,7 +291,7 @@ extension ApolloDresser {
     /// meeting 82.36 in from the axis, and the two roll engines either way
     /// round, theirs meeting at 83.00 in.
     static func rcsLayout() -> [RCSNozzle] {
-        typealias F = SpacecraftFrame
+        typealias F = SpacecraftGeometry
         let inch = D.inch, cant = S.rcsCant * F.degree, reach = S.rcsExitDistance * inch
         let station = D.apolloStation(S.rcsQuadStation)
         var nozzles: [RCSNozzle] = []
@@ -269,7 +318,7 @@ extension ApolloDresser {
     /// nozzle of its own at its position.
     func rcsQuads() -> [VisualShape] {
         typealias A = ApolloDresser
-        typealias F = SpacecraftFrame
+        typealias F = SpacecraftGeometry
         let inch = D.inch, skin = A.csmRadius
         let exitRadius = S.rcsExitDiameter / 2 * inch, bell = S.rcsBellLength * inch
         /// A nozzle's bell, open, from its exit back towards its throat.
@@ -323,7 +372,7 @@ extension ApolloDresser {
     /// hinge's tangential axis, taking -X to the radial direction.
     func highGainAntenna(deployed: Bool) -> [VisualShape] {
         typealias A = ApolloDresser
-        typealias F = SpacecraftFrame
+        typealias F = SpacecraftGeometry
         let inch = D.inch, theta = F.theta(apollo: S.hgaAzimuth)
         let out = F.radial(theta), along = F.tangent(theta)
         let hingeRadius = S.csmSkinRadius + S.hgaOutboard - S.hgaBoomLength
@@ -347,12 +396,12 @@ extension ApolloDresser {
             let f = Double(i) / 4
             return P(S.hgaDishDepth * f * f * inch, rDish * f * inch)
         }
-        var shapes = [scTube(hinge, back, radius: S.hgaBoomRadius * inch, A.highGainAntenna)]
+        var shapes = [scTube(hinge, back, radius: S.hgaBoomRadius * inch, A.hgaWhite)]
         for (su, sv) in [(1.0, 1.0), (-1.0, 1.0), (-1.0, -1.0), (1.0, -1.0)] {
             let at: Vec3 = centre + u * (su * spread * inch) + v * (sv * spread * inch)
                 - boresight * (S.hgaDishDepth / 2 * inch)
             var s = finished(VisualShape.revolution(dish, from: local(at), axis: boresight, segments: 24,
-                                                    color: A.highGainAntenna.colour), A.highGainAntenna)
+                                                    color: A.hgaWhite.colour), A.hgaWhite)
             s.capBase = false
             s.capTop = false
             s.twoSided = true
@@ -361,7 +410,7 @@ extension ApolloDresser {
         let horn = S.hgaHornWidth * inch
         shapes.append(finished(.box(from: local(centre - boresight * (lift * inch)), length: 2 * lift * inch,
                                     width: horn, height: horn, axis: boresight, reference: u,
-                                    color: A.highGainAntenna.colour), A.highGainAntenna))
+                                    color: A.hgaWhite.colour), A.hgaWhite))
         return shapes
     }
 
@@ -380,7 +429,7 @@ extension ApolloDresser {
         // The divergent contour is the bell's first eleven points.
         let contour = Array(A.bell(exitRadius: re, areaRatio: S.spsAreaRatio, length: S.spsLength * inch).prefix(11))
         let gimbal = xa(S.spsGimbal) - exit
-        let profile = contour.filter { $0.x < gimbal - 1e-9 } + [P(gimbal, A.contourRadius(contour, at: gimbal))]
+        let profile = contour.filter { $0.x < gimbal - 1e-9 } + [P(gimbal, SpacecraftGeometry.contourRadius(contour, at: gimbal))]
         var bell = finished(.revolution(profile, from: local(Vec3(exit, 0, 0)), color: A.nozzleExtension.colour),
                             A.nozzleExtension, vehicleFrame: false)
         bell.capBase = false
@@ -388,11 +437,11 @@ extension ApolloDresser {
         bell.thruster = link
 
         let chamber = re / (S.spsAreaRatio / S.spsChamberAreaRatio).squareRoot()
-        let top = min(A.contourStation(contour, radius: chamber), gimbal), joint = xa(S.spsJoint) - exit
+        let top = min(SpacecraftGeometry.contourStation(contour, radius: chamber), gimbal), joint = xa(S.spsJoint) - exit
         let lift = S.spsBandStandOff * inch
-        let band = [P(joint, A.contourRadius(contour, at: joint) + lift)]
+        let band = [P(joint, SpacecraftGeometry.contourRadius(contour, at: joint) + lift)]
             + contour.filter { $0.x > joint && $0.x < top }.map { P($0.x, $0.r + lift) }
-            + [P(top, A.contourRadius(contour, at: top) + lift)]
+            + [P(top, SpacecraftGeometry.contourRadius(contour, at: top) + lift)]
         var columbium = finished(.revolution(band, from: local(Vec3(exit, 0, 0)), color: A.spsColumbium.colour),
                                  A.spsColumbium, vehicleFrame: false)
         columbium.capBase = false
@@ -400,28 +449,11 @@ extension ApolloDresser {
         columbium.thruster = link
         let minor = S.spsStiffenerRadius * inch
         var stiffener = finished(.torus(centre: local(Vec3(exit + joint, 0, 0)),
-                                        majorRadius: A.contourRadius(contour, at: joint) + minor, minorRadius: minor,
+                                        majorRadius: SpacecraftGeometry.contourRadius(contour, at: joint) + minor, minorRadius: minor,
                                         segments: 48, minorSegments: 8, color: A.nozzleExtension.colour),
                                  A.nozzleExtension, vehicleFrame: false)
         stiffener.thruster = link
         return [stiffener, columbium, bell]
-    }
-
-    /// The radius of a bell's divergent `contour` (from the exit up, the
-    /// radius falling) at `x` along it.
-    static func contourRadius(_ contour: [P], at x: Double) -> Double {
-        for (a, b) in zip(contour, contour.dropFirst()) where x >= a.x && x <= b.x {
-            return a.r + (b.r - a.r) * (x - a.x) / (b.x - a.x)
-        }
-        return x < contour[0].x ? contour[0].r : contour[contour.count - 1].r
-    }
-
-    /// Where a bell's divergent `contour` has radius `r`.
-    static func contourStation(_ contour: [P], radius r: Double) -> Double {
-        for (a, b) in zip(contour, contour.dropFirst()) where r <= a.r && r >= b.r {
-            return a.x + (b.x - a.x) * (a.r - r) / (a.r - b.r)
-        }
-        return r > contour[0].r ? contour[0].x : contour[contour.count - 1].x
     }
 
     // MARK: Spacecraft helpers
@@ -445,14 +477,6 @@ extension ApolloDresser {
                                reference: across, color: finish.colour), finish)
     }
 
-    /// `count` points round an ellipse of semi-axes `a` (across) and `b`
-    /// (up), counter-clockwise.
-    static func ellipse(_ a: Double, _ b: Double, count: Int = 12) -> [(Double, Double)] {
-        (0..<count).map { i -> (Double, Double) in
-            let t = 2 * Double.pi * Double(i) / Double(count)
-            return (a * cos(t), b * sin(t))
-        }
-    }
 }
 
 extension ApolloShapeData {
