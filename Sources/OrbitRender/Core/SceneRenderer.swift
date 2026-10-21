@@ -25,6 +25,14 @@ public final class SceneRenderer {
     public var settings = RenderSettings()
     /// CPU encoding and GPU times, smoothed (s).
     public let times = FrameTimes()
+    /// Time each pass on the GPU (F10, `orbitsnap --timings`): every render
+    /// pass then gets an encoder of its own. The latest finished frame's
+    /// timings are in `lastReport`.
+    public var profiling = false
+    public let profiler: GPUProfiler
+    private let reports = ReportBox()
+    /// The latest finished frame's GPU times (per pass while profiling).
+    public var lastReport: FrameReport? { reports.value }
 
     let states: CommonStates
     let meshes = VesselMeshCache()
@@ -63,6 +71,7 @@ public final class SceneRenderer {
         pool = TexturePool(device: device)
         history = HistoryTargets(device: device)
         graph = FrameGraph(passes: passes, plan: plan)
+        profiler = GPUProfiler(device: device)
         arenas = (0..<Self.framesInFlight).compactMap { _ in FrameArena(device: device, capacity: 1 << 18) }
         guard arenas.count == Self.framesInFlight else { throw Failure.noResources }
         fallbacks.clear(on: queue)
@@ -82,7 +91,7 @@ public final class SceneRenderer {
             // P3
             OrbitLinePass(), PlumePass(), FarPointPass(), HalfResTransparentPass(), ParticleDrawPass(), EntryPass(),
             // P4
-            PostPass(),
+            PostPass(), DebugViewPass(),
             // P5
             MarkerPass(),
         ]
@@ -111,9 +120,12 @@ public final class SceneRenderer {
             return nil
         }
         let encodeStart = CACurrentMediaTime()
-        let semaphore = inFlight, times = self.times
+        let semaphore = inFlight, times = self.times, reports = self.reports
+        let profile = profiling ? profiler.beginFrame() : nil
         cb.addCompletedHandler { cb in
-            times.addGPU(cb.gpuEndTime - cb.gpuStartTime)
+            let gpu = cb.gpuEndTime - cb.gpuStartTime
+            times.addGPU(gpu)
+            reports.value = FrameReport(passes: profile?.resolve() ?? [], gpu: gpu)
             semaphore.signal()
             completion?(cb)
         }
@@ -134,7 +146,7 @@ public final class SceneRenderer {
 
         let f = FrameContext(scene: scene, device: device, commandBuffer: cb, output: output, settings: settings,
                              arena: arena, pool: pool, history: history, states: states, meshes: meshes,
-                             fallbacks: fallbacks, previousViewProjection: previousViewProjection)
+                             fallbacks: fallbacks, previousViewProjection: previousViewProjection, profile: profile)
         graph.encode(f)
         history.endFrame()
         previousViewProjection = f.viewProjection
@@ -143,5 +155,16 @@ public final class SceneRenderer {
         cb.commit()
         times.addEncode(CACurrentMediaTime() - encodeStart)
         return cb
+    }
+}
+
+/// The latest frame report, written on Metal's completion thread.
+final class ReportBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var report: FrameReport?
+
+    var value: FrameReport? {
+        get { lock.withLock { report } }
+        set { lock.withLock { report = newValue } }
     }
 }

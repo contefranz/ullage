@@ -41,6 +41,16 @@ public final class FrameContext {
     public var slotTextures: [Int: MTLTexture] = [:]
     /// Textures passes hand each other this frame (`ResourceID`).
     public var textures: [ResourceID: MTLTexture] = [:]
+    /// What the passes after P1 read this frame: the target plan resolves
+    /// the scene's colour or depth into `textures` when they are wanted.
+    public internal(set) var wanted: Set<ResourceID> = []
+    /// Each render pass in an encoder of its own (while the GPU profiler
+    /// times them); the image is the same.
+    public let splitsEncoders: Bool
+    /// The profile the frame's encoders are timed into, when profiling.
+    let profile: FrameProfile?
+    /// The pass encoding now, for the profiler's labels.
+    public internal(set) var currentPass: String?
 
     let meshes: VesselMeshCache
     /// The vessels drawn as their meshes, and those drawn as points.
@@ -51,7 +61,8 @@ public final class FrameContext {
 
     init(scene: RenderScene, device: MTLDevice, commandBuffer: MTLCommandBuffer, output: MTLTexture,
          settings: RenderSettings, arena: FrameArena, pool: TexturePool, history: HistoryTargets, states: CommonStates,
-         meshes: VesselMeshCache, fallbacks: FallbackTextures, previousViewProjection: simd_float4x4?) {
+         meshes: VesselMeshCache, fallbacks: FallbackTextures, previousViewProjection: simd_float4x4?,
+         profile: FrameProfile? = nil) {
         self.scene = scene
         self.device = device
         self.commandBuffer = commandBuffer
@@ -64,6 +75,8 @@ public final class FrameContext {
         self.states = states
         self.meshes = meshes
         self.fallbacks = fallbacks
+        self.profile = profile
+        splitsEncoders = profile != nil
 
         let cam = scene.camera
         projection = .reversedInfinitePerspective(fovY: Float(cam.fovY), aspect: Float(cam.aspect), near: Float(cam.near))
@@ -190,5 +203,35 @@ public final class FrameContext {
     /// (the lighting and atmosphere uniforms are not final until P0 ends).
     public func bindFrameUniforms(_ enc: MTLComputeCommandEncoder) {
         if let f = arena.push(value: frame) { enc.setBuffer(f.buffer, offset: f.offset, index: Binding.frameBuffer) }
+    }
+
+    // MARK: Encoders of a pass's own
+
+    /// A compute encoder for the pass encoding now, timed when profiling.
+    public func makeComputeEncoder() -> MTLComputeCommandEncoder? {
+        let d = MTLComputePassDescriptor()
+        profile?.attach(d, pass: currentPass ?? "compute")
+        let enc = commandBuffer.makeComputeCommandEncoder(descriptor: d)
+        enc?.label = currentPass
+        return enc
+    }
+
+    /// A render encoder on `descriptor` for the pass encoding now, timed when
+    /// profiling, with the shared uniforms and slots bound.
+    public func makeRenderEncoder(_ descriptor: MTLRenderPassDescriptor) -> MTLRenderCommandEncoder? {
+        profile?.attach(descriptor, pass: currentPass ?? "render")
+        let enc = commandBuffer.makeRenderCommandEncoder(descriptor: descriptor)
+        enc?.label = currentPass
+        if let enc { bindShared(enc) }
+        return enc
+    }
+
+    /// A blit encoder for the pass encoding now, timed when profiling.
+    public func makeBlitEncoder() -> MTLBlitCommandEncoder? {
+        let d = MTLBlitPassDescriptor()
+        profile?.attach(d, pass: currentPass ?? "blit")
+        let enc = commandBuffer.makeBlitCommandEncoder(descriptor: d)
+        enc?.label = currentPass
+        return enc
     }
 }

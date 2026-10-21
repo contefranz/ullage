@@ -56,6 +56,8 @@ struct HUDState: Equatable {
     /// failures scheduled on the IU and not yet due.
     var failures: [String] = []
     var events: [String] = []
+    /// F10: each pass's GPU time, one per line; nil while they are hidden.
+    var passTimings: String? = nil
 }
 
 @MainActor
@@ -78,6 +80,13 @@ final class AppModel: ObservableObject {
     var camera = OrbitCamera()
     /// Builds each frame's scene for the renderer.
     private let extractor = SceneExtractor()
+    /// What the renderer draws with: F9 cycles the debug view, F10 shows
+    /// each pass's GPU time.
+    private(set) var renderSettings = RenderSettings()
+    /// F12 asked for a snapshot of the next frame.
+    private var snapshotRequested = false
+    /// The latest frame's GPU times, shown by F10.
+    private var lastReport: FrameReport?
 
     /// Zero of the mission clock: the scenario's, else liftoff.
     private var missionStart = Epoch(tdbSecondsPastJ2000: 0)
@@ -215,6 +224,9 @@ final class AppModel: ObservableObject {
             case .v: cycleCameraFrame()
             case .leftBracket: cycleFocus(sim: sim, by: -1)
             case .rightBracket: cycleFocus(sim: sim, by: +1)
+            case .f9: cycleDebugView(sim: sim)
+            case .f10: renderSettings.debug.showPassTimings.toggle()
+            case .f12: snapshotRequested = true
             default: break
             }
             guard let v = sim.focus, v.status != .crashed else { continue }
@@ -375,6 +387,14 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// F9: the next debug view (none, depth, normals, luminance).
+    private func cycleDebugView(sim: Simulation) {
+        let all = DebugView.allCases
+        let next = all[((all.firstIndex(of: renderSettings.debug.view) ?? 0) + 1) % all.count]
+        renderSettings.debug.view = next
+        sim.log(next == .none ? "Debug view off" : "Debug view: \(next.rawValue)")
+    }
+
     private func cycleCameraFrame() {
         switch camera.frame {
         case .horizon: camera.frame = .vessel
@@ -460,6 +480,9 @@ final class AppModel: ObservableObject {
             h.failurePrompt = "\(c.part) engine \(c.engines.count == 1 ? "1" : "1-\(c.engines.count)")?  (Esc cancels)"
         }
         h.failures = failureLines(v, sim: sim)
+        if renderSettings.debug.showPassTimings {
+            h.passTimings = Self.describe(lastReport)
+        }
         h.events = sim.events.suffix(6).map {
             "\(Self.formatDuration($0.time - missionStart, tenths: true))  \($0.message)"
         }
@@ -577,5 +600,30 @@ extension AppModel: SceneSource {
         guard let sim else { return nil }
         return extractor.extract(sim: sim, camera: camera, viewport: viewport, realTime: realTime,
                                  options: SceneExtractor.Options(showOrbit: showOrbit))
+    }
+
+    func takeSnapshotRequest() -> Bool {
+        defer { snapshotRequested = false }
+        return snapshotRequested
+    }
+
+    func didRender(_ report: FrameReport) { lastReport = report }
+
+    func didSnapshot(_ result: Result<URL, Error>) {
+        switch result {
+        case .success(let url): sim?.log("Snapshot: \(url.path)")
+        case .failure(let error): sim?.log("Snapshot failed: \(error)")
+        }
+    }
+
+    /// "GPU 1.92 ms", then each pass's time, in the order they ran.
+    static func describe(_ report: FrameReport?) -> String {
+        guard let report else { return "GPU –" }
+        var lines = [String(format: "GPU %.2f ms", report.gpu * 1_000)]
+        lines += report.passes.map {
+            $0.pass.padding(toLength: 22, withPad: " ", startingAt: 0) + String(format: "%6.2f ms", $0.seconds * 1_000)
+        }
+        if report.passes.isEmpty { lines.append("(no per-pass timestamps on this GPU)") }
+        return lines.joined(separator: "\n")
     }
 }

@@ -14,26 +14,38 @@ public protocol SceneTargetPlan: AnyObject {
     func formats(for stage: PassStage) -> SceneFormats
     /// The resources the plan's attachments provide (`ResourceID.sceneColor`, ...).
     var provides: Set<ResourceID> { get }
-    /// Whether P4 can run: the scene draws into a target post reads, and P5
-    /// draws on the output after it.
-    var hasPostStage: Bool { get }
     /// (Re)allocates the plan's own targets.
     func resize(_ size: RenderSize, device: MTLDevice)
     /// The render pass `stage` opens an encoder on, or nil to go on drawing
-    /// in the encoder the previous render stage opened.
+    /// in the encoder the previous render stage opened. Called once per
+    /// stage and frame, in order; `f.wanted` says what later passes read.
     func renderPass(for stage: PassStage, _ f: FrameContext) -> MTLRenderPassDescriptor?
+    /// For split encoding (`FrameContext.splitsEncoders`, the GPU timings):
+    /// a render pass that goes on drawing the scene where the last encoder
+    /// stopped, with the same attachments and formats.
+    func continuation(_ f: FrameContext) -> MTLRenderPassDescriptor?
 }
 
 /// The M1.5 structure, kept until R1's HDR targets: one 4× MSAA LDR pass
-/// (sRGB colour, reversed-Z depth, both memoryless) resolving straight into
-/// the output, which P1, P2, P3 and P5 all draw in, in that order.
+/// (sRGB colour, reversed-Z depth, memoryless) resolving straight into the
+/// output, which P1, P2, P3 and P5 all draw in, in that order.
+///
+/// When a later pass reads `.sceneColor` or `.sceneDepth` (a debug view),
+/// the scene resolves into frame textures instead (depth with the nearest
+/// sample, `.max` in reversed-Z), and that pass writes the output. When the
+/// encoders are split for timing, the samples are stored between them in
+/// private textures, so the image is the same.
 @MainActor
 public final class DirectTargetPlan: SceneTargetPlan {
     public let colorFormat: MTLPixelFormat
     public let depthFormat = MTLPixelFormat.depth32Float
     public let sampleCount: Int
-    private var color: MTLTexture?
-    private var depth: MTLTexture?
+    private var size = RenderSize(width: 0, height: 0)
+    private var device: MTLDevice?
+    private var memoryless: (color: MTLTexture?, depth: MTLTexture?)
+    private var stored: (color: MTLTexture?, depth: MTLTexture?)
+    /// This frame's attachments, kept for the continuations.
+    private var current: MTLRenderPassDescriptor?
 
     public init(colorFormat: MTLPixelFormat, sampleCount: Int) {
         self.colorFormat = colorFormat
@@ -46,43 +58,83 @@ public final class DirectTargetPlan: SceneTargetPlan {
 
     public var provides: Set<ResourceID> { [.sceneColor, .sceneDepth, .output] }
 
-    /// The scene resolves straight into the output: nothing for a post pass to read.
-    public var hasPostStage: Bool { false }
-
     public func resize(_ size: RenderSize, device: MTLDevice) {
-        func target(_ format: MTLPixelFormat) -> MTLTexture? {
-            let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: format, width: size.width, height: size.height,
-                                                             mipmapped: false)
-            d.usage = .renderTarget
-            d.storageMode = .memoryless
-            if sampleCount > 1 {
-                d.textureType = .type2DMultisample
-                d.sampleCount = sampleCount
-            }
-            return device.makeTexture(descriptor: d)
+        self.size = size
+        self.device = device
+        memoryless = (sampleCount > 1 ? target(colorFormat, .memoryless) : nil, target(depthFormat, .memoryless))
+        stored = (nil, nil)
+    }
+
+    private func target(_ format: MTLPixelFormat, _ storage: MTLStorageMode) -> MTLTexture? {
+        let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: format, width: size.width, height: size.height,
+                                                         mipmapped: false)
+        d.usage = .renderTarget
+        d.storageMode = storage
+        if sampleCount > 1 {
+            d.textureType = .type2DMultisample
+            d.sampleCount = sampleCount
         }
-        color = sampleCount > 1 ? target(colorFormat) : nil
-        depth = target(depthFormat)
+        return device?.makeTexture(descriptor: d)
+    }
+
+    /// A single-sample frame texture the scene resolves into.
+    private func resolveTarget(_ format: MTLPixelFormat, _ f: FrameContext) -> MTLTexture? {
+        let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: format, width: size.width, height: size.height,
+                                                         mipmapped: false)
+        d.usage = [.renderTarget, .shaderRead]
+        d.storageMode = .private
+        return f.pool.texture(d)
     }
 
     public func renderPass(for stage: PassStage, _ f: FrameContext) -> MTLRenderPassDescriptor? {
         guard stage == .opaque else { return nil }
+        let split = f.splitsEncoders
+        if split, stored.depth == nil {
+            stored = (sampleCount > 1 ? target(colorFormat, .private) : nil, target(depthFormat, .private))
+        }
+        let color = split ? stored.color : memoryless.color, depth = split ? stored.depth : memoryless.depth
         let pass = MTLRenderPassDescriptor()
         let c = pass.colorAttachments[0]!
         c.clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
         c.loadAction = .clear
+        var resolved = f.output
+        if f.wanted.contains(.sceneColor), let t = resolveTarget(colorFormat, f) {
+            resolved = t
+            f.textures[.sceneColor] = t
+        }
         if let color {
             c.texture = color
-            c.resolveTexture = f.output
-            c.storeAction = .multisampleResolve
+            c.resolveTexture = resolved
+            c.storeAction = split ? .storeAndMultisampleResolve : .multisampleResolve
         } else {
-            c.texture = f.output
+            c.texture = resolved
             c.storeAction = .store
         }
-        pass.depthAttachment.texture = depth
-        pass.depthAttachment.loadAction = .clear
-        pass.depthAttachment.storeAction = .dontCare
-        pass.depthAttachment.clearDepth = 0
+        let z = pass.depthAttachment!
+        z.texture = depth
+        z.loadAction = .clear
+        z.clearDepth = 0
+        z.storeAction = split ? .store : .dontCare
+        if f.wanted.contains(.sceneDepth), let t = resolveTarget(depthFormat, f) {
+            if sampleCount > 1 {
+                z.resolveTexture = t
+                z.depthResolveFilter = .max
+                z.storeAction = split ? .storeAndMultisampleResolve : .multisampleResolve
+            } else {
+                z.texture = t
+                z.storeAction = .store
+            }
+            f.textures[.sceneDepth] = t
+            f.slotTextures[Binding.sceneDepth] = t
+        }
+        current = pass
+        return pass
+    }
+
+    public func continuation(_ f: FrameContext) -> MTLRenderPassDescriptor? {
+        guard let pass = current?.copy() as? MTLRenderPassDescriptor else { return nil }
+        pass.colorAttachments[0].loadAction = .load
+        pass.depthAttachment.loadAction = .load
         return pass
     }
 }

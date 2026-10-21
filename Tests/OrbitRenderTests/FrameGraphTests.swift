@@ -211,13 +211,27 @@ final class FrameGraphTests: XCTestCase {
 }
 
 extension FrameGraphTests {
-    /// The direct plan resolves the scene into the output: a post pass has
-    /// nothing to read, so it is disabled with the reason.
-    func testPostPassNeedsAPlanWithPost() throws {
+    /// On the direct plan nothing writes `hdrColor`, so a post pass reading
+    /// it (R1's) is disabled; one that reads the scene's own resolves runs,
+    /// and the overlay after it is left out (its pipelines are the scene's).
+    func testPostPassesOnTheDirectPlan() throws {
         let log = RecordingPass.Log()
-        let r = try renderer([RecordingPass("post", .post, log: log), RecordingPass("marker", .overlay, log: log)])
-        XCTAssertTrue(r.failures["post"]?.contains("post stage") ?? false)
+        let tonemap = RecordingPass("tonemap", .post, log: log)
+        tonemap.reads = [.hdrColor]
+        let r = try renderer([tonemap, RecordingPass("marker", .overlay, log: log)])
+        XCTAssertNotNil(r.failures["tonemap"])
         try render(r)
         XCTAssertEqual(log.entries, ["marker:render"])
+
+        let log2 = RecordingPass.Log()
+        let debug = RecordingPass("debug", .post, log: log2)
+        debug.reads = [.sceneDepth]
+        var resolved = false
+        debug.onEncode = { f in resolved = f.textures[.sceneDepth] != nil }
+        let r2 = try renderer([RecordingPass("vessel", .opaque, log: log2), debug, RecordingPass("marker", .overlay, log: log2)])
+        XCTAssertEqual(r2.failures, [:])
+        try render(r2)
+        XCTAssertEqual(log2.entries, ["vessel:render", "debug:cb"])
+        XCTAssertTrue(resolved, "the depth resolved for it")
     }
 }

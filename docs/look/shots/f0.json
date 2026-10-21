@@ -1,0 +1,24 @@
+{
+  "goldens": "scene",
+  "shots": [
+    {"name": "pad", "scenario": "as506-pad", "aovs": ["depth", "normals"]},
+    {"name": "liftoff", "scenario": "as506-pad", "advance": ["met:8"],
+     "camera": {"yaw": -109, "pitch": 3, "distance": 160}},
+    {"name": "ascent-60s", "scenario": "as506-pad", "advance": ["met:60"],
+     "camera": {"yaw": 149, "pitch": -11.5, "distance": 220}},
+    {"name": "sic-sii-separation", "scenario": "as506-pad", "advance": ["ev:S-IC/S-II separation", "wait:0.3"],
+     "camera": {"yaw": 69, "pitch": 17, "distance": 140}, "aovs": ["luminance"]},
+    {"name": "parking-orbit", "scenario": "as506-parking-orbit",
+     "camera": {"yaw": -34.4, "pitch": 20, "distance": 70}},
+    {"name": "earth-and-orbit", "scenario": "as506-parking-orbit",
+     "camera": {"target": "body:399", "frame": "inertial", "yaw": 223.5, "pitch": 22.9, "distance": 22000000}},
+    {"name": "csm-separation", "scenario": "as506-parking-orbit", "advance": ["stage", "wait:6"],
+     "camera": {"yaw": -114.6, "pitch": 22.9, "distance": 45}},
+    {"name": "entry-glow", "scenario": "apollo7-cm-ei", "advance": ["wait:330"],
+     "camera": {"frame": "vessel", "yaw": 126, "pitch": -17.2, "distance": 14}},
+    {"name": "main-chutes", "scenario": "apollo7-cm-ei", "advance": ["ev:mains deployed", "wait:25"],
+     "camera": {"yaw": -149, "pitch": 5.7, "distance": 70}},
+    {"name": "moon", "scenario": "llo",
+     "camera": {"target": "body:301", "frame": "inertial", "yaw": 114.6, "pitch": 17.2, "distance": 6000000}}
+  ]
+}

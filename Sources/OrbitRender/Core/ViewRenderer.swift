@@ -14,6 +14,21 @@ public protocol SceneSource: AnyObject {
     /// This frame's scene for a drawable of `viewport`, nil when there is
     /// nothing to draw.
     func scene(viewport: RenderScene.Viewport, realTime: Double) -> RenderScene?
+    /// The settings to render with (the debug view of F9, the timings of F10).
+    var renderSettings: RenderSettings { get }
+    /// Whether a snapshot was asked for (F12) since the last frame; asking clears it.
+    func takeSnapshotRequest() -> Bool
+    /// The latest finished frame's GPU times, after each frame.
+    func didRender(_ report: FrameReport)
+    /// Where a snapshot was written, or why it was not.
+    func didSnapshot(_ result: Result<URL, Error>)
+}
+
+extension SceneSource {
+    public var renderSettings: RenderSettings { RenderSettings() }
+    public func takeSnapshotRequest() -> Bool { false }
+    public func didRender(_ report: FrameReport) {}
+    public func didSnapshot(_ result: Result<URL, Error>) {}
 }
 
 /// The MTKView's delegate: each frame it ticks the source, takes its scene
@@ -56,6 +71,12 @@ public final class ViewRenderer: NSObject, MTKViewDelegate {
                                             pointScale: Double(view.window?.backingScaleFactor ?? 2))
         guard let scene = source.scene(viewport: viewport, realTime: now),
               let drawable = view.currentDrawable else { return }
+        renderer.settings = source.renderSettings
+        renderer.profiling = renderer.settings.debug.showPassTimings
         renderer.render(scene, to: drawable.texture, present: drawable)
+        if let report = renderer.lastReport { source.didRender(report) }
+        if source.takeSnapshotRequest() {
+            source.didSnapshot(Result { try AppSnapshot.write(scene, renderer: renderer) })
+        }
     }
 }

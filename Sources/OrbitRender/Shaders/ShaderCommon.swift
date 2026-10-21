@@ -113,36 +113,36 @@ struct PointUniforms {
 
 // Distance along the view axis (m) from a reversed-Z depth: exact for the
 // infinite projection.
-static inline float orbit_linearDepth(float depth, float near) {
+inline float orbit_linearDepth(float depth, float near) {
     return near / max(depth, 1e-30);
 }
 
 // The view ray through pixel `p` (pixel centres at +0.5), in view axes, not
 // normalised (z = -1).
-static inline float3 orbit_viewRay(float2 p, constant FrameUniforms &f) {
+inline float3 orbit_viewRay(float2 p, constant FrameUniforms &f) {
     float2 ndc = float2(2.0 * p.x * f.viewport.z - 1.0, 1.0 - 2.0 * p.y * f.viewport.w);
     return float3(ndc.x * f.camera.y * f.camera.z, ndc.y * f.camera.y, -1.0);
 }
 
 // Karis' tone-mapped weighting, so an MSAA resolve does not alias bright
 // highlights: encode before the resolve, decode after.
-static inline float4 orbit_encodeHDR(float4 c) {
+inline float4 orbit_encodeHDR(float4 c) {
     return float4(c.rgb / (1.0 + max(c.r, max(c.g, c.b))), c.a);
 }
-static inline float4 orbit_decodeHDR(float4 c) {
+inline float4 orbit_decodeHDR(float4 c) {
     return float4(c.rgb / max(1.0 - max(c.r, max(c.g, c.b)), 1e-4), c.a);
 }
 
 // NaN or infinity, from the bit pattern: fast math may fold isnan away.
-static inline bool orbit_isNotFinite(float x) {
+inline bool orbit_isNotFinite(float x) {
     return (as_type<uint>(x) & 0x7f800000u) == 0x7f800000u;
 }
-static inline bool orbit_isNotFinite(float3 v) {
+inline bool orbit_isNotFinite(float3 v) {
     return orbit_isNotFinite(v.x) || orbit_isNotFinite(v.y) || orbit_isNotFinite(v.z);
 }
 
 // VertexV2's ids: x material, y paint set, z decal set.
-static inline uint3 orbit_surfaceIDs(float packed) {
+inline uint3 orbit_surfaceIDs(float packed) {
     uint v = uint(rint(packed));
     return uint3(v & 255u, (v >> 8) & 255u, v >> 16);
 }

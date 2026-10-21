@@ -63,4 +63,32 @@ final class ShaderCompileTests: XCTestCase {
         XCTAssertEqual(Int(v[5]), MemoryLayout<PointUniforms>.stride, "PointUniforms")
         XCTAssertEqual([v[6], v[7], v[8]], [7, 9, 200], "the packed surface ids decode as OrbitScene packs them")
     }
+
+    /// Every module compiles with the Metal compiler's warnings on and none
+    /// raised, as `scripts/check-shaders.sh` checks (skipped without Xcode's
+    /// Metal toolchain).
+    func testEveryModuleCompilesWithoutWarnings() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("orbitsim-shaders-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        func metal(_ args: [String]) throws -> (status: Int32, output: String) {
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+            p.arguments = ["-sdk", "macosx", "metal"] + args
+            let pipe = Pipe()
+            p.standardOutput = pipe
+            p.standardError = pipe
+            try p.run()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            p.waitUntilExit()
+            return (p.terminationStatus, String(decoding: data, as: UTF8.self))
+        }
+        guard (try? metal(["--version"]))?.status == 0 else { throw XCTSkip("no Metal toolchain (xcrun metal)") }
+        for module in ShaderModule.all {
+            let source = dir.appendingPathComponent("\(module.name).metal")
+            try module.fullSource.write(to: source, atomically: true, encoding: .utf8)
+            let r = try metal(["-Wall", "-Werror", "-c", source.path, "-o", dir.appendingPathComponent("\(module.name).air").path])
+            XCTAssertEqual(r.status, 0, "\(module.name): \(r.output)")
+        }
+    }
 }
