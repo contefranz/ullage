@@ -29,6 +29,12 @@ extension ApolloShapeData {
     /// What is left of a ramp's section where it meets the skin: a sliver,
     /// capped, rather than a line, which would leave the prism open.
     static let sICRampEnd = 0.02
+    /// How far (in) the prisms standing on a skin (scoops, tunnels, vent,
+    /// ullage and ordnance fairings) sink their feet below it, along its
+    /// arc: deeper than the 144-gon's facets fall inside its circle (0.047
+    /// in), so no gap shows under a flank, and shallower than the
+    /// interstage's 0.071 in wall, so no foot shows inside it.
+    static let sICPrismSink = 0.055
 
     // MARK: Engine fairings (§2.3: ALM 1.9201)
     //
@@ -72,6 +78,11 @@ extension ApolloShapeData {
     static let sICFinFlatChord = 0.0877 * almCaliber // in: 34.7 (H)
     static let sICFinRootThickness = 0.0364 * almCaliber // in at the trailing edge: 14.4 (H)
     static let sICFinTipThickness = 0.0101 * almCaliber // in: 4.0 (H)
+    /// How far (in) inside the fairing's generatrix the flat section's root
+    /// runs: more than the cone falls away under the fin's faces (0.36 in
+    /// at the ramp's end), so the root leaves no slit, and no more, since
+    /// below the lunate panel the fairing is open round the engine.
+    static let sICFinRootSink = 0.5
 
     // MARK: Retros, hold-downs, tunnels, vents, curtains (§2.5-§2.7)
 
@@ -103,9 +114,13 @@ extension ApolloShapeData {
     static let sICLOXVents = [90.0, 270.0]           // deg (L)
     static let sICLOXVentFairing = (bottom: 1_500.0, top: 1_536.0, radius: 6.0)   // STA, in (L)
     /// Each F-1's flexible curtain closes the gap from its interface panel
-    /// to the heat shield (NR p. 3-7, M); not dimensioned: a cone round the
-    /// engine from 4 in below its gimbal to the shield (L).
-    static let sICCurtain = (bottom: 96.0, bottomRadius: 34.0, topRadius: 80.0)   // STA, in (L)
+    /// to the heat shield (NR p. 3-7, M); not dimensioned: a skirt round the
+    /// engine's upper block from 4 in below its gimbal to the shield (L).
+    /// At its foot it clears the turbopump (74 in from the engine's axis,
+    /// within R1's 75.75 in) by 3 in and the inlet block (72 in) by more,
+    /// room for the engine's gimballing that near the gimbal plane; at the
+    /// shield it stays inside the outboard fairing's cone (83.25 in there).
+    static let sICCurtain = (bottom: 96.0, bottomRadius: 77.0, topRadius: 81.0)   // STA, in (L)
 
     // MARK: F-1 in flight configuration (§8.1: R1 Fig. 2-22 unless noted)
     //
@@ -168,17 +183,40 @@ extension ApolloShapeData {
     /// The white separation ridges at STA 1564 and 1760, 4 in wide (VD2
     /// 506-040/041, M), 1 in proud (L).
     static let sICSIIRidge = (width: 4.0, height: 1.0)   // in (M; L)
-    /// The S-II ullage motors (89 × 12.5 in, M503 p. 5-24, H) in fairings:
-    /// the bottom at STA 1563.56 (BCD, H), the top at XB 176.68, STA 1740.68
-    /// (BCD prints 3.725 m beside it, which is 1710.65: L; VD2's paint rows
-    /// take 1740.70); 24 in wide (VD2's 7° white strips, M), 22 in proud to
-    /// hold the motor and its canted nozzle (L), and pointed.
+    /// The S-II ullage motors (89 × 12.5 in, M503 p. 5-24, H), each in a
+    /// fairing from STA 1563.56 (BCD, H) to a pointed top at STA 1710.68
+    /// (M), 24 in wide (VD2's 7° white strips, M) and 22 in proud, room for
+    /// the motor at the physics' radius and its canted nozzle (L), centred
+    /// 4.0° anticlockwise of each fin line (M). The physics' motors stay at
+    /// Positions I-IV (`AS506`, L): the fairings, and the exits drawn at
+    /// their feet, are where the photos put them, and each exit is linked
+    /// to a motor by name, motor n to fin n's fairing.
+    ///
+    /// Azimuth. S68-49405 looks at Position I square on (camera at θ 6.6°)
+    /// and shows no fairing there, but white strips just anticlockwise of
+    /// fins D and A; S68-55424 shows fin B's (VD2's rows 503-050, 051 and
+    /// 053, M; docs/data/markings/digitised). A fairing's relief shifts the
+    /// edges it shows away from the camera, all but the root of its flank
+    /// on the camera's side: 45.4° on A, 321.9° on D and 142.8° on B, which
+    /// put a 24 in fairing's centre 3.9°, 3.4° and 4.3° past its fin. That
+    /// is the rows' 45.5-52.5° etc. (4.0°); Oikofuge's 16 in (4.6°,
+    /// secondary) is within the photos' spread, and M503 Fig. 5-2's Positions
+    /// I-IV (the datasheet's §3, M) are a schematic's.
+    ///
+    /// Top. BCD prints "176.68 / 3.725" (XB, in and m), which disagree.
+    /// BCD truncates its metre values (284.00 → 7.213, 112.00 → 2.844,
+    /// 207.00 → 5.257), so 3.725 m is XB 146.654-146.693: 146.68, the inch
+    /// value with one digit (7 for 4) misprinted, while 176.68 would print
+    /// 4.487. The LH2 feed-line fairings on the same azimuths (39.0-52.2° on
+    /// fin A, 503-055) start at STA 1722 (BCD, H), which a top at 1740.68
+    /// would run 19 in into.
     static let sIIUllageMotorLength = 89.0           // in (H)
     static let sIIUllageMotorDiameter = 12.5         // in (H)
-    static let sIIUllageFairingBottom = 1_563.56     // STA (H)
-    static let sIIUllageFairingTop = 1_740.68        // STA (L)
+    static let sIIUllageFairingBottom = 1_563.56     // STA, XB -0.44 (H)
+    static let sIIUllageFairingTop = 1_710.68        // STA, XB 146.68 (M)
     static let sIIUllageFairingWidth = 24.0          // in (M)
     static let sIIUllageFairingHeight = 22.0         // in (L)
+    static let sIIUllageFairingPastFin = 4.0         // deg anticlockwise of fins A-D, VD2 (M)
     static let sIIUllageExitDiameter = 8.0           // in, estimate (L)
     /// The separation ordnance's two fairings at the first plane (D5 Table
     /// 6-II: θ 55° and 235°, instrumented at STA 1568, H); their size is an
@@ -266,28 +304,83 @@ private func sicFairingRadius(_ sta: Double) -> Double {
     S.sICFairingAftRadius - (sta - S.sICFairingAft) * tan(S.sICFairingHalfAngle * degree)
 }
 
-/// A half-round section on a skin (inches in, metres out): `width` across
-/// (b), standing `height` proud (a), its flat side `inset` below the skin.
-private func sicHalfRound(width: Double, height: Double, inset: Double, steps: Int = 8) -> [Q] {
-    let w = width / 2
-    var q = [Q(-inset * inch, -w * inch, crease: true), Q(0, -w * inch, crease: true)]
-    for k in 1..<steps {
-        let phi = Double.pi * (Double(k) / Double(steps) - 0.5)
-        q.append(Q(height * cos(phi) * inch, w * sin(phi) * inch))
+// Prisms standing on a skin. Their sections' origin is `sICPrismSink`
+// under the skin's tangent point (place them there: `sicSunk`), their base
+// that far under the skin all along its arc. A station that scales a
+// section across by s scales it by s² in height (`sicOnSkin`), so the base
+// follows the arc as it narrows; a ramp (`sicRamp`) does the same. Between
+// two stations whose s differ by Δ the base's feet sink a further Δ²/4 of
+// the arc's drop across the section: the steps here keep that under 0.006
+// in (Δ ≤ 0.2 on the tunnels' 0.57 in drop, 0.24 on the ullage fairings').
+
+/// How far (in) a skin of radius `skin` (in) falls below its tangent plane
+/// `b` in across.
+private func sicDrop(_ b: Double, skin: Double) -> Double { skin - (skin * skin - b * b).squareRoot() }
+
+/// The base of a section `2w` in wide on a skin of radius `skin` (in): from
+/// b = w round to -w along the arc, the feet creased (metres out).
+private func sicBase(_ w: Double, skin: Double) -> [Q] {
+    let n = max(2, Int(w.rounded(.up)))   // 2 in apart at most: the chords sag 0.003 in
+    return (0...n).map { k in
+        let b = w - 2 * w * Double(k) / Double(n)
+        return Q(-sicDrop(b, skin: skin) * inch, b * inch, crease: k == 0 || k == n)
     }
-    return q + [Q(0, w * inch, crease: true), Q(-inset * inch, w * inch, crease: true)]
 }
 
-/// A U section on a skin (inches in, metres out): straight flanks `width`
-/// apart from `inset` below the skin, closed by a semicircle `height` proud.
-private func sicUSection(width: Double, height: Double, inset: Double, steps: Int = 10) -> [Q] {
-    let w = width / 2, centre = height - w
-    var q = [Q(-inset * inch, -w * inch, crease: true), Q(centre * inch, -w * inch)]
+/// A half-round section on a skin of radius `skin` (inches in, metres
+/// out): `width` across (b), standing `height` proud of the tangent point
+/// (a), its flanks dropping to the base.
+private func sicHalfRound(width: Double, height: Double, skin: Double, steps: Int = 8) -> [Q] {
+    let w = width / 2, sink = S.sICPrismSink
+    var q = [Q(sink * inch, -w * inch, crease: true)]
+    for k in 1..<steps {
+        let phi = Double.pi * (Double(k) / Double(steps) - 0.5)
+        q.append(Q((sink + height * cos(phi)) * inch, w * sin(phi) * inch))
+    }
+    return q + [Q(sink * inch, w * inch, crease: true)] + sicBase(w, skin: skin)
+}
+
+/// A U section on a skin of radius `skin` (inches in, metres out):
+/// straight flanks `width` apart rising from the base, closed by a
+/// semicircle `height` proud of the tangent point.
+private func sicUSection(width: Double, height: Double, skin: Double, steps: Int = 10) -> [Q] {
+    let w = width / 2, centre = S.sICPrismSink + height - w
+    var q = [Q(centre * inch, -w * inch)]
     for k in 1..<steps {
         let phi = Double.pi * (Double(k) / Double(steps) - 0.5)
         q.append(Q((centre + w * cos(phi)) * inch, w * sin(phi) * inch))
     }
-    return q + [Q(centre * inch, w * inch), Q(-inset * inch, w * inch, crease: true)]
+    return q + [Q(centre * inch, w * inch)] + sicBase(w, skin: skin)
+}
+
+/// A prism station `x` m along on a skin, its section scaled by `s` across
+/// and s² in height (`PrismStation`'s width is along the reference, out of
+/// the skin): its feet then stay on the arc, as the arc's drop goes as the
+/// square of the distance across.
+private func sicOnSkin(_ x: Double, _ s: Double) -> VisualShape.PrismStation { .init(x, width: s * s, height: s) }
+
+/// The stations of a ramp from its full section at `from` (m along, not
+/// included) to the sliver `sICRampEnd` at `to`: its height falls
+/// linearly, its width as the root of it (`sicOnSkin`), in six equal steps
+/// of the width.
+private func sicRamp(from: Double, to: Double) -> [VisualShape.PrismStation] {
+    let end = S.sICRampEnd.squareRoot()
+    return (1...6).map { k in
+        let s = 1 - (1 - end) * Double(k) / 6
+        return sicOnSkin(from + (to - from) * (1 - s * s) / (1 - S.sICRampEnd), s)
+    }
+}
+
+/// The origin of a section on a skin whose tangent point is `surface`
+/// (construction, m) and whose outward normal there is `normal` (unit):
+/// `sICPrismSink` under it.
+private func sicSunk(_ surface: Vec3, _ normal: Vec3) -> Vec3 { surface - normal * (S.sICPrismSink * inch) }
+
+/// `v` turned `angle` (rad) about the vehicle's axis, towards larger
+/// azimuth.
+private func sicTurned(_ v: Vec3, _ angle: Double) -> Vec3 {
+    let c = cos(angle), s = sin(angle)
+    return Vec3(v.x, v.y * c - v.z * s, v.z * c + v.y * s)
 }
 
 extension ApolloDresser {
@@ -413,23 +506,30 @@ extension ApolloDresser {
         let d = sicOutward(theta), t = Vec3.unitX.cross(d), half = S.sICFairingHalfAngle * degree
         let aft = S.sICScoopStations.lowerBound
         let length = (S.sICScoopStations.upperBound - aft) / cos(half) * inch
-        let section = sicHalfRound(width: S.sICScoopWidth, height: S.sICScoopHeight, inset: 0.5)
+        // Across the generatrix the cone curves with radius r / cos(half),
+        // r its radius at the scoop's full section.
+        let curve = sicFairingRadius(S.sICScoopStations.upperBound) / cos(half)
+        let section = sicHalfRound(width: S.sICScoopWidth, height: S.sICScoopHeight, skin: curve)
         let azimuths = S.sICScoopAzimuths.flatMap { [$0, -$0] }
         return azimuths.map { alpha -> VisualShape in
             let n = d * cos(alpha * degree) + t * sin(alpha * degree)
             let edge = (Vec3.unitX - n * tan(half)).normalized, normal = (n + Vec3.unitX * tan(half)).normalized
             let foot = Vec3(D.station(aft), 0, 0) + d * (S.sICFairingAxis * inch) + n * (sicFairingRadius(aft) * inch)
-            return sICPainted(.prism(section, from: local(foot), axis: edge, reference: normal,
-                                    stations: [.init(0, width: S.sICRampEnd), .init(length)], color: A.white.colour), A.white)
+            return sICPainted(.prism(section, from: local(sicSunk(foot, normal)), axis: edge, reference: normal,
+                                    stations: sicRamp(from: length, to: 0).reversed() + [.init(length)],
+                                    color: A.white.colour), A.white)
         }
     }
 
     // MARK: Fins
 
     /// The fin on diagonal `theta`: its flat aft section and its ramp, each
-    /// a prism along the span from inside the fairing (the root's leading
-    /// edge on the fairing's generatrix) to the tip, scaled with the chord
-    /// and the faces' taper.
+    /// a prism along the span to the tip, scaled with the chord and the
+    /// faces' taper. The ramp starts inside the fairing, where the root's
+    /// leading edge meets the generatrix, closed in above the lunate panel.
+    /// The flat section, over the fairing's open aft end, starts on the
+    /// generatrix: its root, `sICFinRootSink` inside it, runs aft and out
+    /// along it from the ramp's end, where the section is a sliver.
     fileprivate func sICFin(_ theta: Double) -> [VisualShape] {
         let d = sicOutward(theta)
         let trailing = S.sICFinTrailingEdge, ramp = trailing + S.sICFinFlatChord
@@ -442,15 +542,28 @@ extension ApolloDresser {
             let h0 = S.sICFinRootThickness / 2, h1 = S.sICFinTipThickness / 2
             return h1 + (h0 - h1) * (tip - r) / (tip - rootTrailing)
         }
+        /// The flat section's root (in from the vehicle's axis) at STA `sta`.
+        func sunk(_ sta: Double) -> Double { S.sICFairingAxis + sicFairingRadius(sta) - S.sICFinRootSink }
+        func foot(_ sta: Double, _ r: Double) -> Vec3 { local(Vec3(D.station(sta), 0, 0) + d * (r * inch)) }
+
+        // The flat section aft of the ramp's end (a < 0), its full chord
+        // from the trailing edge's root out.
+        let chord = S.sICFinFlatChord, sliver = S.sICRampEnd
+        let r0 = sunk(ramp - sliver * chord), r1 = sunk(trailing)
+        let hf = half(r1)
+        let flat = [Q(-chord * inch, -hf * inch), Q(0, -hf * inch), Q(0, hf * inch),
+                    Q(-chord * inch, hf * inch)].map { Q($0.a, $0.b, crease: true) }
+        let flatStations: [VisualShape.PrismStation] = [
+            .init(0, width: sliver, height: half(r0) / hf), .init((r1 - r0) * inch),
+            .init((tip - r0) * inch, height: half(tip) / hf),
+        ]
+        let flatSection = VisualShape.prism(flat, from: foot(ramp, r0), axis: d, reference: .unitX,
+                                            stations: flatStations, color: A.white.colour)
+
         let h = half(root), thin = half(tip) / h, span = (tip - root) * inch
-        let flat = [Q(0, -h * inch), Q(S.sICFinFlatChord * inch, -h * inch), Q(S.sICFinFlatChord * inch, h * inch),
-                    Q(0, h * inch)].map { Q($0.a, $0.b, crease: true) }
         let rampChord = S.sICFinRootLeadingEdge - ramp
         let wedge = [Q(0, -h * inch, crease: true), Q(rampChord * inch, 0, crease: true), Q(0, h * inch, crease: true)]
-        func foot(_ sta: Double) -> Vec3 { local(Vec3(D.station(sta), 0, 0) + d * (root * inch)) }
-        let flatSection = VisualShape.prism(flat, from: foot(trailing), axis: d, reference: .unitX,
-                                            stations: [.init(0), .init(span, height: thin)], color: A.white.colour)
-        let rampSection = VisualShape.prism(wedge, from: foot(ramp), axis: d, reference: .unitX,
+        let rampSection = VisualShape.prism(wedge, from: foot(ramp, root), axis: d, reference: .unitX,
                                             stations: [.init(0), .init(span, width: (tipLeading - ramp) / rampChord,
                                                                        height: thin)], color: A.white.colour)
         return [sICPainted(flatSection, A.white), sICPainted(rampSection, A.white)]
@@ -472,30 +585,33 @@ extension ApolloDresser {
 
     /// The two tunnels, each from its rounded aft end to its forward ramp.
     fileprivate func sICTunnels() -> [VisualShape] {
-        let r = S.sICTunnelRadius
-        let section = sicHalfRound(width: 2 * r, height: r, inset: 1)
+        let r = S.sICTunnelRadius, skin = D.bodyDiameter / 2
+        let section = sicHalfRound(width: 2 * r, height: r, skin: skin)
         return S.sICTunnels.map { tunnel in
             let d = sicOutward(tunnel.azimuth), length = tunnel.forward - S.sICTunnelAft
-            var stations: [VisualShape.PrismStation] = (0...4).map { k in
-                let a = Double(k) / 4 * Double.pi / 2
-                return .init(r * (1 - cos(a)) * inch, width: sin(a), height: sin(a))
+            // Round in plan at the aft end, as a parabola in elevation.
+            var stations: [VisualShape.PrismStation] = (0...8).map { k in
+                let a = Double(k) / 8 * Double.pi / 2
+                return sicOnSkin(r * (1 - cos(a)) * inch, sin(a))
             }
-            stations += [.init((length - S.sICTunnelRamp) * inch), .init(length * inch, width: S.sICRampEnd)]
-            let base = Vec3(D.station(S.sICTunnelAft), 0, 0) + d * (D.bodyDiameter / 2 * inch)
-            return sICPainted(.prism(section, from: local(base), axis: .unitX, reference: d, stations: stations,
-                                    color: A.white.colour), A.white)
+            let rampFoot = (length - S.sICTunnelRamp) * inch
+            stations += [.init(rampFoot)] + sicRamp(from: rampFoot, to: length * inch)
+            let base = Vec3(D.station(S.sICTunnelAft), 0, 0) + d * (skin * inch)
+            return sICPainted(.prism(section, from: local(sicSunk(base, d)), axis: .unitX, reference: d,
+                                    stations: stations, color: A.white.colour), A.white)
         }
     }
 
     /// The LOX vents' fairings on the forward skirt, open aft, ramped forward.
     fileprivate func sICLOXVentFairings() -> [VisualShape] {
-        let v = S.sICLOXVentFairing
-        let section = sicHalfRound(width: 2 * v.radius, height: v.radius, inset: 1)
+        let v = S.sICLOXVentFairing, skin = D.bodyDiameter / 2
+        let section = sicHalfRound(width: 2 * v.radius, height: v.radius, skin: skin)
         return S.sICLOXVents.map { theta in
-            let base = Vec3(D.station(v.bottom), 0, 0) + sicOutward(theta) * (D.bodyDiameter / 2 * inch)
+            let d = sicOutward(theta)
+            let base = Vec3(D.station(v.bottom), 0, 0) + d * (skin * inch)
             let full = (v.top - v.bottom - 2 * v.radius) * inch
-            return sICPainted(.prism(section, from: local(base), axis: .unitX, reference: sicOutward(theta),
-                                    stations: [.init(0), .init(full), .init((v.top - v.bottom) * inch, width: S.sICRampEnd)],
+            return sICPainted(.prism(section, from: local(sicSunk(base, d)), axis: .unitX, reference: d,
+                                    stations: [.init(0), .init(full)] + sicRamp(from: full, to: (v.top - v.bottom) * inch),
                                     color: A.white.colour), A.white)
         }
     }
@@ -537,8 +653,8 @@ extension ApolloDresser {
 
     // MARK: F-1
 
-    /// The curtain from engine `t` up to the heat shield, fixed to the
-    /// structure (not gimballed).
+    /// The curtain round engine `t`'s upper block up to the heat shield,
+    /// fixed to the structure (not gimballed).
     fileprivate func sICCurtain(_ t: Thruster) -> VisualShape {
         let c = S.sICCurtain, g = t.position + construction
         let bottom = D.station(c.bottom), top = D.station(S.sICHeatShieldTop - S.sICHeatShieldThickness)
@@ -656,12 +772,10 @@ extension ApolloDresser {
     // MARK: S-IC/S-II interstage
 
     /// The interstage above the separation plane: its walls, the S-II
-    /// ullage motors' fairings (eight on AS-501) and the ordnance fairings.
+    /// ullage motors' fairings and the ordnance fairings.
     fileprivate func sICSIIInterstage() -> [VisualShape] {
-        var azimuths = sIIUllageMotors().map { sicAzimuth($0.start) }
-        if variant.launchVehicle == .as501 { azimuths += azimuths.map { $0 + 45 } }
-        return sICSIIWall(D.sICSIISeparationPlane, D.sIIAftSkirt, ridgeBelow: true, ridgeAbove: true)
-            + azimuths.map(sIIUllageFairing) + S.sICSIIOrdnanceFairings.map(sICSIIOrdnanceFairing)
+        sICSIIWall(D.sICSIISeparationPlane, D.sIIAftSkirt, ridgeBelow: true, ridgeAbove: true)
+            + sIIUllageFairings() + S.sICSIIOrdnanceFairings.map(sICSIIOrdnanceFairing)
     }
 
     /// The interstage's skin from STA `bottom` to `top`: white outside, the
@@ -687,55 +801,64 @@ extension ApolloDresser {
         return shapes
     }
 
-    /// The S-II ullage motors' thrust points (construction) and exhausts:
-    /// the part's motors, or Positions I-IV where it has none.
-    fileprivate func sIIUllageMotors() -> [(start: Vec3, exhaust: Vec3, thruster: String?)] {
-        let motors = part.thrusters.filter { $0.isSolid && $0.name.contains("ullage") }
-        if !motors.isEmpty { return motors.map { ($0.position + construction, -$0.direction, $0.name) } }
-        return [0.0, 90, 180, 270].map { theta in
-            let d = sicOutward(theta), cant = D.sIIUllageMotorCant * degree
-            return (Vec3(D.station(D.sIIUllageMotorStation), 0, 0) + d * D.sIIUllageMotorRadius,
-                    d * sin(cant) - Vec3.unitX * cos(cant), nil)
-        }
+    /// The S-II ullage motors' fairings' azimuths (deg), `sIIUllageFairingPastFin`
+    /// anticlockwise of fins A-D, in the order of the motors they stand for
+    /// (`sIIUllageExits`).
+    static var sIIUllageFairingAzimuths: [Double] {
+        [45.0, 135.0, 225.0, 315.0].map { $0 + S.sIIUllageFairingPastFin }
     }
 
-    /// A motor's fairing on azimuth `theta`: full round the motor from the
-    /// separation plane to its top, then tapering to a point.
-    fileprivate func sIIUllageFairing(_ theta: Double) -> VisualShape {
-        let bottom = S.sIIUllageFairingBottom
+    /// The S-II ullage motors' fairings on the interstage: four, and on
+    /// AS-501 eight (D5 §6.2.2), the other four half-way between (L). Each
+    /// is full round its motor from STA 1563.56 to 1 in above the motor's
+    /// top, the motor 89 in up from the separation plane at the physics'
+    /// radius, then tapers to a point at its top: by 1 - f² across and its
+    /// square in height, f from 0 to 1, so it fairs into the skin.
+    func sIIUllageFairings() -> [VisualShape] {
+        var azimuths = A.sIIUllageFairingAzimuths
+        if variant.launchVehicle == .as501 { azimuths += azimuths.map { $0 + 45 } }
+        let bottom = S.sIIUllageFairingBottom, skin = D.bodyDiameter / 2
         let full = D.sICSIISeparationPlane + S.sIIUllageMotorLength + 1 - bottom
         let taper = S.sIIUllageFairingTop - bottom - full
         var stations: [VisualShape.PrismStation] = [.init(0), .init(full * inch)]
-        for k in 1...4 {
-            let f = Double(k) / 4, scale = 1 - f * f
-            stations.append(.init((full + taper * f) * inch, width: scale, height: scale))
+        for k in 1...8 {
+            let f = Double(k) / 8
+            stations.append(sicOnSkin((full + taper * f) * inch, 1 - f * f))
         }
-        let section = sicUSection(width: S.sIIUllageFairingWidth, height: S.sIIUllageFairingHeight, inset: 1)
-        let base = Vec3(D.station(bottom), 0, 0) + sicOutward(theta) * (D.bodyDiameter / 2 * inch)
-        return sICPainted(.prism(section, from: local(base), axis: .unitX, reference: sicOutward(theta),
-                                stations: stations, color: A.white.colour), A.white)
+        let section = sicUSection(width: S.sIIUllageFairingWidth, height: S.sIIUllageFairingHeight, skin: skin)
+        return azimuths.map { theta in
+            let d = sicOutward(theta), base = Vec3(D.station(bottom), 0, 0) + d * (skin * inch)
+            return sICPainted(.prism(section, from: local(sicSunk(base, d)), axis: .unitX, reference: d,
+                                    stations: stations, color: A.white.colour), A.white)
+        }
     }
 
     /// An ordnance fairing on azimuth `theta`, above the separation plane.
     fileprivate func sICSIIOrdnanceFairing(_ theta: Double) -> VisualShape {
-        let f = S.sICSIIOrdnanceFairing, bottom = D.sICSIISeparationPlane
-        let section = sicHalfRound(width: 2 * f.radius, height: f.radius, inset: 1)
-        let base = Vec3(D.station(bottom), 0, 0) + sicOutward(theta) * (D.bodyDiameter / 2 * inch)
-        return sICPainted(.prism(section, from: local(base), axis: .unitX, reference: sicOutward(theta),
-                                stations: [.init(0), .init((f.full - bottom) * inch),
-                                           .init((f.top - bottom) * inch, width: S.sICRampEnd)],
+        let f = S.sICSIIOrdnanceFairing, bottom = D.sICSIISeparationPlane, skin = D.bodyDiameter / 2
+        let section = sicHalfRound(width: 2 * f.radius, height: f.radius, skin: skin)
+        let d = sicOutward(theta), base = Vec3(D.station(bottom), 0, 0) + d * (skin * inch)
+        let full = (f.full - bottom) * inch
+        return sICPainted(.prism(section, from: local(sicSunk(base, d)), axis: .unitX, reference: d,
+                                stations: [.init(0), .init(full)] + sicRamp(from: full, to: (f.top - bottom) * inch),
                                 color: A.white.colour), A.white)
     }
 
-    /// The ullage exits on the fairings' aft faces, where each motor's
-    /// exhaust line crosses them.
-    fileprivate func sIIUllageExits() -> [VisualAttachment] {
-        sIIUllageMotors().compactMap { m in
-            guard let name = m.thruster else { return nil }
-            let l = (m.start.x - D.station(S.sIIUllageFairingBottom)) / -m.exhaust.x
-            return VisualAttachment(name: name, kind: .ullageExit, position: local(m.start + m.exhaust * l),
-                                    direction: m.exhaust, radius: S.sIIUllageExitDiameter / 2 * inch,
-                                    thruster: name)
+    /// The ullage exits, one per S-II ullage motor of the part, motor n on
+    /// fin n's fairing: each motor's thrust point and exhaust turned about
+    /// the vehicle's axis to its fairing, the exit where that exhaust line
+    /// crosses the fairing's foot (STA 1563.56). The motors themselves stay
+    /// where the physics has them.
+    func sIIUllageExits() -> [VisualAttachment] {
+        let motors = part.thrusters.filter { $0.isSolid && $0.name.contains("ullage") }
+        return zip(motors, A.sIIUllageFairingAzimuths).map { t, theta in
+            let thrust = t.position + construction
+            let turn = (theta - sicAzimuth(thrust)) * degree
+            let start = sicTurned(thrust, turn), exhaust = sicTurned(-t.direction, turn)
+            let l = (start.x - D.station(S.sIIUllageFairingBottom)) / -exhaust.x
+            return VisualAttachment(name: t.name, kind: .ullageExit, position: local(start + exhaust * l),
+                                    direction: exhaust, radius: S.sIIUllageExitDiameter / 2 * inch,
+                                    thruster: t.name)
         }
     }
 }

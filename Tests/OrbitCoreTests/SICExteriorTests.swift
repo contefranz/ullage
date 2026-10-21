@@ -56,23 +56,39 @@ final class SICExteriorTests: XCTestCase {
     /// `a` - `b` (deg) within half a turn.
     func turn(_ a: Double, _ b: Double) -> Double { remainder(a - b, 360) }
 
-    /// The silhouette at STA `sta`: how far (in) the triangles reach along
-    /// the unit `direction` across the axis in the plane x = STA; nil if
-    /// none crosses it.
-    func reach(_ t: [VisualShape.Vertex], at sta: Double, along direction: Vec3) -> Double? {
+    /// Where the triangles' edges cross the plane x = STA `sta` (construction,
+    /// m); only the edges parallel to the vehicle's axis if `ribs`, which
+    /// in a prism of constant section give its section's points.
+    func crossings(_ t: [VisualShape.Vertex], at sta: Double, ribs: Bool = false) -> [Vec3] {
         let x = sta * inch
-        var best: Double?
+        var points: [Vec3] = []
         for i in stride(from: 0, to: t.count, by: 3) {
             for k in 0..<3 {
                 let p = t[i + k].position, q = t[i + (k + 1) % 3].position
                 let dp = p.x - x, dq = q.x - x
-                guard dp * dq <= 0 else { continue }
+                guard dp * dq <= 0, !ribs || Vec3(0, q.y - p.y, q.z - p.z).length < 1e-12 else { continue }
                 let f = dp == dq ? 0 : dp / (dp - dq)
-                let c = p + (q - p) * f
-                best = max(best ?? -Double.infinity, c.dot(direction) / inch)
+                points.append(p + (q - p) * f)
             }
         }
-        return best
+        return points
+    }
+
+    /// The silhouette at STA `sta`: how far (in) the triangles reach along
+    /// the unit `direction` across the axis in the plane x = STA; nil if
+    /// none crosses it.
+    func reach(_ t: [VisualShape.Vertex], at sta: Double, along direction: Vec3) -> Double? {
+        crossings(t, at: sta).map { $0.dot(direction) / inch }.max()
+    }
+
+    /// The distance (in) of construction point `c` from the line parallel
+    /// to the vehicle's axis through `axis`.
+    func off(_ c: Vec3, from axis: Vec3) -> Double { Vec3(0, c.y - axis.y, c.z - axis.z).length / inch }
+
+    /// `v` turned `angle` (deg) about the vehicle's axis, towards larger azimuth.
+    func turned(_ v: Vec3, _ angle: Double) -> Vec3 {
+        let c = cos(angle * Double.pi / 180), s = sin(angle * Double.pi / 180)
+        return Vec3(v.x, v.y * c - v.z * s, v.z * c + v.y * s)
     }
 
     /// The ALM sheets' caliber (in).
@@ -84,6 +100,9 @@ final class SICExteriorTests: XCTestCase {
     func fairingGeneratrix(_ sta: Double) -> Double {
         (0.4596 + 0.2526) * cal - (sta - 48.5) * tan(15 * Double.pi / 180)
     }
+
+    /// The fairing's cone's radius (in) about its own axis at STA `sta`.
+    func fairingRadius(_ sta: Double) -> Double { fairingGeneratrix(sta) - 0.4596 * cal }
 
     /// The fins' tip (in from the axis): 0.2601 cal (103.0 in) of span out
     /// from the fairing at the trailing edge, STA 81.277 (§2.4: 376.2 in).
@@ -169,6 +188,34 @@ final class SICExteriorTests: XCTestCase {
         XCTAssertEqual(2 * atan(half(root, ramp) / chord) * 180 / Double.pi, 10, accuracy: 0.5)
     }
 
+    // Below the lunate panel (STA 112) the fairing is open round the engine,
+    // so the fin's flat section starts on the fairing: its root runs half
+    // an inch inside the generatrix from the trailing edge to the ramp's
+    // end (STA 81.277 to 115.977), nothing of the fin inside the cone
+    // deeper than that, and the root's corners, on the fin's faces, under
+    // the cone (no slit).
+    func testFinRootsOnTheFairings() {
+        let sIC = part("S-IC"), offset = sIC.offset - Self.stack.structureOrigin
+        for fin in [45.0, 135.0, 225.0, 315.0] {
+            let d = outward(fin), axis = d * (182 * inch)
+            let t = sIC.shapes.filter { s in
+                guard case .prism = s.kind, s.axis.dot(d) > 0.999 else { return false }
+                return true
+            }.flatMap { $0.triangles(offset: offset) }
+            for sta in stride(from: 81.3, through: 111.9, by: 0.5) {
+                let points = crossings(t, at: sta)
+                XCTAssertFalse(points.isEmpty, "fin at \(fin), STA \(sta)")
+                let inside = points.map { fairingRadius(sta) - off($0, from: axis) }
+                XCTAssertLessThanOrEqual(inside.max()!, 0.5 + 1e-6, "fin at \(fin), STA \(sta)")
+                // The root's corners: the crossings nearest the vehicle's axis.
+                let root = points.map { $0.dot(d) }.min()!
+                let corners = points.filter { $0.dot(d) < root + 1e-9 }
+                XCTAssertGreaterThanOrEqual(corners.count, 2)
+                for c in corners { XCTAssertGreaterThan(fairingRadius(sta) - off(c, from: axis), 0, "STA \(sta)") }
+            }
+        }
+    }
+
     // MARK: Engine fairings and retros (§2.3, §2.5)
 
     // Four half-cones on the diagonals: 100 in at STA 48.5 on an axis
@@ -216,6 +263,77 @@ final class SICExteriorTests: XCTestCase {
             XCTAssertEqual((port.direction + motor.direction).length, 0, accuracy: 1e-12)
             XCTAssertEqual(acos(port.direction.x) * 180 / Double.pi, 7.5, accuracy: 1e-9)
             XCTAssertEqual(port.radius / inch, 15.25 / 2, accuracy: 1e-9)
+        }
+    }
+
+    // MARK: Prisms on the skins
+
+    // The prisms standing on the 198 in skin (the tunnels, the LOX vent
+    // fairings, the ullage and ordnance fairings) sink their feet under it
+    // along its arc: deeper than the 144-gon's facets fall inside its circle
+    // (0.047 in), so no gap shows under a flank, and nowhere, ramps and
+    // tapers included, deeper than the interstage's 0.071 in wall, so no
+    // base shows inside it or inside the open forward skirt. The scoops do
+    // the same on their fairing's cone, whose facets fall 0.027 in inside it.
+    func testPrismsSinkIntoTheirSkin() {
+        let sIC = part("S-IC"), interstage = part("S-IC/S-II interstage")
+        func alongTheAxis(_ s: VisualShape) -> Bool {
+            guard case .prism = s.kind, s.thruster == nil else { return false }   // not the F-1s' inlet blocks
+            return abs(s.axis.x) > 1 - 1e-12
+        }
+        // Each with a station where its section is full.
+        let skin = sIC.shapes.filter(alongTheAxis).map { (sIC, $0) }
+            + interstage.shapes.filter(alongTheAxis).map { (interstage, $0) }
+        XCTAssertEqual(skin.count, 2 + 2 + 4 + 2, "tunnels, vents, ullage and ordnance fairings")
+        /// Planes (STA) across `t`: every quarter inch over its 40 in ends,
+        /// where it ramps or tapers, every 10 in between.
+        func planes(_ t: [VisualShape.Vertex]) -> [Double] {
+            let x = t.map { $0.position.x / inch }, low = x.min()!, high = x.max()!
+            return stride(from: low, through: high, by: 0.25).filter { $0 < low + 40 || $0 > high - 40 }
+                + Array(stride(from: low + 40, to: high - 40, by: 10))
+        }
+        for (p, s) in skin {
+            let t = s.triangles(offset: p.offset - Self.stack.structureOrigin)
+            let low = t.map(\.position.x).min()! / inch, high = t.map(\.position.x).max()! / inch
+            var deepest = 0.0
+            for sta in planes(t) {
+                for c in crossings(t, at: sta) { deepest = max(deepest, 198 - Vec3(0, c.y, c.z).length / inch) }
+            }
+            XCTAssertLessThan(deepest, 0.071 - 0.005, "\(p.name) from STA \(low)")
+            // A third of the way up, where each is full: the section's base.
+            let sta = low + (high - low) / 3
+            let base = crossings(t, at: sta, ribs: true).map { 198 - Vec3(0, $0.y, $0.z).length / inch }.filter { $0 > 0 }
+            XCTAssertGreaterThanOrEqual(base.count, 3, "\(p.name) at STA \(sta)")
+            for b in base {
+                XCTAssertGreaterThan(b, 0.047, "\(p.name) at STA \(sta)")
+                XCTAssertLessThan(b, 0.071, "\(p.name) at STA \(sta)")
+            }
+        }
+
+        let offset = sIC.offset - Self.stack.structureOrigin
+        let scoops = sIC.shapes.filter { s in
+            guard case .prism = s.kind else { return false }
+            return abs(s.axis.x - cos(15 * Double.pi / 180)) < 1e-9
+        }
+        XCTAssertEqual(scoops.count, 16)
+        for s in scoops {
+            let t = s.triangles(offset: offset)
+            let c = s.origin + offset, fin = ((azimuth(c) - 45) / 90).rounded() * 90 + 45
+            let axis = outward(fin) * (182 * inch)
+            var deepest = 0.0
+            for sta in planes(t) {
+                for c in crossings(t, at: sta) { deepest = max(deepest, fairingRadius(sta) - off(c, from: axis)) }
+            }
+            XCTAssertLessThan(deepest, 0.071 - 0.005)
+            // The open forward end, full: the ring furthest along the scoop.
+            let along = t.map { ($0.position - c).dot(s.axis) }, front = along.max()!
+            let base = zip(t, along).filter { abs($0.1 - front) < 1e-9 }.map(\.0)
+                .map { fairingRadius($0.position.x / inch) - off($0.position, from: axis) }.filter { $0 > 0 }
+            XCTAssertGreaterThanOrEqual(base.count, 3)
+            for b in base {
+                XCTAssertGreaterThan(b, 0.027)
+                XCTAssertLessThan(b, 0.071)
+            }
         }
     }
 
@@ -371,6 +489,27 @@ final class SICExteriorTests: XCTestCase {
             XCTAssertEqual(faceAft, 150, accuracy: 1e-9, e.name)
             XCTAssertEqual(Set(linked.map(\.material)),
                            [.apolloF1Insulation, .apolloF1Extension, .apolloEngineBell], e.name)
+
+            // The curtain round the upper block, from STA 96 to the shield's
+            // face (111): no part of the engine crosses it, which leaves
+            // more than an inch between them all round; on the outboard
+            // engines it stays inside the fairing's cone.
+            let curtain = try XCTUnwrap(sIC.shapes.first { s in
+                s.material == .apolloSICCurtain && off(s.origin + offset, from: gimbal) < 1e-9
+            }, e.name)
+            let sleeve = curtain.triangles(offset: offset), engine = linked.flatMap { $0.triangles(offset: offset) }
+            let height = sleeve.map { $0.position.x / inch }
+            XCTAssertEqual(height.min()!, 96, accuracy: 1e-9)
+            XCTAssertEqual(height.max()!, 111, accuracy: 1e-9)
+            for sta in stride(from: 96.0, through: 111.0, by: 0.5) {
+                let inner = crossings(sleeve, at: sta).map { off($0, from: gimbal) }.min()!
+                let block = crossings(engine, at: sta).map { off($0, from: gimbal) }.max()!
+                XCTAssertLessThan(block, inner - 1, "\(e.name) at STA \(sta)")
+                if yz.length > 1e-6 {
+                    let outer = crossings(sleeve, at: sta).map { off($0, from: gimbal) }.max()!
+                    XCTAssertLessThan(outer, fairingRadius(sta) - 1, "\(e.name) at STA \(sta)")
+                }
+            }
         }
         // All five exits in one plane, 215.50 in below the gimbal plane.
         let exits = engines.map { e in sIC.shapes.last { $0.thruster == e.name }!.origin.x + offset.x - 215.5 * inch }
@@ -406,24 +545,33 @@ final class SICExteriorTests: XCTestCase {
         XCTAssertEqual(ring.max()! / inch, 1564, accuracy: 1e-9)
         // Ridges 1 in proud at both planes, 4 in wide across the first.
         let all = triangles(sIC) + triangles(interstage)
-        XCTAssertEqual(reach(all, at: 1563, along: outward(30))!, 199, accuracy: 1e-6)
-        XCTAssertEqual(reach(all, at: 1565, along: outward(30))!, 199, accuracy: 1e-6)
-        XCTAssertEqual(reach(all, at: 1759, along: outward(30))!, 199, accuracy: 1e-6)
-        XCTAssertEqual(reach(all, at: 1600, along: outward(30))!, 198, accuracy: 1e-6)
+        XCTAssertEqual(reach(all, at: 1563, along: outward(20))!, 199, accuracy: 1e-6)
+        XCTAssertEqual(reach(all, at: 1565, along: outward(20))!, 199, accuracy: 1e-6)
+        XCTAssertEqual(reach(all, at: 1759, along: outward(20))!, 199, accuracy: 1e-6)
+        XCTAssertEqual(reach(all, at: 1600, along: outward(20))!, 198, accuracy: 1e-6)
+        let ordnance = triangles(interstage) { s in
+            guard case .prism = s.kind else { return false }
+            return s.length / inch < 50
+        }
         for theta in [55.0, 235.0] {
-            XCTAssertGreaterThan(reach(triangles(interstage), at: 1568, along: outward(theta))!, 200)
+            XCTAssertGreaterThan(reach(ordnance, at: 1568, along: outward(theta))!, 200)
         }
     }
 
     // The S-II ullage motors' fairings: four on AS-503 and AS-506 (M503
     // Fig. 1-3; MSFC-MAN-506), eight on AS-501 (D5 §6.2.2); each from STA
-    // 1563.56 to 1740.68 round its 89 × 12.5 in motor, the exit on its aft
-    // face on the motor's exhaust line, 10° out.
-    func testUllageFairings() {
+    // 1563.56 (BCD) to a point at 1710.68 (BCD's XB 146.68, its truncated
+    // 3.725 m), 24 in across and 22 in proud, 4.0° anticlockwise of fins
+    // A-D, where the AS-503 photos show them (VD2's rows 503-050 to 053),
+    // round an 89 × 12.5 in motor at the physics' radius. The motors stay
+    // where the physics has them, at Positions I-IV, STA 1608 (§17). Each
+    // exit sits on its fairing's foot, inside its section, on its motor's
+    // exhaust line turned about the vehicle's axis to the fairing, 10° out.
+    func testUllageFairings() throws {
         func fairings(_ v: Vessel) -> [VisualShape] {
             part("S-IC/S-II interstage", of: v).shapes.filter { s in
                 guard case .prism = s.kind else { return false }
-                return s.length / inch > 170
+                return s.length / inch > 100
             }
         }
         XCTAssertEqual(fairings(Self.stack).count, 4)
@@ -435,26 +583,51 @@ final class SICExteriorTests: XCTestCase {
         }
 
         let interstage = part("S-IC/S-II interstage"), offset = interstage.offset - Self.stack.structureOrigin
+        let motors = interstage.thrusters.filter(\.isSolid)
+        XCTAssertEqual(motors.map(\.name), (1...4).map { "S-II ullage motor \($0)" })
+        for (n, motor) in motors.enumerated() {
+            let m = motor.position + offset
+            XCTAssertEqual(turn(azimuth(m), Double(n) * 90), 0, accuracy: 1e-9, motor.name)
+            XCTAssertEqual(Vec3(0, m.y, m.z).length, 5.24, accuracy: 1e-12, motor.name)
+            XCTAssertEqual(m.x / inch, 1608, accuracy: 1e-9, motor.name)
+        }
         let exits = interstage.attachments.filter { $0.kind == .ullageExit }
-        XCTAssertEqual(exits.count, 4)
-        for (fairing, exit) in zip(fairings(Self.stack), exits) {
+        XCTAssertEqual(exits.compactMap(\.thruster), motors.map(\.name))
+        for (n, (fairing, exit)) in zip(fairings(Self.stack), exits).enumerated() {
+            let theta = 45 + 90 * Double(n) + 4.0, d = outward(theta), across = Vec3.unitX.cross(d)
             let t = fairing.triangles(offset: offset), x = t.map(\.position.x)
             XCTAssertEqual(x.min()! / inch, 1563.56, accuracy: 1e-9)
-            XCTAssertEqual(x.max()! / inch, 1740.68, accuracy: 1e-9)
-            let motor = interstage.thrusters.first { $0.name == exit.thruster }!
-            let m = motor.position + offset, d = Vec3(0, m.y, m.z).normalized
-            XCTAssertEqual(turn(azimuth(fairing.origin + offset), azimuth(m)), 0, accuracy: 1e-9)
+            XCTAssertEqual(x.max()! / inch, 1710.68, accuracy: 1e-9)
+            XCTAssertEqual(turn(azimuth(fairing.origin + offset), theta), 0, accuracy: 1e-9)
+            XCTAssertEqual(reach(t, at: 1600, along: d)!, 198 + 22, accuracy: 1e-6)
+            let side = crossings(t, at: 1600).map { $0.dot(across) / inch }
+            XCTAssertEqual(side.max()! - side.min()!, 24, accuracy: 1e-6)
+            XCTAssertEqual(side.max()! + side.min()!, 0, accuracy: 1e-6)
             // The motor's case, parallel to the axis, from the plane up 89 in.
+            let motor = try XCTUnwrap(interstage.thrusters.first { $0.name == exit.thruster })
+            let m = motor.position + offset
             let caseOut = Vec3(0, m.y, m.z).length / inch + 12.5 / 2
             for sta: Double in [1566, 1610, 1564 + 89] {
                 XCTAssertGreaterThan(reach(t, at: sta, along: d)!, caseOut + 1, "STA \(sta)")
             }
+
+            // The exit on the fairing's foot, inside its section.
             let c = exit.position + offset
             XCTAssertEqual(c.x / inch, 1563.56, accuracy: 1e-9)
-            let run = exit.position - motor.position
-            XCTAssertEqual((run - exit.direction * run.dot(exit.direction)).length, 0, accuracy: 1e-9)
+            XCTAssertEqual(c.dot(across), 0, accuracy: 1e-12)
+            let foot = crossings(t, at: 1563.56).map { $0.dot(d) / inch }
+            XCTAssertGreaterThan(c.dot(d) / inch - exit.radius / inch, foot.min()!)
+            XCTAssertLessThan(c.dot(d) / inch + exit.radius / inch, foot.max()!)
+            XCTAssertLessThan(exit.radius / inch, 24.0 / 2)
+            // On the motor's exhaust line, turned to the fairing.
+            let phi = theta - azimuth(m)
+            let start = turned(m, phi), exhaust = turned(-motor.direction, phi)
+            let run = c - start
+            XCTAssertEqual((run - exhaust * run.dot(exhaust)).length, 0, accuracy: 1e-9)
+            XCTAssertGreaterThan(run.dot(exhaust), 0)
+            XCTAssertEqual((exit.direction - exhaust).length, 0, accuracy: 1e-12)
             XCTAssertEqual(acos(-exit.direction.x) * 180 / Double.pi, 10, accuracy: 1e-9)
-            XCTAssertLessThan(Vec3(0, c.y, c.z).length / inch, reach(t, at: 1563.6, along: d)!)
+            XCTAssertGreaterThan(exit.direction.dot(d), 0, "canted out")
         }
     }
 

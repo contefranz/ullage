@@ -345,8 +345,9 @@ final class VisualShapeTests: XCTestCase {
     // ring's plane at STA 1760; the S-II retros on the aft interstage with
     // the S-II/S-IVB plane at STA 2746.5; the S-IVB's two ullage exits. Each
     // port names its motor and sits on its exhaust line, downstream of its
-    // thrust point; they stay where they were on the stack once their part
-    // has left.
+    // thrust point, the S-II ullage motors' turned about the vehicle's axis
+    // to their fairings, 49° round from the motors (SICExteriorTests); they
+    // stay where they were on the stack once their part has left.
     func testAttachments() throws {
         let stack = VesselLibrary.saturnV()
         func attachments(_ name: String) -> [VisualAttachment] { stack.parts.first { $0.name == name }!.attachments }
@@ -368,10 +369,16 @@ final class VisualShapeTests: XCTestCase {
                 } else {
                     let motor = try XCTUnwrap(part.thrusters.first { $0.name == a.thruster }, a.name)
                     XCTAssertTrue(motor.isSolid)
-                    let run = a.position - motor.position, along = run.dot(a.direction)
+                    // In the construction frame, turned about the vehicle's axis.
+                    let angle = name == "S-IC/S-II interstage" ? 49 * Double.pi / 180 : 0
+                    let c = cos(angle), s = sin(angle)
+                    func turned(_ v: Vec3) -> Vec3 { Vec3(v.x, v.y * c - v.z * s, v.z * c + v.y * s) }
+                    let offset = part.offset - stack.structureOrigin
+                    let thrust = turned(motor.position + offset), exhaust = turned(-motor.direction)
+                    let run = a.position + offset - thrust, along = run.dot(a.direction)
                     XCTAssertEqual((run - a.direction * along).length, 0, accuracy: 1e-9, a.name)
                     XCTAssertGreaterThanOrEqual(along, 0, a.name)
-                    XCTAssertEqual((a.direction + motor.direction).length, 0, accuracy: 1e-12)
+                    XCTAssertEqual((a.direction - exhaust).length, 0, accuracy: 1e-12)
                 }
             }
         }
