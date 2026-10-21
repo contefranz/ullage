@@ -1,0 +1,49 @@
+# CSM-101 (Apollo 7), CSM-103 (Apollo 8) and CSM-107 (Apollo 11) with their SLA, BPC and LES, and Apollo 8's LTA-B:
+# paint, finishes, decals and probe points. Conventions, columns and grades: docs/data/markings/README.md.
+# Stations: Apollo spacecraft stations (Xa, in; STA = Xa + 2756.56). Azimuth as for the Saturn V, from Position I
+# towards Position II; for the spacecraft theta = theta_A + 90, theta_A measured from +Y_A towards +Z_A (VD1/VD3
+# datasheet conventions): +Y_A is Position II, +Z_A Position III, the CM hatch (-Z_A) Position I.
+# Stations of the parts are VD3's (docs/SaturnV-CSM-exterior-datasheet.md §9-§13). Rows are in paint order.
+id,vehicle,element,kind,feature,frame,sta_from,sta_to,az_from,az_to,paint,params,photos,sources,grade,note
+101-001,CSM-101,SM,base,SM skin,Xa,838.0,993.0,0,360,aluminium,finish=bare aluminium,S68-42513;KSC-68P-0273,D6863 (no bare-aluminium alpha/epsilon found),M,"Silver aluminium panels with fastener rows in the KSC photos (Aug 1968, before flight, with red remove-before-flight tags)."
+101-002,CSM-101,SM,region,CM/SM fairing (EPS radiators and panels),Xa,993.0,1014.72,0,360,white,finish=radiator paint (zinc oxide in potassium silicate),S68-42513,"D6863 Table I (radiators white, alpha 0.20, epsilon 0.93); VD3 §10 (eight radiators alternating with eight panels)",L,"The band shows tan with vertical ribs in S68-42513 and S69-32370 (ground covers?); D6863 makes the flown radiators white. The panels between the radiators: finish not found. Disputed: for Franz."
+101-003,CSM-101,SM,region,ECS radiator panel 1,Xa,838.0,880.0,62.75,192.75,white,finish=radiator paint,S68-42513,"AOH §2.7 (bays 2-3 and 5-6); D6863 Table I",L,"Azimuths from VD3 §10 (theta_A 332.75-102.75); station not found (about 40 in tall on the lower SM, VD3 M), here the lower band of S68-42513 (Xa about 838-890). That band is tan in S68-42513 and silver-ribbed on CSM-107 (S69-32370)."
+101-004,CSM-101,SM,region,ECS radiator panel 2,Xa,838.0,880.0,242.75,12.75,white,finish=radiator paint,S68-42513,"AOH §2.7; D6863 Table I",L,As 101-003 (theta_A 152.75-282.75).
+101-010,CSM-101,SM,decal,UNITED STATES panel,Xa,971.0,989.0,121.6,143.9,white,panel=white rectangle about 30 x 18 in,S68-42513,,M,"A white field carrying black lettering just below the fairing. Its azimuth is not fixed by this photo (centred on a radial beam's fastener row midway between two RCS quads: theta 132.75 or 312.75); taken as CSM-107's (107-010): L for the azimuth."
+101-011,CSM-101,SM,decal,UNITED STATES,Xa,972.0,988.0,123.0,142.5,black,text=UNITED STATES;lines=UNITED/STATES;letter_h=6.5;width_in=30,S68-42513,,M,"Two lines, black, sans-serif block capitals (S68-42513). Azimuth as 101-010 (L)."
+101-012,CSM-101,SM,decal,US flag,Xa,960.5,969.5,127.9,137.6,flag,union=upper hoist;hoist=low azimuth;hoist_in=7;fly_in=13,S68-42513,EO 10834,M,"Below the lettering, centred on the same fastener row. About 13 x 7 in (perspective, M). Azimuth as 101-010 (L)."
+101-020,CSM-101,CM,base,thermal-control tape,Xa,993.0,1110.25,0,360,kapton,finish=aluminised Kapton tape with SiO overcoat (silver),,"D7564 pp. 5-7 (over the entire external surface of the ablator); D6863 Table I",H,"Hidden under the BPC and covers in the KSC photos. Tape widths and layout not found (VD3). Char after entry is VM1's (Vessel.heatLoad)."
+101-030,CSM-101,BPC,base,boost protective cover,Xa,1014.0,1135.13,0,360,white,finish=white-coated cork over fibreglass,,"CSM News Reference via VD3 §11.5",M,"White on the Saturn V photos (CSM-103, CSM-107); Apollo 7's not examined."
+101-031,CSM-101,LES,base,tower and motors,Xa,1083.476,1484.238,0,360,white,,,,L,As CSM-107's (107-031 to 107-034); Apollo 7's LES not examined.
+103-001,CSM-103,SM,base,SM skin,Xa,838.0,993.0,0,360,aluminium,finish=bare aluminium,,,L,"As CSM-101 and CSM-107; no photo of CSM-103's SM found (it is hidden at the pad by the service arm and the S-IVB/LTA-B frames show only the S-IVB)."
+103-002,CSM-103,SM,region,CM/SM fairing (EPS radiators and panels),Xa,993.0,1014.72,0,360,white,finish=radiator paint,,D6863 Table I,L,As 101-002.
+103-003,CSM-103,SM,region,ECS radiator panel 1,Xa,838.0,880.0,62.75,192.75,white,finish=radiator paint,,AOH §2.7; D6863,L,As 101-003.
+103-004,CSM-103,SM,region,ECS radiator panel 2,Xa,838.0,880.0,242.75,12.75,white,finish=radiator paint,,AOH §2.7; D6863,L,As 101-004.
+103-010,CSM-103,SM,decal,UNITED STATES panel,Xa,971.0,989.0,121.6,143.9,white,panel=white rectangle about 30 x 18 in,,,L,"As CSM-101 and CSM-107, which both carry it; not seen on CSM-103."
+103-011,CSM-103,SM,decal,UNITED STATES,Xa,972.0,988.0,123.0,142.5,black,text=UNITED STATES;lines=UNITED/STATES;letter_h=6.5;width_in=30,,,L,As 103-010.
+103-012,CSM-103,SM,decal,US flag,Xa,960.5,969.5,127.9,137.6,flag,union=upper hoist;hoist=low azimuth,,EO 10834,L,As 103-010.
+103-020,CSM-103,CM,base,thermal-control tape,Xa,993.0,1110.25,0,360,kapton,finish=aluminised Kapton tape (silver),S68-56309;S68-56217,D7564 pp. 5-7,H,"After entry the tape is burnt off to the ablator in streaks: white, yellow and brown on the leeward side, the heat shield black (S68-56309, S68-56217)."
+103-030,CSM-103,BPC,base,boost protective cover,Xa,1014.0,1135.13,0,360,white,finish=white-coated cork over fibreglass,S68-55424;S68-49405,CSM News Reference via VD3 §11.5,M,White at the pad.
+103-031,CSM-103,LES,base,tower and motors,Xa,1083.476,1484.238,0,360,white,,S68-55424,,L,"Too small to read in the Apollo 8 pad photos; as CSM-107's (107-031 to 107-034)."
+103-040,CSM-103,SLA,base,adapter outer skin,Xa,502.0,838.0,0,360,white,finish=0.03 in cork over aluminium honeycomb,S68-55424;S68-49405;AS08-16-2584,"A8MR §A.3 p. A-12 (cork on Apollo 8, new against aerodynamic heating)",M,"SLA-11A. White at the pad and on the fixed lower ring in flight (AS08-16-2584)."
+103-041,CSM-103,SLA,region,upper panels' inner faces,Xa,583.3,838.0,0,360,dark brown,face=inner,AS08-16-2583,VD3 §12 (AS07-03-1545),L,"Dark brown on Apollo 7's open panels (VD3); Apollo 8's panels were jettisoned and only their stubs show in AS08-16-2583."
+103-050,CSM-103,LTA-B,base,LTA-B drum and flange,Xa,509,655,0,360,white,finish=white or light grey,AS08-16-2582;AS08-16-2583;AS08-16-2584,VD3 §13,L,"A white cylindrical drum with a broad white flange; its open forward face light grey with a beam grid (AS08-16-2582 end-on). Shape and stations: VD3 §13 (L)."
+107-001,CSM-107,SM,base,SM skin,Xa,838.0,993.0,0,360,aluminium,finish=bare aluminium,S69-32370;AS11-37-5444;S69-39961,D6863,M,"Silver in the MSOB (S69-32370, Apr 1969) and in lunar orbit (AS11-37-5444)."
+107-002,CSM-107,SM,region,CM/SM fairing (EPS radiators and panels),Xa,993.0,1014.72,0,360,white,finish=radiator paint,S69-32370,D6863 Table I,L,As 101-002 (tan band with ribs on the ground).
+107-003,CSM-107,SM,region,ECS radiator panel 1,Xa,838.0,880.0,62.75,192.75,white,finish=radiator paint,S69-32370,AOH §2.7; D6863,L,As 101-003; the lower band looks silver with vertical ribs in S69-32370.
+107-004,CSM-107,SM,region,ECS radiator panel 2,Xa,838.0,880.0,242.75,12.75,white,finish=radiator paint,S69-32370,AOH §2.7; D6863,L,As 101-004.
+107-010,CSM-107,SM,decal,UNITED STATES panel,Xa,971.0,989.0,121.6,143.9,white,panel=white rectangle about 28 x 17 in,S69-32370;S69-39961,,M,"Centred on the radial beam at theta 132.75 (beam between sectors, theta_A 42.75; VD3 §10): midway between quads B and C on a fastener row, and the stowed HGA (root theta 217.75) hangs on the right quad's side in S69-32370; the lettering also shows on the right half of the SM from the LUT side (S69-39961). Stations Xa 971.6-988.7 measured in S69-32370 (perspective, M)."
+107-011,CSM-107,SM,decal,UNITED STATES,Xa,972.0,988.0,123.0,142.5,black,text=UNITED STATES;lines=UNITED/STATES;letter_h=7;width_in=26,S69-32370,,M,Two lines of black capitals on the white panel.
+107-012,CSM-107,SM,decal,US flag,Xa,965.0,972.0,128.3,137.2,flag,union=upper hoist;hoist=low azimuth;hoist_in=6.4;fly_in=11.8,S69-32370,EO 10834,M,"Below the lettering; measured 11.8 x 6.4 in (ratio 1.85, EO 10834 1.9)."
+107-020,CSM-107,CM,base,thermal-control tape,Xa,993.0,1110.25,0,360,kapton,finish=aluminised Kapton tape (silver),AS11-37-5444;AS11-37-5445,D7564 pp. 5-7; D6863 Table I,H,"Mirror-like silver in lunar orbit (AS11-37-5444, from Eagle)."
+107-030,CSM-107,BPC,base,boost protective cover,Xa,1014.0,1135.13,0,360,white,finish=white-coated cork over fibreglass,S69-39961;KSC-69P-397,CSM News Reference via VD3 §11.5,M,
+107-031,CSM-107,LES,base,tower truss,Xa,1083.476,1201.776,0,360,white,finish=Buna-N covered tubes,S69-39961,"CSM News Reference p. 142 (Buna-N insulation, via VD3 §11.2)",M,White tubes and bracing in the LUT camera's view at liftoff.
+107-032,CSM-107,LES,region,structural skirt,Xa,1201.776,1221.476,0,360,white,,S69-39961,"Block I training manual (TRN §2.6: Thermolag T-500, ""resembles a black tar"")",L,"Looks white in S69-39961 against the Block I manual's black ablative coating: disputed, for Franz."
+107-033,CSM-107,LES,region,launch escape and tower jettison motors and canard section,Xa,1221.476,1471.0,0,360,white,,S69-39961,,M,
+107-034,CSM-107,LES,region,Q-ball nose tip,Xa,1476.6,1484.238,0,360,black,finish=dark (Q-ball),S69-39961,"CSM News Reference (aluminium Q-ball, 13.37 in, via VD3 §11.4)",L,"The tip looks dark for about 7.6 in in S69-39961 (one photo, small); the Q-ball itself is 13.4 in long."
+107-040,CSM-107,SLA,base,adapter outer skin,Xa,502.0,838.0,0,360,white,finish=cork over aluminium honeycomb,S69-39961;KSC-69P-397,A8MR §A.3,M,SLA-14.
+107-200,CSM-107,SM,probe,SM skin away from the decals,Xa,920,920,300,300,aluminium,,S69-32370,,M,
+107-201,CSM-107,SM,probe,flag field,Xa,968,968,132.75,132.75,flag,,S69-32370,,M,
+107-202,CSM-107,CM,probe,tape,Xa,1050,1050,90,90,kapton,,AS11-37-5444,,H,
+107-203,CSM-107,LES,probe,motor,Xa,1300,1300,0,0,white,,S69-39961,,M,
+103-200,CSM-103,SLA,probe,adapter,Xa,700,700,0,0,white,,S68-49405,,M,

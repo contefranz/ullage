@@ -1,0 +1,55 @@
+# KSC-69P-397 (AS-506): images.nasa.gov KSC-69P-397~orig.jpg, 2346x2988, sha256 2c44bc57ee4656f6c68b70b3c2ef450b3556f5e405e142047fdf2855d1db89bf
+# camera: 229 m from the axis at STA -875, viewing from azimuth 254.9; tilt +16.0, pan +2.8, roll -0.1 deg; f 4135 px; reference rms 0.95 px
+#   station  1760.00: 0.1 px from its circle; ray hits 1760.2 (+0.2 in)  S-IC/S-II interstage top ridge across the left black stripe
+#   station  1760.00: 0.3 px from its circle; ray hits 1760.8 (+0.8 in)  the same ridge across the right black stripe
+#   station  1564.00: 0.8 px from its circle; ray hits 1562.1 (-1.9 in)  S-IC/S-II separation ridge, left black stripe
+#   station   885.20: 1.4 px from its circle; ray hits 888.3 (+3.1 in)  intertank top: corrugations begin (texture), white sector
+#   station   628.80: 1.1 px from its circle; ray hits 626.5 (-2.3 in)  intertank bottom: corrugations end (texture), white sector
+#   azimuth  225.0 ->  225.5 (+0.5 deg)  S-IC fuel tank stripe boundary black to white, taken on Fin C's line as measured on AS-503 (S68-55424)
+#   azimuth  270.0 ->  270.3 (+0.3 deg)  stripe boundary white to black, taken on Position IV's line as on AS-503
+#   azimuth  315.0 ->  312.3 (-2.7 deg)  stripe boundary black to white, taken on Fin D's line
+# spreads: the change for a 1 px shift of the point
+name,x,y,sta,sta_spread,az_deg,az_spread
+usa_top,1362,1970.4,588.7,2.2,247.9,0.6
+usa_bottom,1362,2071.6,371.9,2.1,247.2,0.6
+usa_left,1351.3,1990,547.3,2.2,241.1,0.6
+usa_right,1372.7,1990,546.1,2.2,254.4,0.6
+sic_black_top_l,1300,1959,627.4,2.2,202.0,1.1
+sic_black_top_r,1420,1957.2,620.8,2.2,285.5,0.7
+flag_hoist_top,1329,1697.3,1194.4,2.2,228.1,0.7
+flag_hoist_bottom,1329.5,1731,1118.9,2.2,228.2,0.7
+flag_fly,1392.2,1714,1152.0,2.2,269.0,0.7
+flag_fly_bottom,1392.2,1731,1114.1,2.2,268.9,0.7
+flag2_hoist,1449.1,1715,1170.9,2.3,316.4,1.4
+us_top,1417,1188,2383.1,2.4,292.7,0.8
+us_bottom,1417,1379,1926.8,2.4,290.2,0.8
+us_left,1413,1280,2159.7,2.4,288.2,0.8
+us_right,1421,1280,2164.0,2.4,294.8,0.9
+fs_bw_left,1322.6,1480,1691.3,2.3,224.9,0.8
+fs_wb_mid,1390.3,1480,1683.6,2.3,269.9,0.7
+fs_bw_right,1444.8,1480,1709.9,2.4,316.2,1.4
+fs_bw_left2,1323.9,1580,1461.3,2.3,225.2,0.7
+fs_wb_mid2,1391.9,1580,1454.4,2.3,270.1,0.7
+fs_bw_right2,1446.1,1580,1477.9,2.3,315.5,1.4
+fs_black_bottom,1415,1599.7,1414.6,2.3,285.9,0.8
+fs_black_bottom_l,1300,1604.9,1416.8,2.3,204.8,1.0
+cap_top_r,1415,1413.9,1844.0,2.3,288.2,0.8
+cap_top_l,1300,1420,1844.0,2.3,206.2,1.0
+cap_left_end,1352,1422,1817.9,2.3,245.6,0.7
+cap_bottom,1370,1432,1793.4,2.3,257.1,0.6
+cap_l_right_end,1315,1422,1829.5,2.3,219.5,0.8
+fairing_l,1320,1450,1761.9,2.3,223.2,0.8
+fairing_r,1345,1450,1754.1,2.3,240.8,0.7
+fairing_top,1331,1393,1890.4,2.3,231.6,0.7
+isC_split,1350,1081.3,2644.7,2.8,244.9,0.8
+isC_bottom,1350,1124.5,2525.3,2.7,246.4,0.7
+isC_right_end,1383.9,1115,2551.6,2.8,269.8,0.7
+isC_split_l,1310,1088.9,2649.1,3.0,205.8,1.5
+retro_fairing_c,1315,1115,2567.7,2.9,218.5,1.0
+iu_band_top,1330,828,3304.2,2.8,221.2,1.4
+iu_band_bottom,1330,872,3188.4,2.5,222.8,1.2
+iu_band_bottom_r,1400,878,3179.0,2.6,301.4,1.5
+usa_U_bottom,1362,1995.2,535.3,2.2,247.8,0.6
+usa_S_top,1362,2008.2,507.4,2.1,247.7,0.6
+usa_S_bottom,1362,2033.9,452.3,2.1,247.5,0.6
+usa_A_top,1362,2050.4,417.1,2.1,247.4,0.6
