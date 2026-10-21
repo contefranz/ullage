@@ -322,6 +322,7 @@ extension VesselLibrary {
     public static func commandModule(_ mission: ApolloCM.Mission, name: String? = nil) -> Vessel {
         let parts = commandModuleParts(mission)
         for t in parts.flatMap(\.thrusters) { t.isEnabled = true }
+        for p in parts { p.appearance = ApolloVariant(mission) }
         let cm = Vessel(name: name ?? mission.rawValue, parts: parts, reference: placeholderBody)
         cm.controlFrame = ApolloAxes.rotation
         cm.impactLimits = ApolloCM.impactLimits

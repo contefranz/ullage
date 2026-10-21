@@ -350,6 +350,7 @@ extension VesselLibrary {
         // carries the CM to splashdown has the CM's impact limits.
         stack.controlFrame = ApolloAxes.rotation
         stack.impactLimits = ApolloCM.impactLimits
+        for p in stack.parts { p.appearance = .apollo11 }
         dressSaturnV(stack)
         return stack
     }

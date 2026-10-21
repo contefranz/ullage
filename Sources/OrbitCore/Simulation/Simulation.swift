@@ -26,6 +26,12 @@ public final class Simulation {
     public private(set) var vessels: [Vessel] = []
     public var focus: Vessel?
     public private(set) var events: [SimEvent] = []
+    /// What effects draw, each record with its epoch and the vessel's state
+    /// then: liftoff, separations, thrusters' ignitions and cutoffs,
+    /// parachutes, splashdown and impacts (`EffectJournal`).
+    public let journal = EffectJournal()
+    /// The thrusters' and parachutes' states the journal last saw.
+    let effectEdges = EffectEdges()
 
     /// Upper bound on integration steps per `advance` call; time warp is
     /// effectively reduced when the bound is hit.
@@ -76,11 +82,13 @@ public final class Simulation {
     public func add(_ v: Vessel) {
         vessels.append(v)
         if focus == nil { focus = v }
+        effectEdges.arrive(v)
     }
 
     public func remove(_ v: Vessel) {
         vessels.removeAll { $0 === v }
         if focus === v { focus = vessels.first }
+        effectEdges.forget(v)
     }
 
     public func log(_ message: String) {
@@ -140,6 +148,7 @@ public final class Simulation {
     public func step(_ h: Double) {
         let t0 = time
         let t1 = time + h
+        lookForEffectEdges(controlsSet: true)
         for v in vessels {
             if v.status == .crashed {
                 if let l = v.landed { setLandedKinematics(v, l, snapshot: system.snapshot(at: t1)) }
@@ -249,6 +258,7 @@ public final class Simulation {
             v.landed = nil
             v.status = .flying
             log("\(v.name): liftoff")
+            recordEffect(.liftoff, v)
             stepFlying(v, from: t0, h: t1 - t0)
             return
         }
@@ -307,20 +317,25 @@ public final class Simulation {
         let landed = LandedState(body: v.reference, bodyFixedPosition: bf, bodyFixedAttitude: attitude,
                                  surface: surface)
         v.landed = landed
+        let effect: EffectEvent.Kind
         switch surface {
         case .water where speed < v.impactLimits.water:
             v.status = .landed
             log(String(format: "%@: splashdown at %.1f m/s", v.name, speed))
+            effect = .splashdown(speed: speed)
         case .land where speed < v.impactLimits.land:
             v.status = .landed
             log(String(format: "%@: touchdown at %.1f m/s", v.name, speed))
+            effect = .touchdown(speed: speed)
         default:
             v.status = .crashed
             for t in v.thrusters { t.level = 0 }
             log(String(format: surface == .water ? "%@: water impact at %.0f m/s" : "%@: impact at %.0f m/s",
                        v.name, speed))
+            effect = .impact(surface: surface, speed: speed)
         }
         setLandedKinematics(v, landed, snapshot: s)
+        recordEffect(effect, v)
     }
 
     func checkReferenceBody(_ v: Vessel, snapshot s: SystemSnapshot) {
