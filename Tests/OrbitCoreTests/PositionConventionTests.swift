@@ -43,8 +43,8 @@ final class PositionConventionTests: XCTestCase {
             XCTAssertEqual(wrapped(azimuth(construction(sIVB, pitch.position)) - expected), 0, accuracy: 1e-12, module)
             XCTAssertEqual(wrapped(azimuth(-pitch.direction) - expected), 0, accuracy: 1e-12, module)
         }
-        // The two module shapes, off the skin at I and III.
-        let modules = sIVB.shapes.filter { $0.material == .apolloGreyMetal && $0.origin.y == 0 && $0.origin.z != 0 }
+        // The two module fairings, on the skin at I and III.
+        let modules = sIVB.shapes.filter { $0.material == .apolloWhitePaint && $0.origin.y == 0 && $0.origin.z != 0 }
         XCTAssertEqual(modules.map { wrapped(azimuth(construction(sIVB, $0.origin))) }.map { abs($0) }.sorted(),
                        [0, pi])
 
