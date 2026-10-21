@@ -301,6 +301,8 @@ enum OrthoRaster {
         var owner = [Int32](repeating: -1, count: width * height)
         var weights = [(Double, Double)](repeating: (0, 0), count: width * height)
         var backFacing = [Bool](repeating: false, count: scene.triangleCount)
+        // Each triangle's depth gradient (m a pixel, along x and y), for the outlines.
+        var slopes = [(Double, Double)](repeating: (0, 0), count: scene.triangleCount)
         let verts = scene.vertices
 
         for t in 0..<scene.triangleCount {
@@ -319,6 +321,9 @@ enum OrthoRaster {
             let area = (x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0)
             guard abs(area) > 1e-12 else { continue }
             let d0 = p0.dot(towards), d1 = p1.dot(towards), d2 = p2.dot(towards)
+            let gx: Double = ((d1 - d0) * (y2 - y0) - (d2 - d0) * (y1 - y0)) / area
+            let gy: Double = ((d2 - d0) * (x1 - x0) - (d1 - d0) * (x2 - x0)) / area
+            slopes[t] = (gx, gy)
 
             let xs = max(0, Int((min(x0, x1, x2) - 0.5).rounded(.up)))
             let xe = min(width - 1, Int((max(x0, x1, x2) - 0.5).rounded(.down)))
@@ -375,7 +380,9 @@ enum OrthoRaster {
         }
 
         var result = OrthoImage(image: image, view: view, left: left, top: top, surfaces: seen)
-        if style.outlines { outline(&result, depth: depth) }
+        if style.outlines {
+            outline(&result, depth: depth, slope: { i in owner[i] < 0 ? (0, 0) : slopes[Int(owner[i])] })
+        }
         if style.annotations { annotate(&result, background: style.background) }
         return result
     }
@@ -398,21 +405,26 @@ enum OrthoRaster {
     }
 
     /// Darkens the covered pixel at the silhouette and, of each pair of
-    /// neighbours that see different surfaces or depths more than 4 px
-    /// apart, the farther (the lower or right one where the two surfaces
-    /// meet at one depth, so a joint is a straight line).
-    static func outline(_ result: inout OrthoImage, depth: [Double]) {
-        let w = result.width, h = result.height, jump = max(0.05, 4 / result.view.scale)
+    /// neighbours, the farther where the depth jumps: where neither pixel's
+    /// triangle, carried on to the other's centre, comes within 2 px (and
+    /// 2 cm) of its depth, so that a steep surface seen nearly edge-on is
+    /// not a jump. Where two surfaces meet at one depth it darkens the lower
+    /// or right one, so a joint is a straight line.
+    static func outline(_ result: inout OrthoImage, depth: [Double], slope: (Int) -> (Double, Double)) {
+        let w = result.width, h = result.height, tolerance = max(0.02, 2 / result.view.scale)
         var dark = [Bool](repeating: false, count: w * h)
-        func compare(_ i: Int, _ j: Int) {
+        /// Pixel `j` is (`dx`, `dy`) from pixel `i`.
+        func compare(_ i: Int, _ j: Int, _ dx: Double, _ dy: Double) {
             let a = result.surfaces[i], b = result.surfaces[j]
             if a < 0 && b < 0 { return }
             if a < 0 || b < 0 {
                 dark[a < 0 ? j : i] = true
                 return
             }
-            let step = abs(depth[i] - depth[j])
-            if step > jump {
+            let (gi, gj) = (slope(i), slope(j))
+            let fromI: Double = depth[i] + gi.0 * dx + gi.1 * dy - depth[j]
+            let fromJ: Double = depth[j] - gj.0 * dx - gj.1 * dy - depth[i]
+            if min(abs(fromI), abs(fromJ)) > tolerance {
                 dark[depth[i] < depth[j] ? i : j] = true
             } else if a != b {
                 dark[j] = true
@@ -420,8 +432,8 @@ enum OrthoRaster {
         }
         for y in 0..<h {
             for x in 0..<w {
-                if x + 1 < w { compare(y * w + x, y * w + x + 1) }
-                if y + 1 < h { compare(y * w + x, (y + 1) * w + x) }
+                if x + 1 < w { compare(y * w + x, y * w + x + 1, 1, 0) }
+                if y + 1 < h { compare(y * w + x, (y + 1) * w + x, 0, 1) }
             }
         }
         for i in 0..<(w * h) where dark[i] {
