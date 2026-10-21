@@ -1,0 +1,68 @@
+# NASA TM X-64796, D. L. Johnson, "Summary of Atmospheric Data Observations
+# for 155 Flights of MSFC/ABMA Related Aerospace Vehicles", Aero-Astrodynamics
+# Laboratory, George C. Marshall Space Flight Center, 5 December 1973.
+# Copy read: https://ntrs.nasa.gov/api/citations/19740005199/downloads/19740005199.pdf
+# (626,921 bytes, sha256 5f0b433311b3ec9723e03930eab0f8cf3deaefbe7c862d968105d01328d5c571),
+# native 300 dpi bilevel page images (pdftoppm -r 300); the text layer is OCR
+# and was not used.
+#
+# Table 1 "Selected Atmospheric Observations for 155 Flight Tests of the
+# Redstone, Jupiter, Pershing, and Saturn Vehicles": every Saturn row, seq.
+# 125-155 (document pages 8-9, PDF pages 11-12). Observations "as near to the
+# vehicle launch times and areas as possible" (p. 1).
+#
+# Columns as printed: time is the launch time to the nearest minute, Eastern
+# Standard Time unless the table says EDT (footnote #); launch_utc is derived
+# from it (EST = UTC-5, EDT = UTC-4). pad is the launch complex. pressure in
+# N/cm^2, temperature in deg C, relative humidity in %. wind_m_s and
+# wind_from_deg are the ground wind; its footnote (two triangles) reads
+# "Instantaneous readings from charts at T-0 (unless otherwise noted) from
+# anemometers on launch pad light poles at the following levels: Pad 34 at
+# 19.5 m (59.4 ft.), Pad 37B at 20.7 m (63.1 ft.), and Pad 39A and B at
+# 18.3 m (60.0 ft.)" above natural grade (the metres and feet printed for 34
+# and 37B disagree; 39A/B's agree). wind_flag x is footnote x: "Not
+# instantaneous, but a one minute average about T-0." From AS-509 on, "wind
+# measurements were required at the 161.5 m (530 ft.) level from anemometer
+# charts on the LUT", given on a second line: lut_wind_*.
+# clouds is the cloud column verbatim (tenths of sky and genus per layer).
+# max_wind_* is the maximum wind aloft in the 8-16 km region; the printed
+# column head on these pages says "Alt. (m)" but the values are km (the
+# earlier pages print "Alt. (km)"). comment is the "count down and launch
+# comments of meteorological significance" column.
+#
+# grade: H = read with no doubt; M = a digit needed context, or is left out
+# (the cell is then empty and note says why). Second, independent reading: see
+# the note at the end of this header.
+# Second reading: pending.
+seq,vehicle,date,time,zone,launch_utc,pad,pressure_n_cm2,temperature_c,rel_humidity_pct,wind_m_s,wind_from_deg,wind_flag,lut_wind_m_s,lut_wind_from_deg,lut_wind_flag,clouds,max_wind_alt_km,max_wind_m_s,max_wind_from_deg,comment,grade,note
+125,SA-1,1961-10-27,1006,EST,1961-10-27T15:06Z,34,10.224,26.2,64,6.4,65,,,,,8/10 cumulus,12.25,47.0,242,"34 min hold at T-120 min, and 32 min hold at T-20 min due to low clouds over launch area affecting camera coverage.",H,
+126,SA-2,1962-04-25,0901,EST,1962-04-25T14:01Z,34,10.205,24.6,59,3.5,180,,,,,"1/10 stratocumulus, 3/10 cirrostratus",13.50,33.6,261,Project highwater conducted,H,
+127,SA-3,1962-11-16,1245,EST,1962-11-16T17:45Z,34,10.193,23.9,48,4.0,250,,,,,"2/10 cumulus, 4/10 cirrus",13.75,31.3,269,Project highwater conducted,H,
+128,SA-4,1963-03-28,1512,EST,1963-03-28T20:12Z,34,10.176,23.9,71,6.0,40,,,,,"1/10 cumulus, 1/10 stratocumulus",13.00,,253,,M,"max wind speed printed 51.x, last digit illegible"
+129,SA-5,1964-01-29,1125,EST,1964-01-29T16:25Z,37B,10.278,17.8,59,9.0,38,,,,,"4/10 stratocumulus, 2/10 cirrus",10.75,42.1,268,,H,
+130,SA-6,1964-05-28,1207,EST,1964-05-28T17:07Z,37B,10.142,,64,5.0,150,,,,,"1/10 cumulus, 1/10 cirrus",12.50,15.0,96,,M,"temperature printed 28.x, last digit illegible"
+131,SA-7,1964-09-18,1123,EST,1964-09-18T16:23Z,37B,10.173,29.4,64,4.1,78,,,,,"1/10 cumulus, 5/10 altocumulus, 1/10 cirrus",11.75,17.3,47,,H,
+132,SA-9,1965-02-16,0937,EST,1965-02-16T14:37Z,37B,10.244,23.3,74,6.0,125,,,,,"1/10 stratocumulus, 2/10 cirrus",13.00,34.3,243,,H,
+133,SA-8,1965-05-25,0235,EST,1965-05-25T07:35Z,37B,10.186,22.8,93,4.4,143,,,,,"1/10 cumulus, 3/10 cirrostratus",15.25,16.0,351,,H,
+134,SA-10,1965-07-30,0800,EST,1965-07-30T13:00Z,37B,10.163,26.7,74,10.7,188,,,,,"1/10 cumulonimbus, 2/10 altocumulus, 5/10 cirrus",14.75,15.0,306,,H,
+135,AS-201,1966-02-26,1112,EST,1966-02-26T16:12Z,34,10.217,16.1,48,6.5,330,,,,,clear,13.75,70.0,250,Launch was postponed 3 times due to adverse weather conditions in recovery area,H,
+136,AS-203,1966-07-05,0953,EST,1966-07-05T14:53Z,37B,10.166,30.2,69,6.3,242,,,,,"1/10 cumulus, 1/10 altocumulus, 1/10 cirrus",13.00,18.0,312,,H,
+137,AS-202,1966-08-25,1216,EST,1966-08-25T17:16Z,34,10.173,30.0,70,4.1,160,,,,,"8/10 cumulus, 1/10 cirrus",12.00,16.0,231,,M,pressure's first digits spoiled in the scan (.. 173)
+138,AS-501,1967-11-09,0700,EST,1967-11-09T12:00Z,39A,10.261,17.6,55,8.2,070,x,,,,4/10 stratocumulus,11.50,26.0,273,,H,
+139,AS-204,1968-01-22,1748,EST,1968-01-22T22:48Z,37B,10.186,16.1,,4.2,45,,,,,3/10 cumulus,12.00,35.0,288,,M,"relative humidity printed 9x, second digit illegible"
+140,AS-502,1968-04-04,0700,EST,1968-04-04T12:00Z,39A,10.200,20.9,83,5.4,132,x,,,,"5/10 stratocumulus, 1/10 cirrus",13.00,27.1,255,,H,
+141,AS-205,1968-10-11,1103,EDT,1968-10-11T15:03Z,34,10.180,28.3,65,10.2,90,,,,,3/10 cumulonimbus,14.60,15.6,309,,H,
+142,AS-503,1968-12-21,0751,EST,1968-12-21T12:51Z,39A,10.207,15.0,58,5.7,348,x,,,,4/10 cirrus,15.22,34.8,284,,H,pressure's leading 1 carries a speck (prints like 40.207)
+143,AS-504,1969-03-03,1100,EST,1969-03-03T16:00Z,39A,10.095,19.6,61,6.9,160,,,,,"7/10 stratocumulus, 10/10 altostratus",11.73,76.2,264,,H,
+144,AS-505,1969-05-18,1249,EDT,1969-05-18T16:49Z,39B,10.190,26.7,75,9.8,142,,,,,"4/10 cumulus, 2/10 altocumulus, 10/10 cirrus",14.18,42.5,270,,H,
+145,AS-506,1969-07-16,0932,EDT,1969-07-16T13:32Z,39A,10.203,29.4,73,3.3,175,,,,,"1/10 cumulus, 2/10 altocumulus, 9/10 cirrostratus",11.40,9.6,297,,M,"wind speed's last digit broken in the scan (3.2 or 3.3); the FER's 3.3 m/s from 175 deg (AS506-datasheet 11.3) settles it. Pressure 102,030 Pa, 302.6 K and the max wind (9.6 m/s from 297 deg at 11.40 km, FER Table A-4) agree with the FER"
+146,AS-507,1969-11-14,1122,EST,1969-11-14T16:22Z,39A,10.081,20.0,92,6.8,280,,,,,10/10 stratocumulus with rain,,47.6,245,Lightning discharge during vehicle ascent,M,"max wind altitude printed 14.2x, last digit illegible"
+147,AS-508,1970-04-11,1413,EST,1970-04-11T19:13Z,39A,10.119,24.4,87,6.3,106,,,,,"4/10 altocumulus, 10/10 cirrostratus",13.58,55.6,252,,M,wind direction's middle digit faint (106; 196 not excluded)
+148,AS-509,1971-01-31,1603,EST,1971-01-31T21:03Z,39A,10.102,21.7,86,5.0,255,x,8.5,275,x,"7/10 cumulus, 2/10 altocumulus",13.33,52.8,255,40 min hold at T-8 min due to rain shower activity in launch area,H,
+149,AS-510,1971-07-26,0934,EDT,1971-07-26T13:34Z,39A,,29.8,68,5.1,156,x,5.4,158,x,7/10 cirrus,13.75,18.6,063,,M,"pressure printed 10.1x6, third decimal's neighbour illegible"
+150,AS-511,1972-04-16,1254,EST,1972-04-16T17:54Z,39A,10.183,31.2,44,6.3,269,,5.1,256,,2/10 cumulus,11.85,26.1,257,,H,
+151,AS-512,1972-12-07,0033,EST,1972-12-07T05:33Z,39A,10.201,21.1,93,4.1,005,,5.4,335,,"2/10 stratocumulus, 5/10 cirrus",12.18,45.1,311,,H,
+152,SA-513,1973-05-14,1330,EDT,1973-05-14T17:30Z,39A,10.171,30.0,53,5.1,155,,8.1,177,,"3/10 cumulus, 3/10 stratocumulus, 6/10 altocumulus, 5/10 cirrus",12.70,34.4,267,,H,
+153,SA-206,1973-05-25,0900,EDT,1973-05-25T13:00Z,39B,10.106,26.1,85,5.5,212,,6.1,224,,"5/10 fractocumulus, 5/10 altocumulus, 1/10 cirrus",13.38,42.0,286,Visibility 6 miles with ground fog,H,
+154,SA-207,1973-07-28,0711,EDT,1973-07-28T11:11Z,39B,10.162,23.9,93,2.6,264,,6.9,274,,"9/10 altocumulus, 5/10 cirrus",13.83,13.2,014,Visibility 3 miles with ground fog,H,
+155,SA-208,1973-11-16,0901,EST,1973-11-16T14:01Z,39B,10.186,22.2,79,3.6,202,,3.9,237,,clear,12.35,43.5,254,,H,
