@@ -33,35 +33,56 @@ public struct TriangleBVH {
     public init(positions: [Vec3], indices: [UInt32]) {
         let n = indices.count / 3
         guard n > 0 else { return }
-        var lo = [Double](repeating: 0, count: 3 * n), hi = lo, centre = lo
+        var boxes: [Box] = [], centres: [Point] = []
+        boxes.reserveCapacity(n)
+        centres.reserveCapacity(n)
         for t in 0..<n {
             let a = positions[Int(indices[3 * t])], b = positions[Int(indices[3 * t + 1])]
             let c = positions[Int(indices[3 * t + 2])]
-            lo[3 * t] = min(a.x, min(b.x, c.x)); hi[3 * t] = max(a.x, max(b.x, c.x))
-            lo[3 * t + 1] = min(a.y, min(b.y, c.y)); hi[3 * t + 1] = max(a.y, max(b.y, c.y))
-            lo[3 * t + 2] = min(a.z, min(b.z, c.z)); hi[3 * t + 2] = max(a.z, max(b.z, c.z))
-            for k in 0..<3 { centre[3 * t + k] = 0.5 * (lo[3 * t + k] + hi[3 * t + k]) }
+            let box = Box(lo0: Self.least(a.x, b.x, c.x), lo1: Self.least(a.y, b.y, c.y),
+                          lo2: Self.least(a.z, b.z, c.z), hi0: Self.most(a.x, b.x, c.x),
+                          hi1: Self.most(a.y, b.y, c.y), hi2: Self.most(a.z, b.z, c.z))
+            boxes.append(box)
+            centres.append(Point(x: 0.5 * (box.lo0 + box.hi0), y: 0.5 * (box.lo1 + box.hi1),
+                                 z: 0.5 * (box.lo2 + box.hi2)))
         }
         var items = (0..<n).map { Int32($0) }
-        var builder = Builder(lo: lo, hi: hi, centre: centre)
-        builder.build(&items)
-        bounds = builder.bounds
-        links = builder.links
+        let tree = boxes.withUnsafeBufferPointer { b in
+            centres.withUnsafeBufferPointer { c in
+                items.withUnsafeMutableBufferPointer { i in
+                    Builder.build(boxes: b.baseAddress.unsafelyUnwrapped, centres: c.baseAddress.unsafelyUnwrapped,
+                                  items: i.baseAddress.unsafelyUnwrapped, count: n)
+                }
+            }
+        }
+        bounds = tree.bounds
+        links = tree.links
         order = items
-        triangles.reserveCapacity(9 * n)
-        func append(_ v: Vec3) {
-            triangles.append(v.x)
-            triangles.append(v.y)
-            triangles.append(v.z)
+        // In tree order: v0, then v1 - v0 and v2 - v0.
+        triangles = [Double](repeating: 0, count: 9 * n)
+        triangles.withUnsafeMutableBufferPointer { out in
+            for (k, t) in items.enumerated() {
+                let i = Int(t)
+                let a = positions[Int(indices[3 * i])], b = positions[Int(indices[3 * i + 1])]
+                let c = positions[Int(indices[3 * i + 2])]
+                let e1 = b - a, e2 = c - a
+                out[9 * k] = a.x; out[9 * k + 1] = a.y; out[9 * k + 2] = a.z
+                out[9 * k + 3] = e1.x; out[9 * k + 4] = e1.y; out[9 * k + 5] = e1.z
+                out[9 * k + 6] = e2.x; out[9 * k + 7] = e2.y; out[9 * k + 8] = e2.z
+            }
         }
-        for t in items {
-            let i = Int(t)
-            let a = positions[Int(indices[3 * i])], b = positions[Int(indices[3 * i + 1])]
-            let c = positions[Int(indices[3 * i + 2])]
-            append(a)
-            append(b - a)
-            append(c - a)
-        }
+    }
+
+    /// Swift's min(x, min(y, z)) and max(x, max(y, z)) on Doubles, which the
+    /// unoptimised build would otherwise call generically.
+    static func least(_ x: Double, _ y: Double, _ z: Double) -> Double {
+        let yz = z < y ? z : y
+        return yz < x ? yz : x
+    }
+
+    static func most(_ x: Double, _ y: Double, _ z: Double) -> Double {
+        let yz = z >= y ? z : y
+        return yz >= x ? yz : x
     }
 
     /// Whether the ray from `origin` along `direction` hits a triangle at a
@@ -199,90 +220,127 @@ public struct TriangleBVH {
         }
     }
 
+    /// A box: min x, y, z, then max x, y, z (m). Empty, its minimum is +∞
+    /// and its maximum -∞.
+    struct Box {
+        var lo0 = Double.infinity, lo1 = Double.infinity, lo2 = Double.infinity
+        var hi0 = -Double.infinity, hi1 = -Double.infinity, hi2 = -Double.infinity
+
+        /// Grows over box `b`, as Swift's min and max would.
+        mutating func add(_ b: Box) {
+            lo0 = b.lo0 < lo0 ? b.lo0 : lo0
+            lo1 = b.lo1 < lo1 ? b.lo1 : lo1
+            lo2 = b.lo2 < lo2 ? b.lo2 : lo2
+            hi0 = b.hi0 >= hi0 ? b.hi0 : hi0
+            hi1 = b.hi1 >= hi1 ? b.hi1 : hi1
+            hi2 = b.hi2 >= hi2 ? b.hi2 : hi2
+        }
+
+        /// Grows over point `p`.
+        mutating func add(_ p: Point) {
+            lo0 = p.x < lo0 ? p.x : lo0
+            lo1 = p.y < lo1 ? p.y : lo1
+            lo2 = p.z < lo2 ? p.z : lo2
+            hi0 = p.x >= hi0 ? p.x : hi0
+            hi1 = p.y >= hi1 ? p.y : hi1
+            hi2 = p.z >= hi2 ? p.z : hi2
+        }
+
+        /// Half the surface area (the heuristic only compares areas).
+        var halfArea: Double {
+            guard hi0 >= lo0 else { return 0 }
+            let x = hi0 - lo0, y = hi1 - lo1, z = hi2 - lo2
+            return x * y + y * z + z * x
+        }
+    }
+
+    /// A triangle's centre (m).
+    struct Point {
+        var x = 0.0, y = 0.0, z = 0.0
+    }
+
     /// The top-down build: each node's triangles are split where the binned
     /// surface-area heuristic is lowest, until splitting costs more than a
     /// leaf of at most `leafSize` (or a leaf is forced at `maxDepth`).
+    ///
+    /// One pass over a node's triangles bins them on all three axes, and it
+    /// works on raw buffers of small structs with non-generic arithmetic,
+    /// for the unoptimised build, which neither specialises `min` and `max`
+    /// nor drops array checks: the Saturn V's 900,000 triangles take 8 s in
+    /// Debug on the M3 Pro (0.27 s at -O).
     private struct Builder {
-        let lo: [Double], hi: [Double], centre: [Double]
-        var bounds: [Double] = []
-        var links: [Int32] = []
-        /// Per bin, reused from node to node: the triangles' box, their
-        /// count, and the cost of everything from the bin up.
-        var binBoxes = [Box](repeating: Box(), count: TriangleBVH.binCount)
-        var binCounts = [Int](repeating: 0, count: TriangleBVH.binCount)
-        var rightCost = [Double](repeating: 0, count: TriangleBVH.binCount)
+        /// Per triangle (input order): its box and its centre.
+        let boxes: UnsafePointer<Box>
+        let centres: UnsafePointer<Point>
+        /// The triangles' indices, put in tree order by the build.
+        let items: UnsafeMutablePointer<Int32>
+        /// Per axis and bin, reused from node to node: the triangles' box
+        /// and their count; per bin, the cost of everything from it up.
+        let bins: UnsafeMutablePointer<Box>
+        let binCounts: UnsafeMutablePointer<Int>
+        let rightCost: UnsafeMutablePointer<Double>
 
-        init(lo: [Double], hi: [Double], centre: [Double]) {
-            self.lo = lo
-            self.hi = hi
-            self.centre = centre
-        }
-
-        /// A box as min x, y, z, max x, y, z.
-        struct Box {
-            var lo = (Double.infinity, Double.infinity, Double.infinity)
-            var hi = (-Double.infinity, -Double.infinity, -Double.infinity)
-
-            mutating func add(_ l: (Double, Double, Double), _ h: (Double, Double, Double)) {
-                lo = (min(lo.0, l.0), min(lo.1, l.1), min(lo.2, l.2))
-                hi = (max(hi.0, h.0), max(hi.1, h.1), max(hi.2, h.2))
-            }
-
-            mutating func add(_ b: Box) { add(b.lo, b.hi) }
-
-            /// Half the surface area (the heuristic only compares areas).
-            var halfArea: Double {
-                guard hi.0 >= lo.0 else { return 0 }
-                let x = hi.0 - lo.0, y = hi.1 - lo.1, z = hi.2 - lo.2
-                return x * y + y * z + z * x
-            }
-        }
-
-        func box(of t: Int) -> ((Double, Double, Double), (Double, Double, Double)) {
-            ((lo[3 * t], lo[3 * t + 1], lo[3 * t + 2]), (hi[3 * t], hi[3 * t + 1], hi[3 * t + 2]))
-        }
-
-        mutating func build(_ items: inout [Int32]) {
-            // Work list: node, first item, count, depth.
-            var work: [(Int, Int, Int, Int)] = [(0, 0, items.count, 0)]
-            bounds = [Double](repeating: 0, count: 6)
-            links = [0, 0]
-            // A binary tree over n leaves of at least one item has under 2n
-            // nodes.
-            bounds.reserveCapacity(12 * items.count)
-            links.reserveCapacity(4 * items.count)
-            while let item = work.popLast() {
-                let (node, first, count, depth) = item
-                var box = Box(), centres = Box()
-                for i in first..<(first + count) {
-                    let t = Int(items[i])
-                    let b = self.box(of: t)
-                    box.add(b.0, b.1)
-                    let c = (centre[3 * t], centre[3 * t + 1], centre[3 * t + 2])
-                    centres.add(c, c)
+        /// The tree over the `count` triangles of `boxes` and `centres`,
+        /// whose indices `items` it puts in tree order: per node, its bounds
+        /// and its links (`TriangleBVH`'s).
+        static func build(boxes: UnsafePointer<Box>, centres: UnsafePointer<Point>,
+                          items: UnsafeMutablePointer<Int32>, count: Int) -> (bounds: [Double], links: [Int32]) {
+            let m = TriangleBVH.binCount
+            return withUnsafeTemporaryAllocation(of: Box.self, capacity: 3 * m) { bins in
+                withUnsafeTemporaryAllocation(of: Int.self, capacity: 3 * m) { counts in
+                    withUnsafeTemporaryAllocation(of: Double.self, capacity: m) { costs in
+                        bins.initialize(repeating: Box())
+                        counts.initialize(repeating: 0)
+                        costs.initialize(repeating: 0)
+                        return Builder(boxes: boxes, centres: centres, items: items,
+                                       bins: bins.baseAddress.unsafelyUnwrapped,
+                                       binCounts: counts.baseAddress.unsafelyUnwrapped,
+                                       rightCost: costs.baseAddress.unsafelyUnwrapped).build(count)
+                    }
                 }
-                bounds[6 * node] = box.lo.0
-                bounds[6 * node + 1] = box.lo.1
-                bounds[6 * node + 2] = box.lo.2
-                bounds[6 * node + 3] = box.hi.0
-                bounds[6 * node + 4] = box.hi.1
-                bounds[6 * node + 5] = box.hi.2
-                let split = count > TriangleBVH.leafSize && depth < TriangleBVH.maxDepth
-                    ? bestSplit(items, first, count, box, centres) : nil
-                guard let split else {
-                    links[2 * node] = Int32(first)
-                    links[2 * node + 1] = Int32(count)
-                    continue
-                }
-                let mid = partition(&items, first, count, split)
-                let left = links.count / 2
-                links[2 * node] = Int32(left)
-                links[2 * node + 1] = 0
-                links.append(contentsOf: repeatElement(0, count: 4))
-                bounds.append(contentsOf: repeatElement(0, count: 12))
-                work.append((left + 1, mid, first + count - mid, depth + 1))
-                work.append((left, first, mid - first, depth + 1))
             }
+        }
+
+        func build(_ n: Int) -> (bounds: [Double], links: [Int32]) {
+            // Every leaf holds a triangle at least: under 2n nodes.
+            var bounds = [Double](repeating: 0, count: 6 * (2 * n - 1))
+            var links = [Int32](repeating: 0, count: 2 * (2 * n - 1))
+            var nodes = 1
+            bounds.withUnsafeMutableBufferPointer { boundsBuffer in
+                links.withUnsafeMutableBufferPointer { linksBuffer in
+                    let bounds = boundsBuffer.baseAddress.unsafelyUnwrapped
+                    let links = linksBuffer.baseAddress.unsafelyUnwrapped
+                    // Work list: node, first item, count, depth.
+                    var work: [(Int, Int, Int, Int)] = [(0, 0, n, 0)]
+                    while let item = work.popLast() {
+                        let (node, first, count, depth) = item
+                        var box = Box(), centreBox = Box()
+                        for i in first..<(first + count) {
+                            let t = Int(items[i])
+                            box.add(boxes[t])
+                            centreBox.add(centres[t])
+                        }
+                        let b = bounds + 6 * node
+                        b[0] = box.lo0; b[1] = box.lo1; b[2] = box.lo2
+                        b[3] = box.hi0; b[4] = box.hi1; b[5] = box.hi2
+                        let split = count > TriangleBVH.leafSize && depth < TriangleBVH.maxDepth
+                            ? bestSplit(first, count, box, centreBox) : nil
+                        guard let split else {
+                            links[2 * node] = Int32(first)
+                            links[2 * node + 1] = Int32(count)
+                            continue
+                        }
+                        let mid = partition(first, count, split)
+                        let left = nodes
+                        nodes += 2
+                        links[2 * node] = Int32(left)
+                        links[2 * node + 1] = 0
+                        work.append((left + 1, mid, first + count - mid, depth + 1))
+                        work.append((left, first, mid - first, depth + 1))
+                    }
+                }
+            }
+            return (Array(bounds[0..<(6 * nodes)]), Array(links[0..<(2 * nodes)]))
         }
 
         /// A split: an axis and the bin boundary, or (for centres that
@@ -292,48 +350,72 @@ public struct TriangleBVH {
             case half
         }
 
-        func bin(_ t: Int, axis: Int, lo: Double, scale: Double) -> Int {
-            let b = Int((centre[3 * t + axis] - lo) * scale)
-            return min(max(b, 0), TriangleBVH.binCount - 1)
+        /// The bin of centre coordinate `x`, the bins starting at `lo`,
+        /// `scale` of them per metre.
+        static func bin(_ x: Double, lo: Double, scale: Double) -> Int {
+            let b = Int((x - lo) * scale)
+            return b < 0 ? 0 : (b > TriangleBVH.binCount - 1 ? TriangleBVH.binCount - 1 : b)
         }
 
-        mutating func bestSplit(_ items: [Int32], _ first: Int, _ count: Int, _ box: Box, _ centres: Box) -> Split? {
-            let n = TriangleBVH.binCount
-            var best: (cost: Double, split: Split)?
-            for axis in 0..<3 {
-                let cl = axis == 0 ? centres.lo.0 : (axis == 1 ? centres.lo.1 : centres.lo.2)
-                let ch = axis == 0 ? centres.hi.0 : (axis == 1 ? centres.hi.1 : centres.hi.2)
-                let extent = ch - cl
-                guard extent > 1e-12 else { continue }
-                let scale = Double(n) / extent
-                for k in 0..<n {
-                    binBoxes[k] = Box()
+        static func coordinate(_ p: Point, _ axis: Int) -> Double {
+            axis == 0 ? p.x : (axis == 1 ? p.y : p.z)
+        }
+
+        /// The split of the items `first..<first + count`, in `box` with
+        /// their centres in `centreBox`, where the binned SAH is lowest, or
+        /// nil for a leaf.
+        func bestSplit(_ first: Int, _ count: Int, _ box: Box, _ centreBox: Box) -> Split? {
+            let m = TriangleBVH.binCount
+            let lo = Point(x: centreBox.lo0, y: centreBox.lo1, z: centreBox.lo2)
+            // Per axis, the bins per metre (and the axis's bins emptied), or 0
+            // where the centres coincide.
+            func scale(_ axis: Int, _ extent: Double) -> Double {
+                guard extent > 1e-12 else { return 0 }
+                for k in (axis * m)..<((axis + 1) * m) {
+                    bins[k] = Box()
                     binCounts[k] = 0
                 }
-                for i in first..<(first + count) {
-                    let t = Int(items[i])
-                    let k = bin(t, axis: axis, lo: cl, scale: scale)
-                    let b = self.box(of: t)
-                    binBoxes[k].add(b.0, b.1)
+                return Double(m) / extent
+            }
+            let scales = Point(x: scale(0, centreBox.hi0 - centreBox.lo0), y: scale(1, centreBox.hi1 - centreBox.lo1),
+                               z: scale(2, centreBox.hi2 - centreBox.lo2))
+            for i in first..<(first + count) {
+                let t = Int(items[i])
+                let b = boxes[t], c = centres[t]
+                if scales.x > 0 {
+                    let k = Self.bin(c.x, lo: lo.x, scale: scales.x)
+                    bins[k].add(b)
                     binCounts[k] += 1
                 }
-                // Area times count of everything right of each boundary.
-                var acc = Box(), accCount = 0
-                for k in stride(from: n - 1, to: 0, by: -1) {
-                    acc.add(binBoxes[k])
-                    accCount += binCounts[k]
-                    rightCost[k] = acc.halfArea * Double(accCount)
+                if scales.y > 0 {
+                    let k = m + Self.bin(c.y, lo: lo.y, scale: scales.y)
+                    bins[k].add(b)
+                    binCounts[k] += 1
                 }
-                acc = Box()
+                if scales.z > 0 {
+                    let k = 2 * m + Self.bin(c.z, lo: lo.z, scale: scales.z)
+                    bins[k].add(b)
+                    binCounts[k] += 1
+                }
+            }
+            var best: (cost: Double, axis: Int, below: Int)?
+            for axis in 0..<3 where Self.coordinate(scales, axis) > 0 {
+                let axisBins = bins + axis * m, axisCounts = binCounts + axis * m
+                // Area times count of everything right of each boundary.
+                var accumulated = Box(), accCount = 0
+                for k in stride(from: m - 1, to: 0, by: -1) {
+                    accumulated.add(axisBins[k])
+                    accCount += axisCounts[k]
+                    rightCost[k] = accumulated.halfArea * Double(accCount)
+                }
+                accumulated = Box()
                 accCount = 0
-                for k in 1..<n {
-                    acc.add(binBoxes[k - 1])
-                    accCount += binCounts[k - 1]
+                for k in 1..<m {
+                    accumulated.add(axisBins[k - 1])
+                    accCount += axisCounts[k - 1]
                     guard accCount > 0, accCount < count else { continue }
-                    let cost = acc.halfArea * Double(accCount) + rightCost[k]
-                    if best == nil || cost < best!.cost {
-                        best = (cost, .bin(axis: axis, lo: cl, scale: scale, below: k))
-                    }
+                    let cost = accumulated.halfArea * Double(accCount) + rightCost[k]
+                    if best == nil || cost < best!.cost { best = (cost, axis, k) }
                 }
             }
             guard let best else {
@@ -345,18 +427,21 @@ public struct TriangleBVH {
             // proportion to their areas; a leaf, its triangles.
             let leafCost = box.halfArea * Double(count)
             if count <= 2 * TriangleBVH.leafSize, best.cost >= leafCost { return nil }
-            return best.split
+            return .bin(axis: best.axis, lo: Self.coordinate(lo, best.axis),
+                        scale: Self.coordinate(scales, best.axis), below: best.below)
         }
 
         /// Puts the items below the split first; returns where the rest begin.
-        func partition(_ items: inout [Int32], _ first: Int, _ count: Int, _ split: Split) -> Int {
+        func partition(_ first: Int, _ count: Int, _ split: Split) -> Int {
             guard case let .bin(axis, lo, scale, below) = split else { return first + count / 2 }
             var i = first, j = first + count - 1
             while i <= j {
-                if bin(Int(items[i]), axis: axis, lo: lo, scale: scale) < below {
+                if Self.bin(Self.coordinate(centres[Int(items[i])], axis), lo: lo, scale: scale) < below {
                     i += 1
                 } else {
-                    items.swapAt(i, j)
+                    let swap = items[i]
+                    items[i] = items[j]
+                    items[j] = swap
                     j -= 1
                 }
             }

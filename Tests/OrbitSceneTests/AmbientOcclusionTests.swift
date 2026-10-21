@@ -5,7 +5,7 @@ import OrbitCore
 
 /// Track R5's AO baker: view factors against Howell's catalogue, the open
 /// and enclosed limits, subdivision, determinism, the background baker, and
-/// the bake time of today's Saturn V.
+/// the Saturn V's bake against the plan's budget.
 final class AmbientOcclusionTests: XCTestCase {
     static let white = (1.0, 1.0, 1.0)
 
@@ -504,42 +504,88 @@ final class AmbientOcclusionTests: XCTestCase {
         XCTAssertEqual(back, some)
     }
 
-    // MARK: Today's Saturn V
+    // MARK: The Saturn V
 
-    /// The whole AS-506 stack bakes in a few seconds at -O on a 4-core cloud
-    /// machine (about 1.4 s for 162,000 vertices after subdivision, about
-    /// 5.7 million rays, when measured), within a budget that leaves room for
-    /// the parallel test run's load and the vehicle-look tracks' added
-    /// geometry. The unoptimised build is about 20 times slower; it casts 4
-    /// rays per vertex and has a looser budget. The values are sane: inside
-    /// a bell is darker than outside, the hull is mostly open, and shapes
-    /// buried in others are black.
-    func testSaturnVBakesWithinBudget() {
+    /// The whole AS-506 stack, as the vehicle-look tracks dress it, bakes
+    /// within the plan's budget into facets of at most 0.5 m, with sane
+    /// values.
+    ///
+    /// **Budget.** The plan bakes in the background whenever a vessel's mesh
+    /// signature changes and fades the result in (renderer-core §9, plan
+    /// R5), outside the first frame's 2 s, and lets the new Linux tests add
+    /// under 60 s to the suite (plan, Linux test budget). The bake's cost
+    /// grows with the vertices after subdivision, which the vehicle-look
+    /// tracks set, so the budget is per vertex: 100 µs, which keeps a stack
+    /// at the plan's density (up to 400,000 triangles, owner decision 10;
+    /// some 600,000 vertices once subdivided) within those 60 s in either
+    /// build, the parallel run's load included. The Debug build casts 4 rays
+    /// per vertex, not 32. Measured on the M3 Pro: this stack's 505,411
+    /// vertices (106,377 before subdivision) take 3.3 µs each at -O (1.7 s)
+    /// and 23 µs in Debug (12 s, most of it the BVH's build).
+    ///
+    /// **Values.** Every value is in 0...1; shapes buried in others (the
+    /// caps between stages) are black; the S-IC's sides are mostly open.
+    ///
+    /// **Bells.** A bell in the open is darker inside than outside, and its
+    /// inside obeys reciprocity.
+    /// - The bells in the open are the nozzles (each thruster's last linked
+    ///   shape with an exit, as `VesselGeometry` takes them) whose exhaust
+    ///   leaves into the open: a ray from the exit's centre along it meets
+    ///   nothing within the reach. Of the stack's main engines these are the
+    ///   S-IC's F-1s; the J-2s fire into the domes below them and the SPS
+    ///   into the SLA.
+    /// - A bell's inside is the side of its nozzle that faces the axis, the
+    ///   front of the F-1's gas side and the back of a two-sided bell (the
+    ///   SM's RCS jets, the S-IVB's ullage motors). Its outside is a
+    ///   two-sided nozzle's other side and the outward faces of the
+    ///   thruster's other linked shapes about the same axis (the F-1's
+    ///   extension, cocoon and manifold). Means are weighted by area, so
+    ///   that the meshes' density does not count.
+    /// - Reciprocity: the inside sees out only through the bell's openings
+    ///   (its exit, and its far end when that is open), and
+    ///   A_inside·F(inside → opening) = A_opening·F(opening → inside) ≤
+    ///   A_opening. So when the reach spans the bell the inside's mean is at
+    ///   most A_openings/A_inside (the RCS jets, the ullage motors). The exit
+    ///   of a bell closed at its far end sees only the inside, so F(inside →
+    ///   exit) = A_exit/A_inside exactly, and with nothing past the exit
+    ///   plane every ray that leaves is open: the mean is at least that (the
+    ///   F-1s, closed at their injectors at the bottom of the stack; the 3 m
+    ///   reach adds the rays that end on the wall beyond it).
+    func testSaturnVBakesWithinBudget() throws {
         var settings = AmbientOcclusionSettings()
         #if DEBUG
         settings.raysPerVertex = 4
-        let budget = 120.0
-        #else
-        let budget = 20.0
         #endif
+        let perVertex = 100e-6
         let vessel = VesselLibrary.saturnV()
         let geometry = VesselGeometry(of: vessel)
         let baked = AmbientOcclusion.bake(geometry, settings: settings)
-        let raw = geometry.parts.reduce(0) { $0 + $1.shapes.reduce(0) { $0 + $1.mesh().vertices.count } }
-        print(String(format: "Saturn V AO: %d vertices (%d before subdivision), %d triangles, %d rays each, %.2f s",
-                     baked.vertexCount, raw, baked.triangleCount, settings.raysPerVertex, baked.seconds))
-        XCTAssertLessThan(baked.seconds, budget)
-        XCTAssertGreaterThan(baked.vertexCount, 4 * raw, "long panels are subdivided")
+        let raw = geometry.parts.map { part in part.shapes.map { $0.mesh() } }
+        let rawVertices = raw.joined().reduce(0) { $0 + $1.vertices.count }
+        print(String(format: "Saturn V AO: %d vertices (%d before subdivision), %d triangles, %d rays each, "
+                     + "%.2f s, %.1f µs per vertex", baked.vertexCount, rawVertices, baked.triangleCount,
+                     settings.raysPerVertex, baked.seconds, baked.seconds / Double(baked.vertexCount) * 1e6))
+        XCTAssertLessThan(baked.seconds / Double(baked.vertexCount), perVertex)
 
-        var all: [Float] = [], bellsInside: [Float] = [], bellsOutside: [Float] = [], hull: [Float] = []
+        // Long panels are subdivided: no edge over the plan's 0.5 m.
+        XCTAssertGreaterThan(baked.vertexCount, rawVertices)
+        var longest = 0.0   // squared
+        for part in baked.parts {
+            for shape in part.shapes {
+                let v = shape.mesh.vertices, ix = shape.mesh.indices
+                for t in stride(from: 0, to: ix.count - 2, by: 3) {
+                    let a = v[Int(ix[t])].position, b = v[Int(ix[t + 1])].position, c = v[Int(ix[t + 2])].position
+                    let edges = max((b - a).lengthSquared, max((c - b).lengthSquared, (a - c).lengthSquared))
+                    longest = max(longest, edges)
+                }
+            }
+        }
+        XCTAssertLessThanOrEqual(longest.squareRoot(), settings.maxEdge * (1 + 1e-12))
+
+        var all: [Float] = [], hull: [Float] = []
         for (p, part) in baked.parts.enumerated() {
             for (s, shape) in part.shapes.enumerated() {
                 all += shape.front + shape.back
-                let visual = geometry.parts[p].shapes[s]
-                if visual.thruster != nil && visual.twoSided {
-                    bellsInside += shape.back
-                    bellsOutside += shape.front
-                }
                 // The S-IC's sides between 10 m and 30 m up.
                 guard vessel.parts[p].name == "S-IC" else { continue }
                 for (i, v) in shape.mesh.vertices.enumerated() {
@@ -550,10 +596,173 @@ final class AmbientOcclusionTests: XCTestCase {
         }
         let mean = { (v: [Float]) in Double(v.reduce(0, +)) / Double(max(v.count, 1)) }
         XCTAssertTrue(all.allSatisfy { $0 >= 0 && $0 <= 1 })
-        XCTAssertGreaterThan(bellsInside.count, 1000)
-        XCTAssertLessThan(mean(bellsInside), mean(bellsOutside) - 0.3)
         XCTAssertGreaterThan(hull.count, 1000)
         XCTAssertGreaterThan(mean(hull), 0.85)
         XCTAssertTrue(all.contains(0), "caps between stages are buried")
+
+        // The bells in the open, found against the unsubdivided stack.
+        let surfaces = zip(geometry.parts, raw).flatMap { part, meshes in
+            meshes.map { AmbientOcclusion.Surface(mesh: $0, offset: part.offset) }
+        }
+        let occluders = AmbientOcclusion.occluders(surfaces)
+        var mains: [String] = [], closedAtTheBottom: Set<String> = [], spanned = 0
+        var mainBells = Bell(), twoSided = Bell()
+        for (p, part) in geometry.parts.enumerated() {
+            for thruster in vessel.parts[p].thrusters {
+                let linked = part.shapes.indices.filter { part.shapes[$0].thruster == thruster.name }
+                guard let n = linked.last(where: { VesselGeometry.exit(of: part.shapes[$0]) != nil }),
+                      let exit = VesselGeometry.exit(of: part.shapes[n]) else { continue }
+                let exhaust = -thruster.direction, centre = exit.centre + part.offset
+                let start = centre + exhaust * AmbientOcclusion.surfaceOffset
+                guard !occluders.occluded(origin: start, direction: exhaust, maxDistance: settings.maxDistance) else {
+                    continue
+                }
+                let name = "\(vessel.parts[p].name) \(thruster.name)", nozzle = part.shapes[n]
+                let bell = Self.bell(nozzle: n, linked: linked, part: part, baked: baked.parts[p])
+                XCTAssertGreaterThan(abs(bell.facing), 0.5, "\(name): a bell, its sides facing in and out")
+                XCTAssertGreaterThan(bell.inside.area, 0, name)
+                if thruster.groups.contains(.main) {
+                    mains.append(thruster.name)
+                    mainBells.add(bell)
+                    XCTAssertLessThan(bell.inside.mean, bell.outside.mean, name)
+                }
+                if nozzle.twoSided { twoSided.add(bell) }
+
+                // Reciprocity, within the rays' noise and their start 1 mm
+                // off the wall (a 7 cm RCS exit is 1.4 % wider seen from
+                // there), and the exit's facets (64 of them make 0.2 % less
+                // than π r²).
+                let size = try XCTUnwrap(Self.openings(nozzle), name)
+                if size.chord < settings.maxDistance {
+                    spanned += 1
+                    XCTAssertLessThanOrEqual(bell.inside.mean, (size.exit + size.far) / bell.inside.area + 0.02, name)
+                }
+                let pastExit = {
+                    zip(geometry.parts, raw).contains { part, meshes in
+                        meshes.contains { mesh in
+                            mesh.vertices.contains { ($0.position + part.offset - centre).dot(exhaust) > 1e-6 }
+                        }
+                    }
+                }
+                if size.far == 0 && !pastExit() {
+                    closedAtTheBottom.insert(thruster.name)
+                    XCTAssertGreaterThanOrEqual(bell.inside.mean, size.exit / bell.inside.area - 0.01, name)
+                }
+            }
+        }
+        print(String(format: "Bells in the open: main engines inside %.3f, outside %.3f; "
+                     + "two-sided inside %.3f, outside %.3f", mainBells.inside.mean, mainBells.outside.mean,
+                     twoSided.inside.mean, twoSided.outside.mean))
+        let sIC = vessel.parts.first { $0.name == "S-IC" }!.thrusters.filter { $0.groups.contains(.main) }
+        XCTAssertEqual(mains, sIC.map(\.name), "the main engines in the open")
+        XCTAssertTrue(Set(sIC.map(\.name)).isSubset(of: closedAtTheBottom),
+                      "the F-1s close at their injectors, at the bottom of the stack")
+        XCTAssertGreaterThan(spanned, 0)
+        XCTAssertGreaterThan(twoSided.inside.area, 0)
+        XCTAssertLessThan(twoSided.inside.mean, twoSided.outside.mean, "two-sided bells in the open")
+    }
+
+    /// Area-weighted AO.
+    struct Faces {
+        var sum = 0.0, area = 0.0
+        var mean: Double { sum / area }
+
+        mutating func add(_ value: Float, area a: Double) {
+            sum += Double(value) * a
+            area += a
+        }
+
+        mutating func add(_ other: Faces) {
+            sum += other.sum
+            area += other.area
+        }
+    }
+
+    /// A bell's inside and outside, or several bells' pooled, and how its
+    /// nozzle's front faces: the area-weighted mean cosine between its
+    /// normals and the outward radial (-1 all in, 1 all out).
+    struct Bell {
+        var inside = Faces(), outside = Faces(), facing = 0.0
+
+        mutating func add(_ bell: Bell) {
+            inside.add(bell.inside)
+            outside.add(bell.outside)
+        }
+    }
+
+    /// The bell of nozzle `n`, a shape of `part`, among its thruster's
+    /// `linked` shapes: inside, the nozzle's side that faces its axis;
+    /// outside, its other side if it is two-sided and the outward faces of
+    /// the other linked shapes about the same axis. Each vertex weighs a
+    /// third of its triangles' area.
+    static func bell(nozzle n: Int, linked: [Int], part: VesselGeometry.Part,
+                     baked: BakedAmbientOcclusion.Part) -> Bell {
+        let nozzle = part.shapes[n]
+        func radial(_ x: Vec3) -> Vec3 {
+            let d = x - nozzle.origin
+            return d - nozzle.axis * d.dot(nozzle.axis)
+        }
+        func weights(_ mesh: VisualShape.Mesh) -> [Double] {
+            var area = [Double](repeating: 0, count: mesh.vertices.count)
+            for t in stride(from: 0, to: mesh.indices.count - 2, by: 3) {
+                let i = Int(mesh.indices[t]), j = Int(mesh.indices[t + 1]), k = Int(mesh.indices[t + 2])
+                let a = mesh.vertices[i].position, b = mesh.vertices[j].position, c = mesh.vertices[k].position
+                let third = (b - a).cross(c - a).length / 6
+                area[i] += third
+                area[j] += third
+                area[k] += third
+            }
+            return area
+        }
+        var bell = Bell()
+        // The nozzle: which side faces the axis.
+        let values = baked.shapes[n], area = weights(values.mesh)
+        var cosine = 0.0, total = 0.0
+        for (i, v) in values.mesh.vertices.enumerated() {
+            let r = radial(v.position)
+            guard r.length > 1e-9 else { continue }
+            cosine += area[i] * v.normal.dot(r) / r.length
+            total += area[i]
+        }
+        bell.facing = cosine / total
+        let (inside, outside) = bell.facing < 0 ? (values.front, values.back) : (values.back, values.front)
+        for i in area.indices {
+            if !inside.isEmpty { bell.inside.add(inside[i], area: area[i]) }
+            if !outside.isEmpty { bell.outside.add(outside[i], area: area[i]) }
+        }
+        // The other linked shapes about its axis: their outward faces.
+        for s in linked where s != n {
+            let shape = part.shapes[s]
+            guard shape.axis.cross(nozzle.axis).length < 1e-9, radial(shape.origin).length < 1e-6 else { continue }
+            let values = baked.shapes[s], area = weights(values.mesh)
+            for (i, v) in values.mesh.vertices.enumerated() {
+                let r = radial(v.position)
+                guard r.length > 1e-9 else { continue }
+                let out = v.normal.dot(r)
+                if out > 0 { bell.outside.add(values.front[i], area: area[i]) }
+                if out < 0 && !values.back.isEmpty { bell.outside.add(values.back[i], area: area[i]) }
+            }
+        }
+        return bell
+    }
+
+    /// A nozzle's openings and size: the area of its exit, of its far end
+    /// when that is open (m²), and the longest chord across it (m).
+    static func openings(_ s: VisualShape) -> (exit: Double, far: Double, chord: Double)? {
+        guard !s.capBase else { return nil }
+        switch s.kind {
+        case let .revolution(profile, _, _):
+            guard let first = profile.first, let last = profile.last else { return nil }
+            let x = profile.map(\.x), r = profile.map(\.r).max() ?? 0
+            let depth = (x.max() ?? 0) - (x.min() ?? 0)
+            return (Double.pi * first.r * first.r, s.capTop ? 0 : Double.pi * last.r * last.r,
+                    (depth * depth + 4 * r * r).squareRoot())
+        case let .frustum(base, top):
+            let r = max(base, top)
+            return (Double.pi * base * base, s.capTop ? 0 : Double.pi * top * top,
+                    (s.length * s.length + 4 * r * r).squareRoot())
+        default:
+            return nil
+        }
     }
 }
