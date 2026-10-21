@@ -142,13 +142,23 @@ final class OrthoRasterTests: XCTestCase {
 
     // MARK: The drawn outline against the silhouette
 
-    /// Row by row, a side view's outline is the silhouette's radius towards
-    /// the view's right and left, to within a pixel; a section's from above,
-    /// the largest radius over its stations.
-    func testDrawnOutlineIsTheSilhouette() {
+    /// Row by row, a side view's outline is the silhouette's towards the
+    /// view's right and left: the last covered pixel's centre lies at most
+    /// `radius` out, and less than a pixel inside what a pixel resolves,
+    /// `radius(at:azimuth:resolving:)`. The two are one wherever what
+    /// reaches farthest is a pixel or more across at the row's station;
+    /// on the S-IVB that is every row but the one through the APS pitch
+    /// engines' lips just above their lowest points (`Silhouette`, and
+    /// `testSubPixelSliverShowsOnNoPixel`). From above, a section's outline
+    /// is the largest radius over its stations; there what reaches
+    /// farthest (the pitch engines' bells towards I and III, the S-II/S-IVB
+    /// interstage cut at the band's foot towards II and IV) is several
+    /// pixels across both ways.
+    func testDrawnOutlineIsTheSilhouette() throws {
         let silhouette = Silhouette(Self.stackScene)
         let k = 40.0
         let band = AS506.station(2700)...AS506.station(2900)   // the S-IVB's aft skirt, APS modules and ullage rockets
+        var sides = 0, slivers: [String] = []
         for n in [1, 2] {
             let image = OrthoRaster.render(Self.stackScene, .position(n, scale: k, stations: band),
                                            style: OrthoStyle(lighting: .albedo, outlines: false, annotations: false))
@@ -157,15 +167,25 @@ final class OrthoRasterTests: XCTestCase {
             for y in 0..<image.height {
                 let covered = (0..<image.width).filter { image.surface($0, y) != nil }
                 guard let first = covered.first, let last = covered.last else { continue }
-                let x = image.screen(0, y).up
-                guard let right = silhouette.radius(at: x, azimuth: azimuth + Double.pi / 2),
-                      let left = silhouette.radius(at: x, azimuth: azimuth - Double.pi / 2) else { continue }
-                XCTAssertEqual(image.screen(last, y).right, right, accuracy: 1 / k, "Position \(n), row \(y)")
-                XCTAssertEqual(-image.screen(first, y).right, left, accuracy: 1 / k, "Position \(n), row \(y)")
+                let cut = silhouette.section(at: image.screen(0, y).up)
+                let edges = [("right", image.screen(last, y).right, azimuth + Double.pi / 2),
+                             ("left", -image.screen(first, y).right, azimuth - Double.pi / 2)]
+                for (side, drawn, towards) in edges {
+                    let at = "Position \(n), row \(y), \(side)"
+                    let reach = try XCTUnwrap(cut.radius(azimuth: towards), at)
+                    let resolved = try XCTUnwrap(cut.radius(azimuth: towards, resolving: 1 / k), at)
+                    XCTAssertLessThanOrEqual(drawn, reach + 1e-9, at)
+                    XCTAssertGreaterThan(drawn, resolved - 1 / k - 1e-9, at)
+                    if resolved < reach { slivers.append(at) }
+                    sides += 1
+                }
                 rows += 1
             }
             XCTAssertGreaterThan(rows, 190)
         }
+        // Slivers are the exception (2 of 812 sides): nearly everywhere the
+        // drawn edge lies within a pixel inside `radius` itself.
+        XCTAssertLessThan(slivers.count * 50, sides, "\(slivers)")
 
         let top = OrthoRaster.render(Self.stackScene, OrthoView(.top, scale: k, stations: band),
                                      style: OrthoStyle(lighting: .albedo, outlines: false, annotations: false))
@@ -185,6 +205,59 @@ final class OrthoRasterTests: XCTestCase {
             (-top.screen(0, maxY).up, silhouette.radius(over: band, azimuth: 0)!),
         ]
         for (drawn, measured) in expected { XCTAssertEqual(drawn, measured, accuracy: 1 / k) }
+    }
+
+    /// A sliver narrower than a pixel shows on no pixel. A cylinder of
+    /// radius 1 m carries a nozzle at Position II firing inwards, as the
+    /// APS pitch engines do: its lip, 0.2 m in radius, stands out beyond
+    /// the skin, half a pixel past a column's centre. The row 1 mm above the
+    /// lip's lowest point crosses it along about 1 mm: `radius` reads the
+    /// lip there, the image and `radius(resolving:)` the skin. Rows higher
+    /// up cross it along a pixel or more, and all three read the lip.
+    func testSubPixelSliverShowsOnNoPixel() throws {
+        let k = 40.0, ii = Double.pi / 2, view = OrthoView.position(1, scale: k)
+        let style = OrthoStyle(lighting: .albedo, outlines: false, annotations: false)
+        let body = VisualShape.frustum(from: .zero, length: 4, baseRadius: 1, topRadius: 1, color: (0.9, 0.9, 0.9))
+        let skin = try XCTUnwrap(Silhouette(OrthoScene(shapes: [body])).radius(at: 2, azimuth: ii))
+        // The pixels' centres, from the body alone; the nozzle lies on its
+        // right and within its stations, so it leaves the corner (left, top).
+        let plain = OrthoRaster.render(OrthoScene(shapes: [body]), view, style: style)
+        let row = plain.height / 2, x = plain.screen(0, row).up
+        let column = Int(((1.03 - plain.left) * k - 0.5).rounded(.up))
+        let lip = plain.screen(column, row).right + 0.5 / k
+        var nozzle = VisualShape.frustum(from: Vec3(x - 0.001 + 0.2, -lip, 0), length: 0.15, baseRadius: 0.2,
+                                         topRadius: 0.2 / 3, axis: .unitY, color: (0.2, 0.2, 0.2))
+        nozzle.capBase = false
+        nozzle.twoSided = true
+        let scene = OrthoScene(shapes: [body, nozzle])
+        let image = OrthoRaster.render(scene, view, style: style)
+        XCTAssertEqual(image.left, plain.left)
+        XCTAssertEqual(image.top, plain.top)
+        let s = Silhouette(scene)
+        func drawn(_ y: Int) throws -> Double {
+            try image.screen(XCTUnwrap((0..<image.width).last { image.surface($0, y) != nil }), y).right
+        }
+
+        // The row through the sliver: the lip, then about 1 mm of the bell
+        // inside it, apart from the skin.
+        let cover = s.section(at: x).cover(azimuth: ii)
+        XCTAssertEqual(cover.count, 2)
+        let sliver = try XCTUnwrap(cover.last)
+        XCTAssertEqual(sliver.upperBound, lip, accuracy: 1e-9)
+        XCTAssertEqual(sliver.upperBound - sliver.lowerBound, 0.001 * 0.15 / (0.2 - 0.2 / 3), accuracy: 1e-4)
+        XCTAssertEqual(try XCTUnwrap(s.radius(at: x, azimuth: ii)), lip, accuracy: 1e-9)
+        XCTAssertEqual(try XCTUnwrap(s.radius(at: x, azimuth: ii, resolving: 1 / k)), skin, accuracy: 1e-9)
+        XCTAssertLessThanOrEqual(try drawn(row), skin + 1e-9)
+        XCTAssertGreaterThan(try drawn(row), skin - 1 / k)
+
+        // Two pixels up and more, the row crosses the bell from the lip to
+        // the skin: resolved, and drawn to the column inside the lip.
+        for y in [row - 2, row - 4, row - 12] {
+            let up = image.screen(0, y).up
+            XCTAssertEqual(try XCTUnwrap(s.radius(at: up, azimuth: ii)), lip, accuracy: 1e-9, "row \(y)")
+            XCTAssertEqual(try XCTUnwrap(s.radius(at: up, azimuth: ii, resolving: 1 / k)), lip, accuracy: 1e-9, "row \(y)")
+            XCTAssertEqual(try drawn(y), lip - 0.5 / k, accuracy: 1e-9, "row \(y)")
+        }
     }
 
     // MARK: Paint and crops

@@ -37,11 +37,24 @@ import OrbitCore
 ///
 /// Both include every triangle of the scene, back faces and insides too.
 ///
+/// An image samples each pixel at its centre (`OrthoRaster`, as the GPU
+/// does without antialiasing), so it shows a feature only where the feature
+/// is a pixel or more across, or happens to cover a centre. A side view's
+/// row at station x crosses the shapes along the section's `cover`; its
+/// last covered pixel's centre lies at most `radius` out, and less than a
+/// pixel inside `radius(at:azimuth:resolving:)`, the far end of the
+/// farthest stretch at least a pixel long. The two differ where what
+/// reaches farthest is a sliver at x: at 40 px/m, the row 0.005 in above
+/// the lowest point of an APS pitch engine's 6.43 in exit (P1's) crosses
+/// its lip, 0.5 in proud of the module's face, along 0.34 mm, a seventieth
+/// of a pixel, and the image shows the face there.
+///
 ///     let s = Silhouette(VesselLibrary.saturnV())
 ///     s.diameter(at: AS506.station(1000), azimuth: .pi / 4)      // the S-IC's skin: 396 in, in m
 ///     s.width(at: AS506.station(1000), viewedFrom: 0)            // the outline's span seen from Position I
 ///     s.radius(over: AS506.station(81)...AS506.station(137), azimuth: .pi / 4)   // fin A's tip
 ///     s.reach(at: AS506.height(73.4), azimuth: 0)                // the APS module at Position I
+///     s.radius(at: x, azimuth: .pi / 2, resolving: 1 / 40)      // what a 40 px/m view from I must show on its right
 struct Silhouette {
     /// The unit vector at azimuth θ in the construction frame: (0, -sin θ, cos θ).
     static func radial(_ azimuth: Double) -> Vec3 { Vec3(0, -sin(azimuth), cos(azimuth)) }
@@ -61,6 +74,41 @@ struct Silhouette {
             var best = -Double.infinity
             for (a, b) in segments { best = max(best, a.dot(d), b.dot(d)) }
             return best
+        }
+
+        /// The stretches of the line towards θ that the section covers:
+        /// each segment's projection on radial(θ), merged where they touch
+        /// (to within `Silhouette.touching`), in increasing order. In a
+        /// side view with θ on its right (from θ - π/2), the row at this
+        /// station crosses the shapes along them, so a pixel of the row
+        /// whose centre lies in one is covered.
+        func cover(azimuth: Double) -> [ClosedRange<Double>] {
+            let d = Silhouette.radial(azimuth)
+            let spans = segments.map { a, b -> ClosedRange<Double> in
+                let (p, q) = (a.dot(d), b.dot(d))
+                return min(p, q)...max(p, q)
+            }.sorted { $0.lowerBound < $1.lowerBound }
+            var merged: [ClosedRange<Double>] = []
+            for span in spans {
+                if let last = merged.last, span.lowerBound <= last.upperBound + Silhouette.touching {
+                    merged[merged.count - 1] = last.lowerBound...max(last.upperBound, span.upperBound)
+                } else {
+                    merged.append(span)
+                }
+            }
+            return merged
+        }
+
+        /// The outline's reach towards θ that a drawing sampling the line
+        /// every `pixel` (m) must show: the far end of the farthest stretch
+        /// of `cover` at least `pixel` long, since such a stretch holds a
+        /// sample within `pixel` of its end. It is `radius` where what
+        /// reaches farthest is a pixel or more across at this station, and
+        /// less where that is a sliver the samples can straddle (a nozzle's
+        /// lip cut just above its lowest point); nil if no stretch is that
+        /// long.
+        func radius(azimuth: Double, resolving pixel: Double) -> Double? {
+            cover(azimuth: azimuth).last { $0.upperBound - $0.lowerBound >= pixel }?.upperBound
         }
 
         /// The outline's width seen from azimuth θ: the radii towards θ ± π/2.
@@ -146,8 +194,18 @@ struct Silhouette {
         return Section(x: x, segments: segments)
     }
 
+    /// Section stretches closer than this (m) touch: the crossings of an
+    /// edge two triangles share, which each computes on its own.
+    static let touching = 1e-9
+
     /// The outline's reach towards θ at station `x`; see `Section.radius`.
     func radius(at x: Double, azimuth: Double) -> Double? { section(at: x).radius(azimuth: azimuth) }
+
+    /// The outline's reach towards θ at station `x` that an image at
+    /// 1/`pixel` px/m must show; see `Section.radius(azimuth:resolving:)`.
+    func radius(at x: Double, azimuth: Double, resolving pixel: Double) -> Double? {
+        section(at: x).radius(azimuth: azimuth, resolving: pixel)
+    }
 
     /// The outline's width at station `x` seen from θ; see `Section.width`.
     func width(at x: Double, viewedFrom azimuth: Double) -> Double? { section(at: x).width(viewedFrom: azimuth) }

@@ -338,11 +338,14 @@ enum OrthoRaster {
 
     /// The scene drawn in `view`, its albedo from `paint`.
     ///
-    /// Each pixel shows the nearest surface at its centre. Back faces are
-    /// culled except on two-sided shapes, as the vessel pass culls them; a
-    /// fragment outside the view's stations is dropped. The image spans the
-    /// projected bounds of what is drawn (a side view's crop: the crop's
-    /// stations) plus the style's margin and, on a side view, the tick strip.
+    /// Each pixel shows the nearest surface at its centre, with no
+    /// antialiasing, so a feature narrower than a pixel shows only where it
+    /// covers a centre (`Silhouette.radius(at:azimuth:resolving:)` is the
+    /// outline a side view must show). Back faces are culled except on
+    /// two-sided shapes, as the vessel pass culls them; a fragment outside
+    /// the view's stations is dropped. The image spans the projected bounds
+    /// of what is drawn (a side view's crop: the crop's stations) plus the
+    /// style's margin and, on a side view, the tick strip.
     static func render(_ scene: OrthoScene, _ view: OrthoView, style: OrthoStyle = OrthoStyle(),
                        paint: OrthoPaint = shapeColour) -> OrthoImage {
         let (right, up, towards) = view.basis

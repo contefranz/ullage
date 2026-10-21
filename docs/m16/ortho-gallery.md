@@ -69,6 +69,7 @@ sheet.screen(x, y)                                          // a pixel of the fi
 
   Each view takes a scale in px/m and an optional band of construction x. The band crops a side view and cuts a section for a top or bottom view.
 - **Visibility.** Each pixel shows the nearest surface at its centre, with no antialiasing.
+  - A feature narrower than a pixel shows only where it covers a pixel's centre, as on the GPU without MSAA (see `radius(…, resolving:)` below).
   - Back faces are culled except on `twoSided` shapes, as the vessel pass culls them.
   - Shapes linked to thrusters are drawn as mounted, with the gimbal at null.
   - Coplanar faces show the first one drawn.
@@ -100,6 +101,8 @@ s.reach(at: x, azimuth: 0)                                   // a ray cast out f
 s.radius(at: AS506.station(1000), azimuth: .pi / 4)          // how far the outline reaches towards θ
 s.width(at: AS506.station(1000), viewedFrom: 0)              // radius(θ + π/2) + radius(θ − π/2)
 s.radius(over: AS506.station(81)...AS506.station(137), azimuth: .pi / 4)   // the most over a band of stations
+s.radius(at: x, azimuth: .pi / 2, resolving: 1 / 40)         // what a 40 px/m view from I must show on its right
+s.section(at: x).cover(azimuth: .pi / 2)                     // the stretches a row at x crosses, towards θ
 s.stations                                                   // lowest and highest x
 ```
 
@@ -108,4 +111,6 @@ The two measures differ wherever something stands proud of a skin, so pick the o
 - **`radius`** is the outline's support function: the largest p·radial(θ) over the cross-section. It is the half-width that a drawing, or a view from θ − π/2, shows on its right. Measure outlines, spans and fin tips with it (a fin span is `radius` at 45° plus 225°). It is not local to θ. A feature standing h proud of a skin of radius R, at Δ from θ, reaches R cos Δ + h towards θ, so it raises `radius` wherever Δ < acos(1 − h/R). For 11 in on the S-II's 198 in skin, that is 19°: VG2's systems tunnel at θ = 32° makes `radius` at 45° read 203.9 in, so the S-II would measure 407.8 in across there instead of 396.
 - **`reach`** sees only the half-plane at θ, a ray from the axis. A skin's radius beside a tunnel or fairing is the skin's, and sweeping θ finds bumps (fairings, modules, ports) at their own azimuths. **`diameter`** adds the two rays of a line through the axis. Measure stage and skin diameters with these, on rays that miss the features themselves. `SilhouetteTests` measures them along the fin diagonals, which miss VG2's S-II tunnel and VG1's S-II ullage-motor fairings; beside both, it checks that the diameters stand and that `radius` reads the features.
 
-Both count every triangle, back faces and insides included. `OrthoRasterTests` checks that the drawn outline matches `Silhouette` to within a pixel. `SilhouetteTests` pins the vehicle as VG1-VG3 draw it against docs/SaturnV-CSM-exterior-datasheet.md.
+Both count every triangle, back faces and insides included. `SilhouetteTests` pins the vehicle as VG1-VG3 draw it against docs/SaturnV-CSM-exterior-datasheet.md.
+
+**What an image can show.** `Silhouette` is exact; an image samples each pixel at its centre. A side view's row at station x crosses the shapes along the section's `cover`, the stretches of the line that the section's segments project onto, so a pixel of the row is covered when its centre lies in a stretch. The row's last covered pixel therefore lies at most `radius` out, and less than a pixel inside `radius(at:azimuth:resolving:)`, the far end of the farthest stretch at least a pixel long. The two are the same wherever what reaches farthest is a pixel or more across at x. They differ at a sliver: at 40 px/m, the row 0.005 in above the lowest point of an APS pitch engine's 6.43 in exit (P1's) crosses its lip, which stands 0.5 in proud of the module's face, along 0.34 mm. `radius` reads the lip there; the image, and `resolving`, show the face. `OrthoRasterTests` checks this rule on every row of the S-IVB's aft skirt from Positions I and II, where that row is the only sliver, and on a toy nozzle. To check a drawing at k px/m, compare with `radius(…, resolving: 1 / k)`.
