@@ -340,6 +340,122 @@ final class MFDPagesTests: XCTestCase {
         XCTAssertTrue(mfd.page(.left, sim: sim).shows("ELS armed"))
     }
 
+    /// The number a page shows after `label`, without its `unit`; nil if
+    /// none.
+    func number(_ p: MFDPage, after label: String, unit: String) -> Double? {
+        for line in p.compactLines {
+            let words = line.split(separator: " ").map(String.init)
+            if let i = words.firstIndex(of: label), i + 1 < words.count, words[i + 1].hasSuffix(unit) {
+                return Double(words[i + 1].dropLast(unit.count))
+            }
+        }
+        return nil
+    }
+
+    // The recovery target, Apollo 7's 29.8° N 67.0° W (68-FM-184 §5.4.3),
+    // seen from the CM at 68-FM-184's planned entry interface, 31.03° N
+    // 98.83° W (Table IX(b)). The references are haversine figures on the
+    // IUGG mean sphere (6,371,008.8 m), worked apart from GreatCircle's
+    // vector forms (Python, double precision):
+    // - the target: 1644.13 n mi on an initial bearing of 84.28°, within a
+    //   degree of the plan's 83.64° entry azimuth, as a target on the
+    //   ground track should be;
+    // - the predicted landing point: CM-entry-datasheet §4.4's 29.33° N
+    //   65.54° W, which it gives as 81.4 n mi beyond the target: 81.30 n mi
+    //   from the rounded coordinates, 80.34 of them downrange (along the
+    //   great circle from the CM to the landing point, the target projected
+    //   on its plane); and 1724.42 n mi from the CM;
+    // - a landing short of the target, at 30.5° N 75.0° W: 416.43 n mi
+    //   short;
+    // - the CM past the target, at 26.86° N 60.59° W in the app's
+    //   lift-up flight from Apollo 7's deorbit burn, which lands at 25.15°
+    //   N 54.24° W: the target 381.90 n mi back on 299.02°, the landing
+    //   734.22 n mi from it and 728.70 n mi long.
+    func testRecoveryTarget() throws {
+        let system = try SolarSystem.bundled()
+        let sim = Simulation(system: system, time: epoch)
+        let v = VesselLibrary.commandModule(.apollo7)
+        sim.add(v)
+        sim.place(v, geodeticLatitude: 31.03, longitude: -98.83, height: 121_920, inertialSpeed: 7_879.17,
+                  flightPathAngle: -1.759, azimuth: 83.64)
+        let target = MFDSite("TGT", latitude: 29.8 * deg, longitude: -67.0 * deg)
+        let mfd = MFDController(left: .entry, right: .map, environment: MFDEnvironment(recoveryTarget: target))
+        mfd.update(sim: sim, realTime: 0)
+
+        // ENTRY: range and bearing, in the target colour.
+        let p = mfd.page(.left, sim: sim)
+        XCTAssertTrue(p.shows("TGT 1644.1NM BRG 084.3°"), dump(p))
+        XCTAssertEqual(try XCTUnwrap(number(p, after: "TGT", unit: "NM"), dump(p)), 1644.13, accuracy: 0.1)
+        let bearing = try XCTUnwrap(number(p, after: "BRG", unit: "°"), dump(p))
+        XCTAssertEqual(bearing, 84.28, accuracy: 0.1)
+        XCTAssertEqual(bearing, 83.64, accuracy: 1)
+        XCTAssertTrue(p.text.contains { $0.string == "1644.1NM" && $0.style == .target }, dump(p))
+        XCTAssertFalse(p.shows("MISS"), dump(p))
+        XCTAssertTrue(p.shows("LAND no predictor"), dump(p))
+
+        // With the predictor: the miss, long of the target.
+        let predictor = TestPredictor()
+        predictor.predictedLandingPoint = (29.33 * deg, -65.54 * deg, sim.time + 963)
+        v.flightProgram = predictor
+        let q = mfd.page(.left, sim: sim)
+        XCTAssertEqual(try XCTUnwrap(number(q, after: "RTG", unit: "NM"), dump(q)), 1724.42, accuracy: 0.1)
+        XCTAssertTrue(q.shows("TGT 1644.1NM BRG 084.3°"), dump(q))
+        XCTAssertTrue(q.shows("MISS 81.3NM"), dump(q))
+        XCTAssertEqual(try XCTUnwrap(number(q, after: "MISS", unit: "NM"), dump(q)), 81.30, accuracy: 0.1)
+        XCTAssertEqual(try XCTUnwrap(number(q, after: "DR", unit: "NM"), dump(q)), 80.34, accuracy: 0.1)
+        XCTAssertTrue(q.shows("DR +80.3NM"), dump(q))
+        // Every line clear of the EMS scroll and the bank dial below.
+        for layer in q.layers {
+            for t in q.text where t.row > 1 {
+                XCTAssertFalse(layer.shapes.contains { s in
+                    guard case let .rect(a, b, _, _) = s else { return false }
+                    return MFDRect(a, b).contains(MFDPage.cell(Double(t.column), Double(t.row)))
+                }, "\(t.string) on the scroll\n" + dump(q))
+            }
+        }
+        XCTAssertTrue(q.shows("ELS"), dump(q))
+
+        // Short of the target.
+        predictor.predictedLandingPoint = (30.5 * deg, -75.0 * deg, sim.time + 900)
+        let short = mfd.page(.left, sim: sim)
+        XCTAssertEqual(try XCTUnwrap(number(short, after: "DR", unit: "NM"), dump(short)), -416.43, accuracy: 0.1)
+
+        // At the landing point, the path has no direction.
+        let here = v.latitudeLongitude(snapshot: sim.snapshot)
+        predictor.predictedLandingPoint = (here.lat, here.lon, sim.time)
+        let landed = mfd.page(.left, sim: sim)
+        XCTAssertTrue(landed.shows("MISS 1644.1NM DR ---"), dump(landed))
+
+        // Past the target, still long.
+        sim.place(v, geodeticLatitude: 26.86, longitude: -60.59, height: 57_000, inertialSpeed: 5_290,
+                  flightPathAngle: -1.6, azimuth: 105)
+        predictor.predictedLandingPoint = (25.15 * deg, -54.24 * deg, sim.time + 360)
+        mfd.update(sim: sim, realTime: 1)
+        let past = mfd.page(.left, sim: sim)
+        XCTAssertEqual(try XCTUnwrap(number(past, after: "TGT", unit: "NM"), dump(past)), 381.90, accuracy: 0.1)
+        XCTAssertEqual(try XCTUnwrap(number(past, after: "BRG", unit: "°"), dump(past)), 299.02, accuracy: 0.1)
+        XCTAssertEqual(try XCTUnwrap(number(past, after: "MISS", unit: "NM"), dump(past)), 734.22, accuracy: 0.1)
+        XCTAssertEqual(try XCTUnwrap(number(past, after: "DR", unit: "NM"), dump(past)), 728.70, accuracy: 0.1)
+
+        // MAP: a crosshair over the target, in the target colour; the whole
+        // Earth (zoom 1) is 360° across the screen and centred on 0° 0°.
+        let map = mfd.page(.right, sim: sim)
+        let marks = map.shapes.compactMap { s -> MFDPoint? in
+            if case let .marker(m, .crosshair, .target) = s { m } else { nil }
+        }
+        XCTAssertEqual(marks.count, 1)
+        XCTAssertEqual(marks.first?.x ?? 0, 0.5 - 67.0 / 360, accuracy: 1e-9)
+        XCTAssertEqual(marks.first?.y ?? 0, 11.5 / 24 - 29.8 / 360, accuracy: 1e-9)
+
+        // No target planned: neither page shows one.
+        let plain = MFDController(left: .entry, right: .map)
+        plain.update(sim: sim, realTime: 0)
+        XCTAssertFalse(plain.page(.left, sim: sim).shows("TGT"))
+        XCTAssertFalse(plain.page(.right, sim: sim).shapes.contains {
+            if case .marker(_, .crosshair, _) = $0 { true } else { false }
+        })
+    }
+
     // In orbit, ENTRY gives the time to a vacuum EI after a deorbit burn.
     func testEntryInterfaceAhead() throws {
         let (sim, v) = try parkingOrbit()

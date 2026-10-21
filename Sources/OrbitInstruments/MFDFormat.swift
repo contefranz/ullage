@@ -99,6 +99,14 @@ public enum MFDFormat {
         return w >= Double.pi ? w - 2 * Double.pi : w
     }
 
+    /// A distance in nautical miles (1852 m) to a tenth, as Apollo's
+    /// computer and EMS gave the ranges of an entry: "1644.1NM"; `signed`
+    /// adds a plus sign.
+    public static func nauticalMiles(_ metres: Double, signed: Bool = false) -> String {
+        guard metres.isFinite else { return "---" }
+        return fixed(metres / 1852, 1, signed: signed) + "NM"
+    }
+
     /// Fixed decimals with an optional sign: "+12.3".
     public static func fixed(_ x: Double, _ decimals: Int, signed: Bool = false) -> String {
         guard x.isFinite else { return "---" }

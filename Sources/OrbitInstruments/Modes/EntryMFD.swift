@@ -14,6 +14,14 @@ import OrbitCore
 /// - the time to the vacuum entry interface while above it;
 /// - the landing point and range to go, when the vessel's program predicts
 ///   one (`LandingPointPredicting`, E1's predictor);
+/// - the range (TGT) and initial bearing (BRG) to the recovery target, when
+///   the scenario plans one; with a predicted landing point, how far that
+///   misses the target (MISS) and the part of it downrange (DR), along the
+///   path to the landing point (the great circle from the vessel to it):
+///   positive long, the landing point beyond the target; blank within a
+///   nautical mile of the landing point, where the path has no direction.
+///   Ranges are in nautical miles, as Apollo's EMS and computer gave them,
+///   on a sphere of the Earth's mean radius;
 /// - the parachutes' state;
 /// - the EMS scroll: load factor against inertial speed since 0.05 g.
 public final class EntryMFD: MFDMode {
@@ -59,21 +67,43 @@ public final class EntryMFD: MFDMode {
             pair("EI", v.altitude < EntryInterface.standardHeight && v.landed == nil ? "below" : "none", nil, nil,
                  .referenceDim)
         }
+        let ll = v.latitudeLongitude(snapshot: s), radius = GreatCircle.meanRadius(of: c.body.figure)
         if let land = c.landingPoint {
-            let ll = v.latitudeLongitude(snapshot: s)
             let range = GreatCircle.distance(fromLatitude: ll.lat, longitude: ll.lon, toLatitude: land.latitude,
-                                             longitude: land.longitude, radius: GreatCircle.meanRadius(of: c.body.figure))
+                                             longitude: land.longitude, radius: radius)
             pair("LAND", MFDFormat.latitude(land.latitude), "", MFDFormat.longitude(land.longitude), .warn)
-            pair("RTG", MFDFormat.si(range), "TTG", MFDFormat.duration(land.time - c.time), .warn)
+            pair("RTG", MFDFormat.nauticalMiles(range), "TTG", MFDFormat.duration(land.time - c.time), .warn)
         } else {
             page.add(Self.left, row, "LAND no predictor", .referenceDim)
             row += 1
         }
+        if let target = c.recoveryTarget?.location {
+            let angle = GreatCircle.angle(fromLatitude: ll.lat, longitude: ll.lon, toLatitude: target.latitude,
+                                          longitude: target.longitude)
+            let bearing = GreatCircle.bearing(fromLatitude: ll.lat, longitude: ll.lon, toLatitude: target.latitude,
+                                              longitude: target.longitude)
+            pair("TGT", MFDFormat.nauticalMiles(angle * radius), "BRG", MFDFormat.heading(bearing), .target)
+            if let land = c.landingPoint {
+                let miss = GreatCircle.distance(fromLatitude: land.latitude, longitude: land.longitude,
+                                                toLatitude: target.latitude, longitude: target.longitude, radius: radius)
+                // Along the path to the landing point, so that it stays long
+                // once the vessel has passed over the target.
+                let path = GreatCircle.angle(fromLatitude: ll.lat, longitude: ll.lon, toLatitude: land.latitude,
+                                             longitude: land.longitude)
+                let along = GreatCircle.alongTrackAngle(
+                    fromLatitude: ll.lat, longitude: ll.lon,
+                    bearing: GreatCircle.bearing(fromLatitude: ll.lat, longitude: ll.lon, toLatitude: land.latitude,
+                                                 longitude: land.longitude),
+                    toLatitude: target.latitude, longitude: target.longitude)
+                pair("MISS", MFDFormat.nauticalMiles(miss), "DR",
+                     path * radius < 1852 ? "---" : MFDFormat.nauticalMiles((path - along) * radius, signed: true), .warn)
+            }
+        }
         page.add(Self.left, row, "ELS " + els(v), .reference)
 
         page.layers = [scroll(d, speed: v.velocity.length, g: v.loadFactor,
-                              area: MFDRect.cells(columns: 4...23, rows: 14...21)),
-                       dial(v.bankAngle, area: MFDRect.cells(columns: 26...35, rows: 14...21))]
+                              area: MFDRect.cells(columns: 4...23, rows: 15...21)),
+                       dial(v.bankAngle, area: MFDRect.cells(columns: 26...35, rows: 15...21))]
         page.add(4, 22, "g", .referenceDim)
         page.add(23, 22, "VI", .referenceDim, alignment: .trailing)
         return page

@@ -119,7 +119,7 @@ public struct GeoPoint: Hashable, Sendable {
     }
 }
 
-/// A named place for the map (a launch pad).
+/// A named place for the map (a launch pad, a recovery target).
 public struct MFDSite: Hashable, Sendable {
     public var name: String
     public var location: GeoPoint
@@ -129,15 +129,21 @@ public struct MFDSite: Hashable, Sendable {
     }
 }
 
-/// What the displays know besides the simulation: the Earth's coastlines
-/// and the places to mark on the map.
+/// What the displays know besides the simulation: the Earth's coastlines,
+/// the places to mark on the map and where the mission means to land.
 public struct MFDEnvironment {
     /// The Earth's coastlines, each an open or closed line of points.
     public var coastlines: [[GeoPoint]]
     public var sites: [MFDSite]
-    public init(coastlines: [[GeoPoint]] = [], sites: [MFDSite] = []) {
+    /// The planned landing point on the Earth, such as Apollo 7's 29.8° N
+    /// 67.0° W (68-FM-184 §5.4.3): MAP marks it, and ENTRY gives the range
+    /// and bearing to it and how far the predicted landing point misses it.
+    /// Nil when the scenario plans none.
+    public var recoveryTarget: MFDSite?
+    public init(coastlines: [[GeoPoint]] = [], sites: [MFDSite] = [], recoveryTarget: MFDSite? = nil) {
         self.coastlines = coastlines
         self.sites = sites
+        self.recoveryTarget = recoveryTarget
     }
 }
 
@@ -180,6 +186,10 @@ public struct MFDContext {
     public var landingPoint: (latitude: Double, longitude: Double, time: Epoch)? {
         (vessel.flightProgram as? LandingPointPredicting)?.predictedLandingPoint
     }
+
+    /// The environment's recovery target, while the vessel is about the
+    /// Earth.
+    public var recoveryTarget: MFDSite? { body.id == 399 ? environment.recoveryTarget : nil }
 
     /// Where the ascending node's longitude is measured from: the mean
     /// equinox of date on the Earth (the textbook RAAN); elsewhere the
