@@ -281,10 +281,15 @@ final class UpperStagesExteriorTests: XCTestCase {
     }
 
     // The retro ports: at each motor's nozzle, the forward end (STA 2629)
-    // of a 104.68 in motor that starts after STA 2519, outside the cone,
-    // on the motor's diagonal, the exhaust against its thrust. They stay
-    // put when the S-II and the interstage leave.
+    // of a 104.68 in motor that starts after STA 2519 and whose 9 in case
+    // fits its fairing, outside the cone, on the motor's diagonal, the
+    // exhaust against its thrust. They stay put when the S-II and the
+    // interstage leave.
     func testRetroPorts() throws {
+        let tilt = S.sIIRetroTilt * Double.pi / 180
+        XCTAssertGreaterThanOrEqual(S.sIIRetroForwardEnd - S.sIIRetroLength * cos(tilt), 2_519)
+        XCTAssertLessThanOrEqual(S.sIIRetroForwardEnd, 2_633)
+        XCTAssertGreaterThan(S.sIIRetroFairingWidth / 2, S.sIIRetroCaseDiameter / 2)
         let stack = VesselLibrary.saturnV()
         let interstage = try part("S-II/S-IVB interstage", of: stack)
         let ports = interstage.attachments.filter { $0.kind == .retroPort }
@@ -468,7 +473,8 @@ final class UpperStagesExteriorTests: XCTestCase {
                 let linked = p.shapes.filter { $0.thruster == t.name }
                 XCTAssertEqual(linked.count, 1)
                 let shape = try XCTUnwrap(linked.first), j2 = try XCTUnwrap(profile(shape))
-                XCTAssertEqual(j2[0].r * 2 / inch, 77, accuracy: 0.1)
+                XCTAssertEqual(S.j2ExitDiameter, 77)
+                XCTAssertEqual(j2[0].r * 2 / inch, S.j2ExitDiameter, accuracy: 0.1)
                 XCTAssertEqual(j2[0].r, (AS506.j2ExitArea / Double.pi).squareRoot(), accuracy: 1e-12)
                 XCTAssertEqual(j2.map(\.r).max()! * 2 / inch, 80.75, accuracy: 1e-9)
                 let length = shape.length / inch
