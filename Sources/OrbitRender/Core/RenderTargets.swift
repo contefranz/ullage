@@ -234,17 +234,10 @@ final class FallbackTextures {
         guard let flat = color(.type2D), let cube = color(.typeCube), let volume = color(.type3D),
               let shadow = depth(.type2DArray), let sceneDepth = depth(.type2D) else { return nil }
         depthTextures = [shadow, sceneDepth]
-        // Filled one by one: Swift 6.4 miscompiles this as a 12-entry
-        // dictionary literal at -O with -enable-testing (the LLVM verifier
-        // aborts the build).
-        for (slot, texture) in [(Binding.sceneDepth, sceneDepth), (Binding.environmentSpecular, cube),
-                                (Binding.environmentIrradiance, cube), (Binding.dfgLUT, flat),
-                                (Binding.shadowAtlas, shadow), (Binding.cloudShadow, flat),
-                                (Binding.transmittanceLUT, flat), (Binding.blueNoise, flat), (Binding.toneLUT, volume),
-                                (Binding.multipleScatteringLUT, flat), (Binding.skyViewLUT, flat),
-                                (Binding.aerialPerspective, volume)] {
-            bySlot[slot] = texture
-        }
+        bySlot = [Binding.sceneDepth: sceneDepth, Binding.environmentSpecular: cube, Binding.environmentIrradiance: cube,
+                  Binding.dfgLUT: flat, Binding.shadowAtlas: shadow, Binding.cloudShadow: flat,
+                  Binding.transmittanceLUT: flat, Binding.blueNoise: flat, Binding.toneLUT: volume,
+                  Binding.multipleScatteringLUT: flat, Binding.skyViewLUT: flat, Binding.aerialPerspective: volume]
     }
 
     /// Clears the depth fallbacks (private, so undefined until written) to

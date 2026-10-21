@@ -66,21 +66,33 @@ public final class FrameContext {
         self.fallbacks = fallbacks
 
         let cam = scene.camera
-        let aspect = Float(cam.aspect)
-        projection = .reversedInfinitePerspective(fovY: Float(cam.fovY), aspect: aspect, near: Float(cam.near))
+        projection = .reversedInfinitePerspective(fovY: Float(cam.fovY), aspect: Float(cam.aspect), near: Float(cam.near))
         view = simd_float4x4(rotation: cam.worldToView)
         viewProjection = projection * view
         pointParams = SIMD4<Float>(Float(cam.viewport.pointScale), 0, 0, 0)
+        // Kept out of this initializer: with them inline, Apple Swift 6.4
+        // (swiftlang-6.4.0.34.1) emits invalid IR for it at -O with
+        // -enable-testing (the fast test gate's build), and the LLVM verifier
+        // aborts the build ("Instruction does not dominate all uses").
+        (meshVessels, pointVessels) = Self.visibility(scene, meshes: meshes)
+        frame = Self.frameUniforms(scene, settings: settings, view: view, projection: projection,
+                                   previousViewProjection: previousViewProjection)
+    }
 
-        // A vessel is drawn as its mesh, as a point when it covers under
-        // half a pixel, or not at all without a mesh.
-        var meshVessels = Set<UUID>(), pointVessels = Set<UUID>()
+    /// The vessels drawn as their meshes, and those drawn as points: as a
+    /// point when it covers under half a pixel, not at all without a mesh.
+    static func visibility(_ scene: RenderScene, meshes: VesselMeshCache) -> (mesh: Set<UUID>, point: Set<UUID>) {
+        var mesh = Set<UUID>(), point = Set<UUID>()
         for v in scene.vessels where meshes.mesh(v.id) != nil {
-            if v.pixelSize(cam) < 0.5 { pointVessels.insert(v.id) } else { meshVessels.insert(v.id) }
+            if v.pixelSize(scene.camera) < 0.5 { point.insert(v.id) } else { mesh.insert(v.id) }
         }
-        self.meshVessels = meshVessels
-        self.pointVessels = pointVessels
+        return (mesh, point)
+    }
 
+    /// The frame's shared uniforms, before P0.
+    static func frameUniforms(_ scene: RenderScene, settings: RenderSettings, view: simd_float4x4,
+                              projection: simd_float4x4, previousViewProjection: simd_float4x4?) -> FrameUniforms {
+        let cam = scene.camera, viewProjection = projection * view
         var f = FrameUniforms()
         f.viewProjection = viewProjection
         f.view = view
@@ -89,7 +101,7 @@ public final class FrameContext {
         f.previousViewProjection = scene.clock.temporalReset ? viewProjection : previousViewProjection ?? viewProjection
         let w = Float(cam.viewport.width), h = Float(cam.viewport.height)
         f.viewport = SIMD4(w, h, 1 / max(w, 1), 1 / max(h, 1))
-        f.camera = SIMD4(Float(cam.near), Float(tan(cam.fovY / 2)), aspect, Float(cam.renderScale))
+        f.camera = SIMD4(Float(cam.near), Float(tan(cam.fovY / 2)), Float(cam.aspect), Float(cam.renderScale))
         let clock = scene.clock
         f.time = SIMD4(Float(clock.shaderRealTime), Float(clock.realDt), Float(clock.shaderSimTime), Float(clock.simDt))
         f.frame = SIMD4(Float(clock.frameIndex % (1 << 24)), Float(clock.warp), clock.paused ? 1 : 0,
@@ -97,11 +109,11 @@ public final class FrameContext {
         f.sunDirection = SIMD4(scene.sun.direction, Float(scene.sun.angularRadius))
         let lux = Float(scene.sun.illuminance)
         f.sunIlluminance = SIMD4(lux, lux, lux, lux)
-        f.noiseOrigin = Self.noiseOrigin(scene)
+        f.noiseOrigin = noiseOrigin(scene)
         f.debug = SIMD4(Float(DebugView.allCases.firstIndex(of: settings.debug.view) ?? 0),
                         settings.debug.showPassTimings ? 1 : 0, 0, 0)
         f.pointScale = SIMD4(Float(cam.viewport.pointScale), 0, 0, 0)
-        frame = f
+        return f
     }
 
     /// The side of the planet-fixed noise tile, m (2^15).
