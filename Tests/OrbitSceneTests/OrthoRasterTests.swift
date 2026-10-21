@@ -116,7 +116,7 @@ final class OrthoRasterTests: XCTestCase {
                                      color: (0.9, 0.1, 0.1))
         let scene = OrthoScene(shapes: [body, marker])
         /// The marker's mean pixel, as fractions of the image (0 left/top, 1 right/bottom).
-        func where_(_ view: OrthoView) throws -> (x: Double, y: Double) {
+        func markerCentre(_ view: OrthoView) throws -> (x: Double, y: Double) {
             let image = OrthoRaster.render(scene, view, style: .albedo)
             var sx = 0.0, sy = 0.0, n = 0.0
             for y in 0..<image.height {
@@ -129,12 +129,12 @@ final class OrthoRasterTests: XCTestCase {
             XCTAssertGreaterThan(n, 0, "the marker is seen")
             return (sx / n / Double(image.width), sy / n / Double(image.height))
         }
-        XCTAssertGreaterThan(try where_(.position(1, scale: 40)).x, 0.75)      // II on the right
-        XCTAssertEqual(try where_(.position(2, scale: 40)).x, 0.5, accuracy: 0.02)   // facing
-        XCTAssertLessThan(try where_(.position(3, scale: 40)).x, 0.25)         // II on the left
-        XCTAssertGreaterThan(try where_(OrthoView(.top, scale: 40)).x, 0.75)
-        XCTAssertEqual(try where_(OrthoView(.top, scale: 40)).y, 0.5, accuracy: 0.02)
-        XCTAssertLessThan(try where_(OrthoView(.bottom, scale: 40)).x, 0.25)
+        XCTAssertGreaterThan(try markerCentre(.position(1, scale: 40)).x, 0.75)      // II on the right
+        XCTAssertEqual(try markerCentre(.position(2, scale: 40)).x, 0.5, accuracy: 0.02)   // facing
+        XCTAssertLessThan(try markerCentre(.position(3, scale: 40)).x, 0.25)         // II on the left
+        XCTAssertGreaterThan(try markerCentre(OrthoView(.top, scale: 40)).x, 0.75)
+        XCTAssertEqual(try markerCentre(OrthoView(.top, scale: 40)).y, 0.5, accuracy: 0.02)
+        XCTAssertLessThan(try markerCentre(OrthoView(.bottom, scale: 40)).x, 0.25)
         // From IV the marker is behind the body.
         let hidden = OrthoRaster.render(scene, .position(4, scale: 40), style: .albedo)
         XCTAssertFalse(hidden.surfaces.contains(1))

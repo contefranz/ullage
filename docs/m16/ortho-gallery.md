@@ -19,7 +19,7 @@ ORBITSIM_ORTHO_DIR=/path/to/dir swift test --filter OrthoGallery
 ```
 
 - The command writes PNGs and an `index.txt` into the directory, creating it if needed. Without the variable the test is skipped.
-- It takes about 40 s in Debug and a few seconds with `scripts/test.sh fast --filter OrthoGallery`.
+- It takes about 40 s in Debug, and about 20 s through `scripts/test.sh fast --filter OrthoGallery` (the variable passes through).
 - The files total about 40 MB, because stored deflate leaves them uncompressed.
 - Open the images with the Read tool. Each file is read back and must decode to the image written.
 - Pillow also opens them.

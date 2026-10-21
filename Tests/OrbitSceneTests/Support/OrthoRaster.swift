@@ -31,7 +31,7 @@ struct OrthoScene {
     }
 
     let surfaces: [Surface]
-    /// Three a triangle, positions in the construction frame.
+    /// Three per triangle, positions in the construction frame.
     let vertices: [VisualShape.Vertex]
     /// The surface (index into `surfaces`) of each triangle.
     let triangleSurfaces: [Int]
@@ -199,8 +199,8 @@ struct OrthoStyle {
     /// annotations, which the labels need).
     var margin = 12
 
-    /// The albedo views of `--verify` in the Mac gallery: no light, lines
-    /// or labels.
+    /// For probing colours (as the Mac gallery's `--verify` probes its
+    /// albedo views): no light, lines or labels.
     static let albedo = OrthoStyle(lighting: .albedo, outlines: false, annotations: false)
 }
 
@@ -276,8 +276,8 @@ enum OrthoRaster {
             maxU = max(maxU, u)
         }
         if let crop {
+            let v = scene.vertices
             for t in 0..<scene.triangleCount {
-                let v = scene.vertices
                 for p in Silhouette.clipped(v[3 * t].position, v[3 * t + 1].position, v[3 * t + 2].position, to: crop) {
                     include(p)
                 }
