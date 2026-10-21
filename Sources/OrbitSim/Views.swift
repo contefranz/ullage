@@ -289,6 +289,8 @@ struct HelpView: View {
         ("= / -", "throttle up / down (hold)"),
         ("W S A D Q E", "pitch down/up, yaw left/right, roll left/right"),
         ("I K J L U O", "translate up/down/left/right/fwd/back"),
+        ("", "RCS: tap for a 0.1 s pulse, hold to fire on (after 0.25 s)"),
+        ("Ctrl + RCS key", "fine: 14 ms pulse, or a tenth of the thrust held (docking)"),
         ("Space", "next staging event (Saturn V: after the S-IC cutoff; CM/SM: press twice within 2 s)"),
         ("", "CM after the SM has gone: ELS backup (apex cover and drogues, mains), below 40,000 ft"),
         ("T", "kill rotation   1-7 prograde, retro, normal, anti-normal, radial±, level   0 off"),

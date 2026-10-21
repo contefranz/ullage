@@ -67,8 +67,9 @@ grid. For real imagery, put equirectangular maps (8192×4096 or smaller) in
 | --- | --- |
 | Z / X | Full throttle / cut engines (on the CSM, Z lights the SPS and the ΔV counter cuts it off) |
 | = / - (hold) | Throttle up / down |
-| W S A D Q E | Pitch down / up, yaw left / right, roll left / right |
-| I K J L U O | Translate up / down / left / right / forward / back |
+| W S A D Q E | Pitch down / up, yaw left / right, roll left / right (RCS: tap for a pulse, hold to fire on) |
+| I K J L U O | Translate up / down / left / right / forward / back (RCS: tap for a pulse, hold to fire on) |
+| Ctrl + RCS key | Fine RCS: the tap's pulse is the jets' 14 ms minimum impulse, the hold a tenth of the thrust (docking) |
 | Space | Next staging event: on the Saturn V only after the S-IC cutoff; CM/SM separation takes two presses within 2 s; on the CM once the SM has gone, the backup of the earth landing system (apex cover and drogues, then mains), below 40,000 ft |
 | T | Kill rotation (toggle; damps rates only) |
 | 1–7 | Prograde, retrograde, normal, anti-normal, radial out, radial in, hold level |
@@ -92,6 +93,16 @@ Keys are bound by their place on the keyboard (labelled above as on a US
 layout), so they sit in the same place on any layout. Keys pressed with Shift
 do not fly the vessel: they go to the MFDs, left Shift to the left one and
 right Shift to the right one.
+
+The RCS keys pulse, as in Orbiter: a tap fires the jets for 0.1 s of
+simulation time at full thrust, so the same tap gives the same impulse at any
+time warp (taps in a row add up, opposite ones cancel); a key still down
+after 0.25 s fires on until it goes up. With Control down both are fine, for
+docking: a tap fires for 14 ms, the Apollo RCS jets' minimum impulse, and a
+hold at a tenth of the thrust. A key held on an axis wins over a tap there and
+ends any pulse there, so the jets stop as soon as it goes up; an autopilot
+takes over again once a pulse ends. In the CM entry's manual mode, from
+0.05 g, Q and E roll the lift for as long as they are down, with no pulses.
 
 ### Scenarios
 

@@ -97,6 +97,11 @@ extension Simulation {
         // And where a firing sequence's window opens or closes.
         for t in v.thrusters { if let e = t.timeToSequenceEdge, e > 1e-9 { h = min(h, e) } }
         h = max(h, 1e-3)
+        // And where a pilot's RCS pulse ends, even within the 1 ms floor: a
+        // tap's impulse then does not depend on the frames or the steps, so
+        // it is the same at any time warp. (`PilotPulse.advance` ends a pulse
+        // with under 1 ns to run.)
+        for r in v.pilotPulse.remainingTimes { h = min(h, r) }
         // And where a lit solid's grain runs out, at the flow of every lit
         // solid it feeds, even within the 1 ms floor: its impulse then does
         // not depend on the step. A passive vessel's liquid engines too, so

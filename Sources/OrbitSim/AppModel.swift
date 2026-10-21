@@ -77,6 +77,8 @@ final class AppModel: ObservableObject {
     /// After F, until the next key: the vessel and stage whose engine a
     /// digit fails, and that stage's main engines in order.
     private var failureCapture: (vessel: Vessel, part: String, engines: [String])?
+    /// The RCS keys: a tap fires a pulse, a key held fires on (`RCSKeyControl`).
+    private var rcsKeys = RCSKeyControl()
     private var hudClock = 0.0
     private var rateWindow = RateWindow()
     private static let warpSteps: [Double] = [0.1, 1, 10, 100, 1_000, 10_000, 100_000]
@@ -122,6 +124,7 @@ final class AppModel: ObservableObject {
         scenario = s
         missionStart = s.missionClockZero ?? sim.time
         failureCapture = nil
+        rcsKeys = RCSKeyControl()
         instruments.reset()
         if let focus = sim.focus {
             camera.target = .vessel(focus.id)
@@ -171,7 +174,8 @@ final class AppModel: ObservableObject {
     }
 
     private func handleKeys(sim: Simulation, dt: Double) {
-        for key in input.takePressed() {
+        let pressed = input.takePressed()
+        for key in pressed {
             // F, then a digit: the key after F is the capture's. A digit fails
             // that engine of the stage (none if out of range), so 1-8 and 0
             // never reach the autopilot here; Escape or F cancels; any other
@@ -226,20 +230,36 @@ final class AppModel: ObservableObject {
         if input.isHeld(.equal) { v.mainThrottle = min(1, v.mainThrottle + 0.5 * dt) }
         if input.isHeld(.minus) { v.mainThrottle = max(0, v.mainThrottle - 0.5 * dt) }
 
-        func axis(_ plus: PhysicalKey, _ minus: PhysicalKey) -> Double {
-            (input.isHeld(plus) ? 1 : 0) - (input.isHeld(minus) ? 1 : 0)
-        }
-        var rotation = RotationCommand(roll: axis(.e, .q), pitch: axis(.s, .w), yaw: axis(.d, .a))
+        // The RCS keys: a tap fires one pulse, a key held past the hold delay
+        // fires on until it goes up; with Control both are fine.
+        let rcs = rcsKeys.update(pressed: pressed, isHeld: { self.input.isHeld($0) },
+                                 fine: input.modifiers.contains(.control),
+                                 now: ProcessInfo.processInfo.systemUptime)
+        var rotation = rcs.rotation
         // In the entry program's manual mode, from 0.05 g, Q and E roll the
         // lift about the air velocity (the entry autopilot's coordinated
-        // roll) instead of about the CM's axis. The CM flies heat shield
-        // first, so a roll to the right about +X turns the lift to the left:
-        // E lowers the bank, as it would on the RCS alone.
+        // roll) instead of about the CM's axis, for as long as they are down
+        // (a rate command: no pulses). The CM flies heat shield first, so a
+        // roll to the right about +X turns the lift to the left: E lowers
+        // the bank, as it would on the RCS alone.
+        let entryRoll: Bool
         if let entry = ApolloMission.entryProgram(of: v), entry.mode == .manual, entry.phase == .entry {
-            entry.pilotRoll = -rotation.roll
+            entry.pilotRoll = (input.isHeld(.q) ? 1 : 0) - (input.isHeld(.e) ? 1 : 0)
             rotation.roll = 0
+            entryRoll = true
+        } else {
+            entryRoll = false
         }
-        v.setPilotInput(rotation: rotation, translation: Vec3(axis(.u, .o), axis(.l, .j), axis(.k, .i)))
+        // The held keys first, so this frame's taps meet this frame's holds:
+        // a key held on an axis wins there and ends a pulse running there.
+        v.setPilotInput(rotation: rotation, translation: rcs.translation)
+        // A tap pulses in simulation time, so none while paused.
+        if !sim.paused && v.status != .crashed {
+            for var pulse in rcs.pulses {
+                if entryRoll { pulse.rotation.roll = 0 }
+                v.firePilotPulse(rotation: pulse.rotation, translation: pulse.translation, duration: pulse.duration)
+            }
+        }
     }
 
     /// Space: the next staging event (`Simulation.stage`, which the flight
@@ -355,6 +375,12 @@ final class AppModel: ObservableObject {
         guard !vs.isEmpty else { return }
         let i = vs.firstIndex { $0 === sim.focus } ?? 0
         let next = vs[(i + step + vs.count) % vs.count]
+        // The vessel left behind stops firing what the keys held (a tap's
+        // pulse runs out): nothing sets its inputs once it is not the focus.
+        if let old = sim.focus, old !== next {
+            old.setPilotInput(rotation: RotationCommand(), translation: .zero)
+            ApolloMission.entryProgram(of: old)?.pilotRoll = 0
+        }
         sim.focus = next
         camera.target = .vessel(next.id)
         camera.distance = max(next.boundingRadius * 3, 30)
