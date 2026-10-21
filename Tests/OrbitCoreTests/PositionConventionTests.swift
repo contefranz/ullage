@@ -30,7 +30,8 @@ final class PositionConventionTests: XCTestCase {
     // and III, their pitch engines firing inwards there; the S-IVB's skin
     // carries v = 0 towards module I, π towards module III, and π/2 at
     // Position II; engines n under fins A-D at (2n - 1)π/4; the S-II ullage
-    // motors at Positions I-IV in order; SLA panel 1 at +Z_A (III), 2 at
+    // motors at Positions I-IV in order, motor n's exit on its fairing 4°
+    // anticlockwise of fin n (SICExteriorTests); SLA panel 1 at +Z_A (III), 2 at
     // -Z_A (I), 3 at +Y_A (II), 4 at -Y_A (IV), each a quarter turn about
     // its Position.
     func testSaturnVAgainstTheAPSModules() throws {
@@ -70,11 +71,18 @@ final class PositionConventionTests: XCTestCase {
         }
 
         let interstage = try XCTUnwrap(stack.parts.first { $0.name == "S-IC/S-II interstage" })
+        let motors = interstage.thrusters.filter(\.isSolid)
+        XCTAssertEqual(motors.count, 4)
+        for (n, motor) in motors.enumerated() {
+            XCTAssertEqual(wrapped(azimuth(construction(interstage, motor.position)) - Double(n) * pi / 2), 0,
+                           accuracy: 1e-12, motor.name)
+        }
         let ullage = interstage.attachments.filter { $0.kind == .ullageExit }
         XCTAssertEqual(ullage.count, 4)
         for (n, port) in ullage.enumerated() {
             XCTAssertEqual(port.thruster, "S-II ullage motor \(n + 1)")
-            XCTAssertEqual(wrapped(azimuth(construction(interstage, port.position)) - Double(n) * pi / 2), 0,
+            let fairing = Double(2 * n + 1) * pi / 4 + 4 * pi / 180
+            XCTAssertEqual(wrapped(azimuth(construction(interstage, port.position)) - fairing), 0,
                            accuracy: 1e-12, port.name)
         }
 
