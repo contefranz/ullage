@@ -215,7 +215,7 @@ public enum StrokeFont {
             b.loop(0, 0, w, h, r: 0.45 * min(w, h))
         case "1":
             b.line(0.6 * w, 0, 0.6 * w, h)
-            b.line(0.6 * w, h, 0.1 * w, 0.75 * h)
+            b.line(0.6 * w, h, 0.1 * w, 0.75 * h, square: (true, false))
         case "2":
             let r = min(w / 2, h / 2)
             let a = -45.0 * Double.pi / 180
@@ -234,7 +234,7 @@ public enum StrokeFont {
             b.arc(x, r, r, 270, 360)
             b.line(x, 0, 0, 0, square: (false, true))
         case "4":
-            b.line(0.7 * w, h, 0, 0.3 * h)
+            b.line(0.7 * w, h, 0, 0.3 * h, square: (true, false))
             b.line(0, 0.3 * h, w, 0.3 * h)
             b.line(0.7 * w, h, 0.7 * w, 0)
         case "5":

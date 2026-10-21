@@ -24,8 +24,9 @@ public struct Decal {
         case lines([String], letterHeight: Double, lineWidth: Double?, ink: PaintColour, background: PaintColour?)
         /// An Executive Order 10834 flag, union at the upper hoist, the
         /// hoist on the low-azimuth side (the left seen from outside) or
-        /// the high.
-        case flag(hoistAtLowAzimuth: Bool)
+        /// the high, fitted to its measured hoist and fly (in; the box's
+        /// height and width where not measured apart).
+        case flag(hoistAtLowAzimuth: Bool, hoist: Double?, fly: Double?)
         /// The box filled with one paint.
         case panel(PaintColour)
     }
@@ -164,8 +165,8 @@ public struct Decal {
             glyphs = Self.lines(lines, boxWidth: w, boxHeight: h, letterHeight: letterHeight, lineWidth: lineWidth)
             ink = colour
             background = fill
-        case let .flag(hoistAtLowAzimuth):
-            let f = Self.flag(boxWidth: w, boxHeight: h, hoistAtLeft: hoistAtLowAzimuth)
+        case let .flag(hoistAtLowAzimuth, hoist, fly):
+            let f = Self.flag(boxWidth: w, boxHeight: h, hoist: hoist ?? h, fly: fly ?? w, hoistAtLeft: hoistAtLowAzimuth)
             flag = f
             xs = min(xs.lowerBound, f.xRange.lowerBound)...max(xs.upperBound, f.xRange.upperBound)
             ys = min(0, f.y)...max(h, f.y + f.hoist)
@@ -227,12 +228,13 @@ public struct Decal {
         return glyphs
     }
 
-    /// A flag of EO 10834's proportions fitted to a measured box: its hoist
-    /// the geometric mean of the box's height and of its width over the
-    /// fly ratio (so the two measured extents are missed by the same
-    /// factor), its hoist edge on the box's edge, centred in height.
-    public static func flag(boxWidth: Double, boxHeight: Double, hoistAtLeft: Bool) -> FlagPlacement {
-        let hoist = (boxHeight * boxWidth / USFlag.fly).squareRoot()
+    /// A flag of EO 10834's proportions fitted to a measured `hoist` and
+    /// `fly`: its hoist their geometric mean once the fly is divided by the
+    /// ratio (so the two measurements are missed by the same factor), its
+    /// hoist edge on the box's edge, centred on the box's height.
+    public static func flag(boxWidth: Double, boxHeight: Double, hoist measuredHoist: Double, fly measuredFly: Double,
+                            hoistAtLeft: Bool) -> FlagPlacement {
+        let hoist = (measuredHoist * measuredFly / USFlag.fly).squareRoot()
         return FlagPlacement(hoistX: hoistAtLeft ? 0 : boxWidth, y: (boxHeight - hoist) / 2, hoist: hoist,
                              hoistAtLeft: hoistAtLeft)
     }

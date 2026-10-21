@@ -524,6 +524,18 @@ public enum Markings {
         flightSchemes[variant, default: scheme(for: variant)].sample(element, station: station, azimuth: azimuth, face: face)
     }
 
+    /// The paint of a vertex of `shape`, on the part named `part` whose
+    /// origin is at `partOffset` in the construction frame, of `variant`:
+    /// the colour hook for galleries and the renderer's fallback. Nil where
+    /// no row paints it and the shape's own material shows. Frost and char
+    /// are overlays on top (`Frost`, `Char`).
+    public static func sample(part: String, shape: VisualShape, vertex: VisualShape.Vertex, partOffset: Vec3,
+                              variant: ApolloVariant, face: PaintFace = .outer) -> PaintSample? {
+        guard let element = PaintElement.of(part: part, shape: shape, variant: variant) else { return nil }
+        let point = PaintCoordinates(vertex, of: shape, partOffset: partOffset)
+        return sample(element, of: variant, station: point.station, azimuth: point.azimuth, face: face)
+    }
+
     static let flightSchemes: [ApolloVariant: PaintScheme] = {
         var s: [ApolloVariant: PaintScheme] = [:]
         for v in [ApolloVariant.apollo7, .apollo8, .apollo11] { s[v] = scheme(for: v) }

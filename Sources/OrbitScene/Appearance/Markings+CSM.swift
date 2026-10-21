@@ -19,8 +19,7 @@ extension Markings {
     }
 
     /// A spacecraft decal row's content:
-    /// - `flag`: an EO 10834 flag, `union=upper hoist`, the hoist on the
-    ///   side `hoist` names;
+    /// - `flag`: an EO 10834 flag (`flagContent`);
     /// - `panel=...`: the box in the row's paint (the SM's white field);
     /// - `text`: its `lines` (`/` between them; the text alone when none)
     ///   read left to right, `letter_h` tall, each line `width_in` wide
@@ -28,7 +27,7 @@ extension Markings {
     ///   the row's paint.
     static func spacecraftDecalContent(_ row: MarkingRow) -> Decal.Content {
         let p = row.params, colour = PaintColour(row.paint)
-        if row.paint == .flag { return .flag(hoistAtLowAzimuth: p["hoist"] != "high azimuth") }
+        if row.paint == .flag { return flagContent(row, radius: spacecraftRadius(.sm, station: row.vehicleStations.lowerBound)) }
         if p["panel"] == nil, let text = p["text"] {
             let lines = (p["lines"] ?? text).split(separator: "/").map(String.init)
             let height = row.vehicleStations.upperBound - row.vehicleStations.lowerBound

@@ -216,7 +216,10 @@ final class PaintSchemeTests: XCTestCase {
                         XCTAssertEqual(element, .bpc)
                     }
                     for v in shape.mesh().vertices {
-                        if scheme.sample(element, at: PaintCoordinates(v, of: shape, partOffset: offset)) != nil { painted += 1 }
+                        let s = scheme.sample(element, at: PaintCoordinates(v, of: shape, partOffset: offset))
+                        XCTAssertEqual(Markings.sample(part: part.name, shape: shape, vertex: v, partOffset: offset,
+                                                       variant: variant), s)
+                        if s != nil { painted += 1 }
                     }
                 }
             }

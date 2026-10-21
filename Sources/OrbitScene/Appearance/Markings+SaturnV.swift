@@ -60,12 +60,11 @@ extension Markings {
     ///   legible in the photos);
     /// - `plate=white stencil on ...`: the text in white, 0.8 of the box's
     ///   height, on whatever is painted there;
-    /// - `flag`: an EO 10834 flag, `union=upper hoist`, the hoist on the
-    ///   side `hoist` names;
+    /// - `flag`: an EO 10834 flag (`flagContent`);
     /// - anything else: the box in the row's paint.
     static func saturnDecalContent(_ row: MarkingRow, azimuths: AzimuthRange) -> Decal.Content {
         let p = row.params, colour = PaintColour(row.paint)
-        if row.paint == .flag { return .flag(hoistAtLowAzimuth: p["hoist"] != "high azimuth") }
+        if row.paint == .flag { return flagContent(row, radius: saturnRadius(station: row.vehicleStations.lowerBound)) }
         let height = row.vehicleStations.upperBound - row.vehicleStations.lowerBound
         if row.feature.hasPrefix("Position") || p["plate"]?.hasPrefix("light") == true {
             let numeral = positionNumeral(azimuth: azimuths.centre)
@@ -88,5 +87,13 @@ extension Markings {
     public static func positionNumeral(azimuth: Double) -> String {
         let index = Int((AzimuthRange.normalised(azimuth) / 90).rounded()) % 4
         return ["I", "II", "III", "IV"][index]
+    }
+
+    /// A flag row's content: `union=upper hoist`, the hoist on the side
+    /// `hoist` names, fitted to the flag's measured size where the row gives
+    /// it (`hoist_in`; `fly_in`, or `fly_deg` at `radius`), else to its box.
+    static func flagContent(_ row: MarkingRow, radius: Double) -> Decal.Content {
+        let fly = row.number("fly_in") ?? row.number("fly_deg").map { $0 * radius * Double.pi / 180 }
+        return .flag(hoistAtLowAzimuth: row.params["hoist"] != "high azimuth", hoist: row.number("hoist_in"), fly: fly)
     }
 }

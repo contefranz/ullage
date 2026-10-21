@@ -74,14 +74,14 @@ public enum USFlag {
     /// point up (towards -y, the top), centred at the origin: the regular
     /// pentagram's outline, inner radius radius × sin 18° / sin 126°.
     public static func star(x: Double, y: Double, radius: Double) -> Double {
-        let inner = radius * sin(18 * Double.pi / 180) / sin(126 * Double.pi / 180)
-        var vertices: [(x: Double, y: Double)] = []
-        for k in 0..<10 {
-            let a = Double(k) * Double.pi / 5
-            let r = k % 2 == 0 ? radius : inner
-            vertices.append((r * sin(a), -r * cos(a)))
-        }
-        return polygonDistance(x: x, y: y, vertices)
+        radius * polygonDistance(x: x / radius, y: y / radius, unitStar)
+    }
+
+    /// The outline of a star of circumradius 1.
+    static let unitStar: [(x: Double, y: Double)] = (0..<10).map { k in
+        let a = Double(k) * Double.pi / 5
+        let r = k % 2 == 0 ? 1 : sin(18 * Double.pi / 180) / sin(126 * Double.pi / 180)
+        return (r * sin(a), -r * cos(a))
     }
 
     /// Signed distance to a simple polygon, negative inside.
