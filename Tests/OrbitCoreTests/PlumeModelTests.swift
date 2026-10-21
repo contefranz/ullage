@@ -23,9 +23,48 @@ final class PlumeModelTests: XCTestCase {
         XCTAssertGreaterThan(f1.pressureRatio, f1.separationLimit)
         let j2 = PlumeModel.state(ApolloExhaust.j2.spec, flowFraction: 1, ambient: air)
         XCTAssertEqual(j2.regime, .separated)
+        XCTAssertEqual(j2.pressureRatio, 0.15, accuracy: 0.005)
+        XCTAssertEqual(j2.separationLimit, 0.293, accuracy: 0.0005)
         // A start or a shutdown at the pad passes through separation.
         let low = PlumeModel.state(ApolloExhaust.f1.spec, flowFraction: 0.6, ambient: air)
         XCTAssertEqual(low.regime, .separated)
+    }
+
+    // The datasheet's sea-level numbers (docs/exhaust-datasheet.md §3.1)
+    // are the model's, to the digits it prints: the F-1's n and Schmucker
+    // limit at the pad, the J-2's n against its limit.
+    func testDatasheetSeaLevelNumbersAreTheModels() throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("docs/exhaust-datasheet.md")
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else {
+            throw XCTSkip("docs/exhaust-datasheet.md not found")
+        }
+        /// The number printed after `markers`, each found after the one
+        /// before it, up to `end`; and half its last digit.
+        func printed(after markers: [String], before end: String) throws -> (value: Double, half: Double) {
+            var start = text.startIndex
+            for m in markers {
+                start = try XCTUnwrap(text.range(of: m, range: start..<text.endIndex), m).upperBound
+            }
+            let stop = try XCTUnwrap(text.range(of: end, range: start..<text.endIndex), end).lowerBound
+            let digits = String(text[start..<stop])
+            let decimals = digits.split(separator: ".").dropFirst().first?.count ?? 0
+            return (try XCTUnwrap(Double(digits), digits), 0.5 * pow(10, -Double(decimals)) + 1e-12)
+        }
+        let air = day.state(altitude: 0)
+        let f1 = PlumeModel.state(ApolloExhaust.f1.spec, flowFraction: 1, ambient: air)
+        let j2 = PlumeModel.state(ApolloExhaust.j2.spec, flowFraction: 1, ambient: air)
+        let pad = "| pad | 101.6 kPa | ", j2Sentence = "At sea level the J-2 would separate (n = "
+        let checks: [([String], String, Double)] = [
+            ([pad], " |", f1.pressureRatio),
+            ([pad, "Schmucker's limit "], ")", f1.separationLimit),
+            ([j2Sentence], " against", j2.pressureRatio),
+            ([j2Sentence, " against "], ")", j2.separationLimit),
+        ]
+        for (markers, end, model) in checks {
+            let p = try printed(after: markers, before: end)
+            XCTAssertEqual(p.value, model, accuracy: p.half, markers.joined(separator: "..."))
+        }
     }
 
     // The F-1's exit pressure equals the air's between 5 and 8 km on the

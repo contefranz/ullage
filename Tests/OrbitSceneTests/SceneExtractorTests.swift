@@ -69,6 +69,26 @@ final class SceneExtractorTests: XCTestCase {
         XCTAssertEqual(v.farPointStyle, .kerosene)
     }
 
+    /// The plumes start at the exhaust specs' exits: every nozzle the scene
+    /// finds on the Apollo vehicles (the F-1s, J-2s, the SPS and the SM RCS
+    /// jets, each from the last shape linked to its thruster) has its
+    /// spec's exit radius, however many shapes the dresser links to it.
+    func testNozzleExitsAreTheExhaustSpecs() throws {
+        var checked = Set<String>()
+        for v in [VesselLibrary.saturnV(), VesselLibrary.apolloCSM(.apollo7), VesselLibrary.commandModule(.apollo7)] {
+            let geometry = VesselGeometry(of: v)
+            for p in v.parts {
+                for t in p.thrusters {
+                    guard let nozzle = geometry.nozzles[ObjectIdentifier(t)] else { continue }
+                    let spec = try XCTUnwrap(ExhaustLibrary.spec(for: t, in: p), t.name)
+                    XCTAssertEqual(nozzle.radius, spec.exitRadius, accuracy: 1e-9, t.name)
+                    checked.insert(String(t.name.prefix(6)))
+                }
+            }
+        }
+        XCTAssertEqual(checked, ["S-IC e", "S-II e", "S-IVB ", "SPS", "SM RCS"])
+    }
+
     /// The scene's clock: a reset on the first scene and on a change of
     /// warp, none while time runs on.
     func testClockAndTemporalReset() throws {

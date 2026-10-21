@@ -177,7 +177,7 @@ The F-1 at its rated flow, on AS-506's launch-day sounding (`AS506.launchDayAtmo
 
 The design report's estimates before CEA (γ 1.22-1.25) were Me about 3.7, pe about 43 kPa, n about 0.42 at the pad, pe = pa near 6.7 km on US 1976, and at 30 km n about 36, δ0 about 45° and the Mach disk about 60 m downstream; the model agrees.
 
-The J-2 at S-II ignition (67 km, US 1976) is a continuum jet with n = 1,920, δ0 = 62°, and a Mach disk 272 m downstream whose luminosity is 0.009: in flight it shows none. At S-IVB ignition (185 km) and for the SPS in orbit the flow is free-molecular; the SPS's θ_lim is 82°. At sea level the J-2 would separate (n = 0.15 against 0.33), as a vacuum engine does.
+The J-2 at S-II ignition (67 km, US 1976) is a continuum jet with n = 1,920, δ0 = 62°, and a Mach disk 272 m downstream whose luminosity is 0.009: in flight it shows none. At S-IVB ignition (185 km) and for the SPS in orbit the flow is free-molecular; the SPS's θ_lim is 82°. At sea level the J-2 would separate (n = 0.15 against 0.29), as a vacuum engine does.
 
 ## 4. Particles (`ParticleKinematics`)
 
