@@ -97,16 +97,15 @@ public struct DebugSettings: Codable, Equatable {
     }
 }
 
-/// What the screen shows instead of the image: an arbitrary output variable
-/// (AOV) of the frame.
+/// What the screen shows instead of the image (F9 cycles them), and what
+/// `orbitsnap` writes as AOVs beside it.
 public enum DebugView: String, Codable, CaseIterable {
     case none
-    /// Linear depth, near/d, on a log scale.
+    /// Distance from the camera on a log scale, 0.25 m (white) to 10^9 m
+    /// (dark blue); the sky black.
     case depth
-    /// World normals, as colour.
+    /// Surface normals reconstructed from depth, world axes as colour.
     case normals
-    /// How many fragments each pixel shaded.
-    case overdraw
-    /// NaN or infinity in the scene colour, in magenta.
-    case nanMap
+    /// The image's luminance in false colour, one band per stop.
+    case luminance
 }

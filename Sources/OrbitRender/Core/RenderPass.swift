@@ -132,6 +132,9 @@ public protocol RenderPass: AnyObject {
     var writes: Set<ResourceID> { get }
     /// False for a slot nobody has filled yet: the graph skips it, at no cost.
     var isEnabled: Bool { get }
+    /// Whether it runs this frame (a debug view only while one is chosen);
+    /// the encoders are planned around the passes that run.
+    func isActive(in f: FrameContext) -> Bool
     /// Builds pipelines; a throw (a shader module that does not compile)
     /// disables this pass alone.
     func setUp(_ s: PassSetup) throws
@@ -143,6 +146,7 @@ extension RenderPass {
     public var reads: Set<ResourceID> { [] }
     public var writes: Set<ResourceID> { [] }
     public var isEnabled: Bool { true }
+    public func isActive(in f: FrameContext) -> Bool { true }
     public func setUp(_ s: PassSetup) throws {}
     public func resize(_ size: RenderSize) {}
 }

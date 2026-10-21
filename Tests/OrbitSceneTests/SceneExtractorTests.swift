@@ -55,6 +55,17 @@ final class SceneExtractorTests: XCTestCase {
         }
         XCTAssertLessThan(base[0], -25, "the exits are well below the centre of mass")
         XCTAssertNil(paused.orbit, "no orbit line while the vehicle stands on the pad")
+        // The journal's liftoff record comes through once. (The F-1s fire
+        // from before the scenario opens, so they have no ignition record.)
+        let x = SceneExtractor()
+        let records = x.extract(sim: sim, camera: camera, viewport: Self.viewport, realTime: 0).transitions
+            .compactMap { t -> EffectEvent? in
+                if case let .event(e) = t { return e }
+                return nil
+            }
+        XCTAssertEqual(records.map(\.kind), [.liftoff])
+        XCTAssertEqual(records.first?.vessel, v.id)
+        XCTAssertTrue(x.extract(sim: sim, camera: camera, viewport: Self.viewport, realTime: 0).transitions.isEmpty)
         XCTAssertEqual(v.farPointStyle, .kerosene)
     }
 
@@ -96,6 +107,13 @@ final class SceneExtractorTests: XCTestCase {
         }
         XCTAssertEqual(appeared.count, sim.vessels.count - 1)
         for (_, parent) in appeared { XCTAssertEqual(parent, stack.id) }
+        // The journal's separation records, one per vessel that left the stack.
+        let separations = after.transitions.compactMap { t -> UUID? in
+            if case let .event(e) = t, case let .separation(_, _, parent) = e.kind { return parent }
+            return nil
+        }
+        XCTAssertFalse(separations.isEmpty)
+        XCTAssertTrue(separations.allSatisfy { $0 == stack.id })
         XCTAssertTrue(x.extract(sim: sim, camera: camera, viewport: Self.viewport, realTime: 0.2).transitions.isEmpty)
     }
 

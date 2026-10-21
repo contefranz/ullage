@@ -23,8 +23,24 @@ public final class SceneRenderer {
     /// The output's pixel format (the drawable's).
     public let outputFormat: MTLPixelFormat
     public var settings = RenderSettings()
-    /// CPU encoding and GPU times, smoothed (s).
+    /// Smoothed, s: the CPU encoding time of every frame, and the GPU time
+    /// of the frames not split for timing.
     public let times = FrameTimes()
+    /// Time each pass on the GPU (F10, `orbitsnap --timings`). One frame in
+    /// `profileInterval` is split, every render pass in an encoder of its
+    /// own, and timed; the others run as usual, so `times` and the report's
+    /// `gpu` stay the real frame's.
+    public var profiling = false
+    public var profileInterval = 4
+    public let profiler: GPUProfiler
+    private let reports = ReportBox()
+    private var frameCount = 0
+    /// The latest unsplit frame's GPU time, and while profiling the latest
+    /// timed frame's passes.
+    public var lastReport: FrameReport? {
+        guard let gpu = reports.gpu else { return nil }
+        return FrameReport(passes: profiling ? reports.passes : [], gpu: gpu)
+    }
 
     let states: CommonStates
     let meshes = VesselMeshCache()
@@ -63,6 +79,7 @@ public final class SceneRenderer {
         pool = TexturePool(device: device)
         history = HistoryTargets(device: device)
         graph = FrameGraph(passes: passes, plan: plan)
+        profiler = GPUProfiler(device: device)
         arenas = (0..<Self.framesInFlight).compactMap { _ in FrameArena(device: device, capacity: 1 << 18) }
         guard arenas.count == Self.framesInFlight else { throw Failure.noResources }
         fallbacks.clear(on: queue)
@@ -82,7 +99,7 @@ public final class SceneRenderer {
             // P3
             OrbitLinePass(), PlumePass(), FarPointPass(), HalfResTransparentPass(), ParticleDrawPass(), EntryPass(),
             // P4
-            PostPass(),
+            PostPass(), DebugViewPass(),
             // P5
             MarkerPass(),
         ]
@@ -111,9 +128,11 @@ public final class SceneRenderer {
             return nil
         }
         let encodeStart = CACurrentMediaTime()
-        let semaphore = inFlight, times = self.times
+        let semaphore = inFlight, times = self.times, reports = self.reports
+        frameCount += 1
+        let profile = profiling && frameCount % max(1, profileInterval) == 0 ? profiler.beginFrame() : nil
         cb.addCompletedHandler { cb in
-            times.addGPU(cb.gpuEndTime - cb.gpuStartTime)
+            Self.record(gpu: cb.gpuEndTime - cb.gpuStartTime, passes: profile?.resolve(), times: times, reports: reports)
             semaphore.signal()
             completion?(cb)
         }
@@ -134,7 +153,7 @@ public final class SceneRenderer {
 
         let f = FrameContext(scene: scene, device: device, commandBuffer: cb, output: output, settings: settings,
                              arena: arena, pool: pool, history: history, states: states, meshes: meshes,
-                             fallbacks: fallbacks, previousViewProjection: previousViewProjection)
+                             fallbacks: fallbacks, previousViewProjection: previousViewProjection, profile: profile)
         graph.encode(f)
         history.endFrame()
         previousViewProjection = f.viewProjection
@@ -143,5 +162,37 @@ public final class SceneRenderer {
         cb.commit()
         times.addEncode(CACurrentMediaTime() - encodeStart)
         return cb
+    }
+}
+
+extension SceneRenderer {
+    /// A finished frame's times: a split (timed) frame gives the passes
+    /// only; an unsplit one the GPU time, the real frame's.
+    nonisolated static func record(gpu: Double, passes: [PassTiming]?, times: FrameTimes, reports: ReportBox) {
+        if let passes {
+            reports.passes = passes
+        } else {
+            times.addGPU(gpu)
+            reports.gpu = gpu
+        }
+    }
+}
+
+/// The latest frame times, written on Metal's completion thread.
+final class ReportBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var lastGPU: Double?
+    private var lastPasses: [PassTiming] = []
+
+    /// The latest unsplit frame's GPU time, s.
+    var gpu: Double? {
+        get { lock.withLock { lastGPU } }
+        set { lock.withLock { lastGPU = newValue } }
+    }
+
+    /// The latest timed frame's passes.
+    var passes: [PassTiming] {
+        get { lock.withLock { lastPasses } }
+        set { lock.withLock { lastPasses = newValue } }
     }
 }

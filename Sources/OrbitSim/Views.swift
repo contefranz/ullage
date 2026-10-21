@@ -51,6 +51,14 @@ struct ContentView: View {
                     HelpView(scenario: model.scenario)
                         .allowsHitTesting(false)
                 }
+                if let timings = model.hud.passTimings {
+                    Text(timings).font(.system(size: 11, design: .monospaced)).foregroundStyle(HUDRow.color)
+                        .padding(6).background(.black.opacity(0.6))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                        .padding(.top, HUDLayout.topBarHeight + HUDLayout.logHeight + 2 * HUDLayout.pad)
+                        .padding(.leading, HUDLayout.pad)
+                        .allowsHitTesting(false)
+                }
                 if let warning = model.renderWarning {
                     Text(warning).font(.system(size: 11, design: .monospaced)).foregroundStyle(.orange)
                         .padding(6).background(.black.opacity(0.7))
