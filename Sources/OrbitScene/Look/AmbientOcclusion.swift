@@ -28,15 +28,33 @@ import OrbitCore
 /// `VesselGeometry`, `BakedAmbientOcclusion.Shape` carries the shape's
 /// subdivided mesh (part frame, as `VisualShape.mesh()`) and, per vertex of
 /// it, `front` (and `back` for a two-sided shape). `packed(vertex:)` puts
-/// both in one Float for vertex v2's position.w; a shader unpacks it with
+/// both in one Float for vertex v2's positionAO.w.
 ///
-///     float back  = floor(w * (1.0 / 1024.0));
-///     float front = w - back * 1024.0;
-///     float ao    = (frontFacing ? front : back) * (1.0 / 1023.0);
-///     ao          = mix(1.0, ao, fade);   // AmbientOcclusionBaker.Lookup.fade
+/// That Float is a code, not a level: it decodes exactly on a vertex's own
+/// value and on nothing else. 1024·back + front is not linear in the two
+/// levels, so the rasteriser's interpolation of it decodes to a sawtooth
+/// (from 1.0 to 0.97 along an edge, a quarter of the way decodes to a
+/// front of 0.24), and `[[flat]]` would give a whole triangle one vertex's
+/// value. The face seen, though, is known only in the fragment function.
+/// So the vertex function decodes its vertex's w into two values, front
+/// and back, which the rasteriser interpolates, and the fragment function
+/// picks the side it draws:
 ///
-/// and multiplies the indirect light (IBL, earthshine, sky) by it, not the
-/// Sun's. Until a bake is ready, `AmbientOcclusion.unoccluded` stands in.
+///     // The vertex function: this vertex's own w (`unpack`). Its output
+///     // carries float2 ao, (front, back), interpolated (not [[flat]]).
+///     float w    = v.positionAO.w;
+///     float back = floor(w * (1.0 / 1024.0));
+///     o.ao       = float2(w - back * 1024.0, back) * (1.0 / 1023.0);
+///
+///     // The fragment function, given bool frontFacing [[front_facing]]
+///     // (`fragment(_:frontFacing:fade:)`). It never decodes.
+///     float ao = frontFacing ? in.ao.x : in.ao.y;
+///     ao       = mix(1.0, ao, fade);   // AmbientOcclusionBaker.Lookup.fade
+///
+/// The fragment's `ao` multiplies the indirect light (IBL, earthshine,
+/// sky), not the Sun's. R2 may instead bind front and back unpacked, as
+/// their own float2 attribute per vertex; the fragment function is the
+/// same. Until a bake is ready, `AmbientOcclusion.unoccluded` stands in.
 public enum AmbientOcclusion {
     /// Rays start this far off the surface (m), along the vertex's normal.
     static let surfaceOffset = 1e-3
@@ -61,9 +79,22 @@ public enum AmbientOcclusion {
         return b * 1024 + f
     }
 
+    /// The vertex function's decode, the reference for the shader: a
+    /// vertex's own packed value to its front and back, the pair the
+    /// rasteriser then interpolates. Exact on a value `pack` made;
+    /// meaningless on an interpolated one (see the type's notes).
     public static func unpack(_ w: Float) -> (front: Float, back: Float) {
         let b = (w / 1024).rounded(.down)
         return ((w - b * 1024) / levels, b / levels)
+    }
+
+    /// The fragment function's AO, the reference for the shader: from the
+    /// interpolated pair `unpack` gave each vertex, the side the fragment
+    /// sees (`frontFacing`, which only the fragment stage knows), faded in
+    /// as mix(1, ao, `fade`) by `AmbientOcclusionBaker.Lookup.fade`.
+    public static func fragment(_ ao: (front: Float, back: Float), frontFacing: Bool, fade: Float) -> Float {
+        let seen: Float = frontFacing ? ao.front : ao.back
+        return 1 + (seen - 1) * fade
     }
 
     /// The packed value of an unoccluded vertex, for meshes not yet baked.
@@ -476,8 +507,10 @@ public struct BakedAmbientOcclusion {
             backFace && !back.isEmpty ? back[i] : front[i]
         }
 
-        /// Vertex `i`'s front and back in one Float, for position.w
+        /// Vertex `i`'s front and back in one Float, for positionAO.w
         /// (`AmbientOcclusion.pack`); a one-sided shape repeats its front.
+        /// The vertex function decodes it; it must not be interpolated
+        /// packed (see `AmbientOcclusion`).
         public func packed(vertex i: Int) -> Float {
             AmbientOcclusion.pack(front: front[i], back: back.isEmpty ? front[i] : back[i])
         }

@@ -278,6 +278,123 @@ final class AmbientOcclusionTests: XCTestCase {
         XCTAssertEqual(AmbientOcclusion.unpack(AmbientOcclusion.pack(front: 2, back: -1)).front, 1, "clamped")
     }
 
+    typealias Sides = (front: Float, back: Float)
+
+    /// The rasteriser's interpolation of a varying between two vertices
+    /// (perspective-correct weights are a convex pair too).
+    static func lerp(_ a: Float, _ b: Float, _ t: Float) -> Float { a + (b - a) * t }
+
+    /// The packed value is a code, not a level: decoded per vertex and the
+    /// pair interpolated, a fragment gets the interpolation of the baked
+    /// values to within the packing's half level; interpolated packed and
+    /// decoded in the fragment, it gets a sawtooth. Edges first: one-sided
+    /// from 1.0 to 0.97, a bell's two-sided pair (front 1, back 0.30 and
+    /// 0.35), and one-sided from 0.9 to 1.0 swept end to end.
+    func testShaderDecodesPerVertexNotTheInterpolatedPackedValue() {
+        let half: Float = 0.5 / 1023
+        // The documented route, between vertices with packed values a and
+        // b, at t from a: each vertex decoded on its own (`unpack`), the
+        // pair interpolated, the side picked in the fragment.
+        func right(_ a: Float, _ b: Float, _ t: Float, frontFacing: Bool) -> Float {
+            let u = AmbientOcclusion.unpack(a), v = AmbientOcclusion.unpack(b)
+            let pair: Sides = (Self.lerp(u.front, v.front, t), Self.lerp(u.back, v.back, t))
+            return AmbientOcclusion.fragment(pair, frontFacing: frontFacing, fade: 1)
+        }
+        // What the hook's first notes did: the packed value interpolated,
+        // then decoded in the fragment function.
+        func wrong(_ a: Float, _ b: Float, _ t: Float, frontFacing: Bool) -> Float {
+            AmbientOcclusion.fragment(AmbientOcclusion.unpack(Self.lerp(a, b, t)), frontFacing: frontFacing, fade: 1)
+        }
+
+        let open = AmbientOcclusion.pack(front: 1, back: 1), dimmer = AmbientOcclusion.pack(front: 0.97, back: 0.97)
+        XCTAssertEqual(right(open, dimmer, 0.25, frontFacing: true), 0.9925, accuracy: half)
+        XCTAssertEqual(wrong(open, dimmer, 0.25, frontFacing: true), 247.25 / 1023, accuracy: 1e-6, "not 0.99")
+
+        let a = AmbientOcclusion.pack(front: 1, back: 0.30), b = AmbientOcclusion.pack(front: 1, back: 0.35)
+        XCTAssertEqual(right(a, b, 0.5, frontFacing: true), 1)
+        XCTAssertEqual(right(a, b, 0.5, frontFacing: false), 0.325, accuracy: half)
+        XCTAssertEqual(wrong(a, b, 0.5, frontFacing: true), 511.0 / 1023, accuracy: 1e-6, "an open outside at half")
+
+        let dim = AmbientOcclusion.pack(front: 0.9, back: 0.9)
+        var worstRight: Float = 0, worstWrong: Float = 0
+        for k in 0...4096 {
+            let t = Float(k) / 4096
+            let truth = Self.lerp(0.9, 1, t)
+            worstRight = max(worstRight, abs(right(dim, open, t, frontFacing: true) - truth))
+            worstWrong = max(worstWrong, abs(wrong(dim, open, t, frontFacing: true) - truth))
+        }
+        XCTAssertLessThanOrEqual(worstRight, half + 1e-6)
+        XCTAssertGreaterThan(worstWrong, 0.9)
+
+        // Over the triangles of a baked capsule (one-sided shapes) and cup
+        // (two-sided), at barycentric weights inside each: the documented
+        // pipeline gives the weighted baked values of the face seen, to
+        // within half a level; the packed route does not.
+        let capsule = AmbientOcclusion.bake(VesselGeometry(of: VesselLibrary.capsule()), settings: settings(rays: 8))
+        let bell = bake(cup(radius: 1, depth: 1.5), settings(rays: 8))
+        let shapes = capsule.parts.flatMap(\.shapes)
+            + [BakedAmbientOcclusion.Shape(mesh: bell.mesh, front: bell.values.front, back: bell.values.back)]
+        XCTAssertTrue(shapes.contains { $0.back.isEmpty } && shapes.contains { !$0.back.isEmpty })
+        let weights: [(Float, Float, Float)] = [(0.2, 0.3, 0.5), (0.6, 0.3, 0.1), (1.0 / 3, 1.0 / 3, 1.0 / 3)]
+        var fragments = 0, wrongFragments = 0, worstPair: Float = 0, worstPacked: Float = 0
+        for shape in shapes {
+            for t in stride(from: 0, to: shape.mesh.indices.count, by: 3) {
+                let i = (0..<3).map { Int(shape.mesh.indices[t + $0]) }
+                let w = i.map { shape.packed(vertex: $0) }
+                let pairs = w.map(AmbientOcclusion.unpack)
+                for (l0, l1, l2) in weights {
+                    for frontFacing in [true, false] {
+                        let seen = i.map { shape.occlusion(vertex: $0, backFace: !frontFacing) }
+                        let truth: Float = l0 * seen[0] + l1 * seen[1] + l2 * seen[2]
+                        let pair: Sides = (l0 * pairs[0].front + l1 * pairs[1].front + l2 * pairs[2].front,
+                                           l0 * pairs[0].back + l1 * pairs[1].back + l2 * pairs[2].back)
+                        let ao = AmbientOcclusion.fragment(pair, frontFacing: frontFacing, fade: 1)
+                        worstPair = max(worstPair, abs(ao - truth))
+                        let packed: Float = l0 * w[0] + l1 * w[1] + l2 * w[2]
+                        let decoded = AmbientOcclusion.fragment(AmbientOcclusion.unpack(packed),
+                                                                frontFacing: frontFacing, fade: 1)
+                        worstPacked = max(worstPacked, abs(decoded - truth))
+                        fragments += 1
+                        if abs(decoded - truth) > 0.05 { wrongFragments += 1 }
+                    }
+                }
+            }
+        }
+        XCTAssertGreaterThan(fragments, 10000)
+        XCTAssertLessThanOrEqual(worstPair, half + 1e-6)
+        XCTAssertGreaterThan(worstPacked, 0.5)
+        XCTAssertGreaterThan(wrongFragments, fragments / 20, "\(wrongFragments) of \(fragments) off by over 0.05")
+
+        // Faded in: mix(1, ao, fade).
+        XCTAssertEqual(AmbientOcclusion.fragment((0.2, 0.6), frontFacing: true, fade: 0), 1)
+        XCTAssertEqual(AmbientOcclusion.fragment((0.2, 0.6), frontFacing: false, fade: 0.5), 0.8, accuracy: 1e-6)
+        XCTAssertEqual(AmbientOcclusion.fragment((0.2, 0.6), frontFacing: true, fade: 1), 0.2, accuracy: 1e-6)
+    }
+
+    /// The type's shader notes keep that pipeline: the decode (`floor`, the
+    /// 1024) sits in the vertex function, ahead of the fragment function,
+    /// which takes the face from [[front_facing]] and only reads the
+    /// interpolated pair (`in.ao`).
+    func testShaderNotesDecodeInTheVertexFunction() throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("Sources/OrbitScene/Look/AmbientOcclusion.swift")
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else {
+            throw XCTSkip("\(url.path) not found")
+        }
+        // The indented code block of the doc comment above `enum AmbientOcclusion`.
+        let lines = text.components(separatedBy: "\n")
+        let end = try XCTUnwrap(lines.firstIndex { $0.hasPrefix("public enum AmbientOcclusion") })
+        let snippet = lines[..<end].filter { $0.hasPrefix("///     ") }.map { String($0.dropFirst(8)) }
+        let fragment = try XCTUnwrap(snippet.firstIndex { $0.contains("[[front_facing]]") },
+                                     "the fragment function takes the face from [[front_facing]]")
+        let vertexPart = snippet[..<fragment], fragmentPart = snippet[fragment...]
+        XCTAssertTrue(vertexPart.contains { $0.contains("vertex function") })
+        XCTAssertTrue(vertexPart.contains { $0.contains("floor(") }, "decoded in the vertex function")
+        XCTAssertFalse(fragmentPart.contains { $0.contains("floor(") || $0.contains("1024") },
+                       "the fragment function never decodes")
+        XCTAssertTrue(fragmentPart.contains { $0.contains("in.ao") }, "it reads the interpolated pair")
+    }
+
     /// The bake follows `VesselGeometry`: per part and shape, the shape's
     /// subdivided mesh and a value per vertex, a back only when two-sided.
     func testVesselBakeFollowsItsGeometry() {
