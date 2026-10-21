@@ -34,6 +34,79 @@ final class LC39ATests: XCTestCase {
 
     func element(_ name: String) throws -> LC39A.Element { try XCTUnwrap(LC39A.element(name)) }
 
+    /// A shape of the set placed in the site frame: its vertices and its
+    /// triangles. The set's boxes and prisms are convex.
+    struct Piece {
+        var points: [Vec3]
+        var triangles: [(Vec3, Vec3, Vec3)]
+    }
+
+    /// The shapes of `e` placed in the site frame at range time `t`.
+    func pieces(_ e: LC39A.Element, at t: Double, _ c: LC39A.Countdown = .apollo11) -> [Piece] {
+        let (r, o) = e.transform(at: t, c)
+        return e.shapes.map { s in
+            let m = s.mesh()
+            let p = m.vertices.map { r * $0.position + o }
+            let corners = stride(from: 0, to: m.indices.count, by: 3).map { (i: Int) -> (Vec3, Vec3, Vec3) in
+                (p[Int(m.indices[i])], p[Int(m.indices[i + 1])], p[Int(m.indices[i + 2])])
+            }
+            return Piece(points: p, triangles: corners)
+        }
+    }
+
+    /// Directions of `v`, one of each parallel set (unit).
+    func distinctDirections(_ v: [Vec3]) -> [Vec3] {
+        var out: [Vec3] = []
+        for d in v where d.length > 1e-9 {
+            let u = d.normalized
+            if !out.contains(where: { $0.cross(u).length < 1e-9 }) { out.append(u) }
+        }
+        return out
+    }
+
+    /// How deep two convex pieces overlap (m): the least overlap of their
+    /// projections on the separating-axis candidates, the faces' normals
+    /// and the cross products of their edges. Zero or less when a plane
+    /// separates them or they only touch.
+    func overlap(_ a: Piece, _ b: Piece) -> Double {
+        let normals = { (p: Piece) in p.triangles.map { ($0.1 - $0.0).cross($0.2 - $0.0) } }
+        let edges = { (p: Piece) in p.triangles.flatMap { [$0.1 - $0.0, $0.2 - $0.1, $0.0 - $0.2] } }
+        let ea = distinctDirections(edges(a)), eb = distinctDirections(edges(b))
+        var axes = distinctDirections(normals(a) + normals(b))
+        for u in ea { axes += eb.map { u.cross($0) }.filter { $0.length > 1e-9 }.map(\.normalized) }
+        var least = Double.infinity
+        for n in axes {
+            let pa = a.points.map { $0.dot(n) }, pb = b.points.map { $0.dot(n) }
+            guard let a0 = pa.min(), let a1 = pa.max(), let b0 = pb.min(), let b1 = pb.max() else { return 0 }
+            least = min(least, a1 - b0, b1 - a0)
+            if least <= 0 { return least }
+        }
+        return least
+    }
+
+    /// Points spread over a triangle, its corners and edges among them.
+    func surfacePoints(_ t: (Vec3, Vec3, Vec3), steps n: Int = 16) -> [Vec3] {
+        var out: [Vec3] = []
+        for i in 0...n {
+            for j in 0...(n - i) {
+                let u: Vec3 = (t.1 - t.0) * (Double(i) / Double(n))
+                let v: Vec3 = (t.2 - t.0) * (Double(j) / Double(n))
+                out.append(t.0 + u + v)
+            }
+        }
+        return out
+    }
+
+    /// The least of `p`'s horizontal distance from the vehicle's axis less
+    /// the drawn vehicle's radius at its height, over its surface (m):
+    /// negative inside the vehicle.
+    func clearance(_ p: Piece, _ outline: LC39A.VehicleOutline) -> Double {
+        p.triangles.flatMap { surfacePoints($0) }.map { (q: Vec3) -> Double in
+            let horizontal = (q.x * q.x + q.y * q.y).squareRoot()
+            return horizontal - outline.radius(at: q.z)
+        }.min() ?? .infinity
+    }
+
     // MARK: Placement
 
     /// The site's origin is the ML deck on the vehicle's axis: the core's
@@ -177,12 +250,7 @@ final class LC39ATests: XCTestCase {
         let c = LC39A.Countdown.apollo11
         for n in 1...9 {
             let arm = try element("Swing arm \(n)")
-            let extended = vertices(arm, at: -7200, c), retracted = vertices(arm, at: 30, c)
-            let reach = { (v: [Vec3]) in v.map { ($0.x * $0.x + $0.y * $0.y).squareRoot() }.min() ?? 0 }
-            if n < 9 {
-                XCTAssertEqual(reach(extended), LC39A.swingArms[n - 1].vehicleRadius, accuracy: 0.05,
-                               "arm \(n)'s carrier meets the vehicle")
-            }
+            let retracted = vertices(arm, at: 30, c)
             XCTAssertGreaterThan(try XCTUnwrap(retracted.map(\.x).min()), LC39A.towerFaceX - LC39A.armWidth - 1e-9)
             XCTAssertLessThan(try XCTUnwrap(retracted.map(\.y).max()), 1e-9, "folded east")
         }
@@ -207,6 +275,116 @@ final class LC39ATests: XCTestCase {
             XCTAssertEqual(low, 4.76, accuracy: 0.6, "the carrier at the tail plate")
             XCTAssertGreaterThan(high, 7, "up in the hood")
         }
+    }
+
+    /// The drawn vehicle the arms reach, against the exterior datasheet: the
+    /// S-IC's and S-II's 198 in, the S-II/S-IVB interstage's cone (198 to
+    /// 130 in over STA 2519-2746.5), the S-IVB's 130 in, the SLA's cone (130
+    /// to 77 in over Xa 502-838), the SM's 77 in, and the CM's 77 in under
+    /// the boost protective cover's 1.5 in. The deck is STA 12.56; Xa is
+    /// STA less 2756.56. The core's vessel on the pad has the same outline.
+    func testVehicleOutline() throws {
+        let o = LC39A.vehicleOutline, unit = inch
+        let deck = 113.31 - 100.75
+        let sta = { (s: Double) -> Double in (s - deck) * unit }
+        let xa = { (x: Double) -> Double in sta(x + 2756.56) }
+        let rows: [(z: Double, radius: Double)] = [(sta(1000), 198), (sta(2519 + 227.5 / 2), 164), (sta(3000), 130),
+                                                   (xa(670), 103.5), (xa(900), 77)]
+        for row in rows { XCTAssertEqual(o.radius(at: row.z), row.radius * inch, accuracy: 1e-6) }
+        XCTAssertEqual(o.largestRadius(from: xa(1000), to: xa(1100)), 78.5 * inch, accuracy: 1e-6,
+                       "the CM's 77 in under the BPC's 1.5 in")
+        XCTAssertEqual(o.radius(at: xa(1500)), 0, "above the LES")
+
+        let (_, v, _) = try onPad()
+        let placed = LC39A.VehicleOutline(v, deckAboveBase: LC39A.deckAboveVehicleBase)
+        for z in stride(from: 0.0, through: 120, by: 0.25) {
+            XCTAssertEqual(placed.radius(at: z), o.radius(at: z), accuracy: 1e-9)
+        }
+    }
+
+    /// No swing arm goes into the drawn vehicle: extended (T-2 h), every
+    /// point of every arm's surface, its corners and edges among them, is at
+    /// least the vehicle's radius at its own height from the vehicle's axis.
+    /// Each umbilical carrier, and arm 9's white room, touches the vehicle
+    /// where it is widest over its height; the trusses stand off.
+    func testSwingArmsStayOutsideTheVehicle() throws {
+        for n in 1...9 {
+            let arm = try element("Swing arm \(n)")
+            let gaps = pieces(arm, at: -7200).map { clearance($0, LC39A.vehicleOutline) }
+            XCTAssertEqual(gaps.count, 2)
+            for (i, gap) in gaps.enumerated() {
+                XCTAssertGreaterThan(gap, -1e-6, "arm \(n)'s \(i == 0 ? "truss" : "end") is \(-gap) m inside the vehicle")
+            }
+            XCTAssertEqual(try XCTUnwrap(gaps.last), 0, accuracy: 1e-3, "arm \(n)'s carrier or room meets the vehicle")
+            XCTAssertGreaterThan(gaps[0], 0.1, "arm \(n)'s truss stands off it")
+        }
+        // Arm 9's room stands off the BPC at its floor, outside the real
+        // CM's 1.46 m at the hatch.
+        XCTAssertGreaterThan(LC39A.accessArmRoomRadius, 1.46)
+    }
+
+    /// The arms swing clear of the LUT: at every angle of every swing, no
+    /// arm's truss, carrier or room overlaps the tower's body, its flare's
+    /// legs or their ties. Folded flat against the face, the arms take the
+    /// 2.90 m in front of it, which the LUT leaves clear.
+    func testSwingArmsClearTheTower() throws {
+        let c = LC39A.Countdown.apollo11
+        let lut = try pieces(element("LUT"), at: 0, c)
+        XCTAssertEqual(lut.count, 1 + 4 + 4, "the body, four legs and two tie frames of two")
+        XCTAssertEqual(try XCTUnwrap(lut.flatMap(\.points).map(\.x).min()), LC39A.towerFaceX, accuracy: 1e-9,
+                       "the whole LUT stands behind its face")
+        for n in 1...9 {
+            let arm = try element("Swing arm \(n)")
+            let swings = LC39A.armSwings(n, c)
+            var times = [swings[0].start - 1]
+            for s in swings {
+                times += (0...30).map { (i: Int) -> Double in s.start + (s.end - s.start) * Double(i) / 30 }
+            }
+            var worst = (depth: -Double.infinity, what: "")
+            for t in times {
+                for (i, a) in pieces(arm, at: t, c).enumerated() {
+                    for (j, b) in lut.enumerated() {
+                        let depth = overlap(a, b)
+                        if depth > worst.depth { worst = (depth, "shape \(i) at T\(t) s, LUT shape \(j)") }
+                    }
+                }
+            }
+            XCTAssertLessThanOrEqual(worst.depth, 1e-6, "arm \(n) overlaps the LUT: \(worst.what)")
+        }
+    }
+
+    /// docs/LC39A-datasheet.md §4.1 gives each arm's radius reached and
+    /// length as the model builds them (to 5 mm).
+    func testDatasheetArmTable() throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("docs/LC39A-datasheet.md")
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else {
+            throw XCTSkip("docs/LC39A-datasheet.md not found")
+        }
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        let start = try XCTUnwrap(lines.firstIndex { $0.hasPrefix("### 4.1") })
+        /// The first number in `cell` given in metres ("13.31 m").
+        func metres(_ cell: String) -> Double? {
+            let words = cell.split(separator: " ")
+            for (word, unit) in zip(words, words.dropFirst()) where unit == "m" {
+                if let value = Double(word) { return value }
+            }
+            return nil
+        }
+        var rows: [Int] = []
+        for line in lines[start...] {
+            if line.hasPrefix("### 4.2") { break }
+            let cells = line.split(separator: "|", omittingEmptySubsequences: false)
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+            guard cells.count >= 9, let n = Int(cells[1]), (1...9).contains(n) else { continue }
+            let arm = LC39A.swingArms[n - 1]
+            XCTAssertEqual(try XCTUnwrap(metres(cells[6]), "arm \(n)'s radius"), arm.vehicleRadius, accuracy: 0.005,
+                           "arm \(n)'s radius reached")
+            XCTAssertEqual(try XCTUnwrap(metres(cells[8]), "arm \(n)'s length"), LC39A.armLength(arm), accuracy: 0.005,
+                           "arm \(n)'s length")
+            rows.append(n)
+        }
+        XCTAssertEqual(rows, Array(1...9))
     }
 
     // MARK: Heights
@@ -252,7 +430,7 @@ final class LC39ATests: XCTestCase {
         let arm9 = try element("Swing arm 9")
         let (turn, hinge) = arm9.transform(at: -7200, .apollo11)
         let room = try XCTUnwrap(arm9.shapes.last).mesh().vertices.map { turn * $0.position + hinge }
-        XCTAssertEqual(try XCTUnwrap(room.map(\.y).max()), -1.46, accuracy: 1e-6)
+        XCTAssertEqual(try XCTUnwrap(room.map(\.y).max()), -LC39A.accessArmRoomRadius, accuracy: 1e-6)
         XCTAssertEqual(try XCTUnwrap(room.map(\.z).min()), 320 * foot - 1.28, accuracy: 0.05)
         // The arms' lengths fall in Moonport's 13.7-18.3 m, but for the
         // S-IC and S-II arms', 0.4 m short (datasheet §4).

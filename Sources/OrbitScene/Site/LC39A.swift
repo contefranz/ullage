@@ -127,12 +127,24 @@ public enum LC39A {
     /// 1/40 scale above the platform, TN D-4870, M).
     public static let towerTop = 380 * foot
     /// The flared base: four legs from the 40 ft square at about 80 ft down
-    /// to the deck, 60 ft apart along the ML (on its end and interior
-    /// girders, Balke p. 374, H) and 117 ft across it (scaled off TN D-4870
-    /// Fig. 2, an early architectural drawing: M).
+    /// to the deck, 117 ft apart across the ML (scaled off TN D-4870 Fig. 2,
+    /// an early architectural drawing: M). The outboard legs stand on the
+    /// end girder (Balke p. 374, H), 10 ft behind the tower's back face. The
+    /// inboard legs rise in the plane of the tower's face, their fronts
+    /// flush with it, rather than from the interior girder 3.08 m in front
+    /// of it (Balke, H): the retracted arms lie flat against the face
+    /// (`armRetractedAngle`), and arm 1, at 60 ft, would fold through legs
+    /// leaning out from that girder (estimate, L).
     static let flareTop = 80 * foot
     static let legFootHalfAcross = 117 * foot / 2
     static let legSection = 1.5                         // m, estimate (L)
+    /// The legs' centrelines along the ML, (foot, top): the outboard pair's
+    /// from the end girder's mount line to the back corners, the inboard
+    /// pair's half a leg behind the face, foot to top.
+    static let flareLegsX: [(foot: Double, top: Double)] = {
+        let inboard = towerFaceX + legSection / 2
+        return [(mountLinesX[0], towerCentreX + towerHalf), (inboard, inboard)]
+    }()
     /// Tie frames across the flare at about 32 and 63 ft (scaled off TN
     /// D-4870 Fig. 2, M).
     static let flareTies = [32 * foot, 63 * foot]
@@ -166,7 +178,9 @@ public enum LC39A {
         /// Tower level (ft above the deck) of its control distributor, where
         /// the arm's walkway is.
         public var level: Double
-        /// The vehicle's radius at that level (m), which the arm reaches.
+        /// The radius (m) the arm reaches: the drawn vehicle's largest
+        /// (`vehicleOutline`) over the height of its umbilical carrier, or of
+        /// arm 9's white room.
         public var vehicleRadius: Double
         /// The arm's centreline offset east of the tower's (m, site y).
         public var offset: Double
@@ -182,43 +196,45 @@ public enum LC39A {
     /// from the KSC electrical handbook's distributors (H as printed; M as
     /// the arms' heights), arm 9's from A8PK (H).
     public static let swingArms: [SwingArm] = [
-        SwingArm(number: 1, name: "S-IC intertank", inFlight: false, level: 60, vehicleRadius: 198 * inch,
-                 offset: armOffset, retractTime: 8),
-        SwingArm(number: 2, name: "S-IC forward", inFlight: false, level: 120, vehicleRadius: 198 * inch,
-                 offset: armOffset, retractTime: 8),
-        SwingArm(number: 3, name: "S-II aft", inFlight: false, level: 140, vehicleRadius: 198 * inch,
-                 offset: armOffset, retractTime: 8),
-        SwingArm(number: 4, name: "S-II intermediate", inFlight: true, level: 160, vehicleRadius: 198 * inch,
-                 offset: armOffset, retractTime: 6.4),
-        SwingArm(number: 5, name: "S-II forward", inFlight: true, level: 200, vehicleRadius: 198 * inch,
-                 offset: armOffset, retractTime: 7.4),
-        SwingArm(number: 6, name: "S-IVB aft", inFlight: true, level: 220, vehicleRadius: interstageRadius(at: 220),
-                 offset: armOffset, retractTime: 7.7),
-        SwingArm(number: 7, name: "S-IVB forward", inFlight: true, level: 260, vehicleRadius: 130 * inch,
-                 offset: armOffset, retractTime: 8.4),
-        SwingArm(number: 8, name: "Service module", inFlight: true, level: 300, vehicleRadius: 77 * inch,
-                 offset: armOffset, retractTime: 9.0),
-        SwingArm(number: 9, name: "Command module access", inFlight: false, level: 320, vehicleRadius: cmRadiusAtHatch,
-                 offset: -(cmRadiusAtHatch + chamber.depth / 2), retractTime: 12),
+        umbilicalArm(1, "S-IC intertank", inFlight: false, level: 60, retractTime: 8),
+        umbilicalArm(2, "S-IC forward", inFlight: false, level: 120, retractTime: 8),
+        umbilicalArm(3, "S-II aft", inFlight: false, level: 140, retractTime: 8),
+        umbilicalArm(4, "S-II intermediate", inFlight: true, level: 160, retractTime: 6.4),
+        umbilicalArm(5, "S-II forward", inFlight: true, level: 200, retractTime: 7.4),
+        umbilicalArm(6, "S-IVB aft", inFlight: true, level: 220, retractTime: 7.7),
+        umbilicalArm(7, "S-IVB forward", inFlight: true, level: 260, retractTime: 8.4),
+        umbilicalArm(8, "Service module", inFlight: true, level: 300, retractTime: 9.0),
+        SwingArm(number: 9, name: "Command module access", inFlight: false, level: accessArmLevel,
+                 vehicleRadius: accessArmRoomRadius, offset: -(accessArmRoomRadius + chamber.depth / 2),
+                 retractTime: 12),
     ]
 
-    /// The S-II/S-IVB interstage's radius (m) at a tower level: its cone
-    /// runs from 198 in at STA 2519 to 130 in at STA 2746.5 (exterior
-    /// datasheet §5, H); the deck is STA 12.56.
-    static func interstageRadius(at level: Double) -> Double {
-        let deckStation = vehicleBaseStation + deckAboveVehicleBase / inch
-        let station = deckStation + level * 12
-        let t = min(max((station - 2519) / (2746.5 - 2519), 0), 1)
-        return (198 - 68 * t) * inch
+    /// An umbilical arm (1-8) at `level`, reaching the drawn vehicle's
+    /// largest radius over its carrier's height (derived, M: the vehicle's
+    /// outline is the core's dressed Saturn V, exterior datasheet §1-§12).
+    static func umbilicalArm(_ number: Int, _ name: String, inFlight: Bool, level: Double,
+                             retractTime: Double) -> SwingArm {
+        let z = level * foot
+        let r = vehicleOutline.largestRadius(from: z + carrierHeights.low, to: z + carrierHeights.high)
+        return SwingArm(number: number, name: name, inFlight: inFlight, level: level, vehicleRadius: r,
+                        offset: armOffset, retractTime: retractTime)
     }
     /// The umbilical arms' centrelines 1.5 m east of the tower's, so their
     /// carriers meet the vehicle between Positions I and II, near II, where
     /// its umbilical plates and doors are (exterior datasheet §2.6, §4,
     /// §7; estimate, L).
     static let armOffset = -1.5
-    /// The CM's radius at its side hatch, which faces Position I, east
-    /// (exterior datasheet §9: about Xa 1046, the 33° cone; derived, M).
-    static let cmRadiusAtHatch = 1.46
+    /// Arm 9's level: "the 320-foot level above the launcher base" (A8PK, H).
+    static let accessArmLevel = 320.0
+    /// Arm 9's white room, centred on the CM's side hatch (Position I, east),
+    /// stands off the drawn vehicle's largest radius over its height: the
+    /// boost protective cover's at the room's floor, Xa 1046 (derived, M).
+    /// The real CM's 1.46 m at the hatch (exterior datasheet §9) lies inside
+    /// today's idealised outer mould line (ibid. §9.1).
+    static let accessArmRoomRadius: Double = {
+        let floor = accessArmLevel * foot + chamber.floor
+        return vehicleOutline.largestRadius(from: floor, to: floor + chamber.height)
+    }()
     /// Arm width: the retracted arms' near face 8.63 m from fin tip A
     /// (FER-503 Table 11-1's available clearance) with fin A 6.76 m from
     /// the axis towards the tower puts it 2.90 m in front of the tower
@@ -229,13 +245,21 @@ public enum LC39A {
     static let armDepth = (root: 3.0, tip: 2.0)
     /// The umbilical carrier at an arm's tip (estimate, L).
     static let carrier = (length: 1.0, side: 1.6)
+    /// The carrier's bottom and top below the arm's walkway (m): centred on
+    /// the truss's depth at the tip.
+    static let carrierHeights = (low: -armDepth.tip / 2 - carrier.side / 2, high: -armDepth.tip / 2 + carrier.side / 2)
     /// Arm 9's environmental chamber, the white room: 2.4 m each way, its
     /// floor 1.28 m below level 320 at the CM's hatch sill (Xa 1046, 315.8
     /// ft above the deck; derived, M; size estimate, L).
     static let chamber = (depth: 2.4, height: 2.4, floor: -1.28)
+    /// The truss's depth at arm `a`'s tip. Arm 9's tapers to its room's
+    /// floor, so that it clears the CM's shoulder below the hatch, which the
+    /// 2.0 m of the others would reach (derived, L).
+    static func tipDepth(_ a: SwingArm) -> Double { a.number == 9 ? -chamber.floor : armDepth.tip }
     /// Retracted, an arm lies folded against the tower's face, swung 90°
     /// east about the hinge at its east edge (estimate, L; consistent with
-    /// FER-503 Table 11-1).
+    /// FER-503 Table 11-1), in the `armWidth` in front of the face that the
+    /// LUT leaves clear (`flareLegsX`).
     public static let armRetractedAngle = 90 * degree
     /// Arm 9's park position, 12° from the spacecraft, about 3 ft from it
     /// (A8PK, A11PK, H).
@@ -248,14 +272,25 @@ public enum LC39A {
     }
 
     /// Length of arm `a` from the tower's face to its carrier's end, whose
-    /// nearer corner touches the vehicle; arm 9's to the white room's tower
-    /// side, the room centred on the hatch (derived from the radii, L-M).
+    /// nearer corner touches the vehicle where it is widest over the
+    /// carrier's height, with the truss's tip clear of it over the tip's
+    /// depth; arm 9's to the white room's tower side, the room centred on
+    /// the hatch (derived from the drawn vehicle, L-M).
     public static func armLength(_ a: SwingArm) -> Double {
         if a.number == 9 { return towerFaceX - chamber.depth / 2 }
-        let r = a.vehicleRadius, y = max(abs(a.offset) - carrier.side / 2, 0)
-        let tip = (r * r - y * y).squareRoot()
-        return towerFaceX - tip
+        let carrierX = reach(a.vehicleRadius, nearSide(a.offset, carrier.side))
+        let trussRadius = vehicleOutline.largestRadius(from: a.height - tipDepth(a), to: a.height)
+        let trussX = reach(trussRadius, nearSide(a.offset, armWidth)) - carrier.length
+        return towerFaceX - max(carrierX, trussX)
     }
+
+    /// The x (m) at which an upright edge `y` off the site's x axis meets a
+    /// circle of radius `r` about the vehicle's axis.
+    static func reach(_ r: Double, _ y: Double) -> Double { max(r * r - y * y, 0).squareRoot() }
+
+    /// Distance from the x axis (m) of the nearer side of something `width`
+    /// wide centred `offset` off it.
+    static func nearSide(_ offset: Double, _ width: Double) -> Double { max(abs(offset) - width / 2, 0) }
 
     // MARK: Hold-down arms (datasheet §6)
 
@@ -345,6 +380,77 @@ extension MaterialKey {
     public static let lc39aConcrete: MaterialKey = "lc39a.concrete"
     /// The trench floor and the deflector's refractory concrete.
     public static let lc39aRefractory: MaterialKey = "lc39a.refractory"
+}
+
+// MARK: - Vehicle outline
+
+extension LC39A {
+    /// The drawn Saturn V's outline: its radius about its axis by height
+    /// above the ML deck (m). It holds every shape of a dressed stack that
+    /// turns about the vehicle's axis (`VisualShape.SurfaceFrame.vehicle`):
+    /// the stages' skins, the SLA, the CM and the boost protective cover
+    /// over it, as the straight segments between their profile points that
+    /// the renderer draws. Off-axis items (engines, APS modules, fairings,
+    /// RCS quads, the LES tower's legs) are not in it. The swing arms reach
+    /// it (datasheet §4.1).
+    public struct VehicleOutline {
+        struct Segment {
+            var z0: Double, r0: Double, z1: Double, r1: Double
+
+            /// The radius at height `z`, z0 ≤ z ≤ z1; a step's larger one.
+            func radius(at z: Double) -> Double {
+                if z1 - z0 < 1e-12 { return max(r0, r1) }
+                return r0 + (r1 - r0) * (z - z0) / (z1 - z0)
+            }
+        }
+
+        var segments: [Segment] = []
+
+        /// The outline of `vessel` standing with its base `deckAboveBase`
+        /// below the deck, as the core places it on the pad.
+        public init(_ vessel: Vessel, deckAboveBase: Double) {
+            // A site z is the vessel-frame x plus `base`: the vessel's base,
+            // x = -baseHeight, is `deckAboveBase` below the deck.
+            let base = vessel.baseHeight - deckAboveBase
+            for part in vessel.parts {
+                for s in part.shapes {
+                    guard case .vehicle = s.surfaceFrame else { continue }
+                    let z = part.offset.x + s.origin.x + base, k = s.axis.x
+                    switch s.kind {
+                    case let .frustum(r0, r1):
+                        add(z, r0, z + k * s.length, r1)
+                    case let .revolution(profile, _, _):
+                        for (p, q) in zip(profile, profile.dropFirst()) { add(z + k * p.x, p.r, z + k * q.x, q.r) }
+                    default:
+                        continue
+                    }
+                }
+            }
+        }
+
+        mutating func add(_ za: Double, _ ra: Double, _ zb: Double, _ rb: Double) {
+            segments.append(za <= zb ? Segment(z0: za, r0: ra, z1: zb, r1: rb) : Segment(z0: zb, r0: rb, z1: za, r1: ra))
+        }
+
+        /// The radius (m) at height `z` above the deck: the largest shape's
+        /// there, 0 above and below the vehicle.
+        public func radius(at z: Double) -> Double { largestRadius(from: z, to: z) }
+
+        /// The largest radius (m) between heights `z0` and `z1` above the
+        /// deck. Each segment is straight, so its largest is at an end.
+        public func largestRadius(from z0: Double, to z1: Double) -> Double {
+            var r = 0.0
+            for s in segments where s.z1 >= z0 && s.z0 <= z1 {
+                r = max(r, s.radius(at: max(z0, s.z0)), s.radius(at: min(z1, s.z1)))
+            }
+            return r
+        }
+    }
+
+    /// The vehicle the arms reach: the core's dressed Saturn V, its base
+    /// where the core places it, `deckAboveVehicleBase` below the deck.
+    /// Apollo 8's stack has the same outline.
+    public static let vehicleOutline = VehicleOutline(VesselLibrary.saturnV(), deckAboveBase: deckAboveVehicleBase)
 }
 
 // MARK: - Countdown
@@ -740,23 +846,20 @@ extension LC39A {
         var out: [VisualShape] = []
         let side = 2 * towerHalf
         out.append(block(x: towerCentreX, y: 0, z0: 0, z1: towerTop, sx: side, sy: side, .lc39aLattice))
-        // The flared base: legs from the girders to the body's corners at
-        // the flare's top, and tie frames across them.
-        let feetX = [mountLinesX[0], mountLinesX[1]]
-        for (i, fx) in feetX.enumerated() {
-            let cornerX = towerCentreX + (i == 0 ? towerHalf : -towerHalf)
+        // The flared base: legs from the deck to the body's corners at the
+        // flare's top (`flareLegsX`), and tie frames across them.
+        for leg in flareLegsX {
             for s in [-1.0, 1.0] {
-                let foot = Vec3(fx, s * legFootHalfAcross, 0)
-                let corner = Vec3(cornerX, s * towerHalf, flareTop)
+                let foot = Vec3(leg.foot, s * legFootHalfAcross, 0)
+                let corner = Vec3(leg.top, s * towerHalf, flareTop)
                 out.append(beam(foot, corner, across: legSection, up: legSection, .lc39aLattice))
             }
         }
         for z in flareTies {
             let f = z / flareTop
             let across = legFootHalfAcross + (towerHalf - legFootHalfAcross) * f
-            for (i, fx) in feetX.enumerated() {
-                let cornerX = towerCentreX + (i == 0 ? towerHalf : -towerHalf)
-                let x = fx + (cornerX - fx) * f
+            for leg in flareLegsX {
+                let x = leg.foot + (leg.top - leg.foot) * f
                 out.append(beam(Vec3(x, -across, z), Vec3(x, across, z), across: 1, up: 1, .lc39aLattice))
             }
         }
@@ -794,7 +897,7 @@ extension LC39A {
                        VisualShape.SectionPoint(0, -armWidth / 2, crease: true),
                        VisualShape.SectionPoint(0, armWidth / 2, crease: true),
                        VisualShape.SectionPoint(-armDepth.root, armWidth / 2, crease: true)]
-        let taper = armDepth.tip / armDepth.root
+        let taper = tipDepth(a) / armDepth.root
         let stations = [VisualShape.PrismStation(0), VisualShape.PrismStation(truss, width: taper, height: 1)]
         // Axis -x, reference z: a is up, b = (-x) × z = +y, west.
         var s = VisualShape.prism(section, from: Vec3(0, armWidth / 2, 0), axis: -.unitX, reference: .unitZ,
@@ -807,9 +910,8 @@ extension LC39A {
             out.append(block(x: c.x, y: c.y, z0: chamber.floor, z1: chamber.floor + chamber.height, sx: chamber.depth,
                              sy: chamber.depth, .lc39aSteel))
         } else {
-            let z = -armDepth.tip / 2 - carrier.side / 2
-            out.append(block(x: tipCentre.x - carrier.length / 2, y: tipCentre.y, z0: z, z1: z + carrier.side,
-                             sx: carrier.length, sy: carrier.side, .lc39aSteel))
+            out.append(block(x: tipCentre.x - carrier.length / 2, y: tipCentre.y, z0: carrierHeights.low,
+                             z1: carrierHeights.high, sx: carrier.length, sy: carrier.side, .lc39aSteel))
         }
         return out
     }

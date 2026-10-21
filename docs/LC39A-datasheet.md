@@ -76,8 +76,8 @@ Read but not used for numbers: NTRS 19690001603 (the 1/40 model's analysis, a co
 | Height | "an open steel structure 380 feet high" | M503 p. 8-6, PDF p. 187 | H | `towerTop` 115.82 m | TND4870 p. 6: 114 in above the platform at 1/40 (380 ft) and 130 in above the ground; its p. 4: "381 feet (116 meters)". |
 | Plan | 40 ft square: centre 80 ft from the vehicle's axis, nearest column 60 ft | M503 p. 8-6 ("approximately") | H | `towerCentreX`, `towerHalf`; face at 18.288 m | TND4870 Fig. 2: 12 in at 1/40 "above its flared-out base". |
 | With the crane | "extending 398 feet above the launch platform"; the whole ML "stands 445 feet high when resting on its pedestals" | A8PK p. -60-; A11PK | H | crane top 121.31 m | 22 + 25 + 398 = 445 ft. MOON p. 282: "the top of the 136-meter structure". |
-| Legs | inboard legs on the interior girder, 60 ft from the end girder that carries the outboard legs | BALKE p. 374 | H | legs' feet at x 33.49 and 15.21 m | |
-| Flare | the legs splay from the 40 ft body to 60 ft along the ML and about 117 ft across it at the deck, from about 80 ft up | TND4870 Fig. 2, *scaled* (12.95 px/in on a 250 dpi render; base 18.1 and 35.1 in at 1/40, flare top 22.7-25.5 in) | M (an early architectural drawing) | `legFootHalfAcross` 17.83 m, `flareTop` 24.38 m, 1.5 m legs (L) | M503 Fig. 8-8's photograph shows the flare beside the body. |
+| Legs | inboard legs on the interior girder, 60 ft from the end girder that carries the outboard legs | BALKE p. 374 | H (girders) / L (inboard legs as modelled) | `flareLegsX`: the outboard legs' feet at x 33.49 m, on the end girder; the inboard legs in the face's plane, centred at x 19.04 m, their fronts flush with the face (*estimate*, L) | The inboard legs are moved off Balke's interior girder (x 15.21 m) because the retracted arms fold flat against the face (§4.1). Legs leaning from that girder up to the face's corners at 80 ft would stand 1.7-2.1 m in front of the face over arm 1's depth at 60 ft, inside its fold. Folding arm 1 short of flat instead would bring it within about 7 m of fin tip A, against FER503 Table 11-1's 8.63 m (§4.1, width). How the deck carries the inboard legs to the girder is not drawn. |
+| Flare | the legs splay from the 40 ft body to 60 ft along the ML and about 117 ft across it at the deck, from about 80 ft up | TND4870 Fig. 2, *scaled* (12.95 px/in on a 250 dpi render; base 18.1 and 35.1 in at 1/40, flare top 22.7-25.5 in) | M (an early architectural drawing) | `legFootHalfAcross` 17.83 m, `flareTop` 24.38 m, 1.5 m legs (L); along the ML only the outboard legs splay (Legs, above) | M503 Fig. 8-8's photograph shows the flare beside the body. |
 | Flare ties | at about 32 and 63 ft | TND4870 Fig. 2, *scaled* | M | `flareTies` | |
 | Body below the flare top | the 40 ft body runs down to the deck, between the legs | M503 Fig. 8-8 photograph; ERH Fig. 3-1 | M | one box, deck to 380 ft | |
 | Lattice | open steel lattice, 20 ft panels: the 1/40 model's horizontals every 5.99 in (19.97 ft) | TND4870 Fig. 2, *scaled* | M | drawn as a box with the `lc39a.lattice` material (relief, VM2/R2) | Plan: "prisms with lattice relief rather than individual beams". |
@@ -90,29 +90,32 @@ Read but not used for numbers: NTRS 19690001603 (the 1/40 model's analysis, a co
 
 | arm | name | kind | level (ft) | vehicle there | radius reached | retract time | length (model) |
 |---|---|---|---|---|---|---|---|
-| 1 | S-IC intertank | preflight | 60 | STA 732.6, intertank (628.8-885.2) | 198 in | 8 s (spec 10.5 s to the safe angle, FER506) | 13.31 m |
-| 2 | S-IC forward | preflight | 120 | STA 1452.6, forward skirt (1420.3-1541) | 198 in | 8 s | 13.31 m |
-| 3 | S-II aft | preflight | 140 | STA 1692.6, S-IC/S-II interstage (1541-1760) | 198 in | — ("as required") | 13.31 m |
-| 4 | S-II intermediate | in-flight | 160 | STA 1932.6, S-II | 198 in | 6.4 s max | 13.31 m |
-| 5 | S-II forward | in-flight | 200 | STA 2412.6, S-II, 106 in below its top | 198 in | 7.4 s max | 13.31 m |
-| 6 | S-IVB aft | in-flight | 220 | STA 2652.6, S-II/S-IVB interstage cone | 158.1 in (*derived*: 198 → 130 in over STA 2519-2746.5) | 7.7 s max | 14.48 m |
-| 7 | S-IVB forward | in-flight | 260 | STA 3132.6, S-IVB forward skirt | 130 in | 8.4 s max | 15.17 m |
-| 8 | Service module | in-flight | 300 | Xa 856, SM (838-993) | 77 in | 9.0 s max | 16.46 m |
-| 9 | Command module access | preflight | 320 | the CM's side hatch, Xa 1043-1072 | 1.46 m at the hatch | extend 12 s from park | 17.09 m + 2.4 m room |
+| 1 | S-IC intertank | preflight | 60 | STA 732.6, intertank (628.8-885.2) | 5.029 m (198 in) | 8 s (spec 10.5 s to the safe angle, FER506) | 13.31 m |
+| 2 | S-IC forward | preflight | 120 | STA 1452.6, forward skirt (1420.3-1541) | 5.029 m (198 in) | 8 s | 13.31 m |
+| 3 | S-II aft | preflight | 140 | STA 1692.6, S-IC/S-II interstage (1541-1760) | 5.029 m (198 in) | — ("as required") | 13.31 m |
+| 4 | S-II intermediate | in-flight | 160 | STA 1932.6, S-II | 5.029 m (198 in) | 6.4 s max | 13.31 m |
+| 5 | S-II forward | in-flight | 200 | STA 2412.6, S-II, 106 in below its top | 5.029 m (198 in) | 7.4 s max | 13.31 m |
+| 6 | S-IVB aft | in-flight | 220 | STA 2652.6, S-II/S-IVB interstage cone | 4.553 m (179.3 in: the cone, 198 → 130 in over STA 2519-2746.5, at the carrier's bottom, STA 2581.7) | 7.7 s max | 13.79 m |
+| 7 | S-IVB forward | in-flight | 260 | STA 3132.6, S-IVB forward skirt | 3.302 m (130 in) | 8.4 s max | 15.06 m |
+| 8 | Service module | in-flight | 300 | Xa 856, SM (838-993) | 2.168 m (85.3 in: the SLA's cone at the carrier's bottom, Xa 785) | 9.0 s max | 16.24 m |
+| 9 | Command module access | preflight | 320 | the CM's side hatch, Xa 1043-1072 | 1.648 m (64.9 in: the BPC over the CM at the room's floor, Xa 1046) | extend 12 s from park | 17.09 m + 2.4 m room |
+
+*Radius reached* is the drawn vehicle's largest radius (`vehicleOutline`, row below) over the height of the arm's carrier, 0.2 to 1.8 m below its walkway, or of arm 9's white room (*derived*, M). The carriers hang under the trusses' tips, so arm 6's meets the interstage's cone where it is widest, at the carrier's bottom, 0.54 m out from its radius at the walkway; arm 8's spans Xa 785-848, the SLA's top and the SM's aft end, so it touches the SLA and stands 0.21 m off the SM. *Length* runs from the tower's face to the carrier's end (*derived*). `LC39ATests` checks both columns against the model.
 
 | item | value | source | grade | model | notes |
 |---|---|---|---|---|---|
 | Names, numbers, kinds, retract times | arms 1-9 from the bottom; preflight arms "retracted and locked against the umbilical tower prior to liftoff", in-flight arms retract at liftoff; retract times as tabled | M503 Fig. 8-8, printed p. 8-10, PDF p. 191; p. 8-8 | H | `swingArms` | |
 | Levels | control distributors at levels 60, 120, 140, 160, 200, 220, 260 and 300 (§3-4) and 320 (Fig. 4-2) | ERH printed pp. 3-4, 4-3 | H (as printed); M (as the arms' heights: one distributor set per arm, taken at its arm) | `level`; the walkway's top at the level | With the deck at STA 12.56, every level falls on its arm's stage (table above). Arm 9: A8PK, A11PK "the 320-foot level above the launcher base" (H); TM509A: its portable control console "on launcher level 320" (H). |
-| Arm 9's room | the environmental chamber (white room) at the arm's vehicle end, entered at the hatch; floor taken at the hatch sill, Xa 1046 = 315.8 ft above the deck, 1.28 m below level 320 | TM509A §1.2; exterior datasheet §9.2 (hatch, Xa 1043.4-1072); *derived* | M (sill) / L (room 2.4 m each way, *estimate* from TM509A Figs. 1-1, 1-2, not dimensioned) | `chamber` | |
-| Hatch side | the CM's side hatch is on −Z_A, Position I (east) | exterior datasheet §9 (graded M there) | M | arm 9's room centred 2.66 m east of the axis, on the hatch | |
-| Lengths | 13.7-18.3 m (45-60 ft); weights 15,900-23,600 kg | MOON p. 536 | M | from the tower face to the vehicle at each level (*derived*, L-M): the carrier's nearer corner touches the skin | The S-IC and S-II arms come out 13.31 m, 0.4 m under MOON's shortest; their hinges likely sit behind the face (L). Arm 9's truss is 17.09 m, with its room beyond. |
+| Vehicle outline | the radius the arms reach: the core's dressed Saturn V (`VesselLibrary.saturnV()`) standing where the core places it, from every shape that turns about the vehicle's axis (the stages' skins, the SLA, the CM and the BPC over it), as the straight segments the renderer draws | exterior datasheet §1-§12, through the core's shapes | M (*derived*) | `vehicleOutline` | Off-axis items (engines, APS modules, fairings, RCS quads, the LES tower's legs) are not in it. Apollo 8's stack has the same outline. Test: 198, 164, 130, 103.5 and 77 in at STA 1000, 2632.75, 3000 and Xa 670, 900; 78.5 in over the CM (its 77 in under the BPC's 1.5 in). |
+| Arm 9's room | the environmental chamber (white room) at the arm's vehicle end, entered at the hatch; floor taken at the hatch sill, Xa 1046 = 315.8 ft above the deck, 1.28 m below level 320 | TM509A §1.2; exterior datasheet §9.2 (hatch, Xa 1043.4-1072); *derived* | M (sill) / L (room 2.4 m each way, *estimate* from TM509A Figs. 1-1, 1-2, not dimensioned) | `chamber`; its vehicle side 1.648 m from the axis, the vehicle's widest over the room's height: the BPC at the floor (`accessArmRoomRadius`, *derived*, M) | The real CM's radius at the hatch, about 1.46 m (the 33° cone at Xa 1046), lies inside today's idealised outer mould line and the BPC over it (exterior datasheet §9.1), so the room stands about 0.19 m further out than on the real vehicle. |
+| Hatch side | the CM's side hatch is on −Z_A, Position I (east) | exterior datasheet §9 (graded M there) | M | arm 9's room centred 2.85 m east of the axis, on the hatch | |
+| Lengths | 13.7-18.3 m (45-60 ft); weights 15,900-23,600 kg | MOON p. 536 | M | from the tower face to the vehicle at each level (*derived*, L-M): the carrier's nearer corner touches the vehicle where it is widest over the carrier's height, the truss's tip clear of it | The S-IC and S-II arms come out 13.31 m, 0.4 m under MOON's shortest; their hinges likely sit behind the face (L). Arm 9's truss is 17.09 m, with its room beyond. |
 | Width | 2.90 m, *derived* (L-M): FER503 Table 11-1 gives 862.79 cm (339.68 in) of clearance from fin tip A to the swing arms. Fin tip A is 376.2 in out on the 45° diagonal (exterior datasheet §2.4), 6.757 m towards the tower. So the retracted arms' near face is 15.385 m from the axis, 2.90 m in front of the tower face: the width of an arm folded flat against it | FER503 Table 11-1, printed p. 11-4 | L-M | `armWidth` | MOON p. 283: "wide enough for a jeep to drive across". |
 | Hinges | two per arm, each 1.2 m high and 2.1 m wide | MOON p. 336 | M | hinge at the tower face, at the arm's east edge | |
-| Depth | 3.0 m at the root, 2.0 m at the tip | *estimate* (L): room for two 1.2 m hinges | L | `armDepth` | |
+| Depth | 3.0 m at the root, 2.0 m at the tip; arm 9's 1.28 m at the tip, down to its room's floor | *estimate* (L): room for two 1.2 m hinges | L | `armDepth`, `tipDepth` | With the others' 2.0 m, arm 9's truss would reach down to Xa 1017, past the CM's shoulder (77 in, the BPC's 78.5 in, at Xa 1022), its tip's inner corner 0.15 m inside the BPC. |
 | Offset | the umbilical arms' centrelines 1.5 m east of the tower's, so that their carriers meet the vehicle between Positions I and II, near II, where its umbilical plates and doors are | exterior datasheet §2.6 (forward umbilical plate), §4 (S-II doors), §7 (IU doors); *estimate* (L) | L | `armOffset` | |
-| Carrier | the umbilical carrier at the tip: 1.0 m long, 1.6 m square | *estimate* (L) | L | `carrier` | |
-| Swing | retracted arms folded flat against the tower's face, swung 90° east about the hinge at their east edge | *estimate* (L), consistent with FER503 Table 11-1 (above) | L | `armRetractedAngle` 90° | Which way the arms swing is not sourced. A question for Franz, checked against the photographs (§12). |
+| Carrier | the umbilical carrier at the tip: 1.0 m long, 1.6 m square, hung under the truss's tip and centred on its depth, 0.2 to 1.8 m below the walkway | *estimate* (L) | L | `carrier`, `carrierHeights` | |
+| Swing | retracted arms folded flat against the tower's face, swung 90° east about the hinge at their east edge | *estimate* (L), consistent with FER503 Table 11-1 (above) | L | `armRetractedAngle` 90° | Which way the arms swing is not sourced. A question for Franz, checked against the photographs (§12). The LUT leaves the 2.90 m in front of its face clear for the folded arms: its inboard flare legs stand in the face's plane (§3). Test: no arm overlaps the LUT's body, legs or ties at any angle of its swings. |
 
 ### 4.2 Timeline
 
@@ -211,7 +214,11 @@ All in the site frame. K0's `VisualAttachment.Kind` has no trench exit, so all f
 | arm 9 | 12° from T−42 or T−43 min + 12 s; retracted at T−5 min | A8PK, A11PK, M503 | 1e-12 |
 | arms 4-8, the masts | from first motion + 0.16 s; done within 6.4-9.0 s; masts 2.62, 2.77, 2.54 s | M503, FER503 | 1e-12 |
 | at first motion | arms 1, 2, 3, 9 retracted; 4-8 extended | A8PK, A11PK | — |
-| arm tips on the vehicle; retracted arms folded east, near face 8.63 m from fin tip A | §4 | FER503 Table 11-1 | 0.05 m; 0.01 m |
+| the vehicle's outline: 198, 164, 130, 103.5, 77 in at STA 1000, 2632.75, 3000, Xa 670, 900; 78.5 in over the CM; the same from the core's vessel on the pad | §4.1 | exterior datasheet §3-§12 | 1e-6 m |
+| the arms extended: every point of their surfaces at least the vehicle's radius at its height from the axis; each carrier, and arm 9's room, touching it; the trusses more than 0.1 m off | §4.1 | — | 1e-6 m; 1 mm |
+| the arms at every angle of their swings clear of the LUT's body, legs and ties; the whole LUT behind its face | §3, §4.1 | — | 1e-6 m (separating axes) |
+| §4.1's radius reached and length of each arm | the model | §4.1 | 5 mm |
+| retracted arms folded east, near face 8.63 m from fin tip A | §4 | FER503 Table 11-1 | 0.01 m |
 | deck 0; ML 48.87 × 41.15 m; hardstand −47 ft; grade −89 ft | §2, §8 | BALKE, A8PK, M503 | 1e-6 m |
 | LUT top 380 ft; crane top 398 ft, reach ≥ 85 ft; arm levels | §3-§5 | M503, A8PK, ERH | 1e-9 m |
 | trench exits at ±225 ft, mid-height, 29 ft half-width, north on the tower's side; the opening at the deck; the deflector's ridge | §9 | M503, MOON | 1e-9 m |
@@ -230,6 +237,7 @@ All in the site frame. K0's `VisualAttachment.Kind` has no trench exit, so all f
 ## 12. Not modelled, open, and questions
 
 - **Swing direction** (§4) and **the crane's heading** (§5) are estimates. Franz: please check them against the reference photographs, e.g. S68-56050 and S69-39961 at liftoff, or any post-launch view of the LUT. The arms fold east in the model and the crane points north.
+- **The flare's inboard legs** (§3) stand in the plane of the tower's face so that the arms can fold flat against it; Balke puts their feet on the interior girder, 3.08 m in front of it. Franz: the same photographs should show whether the inboard legs lean out towards the vehicle at the deck, and how arm 1, at 60 ft, folds past them.
 - **Damper struts** "secure the vehicle near its top" (A8PK); not found in detail; not drawn.
 - **Mobile service structure.** It is moved away hours before launch, so it is not drawn. M503 p. 8-15 has its size.
 - **Water systems** (deck deluge, trench nozzles), **camera sites**, **propellant facilities**, the **egress slide wire** and **blast room**: not drawn. P4 may want the deluge (A11PK: 29 deck nozzles, 50,000 gal/min for 30 s, then 20,000).
