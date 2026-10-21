@@ -1,0 +1,14 @@
+{
+  "goldens": "none",
+  "shots": [
+    {"name": "vg1-pad-base", "scenario": "as506-pad",
+     "camera": {"yaw": -60, "pitch": -2, "distance": 80, "fov": 30}, "reference": "69-H-365"},
+    {"name": "vg1-sic-spent-side", "scenario": "as506-pad", "advance": ["ev:S-IC/S-II separation", "wait:3"],
+     "camera": {"target": "vessel:Apollo 11 – S-IC", "frame": "vessel", "yaw": 45, "pitch": 5, "distance": 75}},
+    {"name": "vg1-sic-spent-base", "scenario": "as506-pad", "advance": ["ev:S-IC/S-II separation", "wait:3"],
+     "camera": {"target": "vessel:Apollo 11 – S-IC", "frame": "vessel", "yaw": 30, "pitch": -55, "distance": 60}},
+    {"name": "vg1-interstage", "scenario": "as506-pad", "advance": ["ev:S-IC/S-II separation", "wait:1"],
+     "camera": {"frame": "vessel", "yaw": 20, "pitch": -25, "distance": 50}, "aovs": ["normals"],
+     "reference": "Ap6-MSFC-6758331"}
+  ]
+}
