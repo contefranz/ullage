@@ -77,15 +77,12 @@ public struct ExhaustSpec: Equatable {
 /// The exhaust of each thruster the plume model draws, keyed by the part's
 /// and thruster's names as the dresser keys its shapes ("S-IC engine n",
 /// "SPS", "SM RCS A1", "S-IC retro motor n"...), so that neither the
-/// components nor the vehicle data change. Empty so far: the exhaust
-/// physics track fills it, from its datasheet and CEA runs.
+/// components nor the vehicle data change: every Apollo engine family's,
+/// from `ApolloExhaust`.
 public enum ExhaustLibrary {
     /// The exhaust of `thruster` on `part`; nil for one the library does
     /// not know, which draws no plume of its own.
     public static func spec(for thruster: Thruster, in part: VesselPart) -> ExhaustSpec? {
-        specs[thruster.name]
+        ApolloExhaust.engine(for: thruster, in: part)?.spec
     }
-
-    /// The specs by thruster name.
-    static let specs: [String: ExhaustSpec] = [:]
 }

@@ -27,7 +27,10 @@ extension ApolloShapeData {
     /// forward end just under it (the motor's aft end then at STA 2519.5,
     /// within the interstage), the cap over the nozzle filling the rest.
     /// The axis 14 in over the fairing's flat and the forward end are
-    /// estimates within the sourced span.
+    /// estimates within the sourced span. The nozzle's exit is the exhaust
+    /// spec's (`ApolloExhaust.sIIRetro`): 8.15 in, 0.9 of the case at which
+    /// CEA delivers the motor's 34,810 lbf at its 1,761 psia (P1, L), which
+    /// replaced a 7 in placeholder so that drawing and plume share it.
     static let sIIRetroCaseDiameter = 9.0            // in, M503 p. 5-26 (H)
     static let sIIRetroLength = 104.68               // in overall, M503 p. 5-26 (H)
     static let sIIRetroTilt = 3.0                    // deg, M503 p. 5-26 (H)
@@ -36,7 +39,7 @@ extension ApolloShapeData {
     static let sIIRetroFairingTop = 2_626.2          // STA, VD2 503-064 (M)
     static let sIIRetroFairingWidth = 16.0           // in, VD2 503-064 (M)
     static let sIIRetroFairingRise = 14.0            // in, estimate (L)
-    static let sIIRetroExitDiameter = 7.0            // in, estimate (L)
+    static let sIIRetroExitDiameter = ApolloExhaust.sIIRetroExitDiameter   // in, the exhaust spec's (L)
     static let sIIRetroNozzleLength = 5.0            // in, estimate (L)
 
     // MARK: S-IVB
@@ -66,13 +69,19 @@ extension ApolloShapeData {
     /// TMX Fig. 2's silhouette: from the aft skirt's foot to about STA 2828
     /// at 24 in deep, then a nose to the skin by about 2862. The width is an
     /// estimate from Fig. 6-14. The attitude engines' nozzles are at the
-    /// physics' station (`AS506.apsModuleHeight`, L), their size an estimate.
+    /// physics' station (`AS506.apsModuleHeight`, L), their lengths an
+    /// estimate; their exits are the exhaust specs' (`ApolloExhaust
+    /// .apsAttitude`, `.apsUllage`: 6.43 in for the 147 lbf engines, 2.21
+    /// in for the 72 lbf ullage engine, each the exit its thrust needs at
+    /// 100 psia, P1, L), which replaced a 5 in placeholder for all four so
+    /// that drawing and plume share them.
     static let sIVBAPSModuleBottom = 2_748.0         // STA, scaled (L)
     static let sIVBAPSModuleShoulder = 2_828.0       // STA, scaled (L)
     static let sIVBAPSModuleTop = 2_862.0            // STA, scaled (L)
     static let sIVBAPSModuleDepth = 24.0             // in off the skin, scaled (L)
     static let sIVBAPSModuleWidth = 40.0             // in, estimate (L)
-    static let sIVBAPSNozzle = (exitDiameter: 5.0, length: 6.0)   // in, estimate (L)
+    static let sIVBAPSNozzle = (exitDiameter: ApolloExhaust.apsAttitudeExitDiameter, length: 6.0)   // in (L)
+    static let sIVBAPSUllageNozzle = (exitDiameter: ApolloExhaust.apsUllageExitDiameter, length: 6.0)   // in (L)
     /// The two TX-280 ullage motors' fairings, diametrically opposite on
     /// the aft skirt, 15-20° off the fin B and D diagonals towards Positions
     /// II and IV (D5 Fig. 5-7, M; TMX Fig. 2 draws one at about 117°), where
@@ -80,13 +89,17 @@ extension ApolloShapeData {
     /// is scaled off TMX Fig. 2; each motor's nozzle stands out of its
     /// fairing's foot at the motor's radius, canted out as the physics has
     /// it (`AS506.sIVBUllageMotorCant`, M), and carries the motor's plume.
+    /// Its exit is the exhaust spec's (`ApolloExhaust.sIVBUllage`): 6.22
+    /// in, 0.9 of the inferred 7 in case at which CEA delivers the motor's
+    /// 3,390 lbf at 980 psia (P1, L), which replaced a 5 in placeholder so
+    /// that drawing and plume share it; its length is an estimate.
     static let sIVBUllageFairingOffset = 17.5        // deg from the fin line towards the Position (M)
     static let sIVBUllageFairingBottom = 2_748.0     // STA, scaled (L)
     static let sIVBUllageFairingTop = 2_808.0        // STA, scaled (L)
     static let sIVBUllageFairingTaper = 38.0         // in, scaled (L)
     static let sIVBUllageFairingWidth = 18.0         // in, scaled (L)
     static let sIVBUllageFairingDepth = 10.5         // in, estimate (L)
-    static let sIVBUllageNozzle = (exitDiameter: 5.0, length: 5.0)   // in, estimate (L)
+    static let sIVBUllageNozzle = (exitDiameter: ApolloExhaust.sIVBUllageExitDiameter, length: 5.0)   // in (L)
     /// Two tunnels, fairings over the wiring and pressurisation lines (M503
     /// p. 6-1, H as form): a long systems tunnel and a short helium tunnel
     /// on the face between the APS modules, on the side towards Position II
@@ -303,7 +316,7 @@ extension ApolloDresser {
         let inch = D.inch, r = A.upper
         let bottom = D.station(S.sIVBAPSModuleBottom), top = D.station(S.sIVBAPSModuleTop)
         let width = S.sIVBAPSModuleWidth * inch, depth = S.sIVBAPSModuleDepth * inch
-        let engines = Vec3(D.height(D.apsModuleHeight), 0, 0), nozzle = S.sIVBAPSNozzle
+        let engines = Vec3(D.height(D.apsModuleHeight), 0, 0)
         var shapes: [VisualShape] = []
         for side in [1.0, -1.0] {
             let out = Vec3(0, 0, side), across = Vec3.unitX.cross(out), mid = r + depth / 2
@@ -311,13 +324,15 @@ extension ApolloDresser {
                                             depth: depth, taperTop: top - D.station(S.sIVBAPSModuleShoulder),
                                             roundTop: true, face: { t in pow(1 - pow(abs(t), 3), 1.0 / 3) },
                                             A.white))
-            let jets: [(exit: Vec3, thrust: Vec3)] = [
-                (engines + out * (r + depth + 0.5 * inch), -out),
-                (engines + out * mid - across * (width / 2 + 0.5 * inch), across),
-                (engines + out * mid + across * (width / 2 + 0.5 * inch), -across),
-                (Vec3(bottom - 0.5 * inch, 0, 0) + out * mid, .unitX),
+            let attitude = S.sIVBAPSNozzle, ullage = S.sIVBAPSUllageNozzle
+            let jets: [(exit: Vec3, thrust: Vec3, nozzle: (exitDiameter: Double, length: Double))] = [
+                (engines + out * (r + depth + 0.5 * inch), -out, attitude),
+                (engines + out * mid - across * (width / 2 + 0.5 * inch), across, attitude),
+                (engines + out * mid + across * (width / 2 + 0.5 * inch), -across, attitude),
+                (Vec3(bottom - 0.5 * inch, 0, 0) + out * mid, .unitX, ullage),
             ]
             for jet in jets {
+                let nozzle = jet.nozzle
                 shapes.append(upperStageNozzle(exit: jet.exit, thrust: jet.thrust,
                                                exitRadius: nozzle.exitDiameter / 2 * inch,
                                                length: nozzle.length * inch))

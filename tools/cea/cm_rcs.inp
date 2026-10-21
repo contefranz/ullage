@@ -1,0 +1,14 @@
+# CM RCS jet (Rocketdyne SE-8): NASA CEA input deck.
+# Run by tools/make_exhaust_table.py; the spec takes the frozen expansion.
+#
+# p,psia: not found. Derived (M): the chamber pressure at which this deck's
+#   vacuum thrust coefficient gives the AOH's 93 lbf through a 2.13 in exit
+#   at 9:1 (AOH p. 2.5-47: H); the generator prints the check.
+# o/f: 2.0, as the SM RCS (AOH §2.5: M).
+# supar: 9 (AOH p. 2.5-47: H).
+reac
+  fuel=CH6N2(L) wt%=100 t(k)=298.15
+  oxid=N2O4(L)  wt%=100 t(k)=298.15
+prob case=CM-RCS rocket p,psia=139 o/f=2.0 eql frozen nfz=2 supar=9
+output siunits trace=1e-5
+end

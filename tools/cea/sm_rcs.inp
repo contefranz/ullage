@@ -1,0 +1,16 @@
+# SM RCS jet (Marquardt R-4D): NASA CEA input deck.
+# Run by tools/make_exhaust_table.py; the spec takes the frozen expansion.
+#
+# p,psia: 90, the reference engine of Marquardt's SM RCS engine final report
+#   (A-1080, NTRS 19690029231, Fig. 75's assumptions: 95 lbf, 290 s, o/f
+#   2.00, throat 0.5915 in^2; the scan's digits are poor: M). The AOH's
+#   99.8 lbf through its 5.6 in exit at 40:1 gives about the same (the
+#   generator's derived check).
+# o/f: 2.0 (AOH §2.5; Marquardt's design point: H).
+# supar: 40 (AOH p. 2.5-24: H).
+reac
+  fuel=CH6N2(L) wt%=100 t(k)=298.15
+  oxid=N2O4(L)  wt%=100 t(k)=298.15
+prob case=SM-RCS rocket p,psia=90 o/f=2.0 eql frozen nfz=2 supar=40
+output siunits trace=1e-5
+end

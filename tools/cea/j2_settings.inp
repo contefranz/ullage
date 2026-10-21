@@ -1,0 +1,12 @@
+# J-2 at AS-506's flight settings, for the record (no spec uses these rows):
+# the S-II's start (EMR 5.0, MSFC-MAN-506: L) and low EMR (4.34, FER §6.5:
+# H), the S-IVB's burn 1 (engine EMR about 4.96, FER Table 7-1: M). The
+# chamber pressure is the rated 763 psia throughout: the frozen expansion's
+# ratios hardly depend on it, and the plume model scales the pressure with
+# the flow (ApolloExhaust).
+reac
+  fuel=H2(L) wt%=100 t(k)=20.27
+  oxid=O2(L) wt%=100 t(k)=90.17
+prob case=J-2-settings rocket p,psia=763 o/f=4.34,4.96,5.0 eql frozen nfz=2 supar=27.5
+output siunits trace=1e-5
+end

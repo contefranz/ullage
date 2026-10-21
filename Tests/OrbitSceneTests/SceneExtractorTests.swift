@@ -69,6 +69,31 @@ final class SceneExtractorTests: XCTestCase {
         XCTAssertEqual(v.farPointStyle, .kerosene)
     }
 
+    /// The plumes start at the exhaust specs' exits: every nozzle the scene
+    /// finds on the Apollo vehicles has its spec's exit radius, however many
+    /// shapes the dresser links to its thruster. The scene takes the last
+    /// linked shape (the F-1s, J-2s, the SPS, the SM and CM RCS jets, the
+    /// S-II retros and the TX-280s) or, for the APS engines, which the
+    /// dresser does not link, the cone narrowing to each; the dresser and
+    /// the specs share one exit per family.
+    func testNozzleExitsAreTheExhaustSpecs() throws {
+        var checked = Set<String>()
+        for v in [VesselLibrary.saturnV(), VesselLibrary.apolloCSM(.apollo7), VesselLibrary.commandModule(.apollo7)] {
+            let geometry = VesselGeometry(of: v)
+            for p in v.parts {
+                for t in p.thrusters {
+                    guard let nozzle = geometry.nozzles[ObjectIdentifier(t)] else { continue }
+                    let spec = try XCTUnwrap(ExhaustLibrary.spec(for: t, in: p), t.name)
+                    XCTAssertEqual(nozzle.radius, spec.exitRadius, accuracy: 1e-9, t.name)
+                    // The family: its row in the CEA table, which the spec cites.
+                    checked.insert(try XCTUnwrap(spec.source.components(separatedBy: "CEA row ").last, t.name))
+                }
+            }
+        }
+        XCTAssertEqual(checked, ["F-1", "J-2", "SPS", "SM RCS", "CM RCS", "APS attitude", "APS ullage", "S-II retro",
+                                 "S-IVB ullage"])
+    }
+
     /// The S-II retros and the S-IVB's TX-280s are drawn off the physics'
     /// thrust points (VG2: the retros' nozzles under their fairings' caps,
     /// the TX-280s on fairings 17.5° round from the fin lines): each motor's
