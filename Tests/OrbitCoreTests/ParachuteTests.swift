@@ -235,8 +235,11 @@ final class ParachuteTests: XCTestCase {
         XCTAssertEqual(mains.effectiveDragArea(at: t0 + 1), 0)
         mains.deploy(at: t0)
         let k = 3 * ApolloCM.mainClusterEfficiency
-        for (s, area) in [(0.0, 0.0), (1, 142.5), (2, 285), (5.9, 285), (7, (285 + 1_080) / 2.0), (8, 1_080),
-                          (9.9, 1_080), (11, (1_080 + 4_200) / 2.0), (12, 4_200), (300, 4_200)] {
+        // Typed, or Swift 6.0's type checker on Linux gives up on the literal.
+        let schedule: [(s: Double, area: Double)] = [(0, 0), (1, 142.5), (2, 285), (5.9, 285), (7, (285 + 1_080) / 2),
+                                                     (8, 1_080), (9.9, 1_080), (11, (1_080 + 4_200) / 2), (12, 4_200),
+                                                     (300, 4_200)]
+        for (s, area) in schedule {
             XCTAssertEqual(mains.effectiveDragArea(at: t0 + s), k * area * ft2, accuracy: 1e-9, "\(s) s")
         }
         for (s, state) in [(1.0, Parachute.State.deploying), (3, .reefed(1)), (7, .reefed(2)), (10.5, .open)] {
