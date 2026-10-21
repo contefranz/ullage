@@ -2,6 +2,8 @@ import Foundation
 import Combine
 import OrbitCore
 import OrbitInstruments
+import OrbitRender
+import OrbitScene
 
 struct TankInfo: Identifiable, Equatable {
     var id: String
@@ -63,6 +65,9 @@ final class AppModel: ObservableObject {
     @Published var showOrbit = true
     @Published private(set) var scenario: Scenario?
     @Published private(set) var loadError: String?
+    /// Render passes that could not be set up (a shader module that does
+    /// not compile disables its passes, not the renderer).
+    @Published private(set) var renderWarning: String?
 
     let input = InputState()
     /// The navball and the flight instruments, updated every frame.
@@ -71,6 +76,8 @@ final class AppModel: ObservableObject {
     private(set) var stars: [Star] = []
     private(set) var sim: Simulation?
     var camera = OrbitCamera()
+    /// Builds each frame's scene for the renderer.
+    private let extractor = SceneExtractor()
 
     /// Zero of the mission clock: the scenario's, else liftoff.
     private var missionStart = Epoch(tdbSecondsPastJ2000: 0)
@@ -112,6 +119,11 @@ final class AppModel: ObservableObject {
         DispatchQueue.main.async { self.loadError = message }
     }
 
+    func reportRenderFailures(_ failures: [String: String]) {
+        let text = failures.keys.sorted().map { "\($0): \(failures[$0]!)" }.joined(separator: "\n")
+        DispatchQueue.main.async { self.renderWarning = "Render passes disabled (see the console):\n" + text }
+    }
+
     func load(_ s: Scenario) {
         guard let system else { return }
         // Fresh body objects each time would be cleaner; the system is
@@ -125,6 +137,7 @@ final class AppModel: ObservableObject {
         missionStart = s.missionClockZero ?? sim.time
         failureCapture = nil
         rcsKeys = RCSKeyControl()
+        extractor.reset()
         instruments.reset()
         if let focus = sim.focus {
             camera.target = .vessel(focus.id)
@@ -556,5 +569,13 @@ final class AppModel: ObservableObject {
         let ss = tenths ? String(format: "%04.1f", s) : String(format: "%02d", Int(s))
         if d > 0 { return String(format: "%@%dd %02d:%02d:%@", sign, d, hh, mm, ss) }
         return String(format: "%@%02d:%02d:%@", sign, hh, mm, ss)
+    }
+}
+
+extension AppModel: SceneSource {
+    func scene(viewport: RenderScene.Viewport, realTime: Double) -> RenderScene? {
+        guard let sim else { return nil }
+        return extractor.extract(sim: sim, camera: camera, viewport: viewport, realTime: realTime,
+                                 options: SceneExtractor.Options(showOrbit: showOrbit))
     }
 }

@@ -2,41 +2,45 @@ import Foundation
 import OrbitCore
 
 /// What the camera orbits around.
-enum CameraTarget: Equatable {
+public enum CameraTarget: Equatable, Hashable {
     case vessel(UUID)
     case body(Int)
 }
 
 /// External "orbit" camera. All positions are barycentric doubles; the
 /// renderer subtracts `position` from everything before converting to float.
-struct OrbitCamera {
-    enum Frame: String { case horizon = "Horizon", vessel = "Vessel", inertial = "Inertial" }
+public struct OrbitCamera {
+    public enum Frame: String, CaseIterable { case horizon = "Horizon", vessel = "Vessel", inertial = "Inertial" }
 
-    var target: CameraTarget = .body(399)
-    var frame: Frame = .horizon
-    var yaw = -2.4          // rad, around the frame's up axis
-    var pitch = 0.25        // rad, elevation
-    var distance = 60.0     // m
-    var fovY = 50.0 * Double.pi / 180
+    public var target: CameraTarget = .body(399)
+    public var frame: Frame = .horizon
+    public var yaw = -2.4          // rad, around the frame's up axis
+    public var pitch = 0.25        // rad, elevation
+    public var distance = 60.0     // m
+    /// Vertical field of view, rad: the external camera's 50°, or a lens's
+    /// (`hasselblad80mm`, `hasselblad250mm`).
+    public var fovY = OrbitCamera.defaultFovY
 
     // Outputs of `update`.
-    private(set) var position = Vec3.zero        // barycentric
-    private(set) var targetPosition = Vec3.zero  // barycentric
+    public private(set) var position = Vec3.zero        // barycentric
+    public private(set) var targetPosition = Vec3.zero  // barycentric
     /// Rows: camera right, up, back (world -> view rotation).
-    private(set) var worldToView = Mat3.identity
-    private(set) var targetName = ""
+    public private(set) var worldToView = Mat3.identity
+    public private(set) var targetName = ""
 
-    mutating func orbit(dx: Double, dy: Double) {
+    public init() {}
+
+    public mutating func orbit(dx: Double, dy: Double) {
         yaw -= dx * 0.006
         pitch = min(max(pitch + dy * 0.006, -1.55), 1.55)
     }
 
-    mutating func zoom(_ amount: Double, minimum: Double) {
+    public mutating func zoom(_ amount: Double, minimum: Double) {
         distance = max(minimum, distance * exp(-amount * 0.04))
     }
 
     /// Recompute the camera pose for the current simulation state.
-    mutating func update(sim: Simulation) {
+    public mutating func update(sim: Simulation) {
         let snap = sim.snapshot
         var up = Vec3.unitZ, forward = Vec3.unitX
         var minDistance = 1.0
@@ -97,7 +101,7 @@ struct OrbitCamera {
         worldToView = Mat3(rows: camRight, camUp, back)
     }
 
-    static func minimumDistance(for target: CameraTarget, sim: Simulation) -> Double {
+    public static func minimumDistance(for target: CameraTarget, sim: Simulation) -> Double {
         switch target {
         case .vessel(let id):
             return (sim.vessels.first { $0.id == id }?.boundingRadius ?? 5) * 1.2
@@ -105,4 +109,24 @@ struct OrbitCamera {
             return (sim.system.body(id: id)?.radius ?? 1) * 1.05
         }
     }
+
+    // MARK: Field of view
+
+    /// The external camera's vertical field of view, rad (50°).
+    public static let defaultFovY = 50.0 * Double.pi / 180
+
+    /// The Hasselblad 500 EL's square frame on 70 mm film, m: 55 mm across,
+    /// as the Apollo crews' magazines exposed it.
+    public static let hasselbladFrame = 0.055
+
+    /// The field of view across a frame `frame` wide behind a lens of
+    /// `focalLength` (both m), focused at infinity: 2 atan(frame / 2f).
+    public static func fieldOfView(focalLength: Double, frame: Double = hasselbladFrame) -> Double {
+        2 * atan(frame / (2 * focalLength))
+    }
+
+    /// The Hasselblad's 80 mm Planar, the crews' standard lens: 37.9°.
+    public static let hasselblad80mm = fieldOfView(focalLength: 0.080)
+    /// The 250 mm Sonnar, the long lens of the Earthrise photograph: 12.6°.
+    public static let hasselblad250mm = fieldOfView(focalLength: 0.250)
 }

@@ -5,7 +5,7 @@ import OrbitCore
 /// with CoreGraphics (no KSP art: it is proprietary). The navball draws them
 /// into its atlas; the scene renderer can reuse them for markers in the 3-D
 /// view.
-enum MarkerGlyph: Int, CaseIterable {
+public enum MarkerGlyph: Int, CaseIterable {
     case prograde, retrograde, normal, antinormal, radialOut, radialIn
     case command, thrust, target, antitarget, maneuver
     /// The nose: an orange "W", fixed at the ball's centre.
@@ -14,7 +14,7 @@ enum MarkerGlyph: Int, CaseIterable {
     /// behind the ball.
     case pointer
 
-    init(_ kind: NavballMarker.Kind) {
+    public init(_ kind: NavballMarker.Kind) {
         switch kind {
         case .prograde: self = .prograde
         case .retrograde: self = .retrograde
@@ -31,7 +31,7 @@ enum MarkerGlyph: Int, CaseIterable {
     }
 
     /// sRGB colour components (r, g, b).
-    var color: (r: CGFloat, g: CGFloat, b: CGFloat) {
+    public var color: (r: CGFloat, g: CGFloat, b: CGFloat) {
         switch self {
         case .prograde, .retrograde: (1.00, 0.84, 0.10)
         case .normal, .antinormal: (0.86, 0.32, 0.96)
@@ -45,10 +45,10 @@ enum MarkerGlyph: Int, CaseIterable {
         }
     }
 
-    var cgColor: CGColor { CGColor(srgbRed: color.r, green: color.g, blue: color.b, alpha: 1) }
+    public var cgColor: CGColor { CGColor(srgbRed: color.r, green: color.g, blue: color.b, alpha: 1) }
 
     /// Draw the glyph centred in `rect` (y up), sized to it.
-    func draw(in ctx: CGContext, rect: CGRect) {
+    public func draw(in ctx: CGContext, rect: CGRect) {
         let s = min(rect.width, rect.height)
         let c = CGPoint(x: rect.midX, y: rect.midY)
         func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: c.x + x * s, y: c.y + y * s) }

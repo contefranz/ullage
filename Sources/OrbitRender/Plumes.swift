@@ -1,30 +1,24 @@
 import Foundation
 import simd
 import OrbitCore
+import OrbitScene
 
-/// Exhaust plumes as additive impostors: for each thruster delivering thrust,
-/// a camera-facing cone along the exhaust from its nozzle's exit (or from the
-/// thruster's position, with a nominal exit, for jets without a nozzle
-/// shape), plus a soft disc over the exit that carries the plume seen end-on.
+/// Exhaust plumes as additive impostors: for each emitter (a thruster
+/// delivering thrust, `RenderScene.Emitter`), a camera-facing cone along the
+/// exhaust from its nozzle's exit (or from the thruster's position, with a
+/// nominal exit, for jets without a nozzle shape), plus a soft disc over the
+/// exit that carries the plume seen end-on. Track P2 owns this file.
 ///
 /// Everything here is a visual approximation that never feeds back into the
-/// physics. The look comes from the propellant (the feed's tank names) and
-/// `isSolid`; the intensity is the thrust the engine delivers over its vacuum
-/// rating (start and shutdown ramps fade it); the plume widens and shortens
-/// as the ambient pressure falls. A floor keeps a firing engine visible in
+/// physics. The look comes from the propellant (`PlumeStyle`); the
+/// intensity is the thrust the engine delivers over its vacuum rating (start
+/// and shutdown ramps fade it); the plume widens and shortens as the ambient
+/// pressure falls. A floor keeps a firing engine visible in
 /// vacuum, where a real J-2 or hypergolic plume is nearly invisible (the
 /// owner's choice, plan decision 19).
 enum Plumes {
-    enum Style: Equatable {
-        /// LOX/RP-1: bright orange, a dark fuel-rich core under the exit.
-        case kerosene
-        /// LOX/LH2: faint and bluish.
-        case hydrogen
-        /// Solid motors (retros, ullage, tower jettison): white-yellow.
-        case solid
-        /// N2O4 with a hydrazine (SPS, RCS, APS): faint orange-pink.
-        case hypergolic
-    }
+    /// The propellant's look (`PlumeStyle`, classified by the scene).
+    typealias Style = PlumeStyle
 
     /// How a style looks at sea level and in vacuum.
     struct Look {
@@ -39,22 +33,6 @@ enum Plumes {
     /// The least intensity of a plume at full thrust, whatever the style and the air.
     static let floor = 0.3
 
-    static func style(of t: Thruster) -> Style {
-        if t.isSolid { return .solid }
-        let names = (t.feed?.tanks ?? []).map { $0.name.uppercased() }
-        if names.contains(where: { $0.contains("RP-1") || $0.contains("RP1") || $0.contains("KEROSENE") }) {
-            return .kerosene
-        }
-        if names.contains(where: { $0.contains("LH2") || $0.contains("HYDROGEN") }) { return .hydrogen }
-        let hypergols = ["N2O4", "MMH", "UDMH", "AEROZINE", "A-50", "HYPERGOL"]
-        if names.contains(where: { name in hypergols.contains { name.contains($0) } }) { return .hypergolic }
-        // The M0 test vehicles' generic "propellant": kerosene-like boosters,
-        // hypergolic-like service-module engines and attitude jets.
-        if names.contains(where: { $0.contains("RCS") || $0.contains("SPS") || $0.hasPrefix("SM ") })
-            || !t.groups.contains(.main) { return .hypergolic }
-        return .kerosene
-    }
-
     static func look(_ style: Style) -> Look {
         switch style {
         case .kerosene:
@@ -66,13 +44,6 @@ enum Plumes {
         case .hypergolic:
             return Look(color: SIMD3(1.0, 0.5, 0.4), seaLevel: (0.55, 8, 8), vacuum: (0.4, 8, 32), core: 0)
         }
-    }
-
-    /// A nominal exit radius (m) for a jet with no nozzle shape, from its
-    /// vacuum thrust (N): 0.0095 ∛F fits the F-1 (1.79 m), the J-2 (0.98 m)
-    /// and the R-4D (about 0.07 m) within 10 %; solids' nozzles are smaller.
-    static func nominalExitRadius(thrust: Double, solid: Bool) -> Double {
-        0.0095 * cbrt(max(thrust, 1)) * (solid ? 0.8 : 1)
     }
 
     /// A plume from `exit` (camera-relative world, m) along the exhaust
@@ -132,4 +103,16 @@ enum Plumes {
 
     /// Colour of a distant vessel's point while its engines fire.
     static func pointColor(_ style: Style) -> SIMD3<Float> { look(style).color }
+}
+
+/// A plume impostor's vertex (PlumeShaders).
+struct PlumeVertex {
+    /// Camera-relative world position, w = 1.
+    var position: SIMD4<Float>
+    /// rgb: colour times intensity (added), w: unused.
+    var color: SIMD4<Float>
+    /// x: across the cone (-1...1), y: along it (0 at the exit, 1 at the
+    /// tail), z: the dark fuel-rich core's strength, w: 0 for the cone, 1
+    /// for the glow disc (x, y then the disc's coordinates).
+    var shape: SIMD4<Float>
 }

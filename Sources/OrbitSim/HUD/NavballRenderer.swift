@@ -3,6 +3,7 @@ import Metal
 import MetalKit
 import simd
 import OrbitCore
+import OrbitRender
 
 /// Draws the navball: the textured ball and its bezel, then the markers,
 /// the fixed waterline and pointers on the bezel for prograde, the
