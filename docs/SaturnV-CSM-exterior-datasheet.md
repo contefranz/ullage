@@ -334,8 +334,8 @@ No source read states a colour for either engine. Stated materials: the F-1's te
 ## Spacecraft conventions and sources
 
 - **Stations.** Xa (in) as above. The AOH's local stations: Xc = Xa − 1000 (CM; Xc 0 = Xa 1000.000), Xs = Xa − 638 (SM; Xs 200 = Xa 838.000), XL = Xa − 1083.476 (LES; XL 0 is the LES/CM separation plane) (AOH Fig. 1-2, printed p. 1-5, PDF p. 16, H). The Mission Reports and TN D-5399 write CM stations as Xc = Xa (Xc 1000); the planes are the same.
-- **Axes.** +Z_A is Position III and +Y_A Position II (`ApolloAxes`, `docs/AS506-datasheet.md` §12 from MSFC-MAN-506 Fig. 7-15; M503 Fig. 7-15, printed p. 7-17, PDF p. 166, draws the launch vehicle's yaw (Z) axis in the I-III plane). The CM's crew hatch is on −Z_A (AOH Figs. 1-4, 1-5), which is therefore Position I, the side that faces downrange and down during the heads-down ascent. Graded M: no spacecraft document read here ties ±Z_A to a launch-vehicle Position directly.
-- **Vehicles.** The AOH Block II Vol. 1 (Apr 1969, changed Oct 1969) is written for CSM-104 onwards and covers CSM-101/103/107 except where a row names a difference.
+- **Axes.** +Z_A is Position III and +Y_A Position II (`ApolloAxes`, `docs/AS506-datasheet.md` §12 from MSFC-MAN-506 Fig. 7-15; M503 Fig. 7-15, printed p. 7-17, PDF p. 166, draws the launch vehicle's yaw (Z) axis in the I-III plane). The CM's crew hatch is on −Z_A (AOH Figs. 1-4, 1-5), which under that convention is Position I. Graded M: no spacecraft document read here ties ±Z_A to a launch-vehicle Position directly. In the crew's frame −Z_A is up (the hatch, head side) and +Y_A right (AOH §2.8 p. 2.8-55, §2.12 p. 2.12-50).
+- **Vehicles.** The AOH Block II Vol. 1 (Apr 1969, changed Oct 1969) describes the Block II CSM; its crew-equipment section (§2.12: lights, handholds) is effective for CSM-106 and later, so for CSM-107 only. Rows apply to CSM-101, -103 and -107 unless they name a difference.
 
 | key | document | copy read | bytes | sha256 |
 |---|---|---|---|---|
@@ -348,16 +348,87 @@ No source read states a colour for either engine. Stated materials: the F-1's te
 | FM160 | M. L. Williamson and C. W. Fraley, *SLA Panel Jettison Separation and Recontact Analysis*, MSC IN 68-FM-160 (3 Jul 1968) | https://ntrs.nasa.gov/api/citations/19700026553/downloads/19700026553.pdf | 4,349,308 | `bda6ebb846e0daa4137fb9e4322cafd89db5facffca6c8bc94123b848f765f5b` |
 | A7MR | MSC-PA-R-68-15, *Apollo 7 Mission Report* | https://www.apollojournals.org/alsj/a410/A07_MissionReport.pdf | 8,768,701 | `c06d973032b9ca19eea672a96f97b195b0e0a21d1d32675b9cddb1c6f3ad529f` |
 | FE503 | MPR-SAT-FE-69-1, *Saturn V Launch Vehicle Flight Evaluation Report AS-503 Apollo 8 Mission* (20 Feb 1969) | https://ntrs.nasa.gov/api/citations/19690015314/downloads/19690015314.pdf | 129,492,935 | `fe08ea2e1e623d2153fdf07207c70f2e3d9e09d1801d56f9f3c316fc152911a0` |
+| DB3 | SNA-8-D-027(III) Rev. 2, *CSM/LM Spacecraft Operational Data Book, Vol. III: Mass Properties* (20 Aug 1969), Figs. 2-2 to 2-11 | https://ntrs.nasa.gov/api/citations/19730060772/downloads/19730060772.pdf | 29,413,409 | `6318f13db88360f51963bece6442403312e96b2b988584338ca553c3f2299221` |
+| AOH-1, AOH 2.x | the AOH (above) as the AFJ's per-section scans: §1 (spacecraft), §2.4 SPS, §2.5 RCS, §2.7 ECS, §2.8 telecommunications, §2.12 crew equipment, §2.13 docking | https://www.apollojournals.org/afj/aoh/aoh-v1-1-sc-config.pdf (and aoh-v1-2-04-sps, -05-rcs, -07-ecs, -08-telecoms, -12-crew, -13-dock) | 11,884,164 (§1) | `4cfffc899dd10ce665d5acfda5ada74041e4c0716a937a758937c6af56d520ce` (§1) |
+| NR06, NR07, NR18 | *CSM News Reference*, "Command Module Overview" (pp. 39-52), "Service Module Overview" (pp. 53-60), "Telecommunications" (pp. 173-188); facts only | https://www.apollojournals.org/alsj/CSM06_Command_Module_Overview_pp39-52.pdf (and CSM07…, CSM18…) | 4,258,078; 1,186,391; 1,876,774 | `8bfcc957a12d3606191378754b04f02b10e00d2121cfef804e9bc9599e96733a`; `7081ff780fa55758b861409768af3d275c06a128e6a956195450f62a5803a606`; `25083628dbd3d7e619c5240afdcaab251c4904c98775e4a7cb50778d6bc5885e` |
+| D7564 | Pavlosky and St. Leger, *Apollo Experience Report: Thermal Protection Subsystem*, NASA TN D-7564 (Jan 1974) | https://ntrs.nasa.gov/api/citations/19740007423/downloads/19740007423.pdf | 5,632,353 | `dc5c358e231aa6241c89dfb6742abec232522a64b90c57eaf2013a9e9b277959` |
+| D6863 | Smith, *Apollo 9 Thermal-Control-Coating Degradation*, NASA TN D-6863 (Jun 1972) | https://ntrs.nasa.gov/api/citations/19720018214/downloads/19720018214.pdf | 1,033,558 | `ce936f0019741f9a1dc096ec7b169fbc2337ed24636e90d39b1c3249558b0a38` |
+| D7439 | *Apollo Experience Report: Spacecraft Structural Windows*, NASA TN D-7439 (1973) | https://ntrs.nasa.gov/api/citations/19730023038/downloads/19730023038.pdf | 1,370,212 | `341effa41329abc44590e17d89110699f25fb74a9c6dc1919e460e66244193d8` |
+| D6718 | *Apollo Experience Report: CSM Environmental Control System*, NASA TN D-6718 (1972) | https://ntrs.nasa.gov/api/citations/19720012252/downloads/19720012252.pdf | 1,870,152 | `b178fa08ad29d4115abf1a5852f5411b92ab8e6c1f89cac27c3bdb653e50abea` |
+| D7151 | *Apollo Experience Report: CSM Reaction Control Systems*, NASA TN D-7151 (1973) | https://ntrs.nasa.gov/api/citations/19730017174/downloads/19730017174.pdf | 3,864,435 | `693966858dc87c6369b1e224e718d50c99cc801c27f91f7065ede61acbc36194` |
+| D7290 | *Apollo Experience Report: Crew Station Integration, Vol. 5: Lighting Considerations*, NASA TN D-7290 (1973) | https://ntrs.nasa.gov/api/citations/19730017160/downloads/19730017160.pdf | 12,910,704 | `8c1aadb6ee52e0b2453b03909f284b1a74311cc41ff27ac1d459ffe8f4080398` |
+| D6854 | *Apollo Experience Report: The Docking System*, NASA TN D-6854 (1972) | https://ntrs.nasa.gov/api/citations/19720018207/downloads/19720018207.pdf | 2,732,277 | `83149e765137259e613ef63fa769cbe3ca46b516a817e5e93b78c147f0600d4a` |
+| TRW | TRW 11176-H085-R0-00, *Multipath Problems Associated with the Apollo CSM and LM S-Band High Gain Antenna Tracking Systems* (16 Dec 1968) | https://ntrs.nasa.gov/api/citations/19690008842/downloads/19690008842.pdf | 8,391,506 | `f2bedd6294850777de3d254b1042e506ef5786f24543d0632154ffd2ccba3e2b` |
+| TMX1243 | Bertin, NASA TM X-1243 (1966): the CM's outer mould line, as in `CMOuterMouldLine` | https://ntrs.nasa.gov/api/citations/19660028003/downloads/19660028003.pdf | 1,885,499 | `9981227b8a231776e7dd70ab9ab4de43b4c9660b86cf091f9c00408e6c088fbd` |
+| A11PK | Apollo 11 Press Kit | https://www.nasa.gov/wp-content/uploads/static/apollo50th/pdf/A11_PressKit.pdf | 8,858,407 | `fcb1ae7a88e5251559dde0b7d51ec71f06795cf78f64491aa9594fdf9ca89334` |
 | AS08-16-2582, -2583, -2584 | Apollo 8 Hasselblad frames of the S-IVB with LTA-B after separation (AFJ high-resolution scans) | https://www.apollojournals.org/afj/ap08fj/photos/16-a/hr/as08-16-2582hr.jpg (and -2583, -2584) | 9,827,433; 10,379,757; 9,996,287 | `b8b702ed5b461a8973d35424b56040fd8ea1d27eda3c92d6a1b65d7f43e45ceb`; `f51a5ff3668b95e09f949f1ba88b92d0e441564e5dcf5fed290e28657831d182`; `a37000f3b887447ba63e6ee7dc1c84fd3b1526334dea6b38c664b5744d38ffdd` |
 | AS07-03-1545 | Apollo 7 frame of the S-IVB with the SLA panels open | https://images-assets.nasa.gov/image/as07-03-1545/as07-03-1545~orig.jpg | 3,111,565 | `01e2a44519357c1aa57875166b69e4f8c6fc77e8769785f7dbb27d582b576f7a` |
 
 ## 9. Command module
 
-*In progress.*
+The pages the CM and SM rows rest on were read on page images; DB3 Fig. 2-10 (printed p. 2-11, PDF p. 33) was re-read for this datasheet.
+
+### 9.1 Stations and the outer mould line
+
+| item | value | source | grade | today | notes |
+|---|---|---|---|---|---|
+| Xa 1000.0 | the "heat shield bond line" (structural reference; Xc 0) | DB3 Fig. 2-10; AOH Fig. 1-2 ("ablative material dimensions are not included on CM") | H | `cmFace` Xa 1000 (M), taken as the ablator's face | |
+| SM forward bulkhead | Xa 993.0 (Xs 355) | DB3 Fig. 2-2 (printed p. 2-3, PDF p. 23: 7 in below Xa 1000); AOH Fig. 1-2 "XA = 993.00 / XS = 355.00" | H | `smTop` Xa 1010 (L) | BCD "aft heat shield" STA 3749.56 and TMX Fig. 2's SM/CM boundary STA 3749.555 are this plane, Xa 993.0. |
+| SM fairing top | Xa 1014.72 | DB3 Fig. 2-10 | H | — | The BPC's aft edge rests on it at Xc 14 (AOH Fig. 1-4; D7564 Fig. 5). |
+| Heat-shield face (vertex) | about Xa 993 | *derived*: with today's OML (R 184.8, 7.7 in shoulder, 33° cone) a vertex at Xa 993.0 puts the 154 in maximum diameter at Xa 1014.82 (the fairing top, 1014.72) and the cone's 16.5 in radius at Xa 1110.26 (the docking interface, 1110.25); BCD and TMX put the "aft heat shield" at Xa 993.0 | M | Xa 1000 (`docs/CM-entry-datasheet.md`) | No document states the face's station in words. See §14 VD3 item 1. |
+| LES/CM separation plane | Xa 1083.476 (XL 0) | AOH Fig. 1-2; DB3 Fig. 2-2 | H | — | |
+| Forward/crew-compartment heat-shield joint | Xa 1081.13 (Xc 81.13) | D7564 Fig. 6, p. 6 | H | `apexCoverBase` 88 in above the face (L) | 88.1 in above a face at Xa 993 (M): today's value fits that face. |
+| Lower crew-compartment panel joint | Xa 1043.4 (Xc 43.4), just below the hatch; the aft RCS ports are in the band below it | D7564 Fig. 6 | H | — | |
+| Forward heat-shield top, CSM/LM docking interface | Xa 1110.25 | DB3 Figs. 2-2, 2-10, 2-11 | H | `tunnelTop` 120 in above the face (L) | 117.25 in above a face at Xa 993. |
+| Structural cone's apex | Xa 1133.5 "(no ablative)": the 33° cone's theoretical apex, not a physical top | DB3 Fig. 2-2; AOH Fig. 1-2 ("11 feet 1.5 inches" without ablator, AOH p. 1-4) | H (station); M (what it is) | `cmApex` Xa 1137 (L); the shapes' apex Xa 1127 | Neither 1127 nor 1137 is a physical station. |
+| CM height | physical face-to-docking-interface about 117.25 in; the quoted "10 ft 7 in" (127 in) is the 1965-66 rounded-apex aero shape (TMX1243 Fig. 1(a): 127.5 in) | *derived* (above); NR06 p. 39 | M | `cmHeight` 127 in (M) | Today's OML closes on a rounded apex sphere at 127 in, about 10 in beyond the Block II CM's real top. |
+| Diameter | 154 in with ablator (OML radius 77 in); 150.5 in without ("ablator adds approximately 4 inches to the height and 5 inches to the diameter", non-symmetrical) | TMX1243 p. 2; AOH p. 1-4 | H | 77 in (H) | Ablator 0.70 in (leeward cone) to 2.70 in (windward toe) (D7564 Fig. 2). |
+
+### 9.2 Windows and hatch (crew frame: the hatch side is −Z_A, right is +Y_A)
+
+| item | value | source | grade | today | notes |
+|---|---|---|---|---|---|
+| Windows | five: two forward-viewing (rendezvous) windows, two side windows, one hatch window; numbered 1 (left side) to 5 (right side), 3 in the hatch | AOH p. 1-40; D7439 Fig. 1, printed p. 3, PDF p. 8 | H | — | |
+| Window azimuths | all on the −Z_A half: hatch window 3 on −Z_A; rendezvous windows 2 and 4 about 34° either side of −Z_A; side windows 1 and 5 about 56° either side (towards −Y_A and +Y_A respectively) | D7439 Fig. 1 (*scaled* off a sketch, ±10°) | L | — | θ: window 3 at 0° (Position I), 4 at 34°, 5 at 56°, 2 at 326°, 1 at 304°. |
+| Window band | the hatch (and its window) and both rendezvous windows lie between Xa 1043.4 and 1081.13 | D7564 Fig. 6 | M | — | |
+| Window sizes | side windows "about 13 inches square"; rendezvous windows triangular, "about 8 by 13 inches"; hatch window round, "about 9 inches in diameter" | NR06 pp. 45, 47 | M | — | Outer panes 0.7 in fused silica in 17-4PH frames; inner panes 0.20-0.25 in (AOH p. 1-40; D7439). |
+| Unified side hatch | "about 29 inches high and 34 inches wide", on −Z_A over the centre couch, opening outward 100° or more | NR06 p. 45; AOH Figs. 1-4, 1-5; AOH p. 1-35 | M (size); H (side) | — | Block II from CSM-101 on (AOH §1.3.2.6.1). Its heat-shield cut-out is not dimensioned. |
+
+### 9.3 CM RCS, tape and other exterior items
+
+| item | value | source | grade | today | notes |
+|---|---|---|---|---|---|
+| CM RCS engines | twelve: two negative-pitch engines in the forward compartment, ten in the aft compartment; 93 lbf, 9:1, nozzle exit 2.13 in, Refrasil nozzle extensions through the heat shield | AOH pp. 1-4, 1-7; AOH §2.5, p. 2.5-47 | H | — | |
+| Pitch engines | both pairs on −Z_A, side by side: the −pitch pair just above the Xa 1081.13 joint, the +pitch pair in the aft band below Xa 1043.4 | AOH Figs. 1-4, 1-5; D7564 Fig. 6; AOH Fig. 2.5-1 | M | — | |
+| Yaw and roll engines | yaw pairs near ±Y_A (perhaps 30° towards −Z_A), roll engines on the arcs either side of −Z_A, all in the aft band, scarfed along the surface | AOH Fig. 2.5-1; NR06 Fig. P-49 | L | — | Exact azimuths, stations and port sizes **not found**. |
+| Thermal-control tape | pressure-sensitive Kapton tape, aluminised with an oxidised silicon monoxide overcoat, "over the entire external surface of the ablator", α/ε about 0.4; measured α 0.129-0.137, ε 0.33-0.37 | D7564 pp. 5-7; D6863 Table I, printed p. 9, PDF p. 11 | H | — | NR06 says "silver Mylar"; the NASA reports say Kapton. Tape widths, layout and direction **not found**. |
+| S-band omni antennas | four, flush, at Xc 20.766 on the four diagonals between the axes | AOH §2.8, p. 2.8-57 and Fig. 2.8-28 | H | — | θ 45°, 135°, 225°, 315°. 3.5 in long, 2.1 in across (NR18, M). |
+| CM/SM umbilical | on +Z_A; carry-on and fly-away umbilicals at Xa 1000.6 and 1004.4 | AOH §2.12, p. 2.12-53; BCD (STA 3757.17, 3760.92) | H | — | θ 180° (Position III). |
+| Sextant and scanning telescope ports | on +Z_A (the lower equipment bay side) | NR06 Fig. P-49; DB3 navigation base at Z 40.9 in | M | — | |
+| Docking ring and probe | 28 in minimum clear tunnel; forward hatch about 30 in across; probe on CSM-107 (A11PK) | D6854 PDF p. 23; NR06 p. 47; A11PK | H (tunnel, CSM-107) | tunnel radius 16.5 in (L) | No document read says in words that CSM-101/103 flew without a probe (both had nothing to dock with): M. |
+| EVA handholds (CSM-106 on, so CSM-107) | a ring handle round the docking ring at Xc 108; fixed 12 in oval-tube handles beside the right rendezvous window, the hatch and the +pitch engines; a pop-up handle on the forward heat shield | AOH §2.12, pp. 2.12-51 to 2.12-53 | H | — | CSM-101/103: not found. |
 
 ## 10. Service module
 
-*In progress.*
+| item | value | source | grade | today | notes |
+|---|---|---|---|---|---|
+| Cylinder | Xa 838.0 to 993.0 (155 in, "12 feet 11 inches"), 154.0 in in diameter | AOH p. 1-50 and Fig. 1-2; DB3 Fig. 2-2 | H | Xa 838-1010 (L) | |
+| CM/SM fairing | Xa 993.0 to 1014.72: sixteen pieces, eight EPS radiators alternating with eight aluminium honeycomb panels | DB3 Fig. 2-10 (top); NR07 p. 55 (22 in high, 16 pieces); AOH p. 1-50 ("26 inches high") | H (top); M (pieces) | — | 993 + 22 = 1015 fits; the AOH's 26 in does not. |
+| Sectors | six, separated by radial beams: sector 1 50°, 2 70°, 3 60°, 4 50°, 5 70°, 6 60°; beam 6 is 12.75° from −Z_A towards +Y_A | DB3 Fig. 2-6, PDF p. 27; AOH Fig. 1-28 | H | sector widths (M) in `ApolloCSM` | Beams at θ_A (from +Y_A towards +Z_A) 332.75°, 42.75°, 102.75°, 152.75°, 222.75°, 282.75° for beams 1-6 (*derived*, H). |
+| RCS quads | at Xa 958.97; A at −Z_A turned 7°15′ towards −Y_A, B at +Y_A towards −Z_A, C at +Z_A towards +Y_A, D at −Y_A towards +Z_A (θ_A 262.75°, 352.75°, 82.75°, 172.75°) | DB3 Fig. 2-5, PDF p. 26; Figs. 2-2, 2-10; BCD STA 3715.45 (Xa 958.9) | H | Xa 959 (L); the offsets (H) | |
+| Quad geometry | skin radius 77.00 in; thrust lines meet at 82.36 in (pitch/yaw engines) and 83.00 in (roll engines); the housing's outer face at 83.56 in, standing 6.56 in off the skin; about 13.5 in long at the skin (6.75 in either side of the centreline); fore/aft engines canted 10° away from the panel | DB3 Fig. 2-5 | H (radii, cant); M (6.56 and 13.5 in) | housing 6 in high, 24 in wide (L) | The whole RCS panel is 96 × 35 in (D7151 Fig. 1, H). R-4D: 13.400 in long, 5.6 in exit (AOH p. 2.5-24, H). |
+| ECS radiators | two panels, "panel 1 in bays 2 and 3; panel 2 in bays 5 and 6", 50 ft² each, on the SM's lower half, each a 130° arc about 40 in tall | AOH §2.7, p. 2.7-21; D6718 p. 18 (Block II: 50 ft²); NR14 p. 121 | H (bays, area); M (height, *derived*) | — | θ_A 332.75° to 102.75° and 152.75° to 282.75°. NR07's "about 30 square feet" is Block I's. Axial station **not found**. |
+| EPS radiators | eight, on the CM/SM fairing, alternating with honeycomb panels | AOH Fig. 1-28; NR07 p. 58 | H | — | Widths and azimuths **not found**: equal pieces would be 22.5° each (L). |
+| Radiator and panel finishes | radiators: zinc-oxide/potassium-silicate white paint, α 0.195-0.205 preflight, ε 0.93; the sector-4 panel: titanium-dioxide/silicone white paint, α about 0.25, ε about 0.86 | D6863 Table I | H | — | Bare SM aluminium's α/ε **not found**. |
+| High-gain antenna root | at the SM's aft bulkhead edge, 52°15′ from −Y_A towards +Z_A (θ_A 127.75°), in sector 4 | AOH Figs. 2.8-28 (PDF p. 56), 2.8-30 (PDF p. 58); DB3 Fig. 2-11; A11PK p. 90 | H | — | θ 217.75°. |
+| HGA array and deployment | four 31 in dishes round an 11 in square horn; stowed folded aft along the SPS nozzle; deployed at right angles to the X axis with the array centre about 38 in outboard of the skin; deployed in 8.4 s after panel jettison on Apollo 8 | A11PK p. 90; NR18 pp. 179-180; TRW Fig. 2-2; A8MR p. 6-25 | H (31 in, 8.4 s); M (38 in, stow) | — | Boom length **not found** (L 49-58 in from the TRW sketch). |
+| HGA by CSM | first flown on Apollo 8 (CSM-103); carried by CSM-107; none flown on CSM-101 | A8MR p. 6-25 ("the initial flight for the high-gain antenna"); A11PK p. 90 | H (103, 107); M (101) | — | |
+| VHF scimitars | two, 180° apart, near +Y_A and −Y_A (about θ_A 24° and 204°, *scaled*) | AOH p. 2.8-55, Fig. 2.8-28 | H (count, sides); L (azimuths) | — | Station and size disagree between sources (NR07 "near the top"; AOH sketch about Xa 926; 19 × 9 × 1 in or 13.5 in long): L. |
+| SPS gimbal plane | Xa 833.2 | DB3 Figs. 2-2, 2-10 | H | `spsGimbal` 833 (L) | |
+| SPS nozzle exit | Xa 721.3 (aft-most) | DB3 Fig. 2-10 (re-read) | H | `spsExit` 715 (L) | |
+| SPS nozzle | 98.4 in exit inside diameter, 62.5:1; 6:1 at the ablative chamber's exit; 159.944 in long overall; extension columbium and titanium, radiation-cooled, with an external stiffener | AOH §2.4, p. 2.4-43; NR17 | H (AOH); M (materials) | 98.4 in (H) | The columbium/titanium joint's station **not found**. An aft heat shield surrounds the engine (NR07 p. 55), size not found. |
+| Running lights (CSM-106 on) | eight: four on the fairing just forward of the forward bulkhead and four 6 in forward of the aft bulkhead, halfway between the axes; green on the upper right, red on the upper left, amber on the lower quadrants | AOH §2.12, p. 2.12-50 | H (text); M (azimuths) | — | Upper is −Z_A, right +Y_A: green at θ_A 315°, red 225°, amber 45° and 135°. |
+| Other lights (CSM-106 on) | an EVA floodlight on a boom on the fairing aft of the right side window; a docking spotlight on a door in the fairing behind the left rendezvous window; a rendezvous beacon on the fairing about 10 in from the +Z umbilical fairing towards −Y (D7290: 12° towards +Y) | AOH §2.12, pp. 2.12-49, 2.12-53; D7290 | H (AOH); M (positions disagree) | — | CSM-101/103: not found. |
 
 ## 11. Launch escape system and boost protective cover
 
@@ -459,6 +530,14 @@ No source read states a colour for either engine. Stated materials: the F-1's te
 | Particles round the stage | many bright particles in -2582 and -2583, attributed to S-IVB venting | A8MR p. 7-18, PDF p. 210 ("millions of particles created by S-IVB venting") | H (cause); L (look) | — | For P5's "fireflies" at CSM separation. |
 
 
+## 13a. VD3 values not found
+
+- **CM:** the heat-shield face's station stated in words (§9.1 derives about Xa 993, M); window clear and frame sizes beyond the News Reference's approximations, window azimuths beyond a sketch (L), window heights beyond the Xa 1043-1081 band; the hatch's heat-shield cut-out; the CM RCS engines' azimuths, stations and port sizes; the forward heat shield's top diameter and the docking ring's outer diameter; the Kapton tape's widths, layout and direction; a statement that CSM-101/103 flew without a probe; CSM-101/103's lights and handholds.
+- **SM:** the EPS radiators' widths and azimuths; the ECS radiators' station; the HGA boom's length; the scimitars' station and size (sources disagree); the SPS columbium/titanium joint's station and the aft heat shield's size; bare aluminium's α/ε.
+- **LES and BPC:** the BPC's stand-off and soft-section thickness; the blow-out ports' positions; the Buna-N covering's thickness and the LES colours (only the skirt's black ablative is stated); the canards' half (+Z or −Z) and hinge station; the pitch control motor's station as a printed number.
+- **SLA and LTA-B:** Block II access doors and umbilical azimuths; what LTA-B was built from, and its dimensions and CG from a primary document (only photo and schematic estimates, L).
+- **Not reached:** the PDS Apollo CSM description (pds-geosciences.wustl.edu did not resolve from this machine); TN D-6295 (not needed: the TJM angle is in `AS506` already).
+
 ---
 
 ## 14. Disagreements with today's code (for VG1-VG3)
@@ -486,8 +565,12 @@ Today's shapes are in `ApolloShapes.swift` and the stations in `AS506Data.swift`
 
 ### VD3 (VG3)
 
-*CM and SM rows follow with §9 and §10.*
-
+9. **CM heat-shield face: Xa 993, not 1000 (M), for the owner and the entry tracks.** DB3 calls Xa 1000.0 the "heat shield bond line"; the SM's forward bulkhead is Xa 993.0 and its fairing top 1014.72; BCD and TMX put the CM's aft heat shield at Xa 993.0. Today's OML placed with its vertex at Xa 993 lands its maximum diameter on the fairing top (0.1 in) and its 16.5 in radius on the docking interface (0.01 in). `docs/CM-entry-datasheet.md` puts the vertex at Xa 1000 from TN D-5399's "station 1000 … at the tangency line of the CM substructure mold line" and checks it with Apollo 7's CG at x_cg/d 0.27-0.28; with the face at 993 that CG sits at x_cg/d 0.31. The two readings need reconciling before VG3 moves the CM; the CG and aero stations depend on it.
+10. **CM top: no physical apex.** Today the OML ends in an apex sphere at 127 in (Xa 1127; `cmApex` says 1137). Sourced: the forward heat shield ends at the docking interface, Xa 1110.25, about 16.5 in in radius (M), with the docking ring and tunnel above; Xa 1133.5 is only the structural cone's theoretical apex.
+11. **CM features: missing.** Five windows, the 29 × 34 in hatch, twelve RCS ports (positions L), four flush S-band omnis at Xc 20.8 on the diagonals, the +Z_A umbilical, and for CSM-107 the EVA handholds and docking probe (§9.2, §9.3).
+12. **SM stations: off by up to 7 in.** Today the SM runs to Xa 1010 (L): sourced structure to 993.0 and fairing to 1014.72. Quads Xa 959 → 958.97; SPS gimbal 833 → 833.2; SPS exit 715 → 721.3 (all H). Today's 118 in gimbal-to-exit bell becomes 111.9 in.
+13. **SM quad housings: shape.** Today 24 in wide, 6 in high, four-sided boxes; sourced the housing's face 6.56 in off the skin and about 13.5 in long at the skin (M), inside a 96 × 35 in RCS panel (H).
+14. **SM features: missing.** Two 50 ft² ECS radiators (sectors 2-3 and 5-6), eight EPS radiators in the fairing, the HGA (root at θ_A 127.75°, CSM-103 and CSM-107 only), two scimitars near ±Y_A, and running lights on CSM-107 (§10).
 1. **SLA hinge line: 2.8 in low in the sources.** Xa 583.2 (AOH Figs. 2.9-6, 2.9-10), 583.3 (AOH Fig. 1-2), 583.49 (BCD) against today's `slaHinge` Xa 586 (Wikipedia). Use 583.2.
 2. **LES tower: too narrow and too thin.** Today the legs run from 24 in out on the CM's cone to 11 in out at the motor, on the 45° diagonals, 1.5 in tubes, no bracing. Sourced: feet at XL 0 (Xa 1083.48) on a 50.67 × 46.84 in rectangle (34.5 in out, 42.75° from Y), top at XL 118.3 on a 36.06 in square (25.5 in out); legs 3.5 in, braces 2.5 in OD; two hour-glass X bays, a diagonal bay and an inverted V (§11.2).
 3. **LES motors: misplaced.** Today one 26 in frustum from Xa 1207 to 1430 and a taper to the nose. Sourced: skirt Xa 1201.8-1221.5 (black ablative); LES motor case Xa 1221.5-1366.5 with four 35° nozzles (15 in exits) hanging into the skirt; TJM Xa 1366.5-1422.1 with two 30° nozzles; canard section's 26 in cylinder to Xa 1447.2, then one 15° cone through the Q-ball to the tip at Xa 1484.24 (§11.1, §11.3, §11.4). Today's top at 1430 seems to come from BCD's "centerline launch escape motor" (Xa 1428.97), which is not the motor's end.
