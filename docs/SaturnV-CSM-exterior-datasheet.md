@@ -331,7 +331,133 @@ No source read states a colour for either engine. Stated materials: the F-1's te
 
 # VD3: the CSM, LES, SLA and LTA-B
 
+## Spacecraft conventions and sources
+
+- **Stations.** Xa (in) as above. The AOH's local stations: Xc = Xa − 1000 (CM; Xc 0 = Xa 1000.000), Xs = Xa − 638 (SM; Xs 200 = Xa 838.000), XL = Xa − 1083.476 (LES; XL 0 is the LES/CM separation plane) (AOH Fig. 1-2, printed p. 1-5, PDF p. 16, H). The Mission Reports and TN D-5399 write CM stations as Xc = Xa (Xc 1000); the planes are the same.
+- **Axes.** +Z_A is Position III and +Y_A Position II (`ApolloAxes`, `docs/AS506-datasheet.md` §12 from MSFC-MAN-506 Fig. 7-15; M503 Fig. 7-15, printed p. 7-17, PDF p. 166, draws the launch vehicle's yaw (Z) axis in the I-III plane). The CM's crew hatch is on −Z_A (AOH Figs. 1-4, 1-5), which is therefore Position I, the side that faces downrange and down during the heads-down ascent. Graded M: no spacecraft document read here ties ±Z_A to a launch-vehicle Position directly.
+- **Vehicles.** The AOH Block II Vol. 1 (Apr 1969, changed Oct 1969) is written for CSM-104 onwards and covers CSM-101/103/107 except where a row names a difference.
+
+| key | document | copy read | bytes | sha256 |
+|---|---|---|---|---|
+| AOH | SM2A-03-BLOCK II-(1), *Apollo Operations Handbook, Block II Spacecraft, Vol. 1: Spacecraft Description* (15 Apr 1969, changed 15 Oct 1969) | https://ibiblio.org/apollo/Documents/49176721-Apollo-Operations-Handbook-Block-II-Spacecraft-Volume-1.pdf | 48,809,979 | `58e7559644bdb24eb3ce3e692bb7060135a35f2909e53160c1b1b7aba076f891` |
+| TRN | NAA S&ID, *Apollo Training: Structures and Mechanical Subsystems*, course A-512S (1 Apr 1966; Block I) | https://ibiblio.org/apollo/Documents/Apollo%20Training%20Structural%20and%20Mechanical%20Subsystems%200401196.pdf | 2,680,432 | `db56769e7383a2617c806d3a0faec9e09dd0fc91bbb148e0d45c63bf6440c82c` |
+| FAM | SM2A-02, *Apollo Spacecraft Familiarization* (1 Dec 1966) | https://ibiblio.org/apollo/Documents/43940430-Apollo-Spacecraft-Familiarization-1-Dec-1966.pdf | 8,333,488 | `b898d091ad6cca58434919d7597b5e106be0de4140abba4d28c4719b48fba287` |
+| CNR08, CNR15 | North American Rockwell, *CSM News Reference*, sections "LM & SLA Overview" (pp. 61-68) and "Launch Escape Subsystem" (pp. 137-146); facts only | https://www.apollojournals.org/alsj/CSM08_LM_%26_SLA_Overview_pp61-68.pdf ; https://www.apollojournals.org/alsj/CSM15_Launch_Escape_Subsystem_pp137-146.pdf | 830,248; 1,408,954 | `4d5c2a7f46698c63a5f3a3ca95a2b4dca2ff478c05b5208f86ab1bb77732d930`; `f2ea8d78bffd393be5cc57b5735f2818683aba257859dab0b1cf2686c5714ed3` |
+| D7083 | N. A. Townsend, *Apollo Experience Report: Launch Escape Propulsion Subsystem*, NASA TN D-7083 (1973) | https://ntrs.nasa.gov/api/citations/19730010175/downloads/19730010175.pdf | 1,542,235 | `a791587760b2feb83528726e2d59c9dfbd6afe3eb14dc350ff25e0d14241eba2` |
+| D5686 | W. C. Moseley Jr. and B. J. Wells, *Wind-Tunnel Investigation of the Aerodynamic Pressures on the Apollo Launch Escape Vehicle Configuration*, NASA TN D-5686 (Apr 1970) | https://ntrs.nasa.gov/api/citations/19700014969/downloads/19700014969.pdf | 4,844,144 | `9de4cfe673ff2283cbe3748db1d1fd23207d6c13a2ce75c441f9ee14ae0d2738` |
+| FM160 | M. L. Williamson and C. W. Fraley, *SLA Panel Jettison Separation and Recontact Analysis*, MSC IN 68-FM-160 (3 Jul 1968) | https://ntrs.nasa.gov/api/citations/19700026553/downloads/19700026553.pdf | 4,349,308 | `bda6ebb846e0daa4137fb9e4322cafd89db5facffca6c8bc94123b848f765f5b` |
+| A7MR | MSC-PA-R-68-15, *Apollo 7 Mission Report* | https://www.apollojournals.org/alsj/a410/A07_MissionReport.pdf | 8,768,701 | `c06d973032b9ca19eea672a96f97b195b0e0a21d1d32675b9cddb1c6f3ad529f` |
+| FE503 | MPR-SAT-FE-69-1, *Saturn V Launch Vehicle Flight Evaluation Report AS-503 Apollo 8 Mission* (20 Feb 1969) | https://ntrs.nasa.gov/api/citations/19690015314/downloads/19690015314.pdf | 129,492,935 | `fe08ea2e1e623d2153fdf07207c70f2e3d9e09d1801d56f9f3c316fc152911a0` |
+| AS08-16-2582, -2583, -2584 | Apollo 8 Hasselblad frames of the S-IVB with LTA-B after separation (AFJ high-resolution scans) | https://www.apollojournals.org/afj/ap08fj/photos/16-a/hr/as08-16-2582hr.jpg (and -2583, -2584) | 9,827,433; 10,379,757; 9,996,287 | `b8b702ed5b461a8973d35424b56040fd8ea1d27eda3c92d6a1b65d7f43e45ceb`; `f51a5ff3668b95e09f949f1ba88b92d0e441564e5dcf5fed290e28657831d182`; `a37000f3b887447ba63e6ee7dc1c84fd3b1526334dea6b38c664b5744d38ffdd` |
+| AS07-03-1545 | Apollo 7 frame of the S-IVB with the SLA panels open | https://images-assets.nasa.gov/image/as07-03-1545/as07-03-1545~orig.jpg | 3,111,565 | `01e2a44519357c1aa57875166b69e4f8c6fc77e8769785f7dbb27d582b576f7a` |
+
+## 9. Command module
+
 *In progress.*
+
+## 10. Service module
+
+*In progress.*
+
+## 11. Launch escape system and boost protective cover
+
+### 11.1 LES stations (AOH Fig. 1-2; Xa = XL + 1083.476)
+
+| item | value | source | grade | today | notes |
+|---|---|---|---|---|---|
+| LES/CM separation plane (tower leg feet) | XL 0 = Xa 1083.476 | AOH Fig. 1-2, printed p. 1-5, PDF p. 16 | H | — (legs start on the CM's cone at 24 in radius) | BCD "vehicle separation" STA 3840.03 = Xa 1083.47. |
+| Tower top, skirt base | XL 118.300 (Xa 1201.776) | AOH Fig. 1-2 | H | `lesMotorBottom` Xa 1207 (L) | BCD "bottom of LES skirt" Xa 1203.47 (1.7 in higher). Tower length 118.3 in; CNR15 p. 140: "10 feet". |
+| Skirt top, motor case's aft end | XL 138.000 (Xa 1221.476) | AOH Fig. 1-2 | H | — | Skirt 19.7 in long. |
+| LES motor's forward end, TJM's aft end | XL 283.000 (Xa 1366.476) | AOH Fig. 1-2 (station); TRN Fig. 2-2, p. 2-3, PDF p. 14 (identity, Block I) | H (station); M (what it marks) | `lesMotorTop` Xa 1430 (L) | Today's 1430 is likely BCD's "centerline launch escape motor" (Xa 1428.97), which lies in the canard section. |
+| TJM forward end, canard section's aft ring | about XL 338.6 (Xa 1422.1) | *derived*: 283 + 55.62 (D7083 Table I) | M | — | |
+| Canard surfaces | XL 339.6 to 386.5 (Xa 1423.1-1470.0) | TRN §2.4, p. 2-4, PDF p. 15 (Block I) | M | — | |
+| Base of the 15° nose cone (ballast web) | XL 363.700 (Xa 1447.176) | AOH Fig. 1-2; BCD "base of canard nose cone" STA 4203.73 = Xa 1447.17 | H | — | |
+| Q-ball base | about XL 387.5 (Xa 1471.0) | *derived*: tip − 13.275 in (CNR15 Fig. P-194) | M | `lesNoseLength` 13.37 in | |
+| Tip | XL 400.762 (Xa 1484.238) | AOH Fig. 1-2; BCD STA 4240.79 | H | Xa ≈ 1484 | LES length from XL 0: 400.76 in (33.4 ft); A8PK p. -33- and CNR15 p. 137: "33 feet". |
+
+### 11.2 Tower
+
+| item | value | source | grade | today | notes |
+|---|---|---|---|---|---|
+| Attach points at the CM | four tower-leg wells in the forward heat shield, one stud and frangible nut per leg | AOH §1.3.1, p. 1-4 and Fig. 1-4 text p. 1-7 | H | — | |
+| Base | the leg attach points form a 50.67 in (along Y) × 46.84 in (along Z) rectangle: legs 34.5 in from the axis, 42.75° from the Y axis | D5686 Table I(b), p. 6, and Fig. 2(f), p. 13 (full-scale dimensions of the T14 model) | M | `lesTowerBaseRadius` 24 in, legs at 45° (L) | CNR15 p. 140 and TRN §2.7: "about 4 feet square". Today's 24 in is half a 48 in side, not the leg radius. |
+| Leg azimuths | 42°, 137°, 222°, 317° from +Y_A towards +Z_A (θ 132°, 227°, 312°, 47°) | TRN Fig. 3-3, p. 3-5, PDF p. 27 (Block I tower-support longerons) | M | 45° diagonals | Agrees with D5686's 42.75° within 1°. |
+| Top | 36.06 in square at the escape motor (legs 25.5 in from the axis) | D5686 Fig. 2(f), Table I(b); CNR15 "about 3 feet square at the top" | M | `lesTowerTopRadius` 11 in (L) | |
+| Leg tubes | 3.5 in OD, 0.125 in wall, 6Al-4V titanium | TRN §2.7, p. 2-14, PDF p. 20; CNR15 p. 142 ("2-1/2- and 3-1/2-inch diameter") | M | `lesTubeRadius` 1.5 in (L) | Radius 1.75 in. |
+| Bracing tubes | 2.5 in OD (0.05 in wall; tube J 0.15 in, pure titanium) | TRN §2.7 | M | 1.5 in radius | Radius 1.25 in. |
+| Covering | Buna-N rubber insulation over the tubes | CNR15 p. 142; AOH Fig. 2.9-7, PDF p. 413 | H (material) | — | Thickness not found. |
+| Bracing pattern, each face from the top | an X-braced bay with a short horizontal at the crossing (J, about XL 88.6); a second X-braced bay ending at a full horizontal (M, about XL 59.7); a bay with one long diagonal and a half diagonal; a horizontal at XL 35.87 (P); an inverted V from P's middle to the leg joints at XL 12.85 | TRN Fig. 2-9, p. 2-15, PDF p. 20 (stations P and the leg joint printed; J and M *scaled*); AOH Fig. 1-2 shows the same pattern | M (pattern, P); L (J, M) | four plain legs | The two upper X bays are the "hour-glass" bracing adopted against motor-plume impingement (D5686 p. 3). |
+| Tower mass | about 500 lb with attachments, wiring and insulation | CNR15 p. 140 | M | — | |
+
+### 11.3 Skirt and motors
+
+| item | value | source | grade | today | notes |
+|---|---|---|---|---|---|
+| Structural skirt | XL 118.3 to 138.0 (19.7 in); base about 53-55 in across (54.6 in on the E53 model, 52.73 in on E54), top 28.89 in (interface ring), flaring at 34-37° | AOH Fig. 1-2 (stations); D5686 Fig. 2(b), (c), Table I(c) | H (stations); M (diameters) | — | CNR15 p. 142: "31 inches in diameter". |
+| Skirt construction and finish | 6Al-4V titanium, two ring frames, four longerons and skin panels; covered with Thermolag T-500 ablative 0.050 in, which "resembles a black tar" | TRN §2.6, pp. 2-13/2-14 (Block I) | M | — | A black skirt. |
+| LES motor | 185.57 in long, 26.0 in case, 4,850 lb | D7083 Table I, p. 2, PDF p. 7 (page image re-read for this datasheet); CNR15 Fig. P-189 "26.0 DIA" | H | 183 in long (15 ft 3 in, recalled, L); 26 in (L) | Case XL 138-283 (Xa 1221.5-1366.5); its aft dome and nozzles hang inside the skirt and tower top, exits about XL 97 (Xa 1181) (*derived*, M). |
+| LES motor nozzles | four, 90° apart, each canted 35° from the axis; exits 15 in across; 53.66 in envelope across the exits; unequal throats giving a 2.75° thrust offset | TRN §2.5.3, p. 2-13; CNR15 Fig. P-189 (35°, "15"); D7083 Table I (53.66 in), Fig. 1 (2.75°) | M (H for the envelope and offset) | — | |
+| Tower jettison motor | 55.62 in long, 26 in in diameter (28.00 in envelope), 535 lb; two nozzles at 30° to the motor axis, about 4° resultant | D7083 Table I, Fig. 3 (p. 4), Fig. 1 | H | `towerJettisonTilt` 3.784° (H, TN D-6295) | The nozzles exit through a 30 in long interstage at the TJM's aft end, in the pitch (Z) plane (TRN §2.5.2, M). |
+| Pitch control motor | 22.00 in long, 9 in case (10.51 in envelope), 51 lb; mounted across the LES axis in the canard section's aft compartment, nozzle flush with the skin on the −Z axis | D7083 Table I; TRN §2.4.3; FAM Fig. 3-2, p. 3-3, PDF p. 37 | H (size); M (placement) | — | Station not printed; BCD's Xa 1428.97 "centerline" is the likely axis (L). |
+
+### 11.4 Canard section, ballast and Q-ball
+
+| item | value | source | grade | today | notes |
+|---|---|---|---|---|---|
+| Section shape | a 26 in cylinder from the TJM's forward end (XL about 338.6) to XL 363.7, then a 15° half-angle cone to the Q-ball | AOH Fig. 1-2; CNR15 Fig. P-194; TMX Fig. 2 (nose 15°00′) | M | frustum from 26 in to the nose | A 26 in cylinder ending at XL 363.7 and a 15° cone reach 13.24 in across at XL 387.5: the Q-ball's 13.3 in base. One continuous cone. |
+| Canards | two "100 degree arc segments" of the section's skin, about 4 ft long and 6 ft² each, about 1 in thick assembled, Inconel-X skins; each on two hinges | TRN §2.4, p. 2-4, PDF p. 15; CNR15 p. 139-141 | M | — | Stowed flush with the skin. Deployed (abort only, 11 s after an abort): each canard's centreline at 30° angle of attack, 160° sweep-back (TRN Fig. 2-6, PDF p. 17). |
+| Canard azimuth | both on one half of the circumference, opening outward either side of one actuator | FAM Fig. 3-2 section views | L | — | Which half (+Z or −Z) not found. |
+| Ballast | lead and depleted-uranium weights in the cone above XL 363 | CNR15 p. 143; TRN §2.4.2 | M | — | |
+| Q-ball | 13.37 in long (CNR15 text; 13.275 in on its Fig. P-194), 13.3 in base, 15° half-angle, aluminium, eight static ports | CNR15 pp. 141, 143 | M | 13.37 × 13.3 in ("engineering history", L) | Tip radius 4 in (TRN §2.3) or 2.0 in (D5686 models): L. |
+
+### 11.5 Boost protective cover
+
+| item | value | source | grade | today | notes |
+|---|---|---|---|---|---|
+| Apex | Xc 135.13 (Xa 1135.13), at the tension-tie plug | AOH Fig. 2.9-8, p. 2.9-8, PDF p. 414 | H | the CM afterbody pushed out 1.5 in | The CM's structural apex is Xc 133.5 (AOH Fig. 1-2); BCD "top of boost cover" Xa 1133.47. |
+| Hard/soft joint | Xc 81 (Xa 1081), a transition ring | AOH Fig. 1-4 Detail A, p. 1-7, PDF p. 18; Fig. 2.9-8 | H | — | 2.5 in below the LES/CM separation plane. |
+| Aft edge | Xc 14 (Xa 1014): laminated fibreglass with a silicone sponge seal resting on the SM's fairing | AOH Fig. 1-4 Detail B | H | the BPC from the CM shoulder up | |
+| Hard (upper) section | honeycomb-cored laminated fibreglass with a 0.3 in cork ablator, carried by the tower legs | AOH Fig. 1-4 Detail A; AOH §2.9.2.1, p. 2.9-5 | H | — | A8PK p. -33-: "glass, cloth and honeycomb". |
+| Soft (lower) section | Teflon-impregnated glass cloth over the CM's ablator | AOH Fig. 1-4 Detail A | H | — | CNR15 p. 142: it fits "like a glove". |
+| Openings | one 8 in window (over the commander's rendezvous window); a BPC hatch over the CM side hatch; ports for the CM's pitch, roll and yaw jets; a steam vent, static vents and an access door near the apex; "12 blow-out ports" | AOH Fig. 1-4, AOH p. 1-38 (hatch); CNR15 pp. 140-141 | H (window, hatch, labels); M (port count) | — | Positions as drawn on AOH Fig. 1-4 (−Z_A view). |
+| Overall | about 11 ft tall, 13 ft in diameter, about 700 lb | CNR15 p. 142 | M | — | Xc 14 to 135.13 is 121.1 in (10.1 ft). |
+| Stand-off from the CM | **not found** | — | — | 1.5 in (L) | The soft section lies on the ablator; the hard section stands off it by an unsourced gap. |
+| Mass of the whole LES jettisoned, AS-503 | 8,890 lb (actual; 8,875 predicted) | FE503 Table 21-9, p. 21-11, PDF p. 490 | H | — | Its CG, Xa 1296.9 (*derived* from A8MR Table A.6-I's lift-off and orbit-insertion rows), agrees with `lesCenterOfMass` 1297.1 (M). |
+
+## 12. Spacecraft-LM adapter (SLA)
+
+| item | value | source | grade | today | notes |
+|---|---|---|---|---|---|
+| Stations | Xa 502.000 (IU joint) to 838.000 (SM joint) | AOH Fig. 1-2; TMX Fig. 2 (STA 3258.555-3594.555); BCD | H | `iuTop`, `slaTop` | |
+| Diameters | 260 in at the base, 154 in at the top; 8.97° half-angle (TMX: 8°58′) | A8PK p. -34-, PDF p. 51; CNR08 p. 65; TMX Fig. 2 | H | straight cone 260 → 154 in | |
+| Panel hinge line (separation plane) | Xa 583.2 ("HINGE LINE XA = 583.2"); Xa 583.300 "separation plane" on Fig. 1-2 | AOH Figs. 2.9-6 (p. 2.9-6, PDF p. 412) and 2.9-10 (PDF p. 416); AOH Fig. 1-2; TRN §6.2.1; BCD "vehicle separation" STA 3340.05 = Xa 583.49 | H | `slaHinge` Xa 586 (M, Wikipedia) | The cone is 234.4 in across here (*derived*). |
+| Panels | eight: four upper (about 21 ft) jettisoned on Apollo 8 and 11, four fixed lower (about 7 ft); each set four equal 90° panels | CNR08 pp. 66-67; TRN §6.2.1 (arc lengths 121/184 in and 184/204 in = quarter circumferences at 154, 234.4 and 260 in) | M | four upper quarter panels and one ring (H, 68-FM-160) | |
+| Panel centres and seams | upper panels centred on +Y, −Y, +Z, −Z (strap-hinged at the middles of their aft edges), so the four longitudinal seams lie at 45°, 135°, 225°, 315° from +Y_A towards +Z_A (θ 135°, 225°, 315°, 45°) | TRN §6.3.6, p. 6-12, PDF p. 76 (the print repeats "−Z" where "−Y" is meant) | M | panels centred on ±Y_A, ±Z_A (68-FM-160, H) | The seams fall on the fin diagonals. |
+| Panel numbering | 1 at +Z, 2 at −Z, 3 at +Y, 4 at −Y | FM160 §4.2, p. 4, PDF p. 10 | M | same | The report's own analysis convention; the Apollo 7 Mission Report names panels by axis ("the +Y panel"). |
+| Hinges and jettison (Apollo 8 on) | two hinges per upper panel, disengaging at about 45°; two spring thrusters per panel; four ordnance thrusters at the top of the fixed panels; panels leave at 8 ft/s or more, at 110° ± 20° from the S-IVB's +X | CNR08 pp. 66-67; AOH Fig. 2.9-10; FM160 §3.1, p. 3, PDF p. 9; A8MR §A.3, p. A-12, PDF p. 277 (hinges redesigned, attenuators removed for Apollo 8) | H (A8MR, FM160); M | jettison as modelled (H) | |
+| Apollo 7 (hinged, not jettisoned) | panels opened to about 45°; the +Y panel only to about 25-30° at first, all at about 45° by revolution 19; attenuators and retention cables held them | A7MR §11.7, p. 11-5, PDF p. 332; §8.1.3, p. 8-3 | H | — | For the CSM-101 scenario's SLA. |
+| Pyrotechnic seams | 28 charge holders with two strands of detonating cord each, on the SM/SLA flange and on the splice plates joining the upper panels; splice plates 0.060 in aluminium | CNR08 p. 66; TRN §6.2.2 | M | — | Where P5's "SLA pyro seams" go. |
+| Construction | 2024-T81 aluminium honeycomb sandwich, 1.7 in (CNR08, TRN), 1.75 in (A8PK) or 2 in (FAM, 1966) | as listed | M | — | |
+| Cork | 0.03 in on the outer skin, new on Apollo 8 against aerodynamic heating | A8MR §A.3, p. A-12; CNR08 p. 66 | H | — | |
+| Finish (photos) | outside white or light grey (cork); the upper panels' inner faces dark brown | AS07-03-1545; AS08-16-2584 | L | — | VD2 owns the colours. |
+| LM attach points | four, at the joint between the upper and lower panels, on the panel-hinge axes (±Y, ±Z, Xa ≈ 583) | CNR08 p. 66; TRN §6.4, p. 6-16 | M | — | |
+| Access doors | two in the upper panels, on +Z and −Z (Block I); Block II positions **not found** | TRN §6.2.2.1 | L | — | |
+| Apollo 8's SLA | SLA-11A, LTA-B mated 29 Sep 1968 | FE503 Table 3-1, p. 3-3, PDF p. 82 | H | — | |
+| SLA mass | 4,150 lb (A8PK), 4,050 lb (CNR08), 3,953 lb (*derived* from A8MR's mass table less LTA-B) | as listed | M | `ApolloCSM.slaPanels` + `slaRing` (AS-506 FER, H) | |
+
+## 13. LTA-B (Apollo 8)
+
+| item | value | source | grade | today | notes |
+|---|---|---|---|---|---|
+| What it was | "a structural test article … for Saturn V flight-load evaluation", instrumented for accelerations about three axes; "equivalent in weight to a lunar module … carried as ballast" | A8MR §A.5, p. A-14, PDF p. 279; A8PK p. -3- | H | the LM stand-in | What structure it was built from is **not found**. |
+| Mass | 19,900 lb | A8MR §A.5 | H | — | SLA and LTA-B together 23,853 lb at Xa 590.4 (*derived* from A8MR Table A.6-I, M). |
+| Mounting | at the four LM support points in the adapter; it stayed with the S-IVB | A8MR §A.3, p. A-12 | H | — | |
+| Schematic | a squat drum low in the SLA with V struts to the SLA wall near the panel split; about 151-171 in wide and 126 in tall, from about Xa 509 to 635 | A8MR Fig. A.5-1, p. A-15, PDF p. 280 (*scaled*; the figure's two axes differ by 10 %) | L | — | |
+| Shape in the photos | a white cylindrical drum; a broad white annular flange of segments round its forward face; an open forward face with a recessed deck crossed by a "#" grid of beams (two parallel beams each way, 3 × 3 bays, a round feature in the middle bay); hung on four V-strut pairs from the SLA's fixed-panel rim, about 90° apart; its lower part hidden in the SLA ring | AS08-16-2582 (end-on), -2583 (oblique), -2584 (side-on) | L | octagonal LM stand-in | The beam grid resembles the LM descent stage's paired main beams. |
+| Diameter | about 160 in (147-171 in by method) | *estimate* from the three photos: (a) -2584 side-on, the S-IVB's 260 in silhouette against the flange ring, less 5 % perspective; (b) -2584, the ring's and SLA rim's ellipse major axes against the rim's 234.4 in; (c) -2582/-2583, the same ratio corrected for perspective | L | 2.1 m stowed radius (L) | |
+| Forward face station | about Xa 630-655 (45-70 in above the hinge line) | *estimate* from -2584 (ring-to-rim offset along the axis, corrected for the ellipse's 0.565 axis ratio); A8MR Fig. A.5-1 gives about Xa 635 | L | — | |
+| Particles round the stage | many bright particles in -2582 and -2583, attributed to S-IVB venting | A8MR p. 7-18, PDF p. 210 ("millions of particles created by S-IVB venting") | H (cause); L (look) | — | For P5's "fireflies" at CSM separation. |
+
 
 ---
 
@@ -357,3 +483,16 @@ Today's shapes are in `ApolloShapes.swift` and the stations in `AS506Data.swift`
 14. **F-1 shape: generic.** Today each F-1 is a Rao bell from the exit (radius from `f1ExitArea`, 10.10 m², 3.586 m across) to the gimbal, 215.0 in. Sourced (§8.1): gimbal to exit 215.50 in; a tube-wall chamber to 10:1, the turbine exhaust manifold torus with its aft face at 150.00 in, then the 65.5 in extension from 125.00 in to 147.00 in outer diameter (gas-side exit 139.95 in); an upper block (turbopump, dome, valves) from 14.50 in ahead to 62.50 in aft of the gimbal, 103.24 in wide; and, as flown, the whole engine wrapped in the foil cocoon and asbestos blankets. VG1 should size the exit from the geometry (3.555 m gas side, 3.734 m outer), not from the performance-fitted `f1ExitArea`.
 15. **J-2 envelope: 2 cm large.** Today 2.07 m; RJ1 80.75 in (2.051 m). The exit (77 in) agrees with today's 1.958 m within 3 mm.
 16. **Grades that can rise.** `f1AreaRatio` 16 (recalled, M) is H (R1, M504); the F-1 gimbal range 5.0° (L) is H (M503); `sIIOutboardCircle` 17.5 ft (M) is H (M503); `f1OutboardRadius` 182 in (L) is M (the fairing's axis).
+
+### VD3 (VG3)
+
+*CM and SM rows follow with §9 and §10.*
+
+1. **SLA hinge line: 2.8 in low in the sources.** Xa 583.2 (AOH Figs. 2.9-6, 2.9-10), 583.3 (AOH Fig. 1-2), 583.49 (BCD) against today's `slaHinge` Xa 586 (Wikipedia). Use 583.2.
+2. **LES tower: too narrow and too thin.** Today the legs run from 24 in out on the CM's cone to 11 in out at the motor, on the 45° diagonals, 1.5 in tubes, no bracing. Sourced: feet at XL 0 (Xa 1083.48) on a 50.67 × 46.84 in rectangle (34.5 in out, 42.75° from Y), top at XL 118.3 on a 36.06 in square (25.5 in out); legs 3.5 in, braces 2.5 in OD; two hour-glass X bays, a diagonal bay and an inverted V (§11.2).
+3. **LES motors: misplaced.** Today one 26 in frustum from Xa 1207 to 1430 and a taper to the nose. Sourced: skirt Xa 1201.8-1221.5 (black ablative); LES motor case Xa 1221.5-1366.5 with four 35° nozzles (15 in exits) hanging into the skirt; TJM Xa 1366.5-1422.1 with two 30° nozzles; canard section's 26 in cylinder to Xa 1447.2, then one 15° cone through the Q-ball to the tip at Xa 1484.24 (§11.1, §11.3, §11.4). Today's top at 1430 seems to come from BCD's "centerline launch escape motor" (Xa 1428.97), which is not the motor's end.
+4. **LES motor length:** 185.57 in (D7083, H) against today's recalled 15 ft 3 in.
+5. **Canards and pitch control motor: missing.** Two 100° arc-segment canards, Xa 1423-1470, flush when stowed; the pitch control motor's nozzle flush on −Z_A.
+6. **BPC: shape about right, ends sourced.** Aft edge Xc 14 (Xa 1014) on the SM fairing, hard/soft joint Xc 81, apex Xc 135.13. Today's shell starts at the CM shoulder's widest point and stands 1.5 in off everywhere (stand-off still unsourced, L).
+7. **LTA-B: missing.** Today the Apollo 8 payload would draw the LM stand-in. Sourced: a 19,900 lb drum about 160 in across (L), forward face about Xa 630-655 (L), a segmented flange and an open "#"-beamed deck, on four V-strut pairs from the SLA rim at about Xa 583 (§13).
+8. **SLA seams: agree.** Today's four quarter panels centred on ±Y_A/±Z_A put the seams on the diagonals, as TRN describes. New: the 28 pyro charge holders on the seams and the SM/SLA flange, the 0.03 in cork, and Apollo 7's 45° (+Y: 25-30°) open panels for CSM-101.
