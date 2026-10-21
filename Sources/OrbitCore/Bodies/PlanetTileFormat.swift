@@ -111,7 +111,9 @@ public struct PlanetTileLayout: Equatable {
     }
 
     func validate() throws {
-        guard tileSize > 0, border >= 0, channels > 0, scale.isFinite, scale != 0, offset.isFinite,
+        // Bounded so that a damaged header cannot overflow the sizes.
+        guard (1 ... 16_384).contains(tileSize), (0 ... 256).contains(border), (1 ... 64).contains(channels),
+              scale.isFinite, scale != 0, offset.isFinite,
               maxLevel >= 0, maxLevel <= TileKey.maxLevel,
               figure.equatorialRadius > 0, figure.flattening >= 0, figure.flattening < 1 else {
             throw PlanetTileError.badFormat("layout \(self)")

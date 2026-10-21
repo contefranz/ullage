@@ -170,6 +170,12 @@ final class CubeSphereTests: XCTestCase {
         XCTAssertNil(TileKey(id: 1 << 55 | 2))                     // x past the level
         XCTAssertNil(TileKey(id: 28 << 55))                        // too deep
         XCTAssertNil(TileKey(id: 1 << 54))                         // the unused bit
+        // Coded as the identifier, and checked when decoded.
+        let k = TileKey(face: .negY, level: 9, x: 300, y: 511)
+        let json = try! JSONEncoder().encode([k])
+        XCTAssertEqual(String(decoding: json, as: UTF8.self), "[\(k.id)]")
+        XCTAssertEqual(try! JSONDecoder().decode([TileKey].self, from: json), [k])
+        XCTAssertThrowsError(try JSONDecoder().decode([TileKey].self, from: Data("[\(1 << 54)]".utf8)))
     }
 
     /// Parents, children and containment agree with face coordinates.

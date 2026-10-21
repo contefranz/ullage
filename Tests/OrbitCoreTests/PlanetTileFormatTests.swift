@@ -289,6 +289,10 @@ final class PlanetTileFormatTests: XCTestCase {
         var format = good
         format[12] = 99
         XCTAssertThrowsError(try PlanetTileFile(data: format))
+        // A tile size that would overflow the payload's length.
+        var huge = good
+        huge.replaceSubrange(16 ..< 20, with: [0xFF, 0xFF, 0xFF, 0x7F])
+        XCTAssertThrowsError(try PlanetTileFile(data: huge))
         // Swap the first two index entries' ids.
         var unsorted = good
         let index = Int(LittleEndianReader(good).u64(80))

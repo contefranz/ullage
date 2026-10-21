@@ -71,7 +71,7 @@ public struct PlanetQuadtree {
                     tileBudget: Int = 384, morphStartRatio: Double = 2.0 / 3, minimumFramesPerTile: Double = 4,
                     heightRange: ClosedRange<Double> = 0 ... 0,
                     tileHeights: ((TileKey) -> ClosedRange<Double>?)? = nil) {
-            self.figure = figure; self.maxLevel = min(maxLevel, TileKey.maxLevel)
+            self.figure = figure; self.maxLevel = min(max(maxLevel, 0), TileKey.maxLevel)
             self.samplesPerTile = samplesPerTile; self.pixelError = pixelError; self.tileBudget = tileBudget
             self.morphStartRatio = morphStartRatio; self.minimumFramesPerTile = minimumFramesPerTile
             self.heightRange = heightRange; self.tileHeights = tileHeights

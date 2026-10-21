@@ -191,6 +191,20 @@ public struct TileKey: Hashable, Comparable, Codable, CustomStringConvertible {
 
     public static func < (a: TileKey, b: TileKey) -> Bool { a.id < b.id }
 
+    /// Coded as its identifier, checked on decoding.
+    public init(from decoder: Decoder) throws {
+        let id = try decoder.singleValueContainer().decode(UInt64.self)
+        guard let key = TileKey(id: id) else {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "tile id \(id)"))
+        }
+        self = key
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        try c.encode(id)
+    }
+
     // MARK: Hierarchy
 
     /// The tile one level up, nil at level 0.
