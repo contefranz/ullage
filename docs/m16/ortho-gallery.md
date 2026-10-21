@@ -4,7 +4,7 @@ Test support for seeing and measuring vehicle geometry without Metal, so
 that cloud sessions (VG1-VG3, VM1, LC) can check what they build. Its code
 is in `Tests/OrbitSceneTests/Support`:
 
-- `OrthoRaster.swift`: the rasteriser;
+- `OrthoRaster.swift`: the rasteriser, and `OrthoSheet`, which puts several views on one file and records where each landed;
 - `PNG.swift`: the PNG writer;
 - `Silhouette.swift`: the outline measures.
 
@@ -40,7 +40,14 @@ How to read the images:
 - **Side views** are drawn nose up. A strip on the left has a tick every 100 in STA, a longer one every 500 in, and the label in inches. Xa = STA − 2756.56.
 - **Position numerals.** The Position facing the viewer is at the top. The Positions seen edge-on are at the left and right: a Position I view has II on the right and IV on the left.
 - **Top and bottom views** put Position I at the bottom. From above, II is on the right; from below, IV is.
-- **`index.txt`** gives each panel's top-left corner in the view's screen frame (m), so pixels map back to stations: row y of a side view at k px/m is at construction x = top − (y + 0.5)/k, and STA = x / 0.0254.
+- **Sheets.** A file of several panels (every `-positions.png`) has an 8 px border round them and 8 px gutters between them, lighter than the background so the panels' edges show. Its first panel's top-left pixel is (8, 8), not (0, 0), and the later panels start after the earlier ones' widths and gutters; the widths differ with the view. A file of one image (`-top`, `-bottom`, the sections) is that image, its panel at (0, 0).
+- **`index.txt`** gives, for each panel of a file, its top-left pixel (X0, Y0) in the file and its size (px), and its top-left corner (left, top) in the view's screen frame (m):
+
+  ```text
+  saturn-v-positions.png  …  14.0 px/m  panel 1 at (8, 8) px, 242 x 1605 px, corner (-10.205, 109.721) m  panel 2 at (258, 8) px, …
+  ```
+
+  Pixel (X, Y) of the file, in the panel at (X0, Y0), is at right = left + (X − X0 + 0.5)/k and up = top − (Y − Y0 + 0.5)/k at k px/m. A side view's up is construction x, and STA = x / 0.0254. Without X0 and Y0, a row of `saturn-v-positions.png` reads its station 8/k m (22.5 in) too low. In a test, `OrthoSheet.screen(X, Y)` does the same.
 
 ## Rendering in a test
 
@@ -50,6 +57,9 @@ let view = OrthoView.position(1, scale: 40, stations: AS506.station(2450)...AS50
 let image = OrthoRaster.render(scene, view)                 // OrthoImage
 try PNG.write(image.image, to: url)
 image.surface(x, y)                                         // the index into scene.surfaces seen at a pixel
+let sheet = OrthoSheet((1...4).map { OrthoRaster.render(scene, .position($0, scale: 40)) })   // I-IV on one file
+try PNG.write(sheet.image, to: url)
+sheet.screen(x, y)                                          // a pixel of the file: its panel and screen coordinates
 ```
 
 - **Views.** `OrthoView` covers:
@@ -85,14 +95,17 @@ image.surface(x, y)                                         // the index into sc
 
 ```swift
 let s = Silhouette(VesselLibrary.saturnV())
+s.diameter(at: AS506.station(1000), azimuth: .pi / 4)        // the skin: reach(θ) + reach(θ + π)
+s.reach(at: x, azimuth: 0)                                   // a ray cast out from the axis at θ
 s.radius(at: AS506.station(1000), azimuth: .pi / 4)          // how far the outline reaches towards θ
 s.width(at: AS506.station(1000), viewedFrom: 0)              // radius(θ + π/2) + radius(θ − π/2)
 s.radius(over: AS506.station(81)...AS506.station(137), azimuth: .pi / 4)   // the most over a band of stations
-s.reach(at: x, azimuth: 0)                                   // a ray cast out from the axis at θ
 s.stations                                                   // lowest and highest x
 ```
 
-- **`radius`** is the largest p·radial(θ) over the cross-section. It is the half-width that a drawing, or a view from θ − π/2, shows on its right. Fin tips, a fin span (`radius` at 45° plus 225°) and stage diameters are measured with it.
-- **`reach`** sees only the half-plane at θ, so sweeping θ finds bumps (fairings, modules, ports) at their own azimuths.
+The two measures differ wherever something stands proud of a skin, so pick the one that matches what is being checked:
+
+- **`radius`** is the outline's support function: the largest p·radial(θ) over the cross-section. It is the half-width that a drawing, or a view from θ − π/2, shows on its right. Measure outlines, spans and fin tips with it (a fin span is `radius` at 45° plus 225°). It is not local to θ. A feature standing h proud of a skin of radius R, at Δ from θ, reaches R cos Δ + h towards θ, so it raises `radius` wherever Δ < acos(1 − h/R). For 11 in on the S-II's 198 in skin, that is 19°: VG2's systems tunnel at θ = 32° makes `radius` at 45° read 203.9 in, so the S-II would measure 407.8 in across there instead of 396.
+- **`reach`** sees only the half-plane at θ, a ray from the axis. A skin's radius beside a tunnel or fairing is the skin's, and sweeping θ finds bumps (fairings, modules, ports) at their own azimuths. **`diameter`** adds the two rays of a line through the axis. Measure stage and skin diameters with these, on rays that miss the features themselves. `SilhouetteTests` measures them along the fin diagonals, which miss the S-II's tunnel and VG2's ullage-motor fairings; it checks this with stand-ins for both.
 
 Both count every triangle, back faces and insides included. `OrthoRasterTests` checks that the drawn outline matches `Silhouette` to within a pixel. `SilhouetteTests` pins today's vehicle against docs/SaturnV-CSM-exterior-datasheet.md.

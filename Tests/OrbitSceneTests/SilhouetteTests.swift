@@ -4,15 +4,18 @@ import XCTest
 
 /// Today's Saturn V and CSM outlines (`Silhouette`) against
 /// docs/SaturnV-CSM-exterior-datasheet.md, and the helpers' meaning on a
-/// toy. The diameters are measured on the fin diagonals (θ = 45°, 135°,
-/// 225°, 315°) at stations clear of the fins, fairings, tunnels, modules
-/// and antennas the datasheet puts near the Positions, so that VG1-VG3's
-/// added detail leaves them standing.
+/// toy. The skins' diameters are measured along the fin diagonals (θ = 45°,
+/// 135°, 225°, 315°) with the ray-local `diameter`, at stations clear of the
+/// fins, so that VG1-VG3's tunnels, fairings, modules and antennas beside
+/// the rays leave them standing: `radius`, the outline's support function,
+/// would pick those up from as far as 19° away (see `Silhouette`).
 final class SilhouetteTests: XCTestCase {
     static let stack = Silhouette(VesselLibrary.saturnV())
     static let csm = VesselLibrary.apolloCSM(.apollo11)
     let inch = AS506.inch
     let diagonals = [1.0, 3, 5, 7].map { $0 * Double.pi / 4 }
+    /// The two lines through the axis along the fin diagonals.
+    let diagonalLines = [Double.pi / 4, 3 * Double.pi / 4]
 
     /// A cylinder of radius 1 with a box out to 1.5 at Position II.
     func testMeasuresOnAToy() throws {
@@ -30,6 +33,11 @@ final class SilhouetteTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(s.reach(at: 2, azimuth: ii)), 1.5, accuracy: 1e-12)
         XCTAssertEqual(try XCTUnwrap(s.width(at: 2, viewedFrom: 0)), 2.5, accuracy: 1e-12)    // II plus IV
         XCTAssertEqual(try XCTUnwrap(s.width(at: 2, viewedFrom: ii)), 2, accuracy: 1e-12)     // III plus I
+        XCTAssertEqual(try XCTUnwrap(s.diameter(at: 2, azimuth: ii)), 2.5, accuracy: 1e-12)   // II plus IV
+        // Off the box's line the outline is wider, the skin is not (to within the facets).
+        let wider: Double = 1 + 1.5 * cos(0.4) + 0.25 * sin(0.4)
+        XCTAssertEqual(try XCTUnwrap(s.width(at: 2, viewedFrom: 0.4)), wider, accuracy: 0.005)
+        XCTAssertEqual(try XCTUnwrap(s.diameter(at: 2, azimuth: ii - 0.4)), 2, accuracy: 0.02)
         XCTAssertEqual(try XCTUnwrap(s.radius(over: 0...1.6, azimuth: ii)), 1.5, accuracy: 1e-12)
         XCTAssertEqual(try XCTUnwrap(s.radius(over: 0...1.4, azimuth: ii)), 1, accuracy: 1e-12)
         XCTAssertNil(s.radius(at: 5, azimuth: 0))
@@ -38,18 +46,55 @@ final class SilhouetteTests: XCTestCase {
 
     /// §1: 33.0 ft (396 in) for the S-IC, the S-IC/S-II interstage and the
     /// S-II; 260 in for the S-IVB and the IU (§1, §7).
-    func testStageDiameters() throws {
-        let stations: [(String, Double, Double)] = [
-            ("S-IC fuel tank", 450, 396), ("S-IC intertank", 750, 396), ("S-IC LOX tank", 1200, 396),
-            ("S-IC forward skirt", 1500, 396), ("S-IC/S-II interstage", 1650, 396),
-            ("S-II, above the feed-line fairings", 2100, 396), ("S-II", 2300, 396),
-            ("S-IVB", 2900, 260), ("S-IVB", 3050, 260), ("IU", 3240, 260),
-        ]
-        for (name, sta, diameter) in stations {
-            for azimuth in diagonals {
-                let r = try XCTUnwrap(Self.stack.radius(at: AS506.station(sta), azimuth: azimuth), name)
-                XCTAssertEqual(2 * r / inch, diameter, accuracy: 1, "\(name), STA \(sta), θ \(azimuth)")
+    let stageDiameters: [(String, Double, Double)] = [
+        ("S-IC fuel tank", 450, 396), ("S-IC intertank", 750, 396), ("S-IC LOX tank", 1200, 396),
+        ("S-IC forward skirt", 1500, 396), ("S-IC/S-II interstage", 1650, 396),
+        ("S-II, above the feed-line fairings", 2100, 396), ("S-II", 2300, 396),
+        ("S-IVB", 2900, 260), ("S-IVB", 3050, 260), ("IU", 3240, 260),
+    ]
+
+    func checkStageDiameters(_ s: Silhouette, _ what: String) throws {
+        for (name, sta, diameter) in stageDiameters {
+            for azimuth in diagonalLines {
+                let d = try XCTUnwrap(s.diameter(at: AS506.station(sta), azimuth: azimuth), name)
+                XCTAssertEqual(d / inch, diameter, accuracy: 1, "\(what): \(name), STA \(sta), θ \(azimuth)")
             }
+        }
+    }
+
+    func testStageDiameters() throws {
+        try checkStageDiameters(Self.stack, "today's stack")
+    }
+
+    /// The same pins stand beside VG2's S-II systems tunnel (22 in across,
+    /// 11 in proud at θ = 32°, STA 1782.5 to 2502.5) and its S-II ullage-motor
+    /// fairings (24 in across, 16 in proud, 16 in of arc anticlockwise of
+    /// each fin line, STA 1563.56 to 1710.65), drawn here as stand-ins. The
+    /// outline beside them is wider: `radius` on the diagonal reads them.
+    func testStageDiametersBesideTunnelsAndFairings() throws {
+        let r = 198 * inch, white: (Double, Double, Double) = (1, 1, 1)
+        let tunnelAzimuth = 32 * Double.pi / 180
+        let tunnelFoot: Vec3 = Vec3(AS506.station(1782.5), 0, 0) + Silhouette.radial(tunnelAzimuth) * r
+        let tunnel = VisualShape.frustum(from: tunnelFoot, length: 720 * inch, baseRadius: 11 * inch,
+                                         topRadius: 11 * inch, color: white)
+        let offset = 16 * inch / r
+        let fairings = diagonals.map { fin -> VisualShape in
+            let out = Silhouette.radial(fin + offset)
+            // From 1 in under the skin to 16 in proud.
+            return VisualShape.box(from: Vec3(AS506.station(1563.56), 0, 0) + out * (r + 7.5 * inch),
+                                   length: (1710.65 - 1563.56) * inch, width: 17 * inch, height: 24 * inch,
+                                   reference: out, color: white)
+        }
+        let stack = Silhouette(OrthoScene(VesselLibrary.saturnV(), adding: [tunnel] + fairings))
+        try checkStageDiameters(stack, "with the stand-ins")
+
+        // The tunnel's crown 13° off the diagonal; the fairing's outer corner.
+        let besideTunnel: Double = 2 * (198 * cos(Double.pi / 4 - tunnelAzimuth) + 11)
+        let besideFairing: Double = 2 * (214 * cos(offset) + 12 * sin(offset))
+        let beside: [(Double, Double)] = [(2300, besideTunnel), (1650, besideFairing)]
+        for (sta, outline) in beside {
+            let rDiagonal = try XCTUnwrap(stack.radius(at: AS506.station(sta), azimuth: Double.pi / 4))
+            XCTAssertEqual(2 * rDiagonal / inch, outline, accuracy: 1, "STA \(sta)")
         }
     }
 
@@ -66,12 +111,14 @@ final class SilhouetteTests: XCTestCase {
     /// in at the SM.
     func testSLACone() throws {
         let low = 510.0, high = 830.0
-        let rLow = try XCTUnwrap(Self.stack.radius(at: AS506.apolloStation(low), azimuth: Double.pi / 4))
-        let rHigh = try XCTUnwrap(Self.stack.radius(at: AS506.apolloStation(high), azimuth: Double.pi / 4))
-        let slope = (rHigh - rLow) / ((high - low) * inch)
-        func diameter(at xa: Double) -> Double { 2 * (rLow + slope * (xa - low) * inch) / inch }
-        XCTAssertEqual(diameter(at: 502), 260, accuracy: 1)
-        XCTAssertEqual(diameter(at: 838), 154, accuracy: 1)
+        for azimuth in diagonalLines {
+            let dLow = try XCTUnwrap(Self.stack.diameter(at: AS506.apolloStation(low), azimuth: azimuth))
+            let dHigh = try XCTUnwrap(Self.stack.diameter(at: AS506.apolloStation(high), azimuth: azimuth))
+            let slope = (dHigh - dLow) / ((high - low) * inch)
+            func diameter(at xa: Double) -> Double { (dLow + slope * (xa - low) * inch) / inch }
+            XCTAssertEqual(diameter(at: 502), 260, accuracy: 1, "θ \(azimuth)")
+            XCTAssertEqual(diameter(at: 838), 154, accuracy: 1, "θ \(azimuth)")
+        }
         XCTAssertEqual((838 - 502) * inch / AS506.foot, 28, accuracy: 0.01)
     }
 
@@ -84,9 +131,9 @@ final class SilhouetteTests: XCTestCase {
             XCTAssertEqual(2 * r / inch, 154, accuracy: 0.5, "CM, θ \(azimuth)")
         }
         let sm = Silhouette(OrthoScene(Self.csm, where: { $0.name == "SM" }))
-        for azimuth in diagonals {
-            let r = try XCTUnwrap(sm.radius(at: AS506.apolloStation(900), azimuth: azimuth))
-            XCTAssertEqual(2 * r / inch, 154, accuracy: 0.5, "SM, θ \(azimuth)")
+        for azimuth in diagonalLines {
+            let d = try XCTUnwrap(sm.diameter(at: AS506.apolloStation(900), azimuth: azimuth))
+            XCTAssertEqual(d / inch, 154, accuracy: 0.5, "SM, θ \(azimuth)")
         }
     }
 

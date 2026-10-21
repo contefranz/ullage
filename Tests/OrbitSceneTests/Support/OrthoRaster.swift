@@ -13,6 +13,7 @@ import Foundation
 //   optionally cropped to a band of stations.
 // - `OrthoRaster.render`: the image, with a paint hook for the albedo
 //   (`OrthoPaint`, the shape's colour until VM1's evaluator lands).
+// - `OrthoSheet`: images on one file and where each landed in it.
 // - `PNG` writes the images (PNG.swift); `Silhouette` measures the
 //   outline from the same triangles (Silhouette.swift).
 //
@@ -40,9 +41,10 @@ struct OrthoScene {
 
     /// The vessel's parts' shapes (those `include` accepts), each part at
     /// `part.offset - vessel.structureOrigin`, shapes linked to thrusters as
-    /// mounted.
-    init(_ vessel: Vessel, where include: (VesselPart) -> Bool = { _ in true }) {
-        self.init(vessel.parts.filter(include).map { ($0, $0.offset - vessel.structureOrigin) })
+    /// mounted; then the loose shapes `adding` (stand-ins, markers), as
+    /// they are in the construction frame.
+    init(_ vessel: Vessel, where include: (VesselPart) -> Bool = { _ in true }, adding loose: [VisualShape] = []) {
+        self.init(vessel.parts.filter(include).map { ($0, $0.offset - vessel.structureOrigin) }, adding: loose)
     }
 
     /// Loose shapes, shifted by `offset`.
@@ -56,12 +58,15 @@ struct OrthoScene {
         triangleSurfaces = owners
     }
 
-    init(_ parts: [(VesselPart, Vec3)]) {
+    init(_ parts: [(VesselPart, Vec3)], adding loose: [VisualShape] = []) {
         var surfaces: [Surface] = [], vertices: [VisualShape.Vertex] = [], owners: [Int] = []
         for (part, offset) in parts {
             for (i, shape) in part.shapes.enumerated() {
                 Self.add(Surface(part: part, shapeIndex: i, shape: shape), offset, &surfaces, &vertices, &owners)
             }
+        }
+        for (i, shape) in loose.enumerated() {
+            Self.add(Surface(part: nil, shapeIndex: i, shape: shape), .zero, &surfaces, &vertices, &owners)
         }
         self.surfaces = surfaces
         self.vertices = vertices
@@ -236,6 +241,86 @@ struct OrthoImage {
     func pixel(_ p: Vec3) -> (x: Double, y: Double) {
         let b = view.basis
         return ((p.dot(b.right) - left) * view.scale, (top - p.dot(b.up)) * view.scale)
+    }
+}
+
+/// Ortho images on one image file, and where each landed in it, so that a
+/// pixel of the file maps back to its panel's screen frame.
+///
+/// A single image is the sheet as it is, its panel at (0, 0). Several sit
+/// side by side with their tops aligned (a contact sheet): `gap` pixels of
+/// `gutter` round them and between them, so the first panel's top-left
+/// pixel is (8, 8), not (0, 0), and each later one starts after the earlier
+/// ones' widths and gutters. Pixel (X, Y) of the file, in the panel whose
+/// top-left pixel is (X0, Y0) and whose corner is (left, top) at k px/m, is
+/// at right = left + (X - X0 + 0.5) / k, up = top - (Y - Y0 + 0.5) / k
+/// (`screen`). The gallery's `index.txt` gives each panel's (X0, Y0), size
+/// and corner (`indexLine`).
+struct OrthoSheet {
+    /// The border round a contact sheet's panels and the gutters between them (px).
+    static let gap = 8
+    /// The border and gutters: lighter than the panels' background
+    /// (`OrthoStyle.background`), so that the panels' edges show.
+    static let gutter: (UInt8, UInt8, UInt8) = (74, 79, 90)
+
+    let panels: [OrthoImage]
+    /// Each panel's top-left pixel (column, row) in the sheet.
+    let origins: [(x: Int, y: Int)]
+    let image: RGBImage
+
+    init(_ panels: [OrthoImage], gap: Int = OrthoSheet.gap, gutter: (UInt8, UInt8, UInt8) = OrthoSheet.gutter) {
+        precondition(!panels.isEmpty, "a sheet has a panel")
+        self.panels = panels
+        guard panels.count > 1 else {
+            origins = [(0, 0)]
+            image = panels[0].image
+            return
+        }
+        let width = panels.reduce(gap) { $0 + $1.width + gap }
+        let height = (panels.map(\.height).max() ?? 0) + 2 * gap
+        var sheet = RGBImage(width: width, height: height, fill: gutter)
+        var origins: [(x: Int, y: Int)] = []
+        var left = gap
+        for panel in panels {
+            sheet.paste(panel.image, at: left, gap)
+            origins.append((left, gap))
+            left += panel.width + gap
+        }
+        self.origins = origins
+        image = sheet
+    }
+
+    /// The panel (index into `panels`) holding pixel (`x`, `y`) of the sheet
+    /// and the screen coordinates (m) of the pixel's centre in its view; nil
+    /// on the border, in a gutter or below a shorter panel.
+    func screen(_ x: Int, _ y: Int) -> (panel: Int, right: Double, up: Double)? {
+        for (i, panel) in panels.enumerated() {
+            let px = x - origins[i].x, py = y - origins[i].y
+            guard (0..<panel.width).contains(px), (0..<panel.height).contains(py) else { continue }
+            let s = panel.screen(px, py)
+            return (i, s.right, s.up)
+        }
+        return nil
+    }
+
+    /// `index.txt`'s header, which says how to read `indexLine`.
+    static let indexHeader = [
+        "# Ortho gallery: file, what it shows, scale k (px/m), then each panel of the file: its top-left pixel",
+        "# (X0, Y0) in the file and its size (px), and its top-left corner (left, top) in the view's screen frame",
+        "# (m). A file of several panels has an 8 px border and 8 px gutters, so its first panel is at (8, 8).",
+        "# Pixel (X, Y) in a panel is at right = left + (X - X0 + 0.5) / k, up = top - (Y - Y0 + 0.5) / k;",
+        "# a side view's up is construction x, STA = x / 0.0254.",
+    ]
+
+    /// The sheet's line in `index.txt`: `file`, `what`, the scale and one
+    /// tab-separated field a panel,
+    /// `panel n at (X0, Y0) px, W x H px, corner (left, top) m`.
+    func indexLine(file: String, what: String) -> String {
+        let fields = panels.enumerated().map { i, panel -> String in
+            let corner = String(format: "(%.3f, %.3f)", panel.left, panel.top)
+            return "panel \(i + 1) at (\(origins[i].x), \(origins[i].y)) px, \(panel.width) x \(panel.height) px, corner \(corner) m"
+        }
+        return ([file, what, "\(panels[0].view.scale) px/m"] + fields).joined(separator: "\t")
     }
 }
 

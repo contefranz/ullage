@@ -11,23 +11,34 @@ import OrbitCore
 /// `AS506.station(sta)` or `AS506.apolloStation(xa)`), azimuths θ in radians
 /// round the vehicle's x axis from Position I (+z) towards Position II (-y),
 /// as `VisualShape.vehicleAzimuth` measures them: II at π/2, III at π, IV at
-/// 3π/2. Two measures:
+/// 3π/2. Two measures, which part where something stands proud of a skin:
 ///
-/// - `radius(at:azimuth:)`: how far the outline reaches towards θ, the
-///   largest p·radial(θ) over the shapes' cross-section. This is the
-///   half-width an orthographic view or a drawing shows: a view from θ - π/2
-///   has it on its right. A cylinder's radius at every θ; on a fin's
-///   diagonal, its tip. `width(at:viewedFrom:)` is the sum of the two
-///   sides, the span a drawing dimensions.
-/// - `reach(at:azimuth:)`: the farthest surface point on the half-plane at
-///   θ, a ray cast out from the axis. It does not see what lies off that
-///   half-plane, so sweeping θ finds bumps (fairings, modules, ports) at
-///   their azimuths.
+/// - `radius(at:azimuth:)`, the outline's support function: how far the
+///   outline reaches towards θ, the largest p·radial(θ) over the shapes'
+///   cross-section. This is the half-width an orthographic view or a
+///   drawing shows: a view from θ - π/2 has it on its right. A cylinder's
+///   radius at every θ; on a fin's diagonal, its tip. `width(at:viewedFrom:)`
+///   is the sum of the two sides, the span a drawing dimensions. It is not
+///   local to θ: a feature standing h proud of a skin of radius R, Δ away
+///   from θ, reaches R cos Δ + h towards θ, so it raises `radius` wherever
+///   Δ < acos(1 - h/R). For 11 in on the S-II's 198 in skin that is 19°:
+///   VG2's systems tunnel at θ = 32° makes `radius` at 45° read 203.9 in.
+///   Use it for outlines, spans, fin tips and what stands proudest, not for
+///   a skin's diameter.
+/// - `reach(at:azimuth:)`, local to the ray: the farthest surface point on
+///   the half-plane at θ, a ray cast out from the axis. It does not see
+///   what lies off that half-plane, so a skin's radius beside a tunnel or
+///   fairing is the skin's, and sweeping θ finds bumps (fairings, modules,
+///   ports) at their azimuths. `diameter(at:azimuth:)` adds the two rays of
+///   the line through the axis. Measure stage and skin diameters with these,
+///   on rays that miss the features themselves: the ray at 45° misses the
+///   S-II's tunnel at 32° and VG2's ullage-motor fairings 4.6° past each fin.
 ///
 /// Both include every triangle of the scene, back faces and insides too.
 ///
 ///     let s = Silhouette(VesselLibrary.saturnV())
-///     s.width(at: AS506.station(1000), viewedFrom: 0)            // 396 in, in m
+///     s.diameter(at: AS506.station(1000), azimuth: .pi / 4)      // the S-IC's skin: 396 in, in m
+///     s.width(at: AS506.station(1000), viewedFrom: 0)            // the outline's span seen from Position I
 ///     s.radius(over: AS506.station(81)...AS506.station(137), azimuth: .pi / 4)   // fin A's tip
 ///     s.reach(at: AS506.height(73.4), azimuth: 0)                // the APS module at Position I
 struct Silhouette {
@@ -143,6 +154,18 @@ struct Silhouette {
     /// The farthest surface point on the half-plane at θ, at station `x`;
     /// see `Section.reach`.
     func reach(at x: Double, azimuth: Double) -> Double? { section(at: x).reach(azimuth: azimuth) }
+
+    /// The skin's diameter at station `x` along the line through the axis
+    /// at θ: `reach` at θ plus `reach` at θ + π, so that what stands off
+    /// the line does not count (as it counts in `width`); nil if either ray
+    /// meets nothing.
+    func diameter(at x: Double, azimuth: Double) -> Double? {
+        let cut = section(at: x)
+        guard let near = cut.reach(azimuth: azimuth), let far = cut.reach(azimuth: azimuth + Double.pi) else {
+            return nil
+        }
+        return near + far
+    }
 
     /// The largest `radius` towards θ over the stations `xs` (m): exact,
     /// from the triangles clipped to the band.

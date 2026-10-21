@@ -38,21 +38,14 @@ struct RGBImage: Equatable {
         }
     }
 
-    /// `images` side by side, tops aligned, `gap` pixels of `fill` between
-    /// and round them: a contact sheet.
-    static func row(_ images: [RGBImage], gap: Int = 8, fill: (UInt8, UInt8, UInt8)) -> RGBImage {
-        let width = images.reduce(gap) { $0 + $1.width + gap }
-        let height = (images.map(\.height).max() ?? 0) + 2 * gap
-        var sheet = RGBImage(width: width, height: height, fill: fill)
-        var left = gap
-        for image in images {
-            for y in 0..<image.height {
-                let from = 3 * y * image.width, to = 3 * ((y + gap) * width + left)
-                sheet.bytes.replaceSubrange(to..<(to + 3 * image.width), with: image.bytes[from..<(from + 3 * image.width)])
-            }
-            left += image.width + gap
+    /// Copies `image` in with its top-left pixel at (`x`, `y`); it must fit.
+    mutating func paste(_ image: RGBImage, at x: Int, _ y: Int) {
+        precondition(x >= 0 && y >= 0 && x + image.width <= width && y + image.height <= height,
+                     "a pasted image fits")
+        for row in 0..<image.height {
+            let from = 3 * row * image.width, to = 3 * ((y + row) * width + x)
+            bytes.replaceSubrange(to..<(to + 3 * image.width), with: image.bytes[from..<(from + 3 * image.width)])
         }
-        return sheet
     }
 }
 
