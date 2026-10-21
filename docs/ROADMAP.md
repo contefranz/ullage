@@ -131,6 +131,21 @@ The plan and its design reports are in [docs/m15/](m15/plan.md).
    on Linux and `xcodebuild build test` on the Mac; the owner has reviewed the screenshot set;
    README, ROADMAP and CLAUDE.md are updated.
 
+**Close-out** (2026-10-21, [docs/m16/plan.md](m16/plan.md) "M1.5 completion"):
+
+- Linux: OrbitCore and OrbitInstruments build and pass on Swift 6.0.2 (338 + 26 tests),
+  after three expressions were split for its type checker (#40).
+- Test gate: `scripts/test.sh` runs the same tests fast (-O, parallel, the merge gate, about
+  1.5 min) or full (Debug, serial, the milestone gate, about 33 min) (#39).
+- Time warp: debris in the air steps by its drag and climb rate (drag share 0.5, not the
+  plan's 0.02, which RK4 does not need), so 1000× holds while the SLA panels re-enter (#41).
+- Recovery target: MAP marks Apollo 7's 29.8° N 67.0° W, and ENTRY gives the range and
+  bearing to it, the predicted miss and its downrange part (#38).
+- Owner sign-off: Franz flew the app and checked the keys on a US keyboard. His one change
+  made the RCS keys pulse as in Orbiter: a tap fires 0.1 s, a hold fires on, Ctrl gives the
+  14 ms minimum impulse or a tenth of the thrust (#42). main then passed 385 tests in the
+  fast gate.
+
 **Naming contract.** The names the vehicle, the programs, the displays and the tests share:
 
 - Parts: "S-IVB", "IU", "SLA ring", "SLA panel 1"–"SLA panel 4", "LM", "SM", "CM",
@@ -139,14 +154,66 @@ The plan and its design reports are in [docs/m15/](m15/plan.md).
   separation, and 30, 31 and 32 the apex cover, the drogues and the mains.
 - Thrusters: "SPS", "SM RCS A1"…, "CM RCS 1A"….
 
-## M2 — Lunar mission profile
+## M1.6 — Graphics overhaul: the Saturn V and the CSM finished, pad to splashdown *(in progress)*
 
-- S-IVB restart and TLI, transposition, docking and extraction (docking ports)
-- LM descent and ascent stages, separation
-- Lunar gravity beyond J2 (spherical-harmonic field for mascons), LOI and DOI
-- Lunar terrain: LOLA elevation with a quadtree LOD, landing site coordinates in MOON_ME
-- Touchdown points and landing gear model for the LM
-- Lunar-return entry (constant-g guidance) and the lunar MFD displays
+The plan and its design reports are in [docs/m16/](m16/plan.md); tracks, owners and merge
+order are there.
+
+- Render foundation: an `OrbitScene` target (pure Swift, Linux) and an `OrbitRender` target
+  (macOS), a pass graph, the `orbitsnap` offscreen tool and golden images
+- Renderer: HDR in photometric units with auto exposure, a Hasselblad photo mode, AgX tone
+  mapping and bloom; physically based materials; image-based lighting with earthshine from
+  the rendered Earth; sun shadows and baked AO
+- Vehicle exteriors for AS-506 and AS-503 (with LTA-B), CSM-107, CSM-103 and CSM-101: fins,
+  fairings, tunnels, ullage and retro fairings, the F-1 and J-2 in flight configuration, the
+  LES and BPC, SM radiators, RCS quads and HGA, CM windows and Kapton; roll patterns,
+  "UNITED STATES", "USA" and flags; pad frost and entry char
+- LC-39A: the Mobile Launcher, the LUT and its swing arms, hold-down arms, the flame trench
+- Earth: Hillaire's atmosphere from the ground to space; volumetric clouds from each
+  mission's weather (ERA5); BMNG imagery by month on a cube-sphere tile store; ocean glint
+  and splashdown waves; 1968 night lights
+- Plumes and particles: exhaust physics driving ray-marched plumes per engine family; GPU
+  particles for launch, staging, the spacecraft's SPS and RCS, entry and recovery
+- Frame pacing and quality tiers
+
+**Definition of done**
+
+1. Every shot in `docs/look/shots/m16-*.json` renders through `orbitsnap` in Release at High,
+   and the owner has signed off the contact sheet, each shot beside its NASA photograph.
+2. The M1.5 AS-506 pad-to-splashdown flight still passes in the app at High; every staging
+   burst is spawned at 1×, 10×, 100× and 1000×.
+3. Performance: every pass within its budget; 60 fps at 1× at native resolution on the M3
+   Pro; 1000× in coast within 10% of M1.
+4. No regressions: §17 bit-identical, the Apollo 7 chain green, `swift test` green on Linux
+   (with OrbitScene's tests) and `xcodebuild build test` on the Mac (with OrbitRenderTests).
+5. README, ROADMAP, CLAUDE.md, THIRD_PARTY_NOTICES.md and `docs/look` updated.
+
+## M2 — Apollo 8: the Saturn V and the CSM to lunar orbit and back
+
+- AS-503 with LTA-B on its launch day; S-IVB restart and TLI (TB6/TB7, TLI inhibit,
+  parking-orbit venting); CSM separation and the S-IVB slingshot
+- A cislunar propagator and RTCC-style planners on a TRANSFER MFD; the GRGM900C lunar
+  gravity field
+- CSM-103 with the SPS series feed and passive thermal control; LOI-1 and LOI-2, ten lunar
+  orbits with LOS/AOS, TEI
+- The CMC's entry guidance (P63-P67) with constant-g as the backup; the lunar MAP and the
+  lunar-return ENTRY display
+- Graphics: the Moon (LOLA terrain on the tile store, LROC albedo, lunar-Lambert photometry,
+  horizon shadows, earthshine), window views and Earthrise, the S-IVB LOX dump and vents,
+  lunar-return plasma
+
+**Definition of done**: Apollo 8 flown from the pad to splashdown with only the HUD and MFDs,
+landing within a few n mi of 8.13° N 165.02° W; its reference chain in `swift test`; Earthrise
+at GET 075:48:39 matching AS08-14-2383; Apollo 7 flown by the CMC's guidance landing within
+about 10 n mi, which retires M1.5's accepted deviation; no regressions; docs updated.
+
+## M2.5 — The Lunar Module (Apollo 9-11)
+
+- Transposition, docking and extraction, with docking ports
+- The LM's descent and ascent stages and their visuals; DOI and PDI
+- Rendezvous, with ALIGN, SYNC and DOCKING MFDs
+- Landing-site terrain detail (LDEM at 59 m, sites in MOON_ME), touchdown and landing gear
+- Apollo 9, 10 and 11
 
 ## M3 — Apollo procedural realism
 
@@ -175,7 +242,9 @@ The plan and its design reports are in [docs/m15/](m15/plan.md).
 
 ## Engine and tooling (as needed)
 
-- Cockpit/virtual cockpit views
-- Real 3-D meshes (glTF/USDZ import)
 - Scenario save/load
 - Sound
+- A simulation thread, for 60 fps at full warp throughput
+
+(Cockpit and window views moved into M2. Imported 3-D meshes are dropped: the vehicles are
+procedural by construction.)
