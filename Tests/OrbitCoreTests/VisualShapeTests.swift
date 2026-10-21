@@ -301,13 +301,17 @@ final class VisualShapeTests: XCTestCase {
         XCTAssertEqual(mesh / solid, 48 / (2 * Double.pi) * sin(2 * Double.pi / 48), accuracy: 1e-9)
 
         // The Saturn V within the base, the LES tip and the 33 ft body, but
-        // for the outboard F-1 bells, which stand out under their fairings.
+        // for the outboard F-1 bells, which stand out under their fairings,
+        // and the S-II's tunnel, fairings and antennas, which stand on its
+        // skin (UpperStagesExteriorTests).
         let stack = VesselLibrary.saturnV()
         let tip = AS506.station(AS506.baseStation) + AS506.overallHeight * 0.3048
         let f1Reach = AS506.f1OutboardRadius * inch + (AS506.f1ExitArea / Double.pi).squareRoot()
+        let sIIReach = (396.0 / 2 + ApolloShapeData.sIIFeedFairingDepth) * inch
         for p in stack.parts {
             for s in p.shapes {
-                let limit = p.name == "S-IC" && s.thruster != nil ? f1Reach : 396.0 / 2 * inch
+                let body = p.name == "S-II" ? sIIReach : 396.0 / 2 * inch
+                let limit = p.name == "S-IC" && s.thruster != nil ? f1Reach : body
                 for vertex in triangles(s, on: p, of: stack) {
                     let c = vertex.position
                     XCTAssertGreaterThanOrEqual(c.x, AS506.station(AS506.baseStation) - 1e-9, p.name)
@@ -343,7 +347,8 @@ final class VisualShapeTests: XCTestCase {
     // ring's plane at STA 1760; the S-II retros on the aft interstage with
     // the S-II/S-IVB plane at STA 2746.5; the S-IVB's two ullage exits. Each
     // port names its motor and points along its exhaust; they stay where
-    // they were on the stack once their part has left.
+    // they were on the stack once their part has left. The upper stages'
+    // ports are at their nozzles' exits (UpperStagesExteriorTests).
     func testAttachments() throws {
         let stack = VesselLibrary.saturnV()
         func attachments(_ name: String) -> [VisualAttachment] { stack.parts.first { $0.name == name }!.attachments }
@@ -365,6 +370,7 @@ final class VisualShapeTests: XCTestCase {
                 } else {
                     let motor = try XCTUnwrap(part.thrusters.first { $0.name == a.thruster }, a.name)
                     XCTAssertTrue(motor.isSolid)
+                    guard !["S-II/S-IVB interstage", "S-IVB ullage rockets"].contains(name) else { continue }
                     XCTAssertEqual(a.position, motor.position)
                     XCTAssertEqual((a.direction + motor.direction).length, 0, accuracy: 1e-12)
                 }
