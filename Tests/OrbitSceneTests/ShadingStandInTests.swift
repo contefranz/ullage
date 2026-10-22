@@ -31,14 +31,6 @@ final class ShadingStandInTests: XCTestCase {
         return x.extract(sim: sim, camera: camera, viewport: Self.viewport, realTime: 0)
     }
 
-    /// The 1948 candela: a blackbody at the freezing point of platinum,
-    /// 2041.4 K (IPTS-68), has a luminance of 60 cd/cm², 6.0e5 cd/m².
-    func testBlackbodyLuminanceAtThePlatinumPoint() {
-        XCTAssertEqual(PlumeLights.blackbodyLuminance(2_041.4), 6.0e5, accuracy: 0.03 * 6.0e5)
-        XCTAssertGreaterThan(PlumeLights.blackbodyLuminance(3_000), 10 * PlumeLights.blackbodyLuminance(2_000))
-        XCTAssertEqual(PlumeLights.blackbodyLuminance(0), 0)
-    }
-
     /// AS-506 at first motion: one light per F-1, along the exhaust from
     /// its exit, afterburning in air (2,300 K), of the order of 10⁸ cd each
     /// (a sooty column of 1.8 m radius and 36 m glowing at about 1e6
@@ -78,16 +70,17 @@ final class ShadingStandInTests: XCTestCase {
     /// A J-2 in vacuum (hydrogen, nearly invisible) lights far less than an
     /// F-1 at sea level; cold gas not at all.
     func testHydrogenPlumeIsFaint() {
-        let f1 = PlumeLights.emissivity(.keroseneLOX, sootIndex: 1) * PlumeLights.blackbodyLuminance(2_300)
-        let j2 = PlumeLights.emissivity(.hydrogenLOX, sootIndex: 0) * PlumeLights.blackbodyLuminance(1_300)
+        let f1 = PlumeLights.emissivity(.keroseneLOX, sootIndex: 1) * Photometry.blackbody(2_300).luminance
+        let j2 = PlumeLights.emissivity(.hydrogenLOX, sootIndex: 0) * Photometry.blackbody(1_300).luminance
         XCTAssertGreaterThan(f1, 100 * j2)
         XCTAssertEqual(PlumeLights.emissivity(.coldGas, sootIndex: 0), 0)
     }
 
     /// The vessel stand-in is M1.5's lighting in lux: the Earth disc's
     /// radiance times the sphere's view factor gives M1.5's
-    /// albedo (R/r)² × lit × cos θ × E⊙, and sky and floor are M1.5's
-    /// relative terms times E⊙.
+    /// albedo (R/r)² × lit × cos θ × E⊙, and the sky is M1.5's term times
+    /// E⊙. The night floor stays relative to the exposure: 0.02 of its
+    /// white on a white surface, whatever the exposure.
     func testVesselStandInIsTheLegacyLightInLux() throws {
         let s = try scene("as506-parking-orbit")
         let v = try XCTUnwrap(s.vessels.first)
@@ -108,7 +101,11 @@ final class ShadingStandInTests: XCTestCase {
                 XCTAssertGreaterThanOrEqual(fromDisc, legacy * (1 - 1e-6))
             }
         }
-        XCTAssertEqual(l.floor, e * Double(LegacyLighting.ambientFloor), accuracy: 1e-9 * e)
+        XCTAssertEqual(l.floor, 0.02, accuracy: 1e-9)
+        for p in [1e-5, 2.54e-5, 1e-3] {
+            let shown = BRDF.lambert(albedo: 1) * StandInLighting.floorIlluminance(l.floor, preExposure: p) * p
+            XCTAssertEqual(shown, 0.02, accuracy: 1e-12)
+        }
         XCTAssertEqual(l.sky, e * v.light.sky, accuracy: 1e-9 * e)
     }
 
@@ -130,6 +127,7 @@ final class ShadingStandInTests: XCTestCase {
         let dark = StandInLighting.site(site, in: night)
         XCTAssertEqual(dark.sunlit, 0)
         XCTAssertEqual(dark.sky, 0)
+        XCTAssertEqual(dark.floor, 0.02, "the night floor stays")
         XCTAssertEqual(Double(dark.earthRadiance.g), 0)
         // A whole lower half-space: π (1 + cos θ) / 2 of its radiance.
         XCTAssertEqual(BRDF.sphereIrradiance(cosTheta: 0, sinSigma2: 1), Double.pi / 2, accuracy: 1e-6)

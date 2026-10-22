@@ -16,16 +16,15 @@ import OrbitCore
 /// - **Sky light** in air (A2's sky irradiance replaces it): M1.5's
 ///   0.25 √(ρ/ρ₀) times the Sun's share and elevation, as a uniform
 ///   irradiance in units of E⊙.
-/// - **Night floor** (R3's floor relative to the exposure replaces it):
-///   M1.5's 0.02 E⊙, uniform, so a side away from the Sun and the Earth is
-///   never black.
-/// - **Glow:** the heat shield's (`LegacyLighting.glowColor`, 1 for white
-///   paint in sunlight) times E⊙ at 1 AU / π, in cd/m², until R1's
-///   blackbody glow.
+/// - **Night floor** (R3's probe replaces it): M1.5's 0.02, now relative to
+///   the exposure (R1's rule): a uniform light that shows a surface at
+///   0.02 × its albedo of the exposure's white whatever the exposure, so a
+///   side away from the Sun and the Earth is never black, and the auto
+///   exposure does not lift the night side to day (`floorIlluminance`).
+/// - **Glow:** the heat shield's luminance (`RenderScene.Vessel.glow`, R1's
+///   grey body), strongest facing the flow.
 ///
-/// M1.5 lit with the same terms in units of the Sun (`LegacyLighting`);
-/// with the stand-in exposure (`preExposure`, EV 15) the vehicle reads as
-/// it did, until R1's exposure takes over.
+/// M1.5 lit with the same terms in units of the Sun (`LegacyLighting`).
 public struct ObjectLighting: Equatable {
     /// Unit vector to the Sun (world) and its visible share (`Eclipse`).
     public var toSun: Vec3
@@ -38,7 +37,8 @@ public struct ObjectLighting: Equatable {
     public var earthRadiance: RenderScene.RGB
     /// Uniform irradiance from the daylit sky, lux.
     public var sky: Double
-    /// Uniform irradiance of the night floor, lux.
+    /// The night floor: the share of the exposure's white a white surface
+    /// shows by it (`StandInLighting.floorIlluminance` makes it lux).
     public var floor: Double
     /// Emitted on heat-shield vertices, cd/m², strongest facing the flow.
     public var glow: RenderScene.RGB
@@ -61,23 +61,21 @@ public struct ObjectLighting: Equatable {
 }
 
 public enum StandInLighting {
-    /// The exposure the vessel pass uses until R1's (FrameUniforms.exposure
-    /// still (1, 0, 1, 0)): EV100 15, "sunny 16", so sunlit white paint
-    /// (albedo 0.8) reads about 0.84.
-    public static let exposureEV100 = 15.0
-    /// 1 / (1.2 · 2^EV100) (Lagarde and de Rousiers 2014, eq. 12).
-    public static var preExposure: Double { 1 / (1.2 * pow(2, exposureEV100)) }
+    /// M1.5's night floor, relative to the exposure.
+    public static let nightFloor = 0.02
 
-    /// The heat-shield glow's scale: `LegacyLighting.glowColor` 1 is as
-    /// bright as a white Lambertian surface in sunlight at 1 AU, E⊙/π.
-    public static var glowScale: Double { Photometry.solarIlluminanceAt1AU / Double.pi }
+    /// The uniform illuminance (lux) of a night floor `floor` at
+    /// pre-exposure `preExposure`: a white Lambertian surface then shows
+    /// floor × π / P / π × P = floor of the exposure's white.
+    public static func floorIlluminance(_ floor: Double, preExposure: Double) -> Double {
+        floor * Double.pi / max(preExposure, 1e-30)
+    }
 
     /// The light around vessel `v` of `scene`.
     public static func vessel(_ v: RenderScene.Vessel, in scene: RenderScene) -> ObjectLighting {
         let e = scene.sun.illuminance, light = v.light
         var out = ObjectLighting(toSun: light.toSun, sunlit: light.sunlit,
-                                 sky: e * light.sky, floor: e * Double(LegacyLighting.ambientFloor),
-                                 glow: scaled(v.glow, glowScale),
+                                 sky: e * light.sky, floor: nightFloor, glow: v.glow,
                                  flowDirection: v.flowDirection)
         if light.earthStrength > 0 {
             // earthStrength is the body's albedo × min(1, (R/r)²).
@@ -108,7 +106,7 @@ public enum StandInLighting {
         let sky = LegacyLighting.skylight * t * t * (3 - 2 * t) * sunlit
         return ObjectLighting(toSun: toSun, sunlit: sunlit, earthDirection: -up, earthSinSigma2: 1,
                               earthRadiance: scaled(reflect.color, e * reflect.albedo * lit / Double.pi),
-                              sky: e * sky, floor: e * Double(LegacyLighting.ambientFloor))
+                              sky: e * sky, floor: nightFloor)
     }
 
     /// `LegacyLighting.reflectance` by NAIF id.

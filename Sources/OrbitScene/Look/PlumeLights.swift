@@ -27,9 +27,10 @@ public struct PlumeLight: Equatable {
 /// - The luminous gas is a column of the exit's radius and the length the
 ///   plume model gives (`PlumeState.luminousLength`), capped at ten exit
 ///   diameters, the bright near field.
-/// - It radiates as a grey body at the exit temperature, or at the
-///   afterburning flame's 2,300 K where the fuel-rich exhaust burns in air
-///   (`PlumeState.afterburning`), with an emissivity by propellant family:
+/// - It radiates as a grey body (`Photometry.blackbody`) at the exit
+///   temperature, or at the afterburning flame's 2,300 K where the
+///   fuel-rich exhaust burns in air (`PlumeState.afterburning`), with an
+///   emissivity by propellant family:
 ///   kerosene's soot near black, alumina in solids, little from hydrogen or
 ///   hypergols, nothing from cold gas.
 /// - Its intensity broadside is that luminance times the column's
@@ -66,15 +67,16 @@ public enum PlumeLights {
                                                                   : spec.exitTemperature)
         let eps = emissivity(spec.family, sootIndex: spec.sootIndex)
         guard eps > 0 else { return nil }
-        let luminance = eps * blackbodyLuminance(temperature)
+        let body = Photometry.blackbody(temperature)
+        let luminance = eps * body.luminance
         let radius = max(e.exitRadius, spec.exitRadius)
         let length = min(max(state.luminousLength, 2 * radius), lengthCap * 2 * radius)
         let intensity = luminance * 2 * radius * length
         guard intensity > 0, intensity.isFinite else { return nil }
-        let c = chromaticity(temperature)
+        let c = body.color
         return PlumeLight(centre: e.exit + e.axis * (0.5 * length), axis: e.axis, length: length, radius: radius,
-                          intensity: RenderScene.RGB(c.r * Float(intensity), c.g * Float(intensity),
-                                                     c.b * Float(intensity)),
+                          intensity: RenderScene.RGB(Float(c.r * intensity), Float(c.g * intensity),
+                                                     Float(c.b * intensity)),
                           range: (intensity / cutoffIlluminance).squareRoot(), luminousIntensity: intensity)
     }
 
@@ -140,40 +142,5 @@ public enum PlumeLights {
         air.density = p / (287.05 * t)
         air.speedOfSound = (1.4 * 287.05 * t).squareRoot()
         return air
-    }
-
-    // MARK: Blackbody (until R1's Photometry)
-
-    /// A blackbody's luminance at `kelvin`, cd/m²: 683 lm/W times Planck's
-    /// spectral radiance weighted by the photopic curve, 360-830 nm in 1 nm
-    /// steps, the curve as Wyman, Sloan and Shirley's (2013) two-lobe fit
-    /// of ȳ. R1's `Photometry` replaces it when it lands.
-    public static func blackbodyLuminance(_ kelvin: Double) -> Double {
-        guard kelvin > 0 else { return 0 }
-        let h = 6.62607015e-34, c = 299_792_458.0, k = 1.380649e-23
-        var sum = 0.0
-        for nm in 360...830 {
-            let lambda = Double(nm) * 1e-9
-            let planck = 2 * h * c * c / pow(lambda, 5) / (exp(h * c / (lambda * k * kelvin)) - 1)
-            sum += planck * photopic(Double(nm)) * 1e-9
-        }
-        return 683 * sum
-    }
-
-    /// Wyman, Sloan and Shirley's (2013) fit of the CIE 1931 ȳ.
-    static func photopic(_ nm: Double) -> Double {
-        func g(_ x: Double, _ mu: Double, _ s1: Double, _ s2: Double) -> Double {
-            let t = (x - mu) / (x < mu ? s1 : s2)
-            return exp(-0.5 * t * t)
-        }
-        return 0.821 * g(nm, 568.8, 46.9, 40.5) + 0.286 * g(nm, 530.9, 16.3, 31.1)
-    }
-
-    /// Linear Rec. 709 of a blackbody at `kelvin` with unit luminance
-    /// (`LegacyLighting.blackbody`'s colour, rescaled), until R1's.
-    static func chromaticity(_ kelvin: Double) -> RenderScene.RGB {
-        let c = LegacyLighting.blackbody(kelvin)
-        let y = max(0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b, 1e-6)
-        return RenderScene.RGB(c.r / y, c.g / y, c.b / y)
     }
 }

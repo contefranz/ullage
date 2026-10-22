@@ -19,8 +19,8 @@ import OrbitScene
 /// - **Ambient occlusion:** R5's bakes (`AmbientOcclusionBaker`), in the
 ///   background as the app draws, or before the frame
 ///   (`ShadingSettings.waitForAmbientOcclusion`) for snapshots.
-/// - **Output:** radiance times the pre-exposure (R1's, or the stand-in's EV
-///   15 until it lands), Karis-encoded into a float scene target.
+/// - **Output:** linear radiance times the frame's pre-exposure (R1's
+///   `FrameUniforms.exposure.x`); R1's resolve weights the samples.
 @MainActor
 public final class VesselPass: RenderPass {
     public let name = "Vessels"
@@ -48,18 +48,14 @@ public final class VesselPass: RenderPass {
         dummy = s.device.makeBuffer(length: 256, options: .storageModeShared)
     }
 
-    /// Whether `format` holds HDR values (the vessel shader then Karis-encodes them).
-    static func isFloat(_ format: MTLPixelFormat) -> Bool {
-        [.rgba16Float, .rgba32Float, .rg11b10Float, .rgb9e5Float, .r16Float, .rg16Float].contains(format)
-    }
-
     static func pipeline(_ library: MTLLibrary, wire: Bool, setup s: PassSetup) throws -> MTLRenderPipelineState {
-        let constants = MTLFunctionConstantValues()
-        var hdr = isFloat(s.formats.color)
-        constants.setConstantValue(&hdr, type: .bool, index: 0)
         let d = MTLRenderPipelineDescriptor()
-        d.vertexFunction = try library.makeFunction(name: "vessel_vertex", constantValues: constants)
-        d.fragmentFunction = try library.makeFunction(name: "vessel_fragment", constantValues: constants)
+        guard let vertex = library.makeFunction(name: "vessel_vertex"),
+              let fragment = library.makeFunction(name: "vessel_fragment") else {
+            throw ShaderLibrary.Failure.missingFunction("vessel_vertex / vessel_fragment")
+        }
+        d.vertexFunction = vertex
+        d.fragmentFunction = fragment
         d.colorAttachments[0].pixelFormat = s.formats.color
         d.depthAttachmentPixelFormat = s.formats.depth
         d.rasterSampleCount = s.formats.sampleCount
@@ -120,8 +116,8 @@ public final class VesselPass: RenderPass {
         let lightCount = lights.count
         if lights.isEmpty { lights = [LocalLight()] }
         enc.setFragmentBytes(&lights, length: MemoryLayout<LocalLight>.stride * lights.count, index: 5)
-        let shading = SIMD4<Float>(Float(Self.preExposure(f.frame)), Float(lightCount),
-                                   settings.specularAntiAliasing ? 1 : 0, settings.multipleScattering ? 1 : 0)
+        let shading = SIMD4<Float>(f.frame.exposure.x, Float(lightCount), settings.specularAntiAliasing ? 1 : 0,
+                                   settings.multipleScattering ? 1 : 0)
         let draw = Drawing(encoder: enc, opaque: opaque, wire: wire, dummy: dummy,
                            wireRadius: Float(settings.wireMinimumRadius))
 
@@ -179,11 +175,6 @@ public final class VesselPass: RenderPass {
         return Float(min(max((now - entry.aoArrived) / duration, 0), 1))
     }
 
-    /// The pre-exposure: R1's, or the stand-in's until R1 sets one.
-    static func preExposure(_ frame: FrameUniforms) -> Double {
-        frame.exposure == SIMD4<Float>(1, 0, 1, 0) ? StandInLighting.preExposure : Double(frame.exposure.x)
-    }
-
     /// The plume lights: P2's, when it writes them into the lighting
     /// uniforms, else `PlumeLights` from the scene's emitters.
     static func localLights(_ f: FrameContext, maximum: Int) -> [LocalLight] {
@@ -203,14 +194,17 @@ public final class VesselPass: RenderPass {
         }
     }
 
+    /// The pass's per-object uniforms. The night floor becomes lux at this
+    /// frame's exposure (`ObjectLighting.floor`).
     static func object(_ l: ObjectLighting, scene: RenderScene, settings: ShadingSettings,
                        shading: SIMD4<Float>) -> VesselObjectGPU {
         let rho = scene.sun.angularRadius
+        let floor = Float(StandInLighting.floorIlluminance(l.floor, preExposure: Double(shading.x)))
         return VesselObjectGPU(sun: SIMD4(l.toSun, Float(l.sunlit)),
                                sunDisc: SIMD4(Float(cos(rho)), Float(sin(rho)), settings.sunDiscAreaLight ? 1 : 0, 0),
                                body: SIMD4(l.earthDirection, Float(l.earthSinSigma2)),
                                bodyRadiance: SIMD4(SIMD3(l.earthRadiance), 0),
-                               sky: SIMD4(repeating: Float(l.sky)), floor: SIMD4(repeating: Float(l.floor)),
+                               sky: SIMD4(repeating: Float(l.sky)), floor: SIMD4(repeating: floor),
                                glow: SIMD4(SIMD3(l.glow), 0), flow: SIMD4(l.flowDirection, 0), shading: shading)
     }
 

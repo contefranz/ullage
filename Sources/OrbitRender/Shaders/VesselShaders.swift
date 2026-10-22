@@ -102,13 +102,11 @@ struct VesselObject {
     float4 body;            // xyz: unit, to the reference body's centre, w: sin^2 of its angular radius
     float4 bodyRadiance;    // rgb: its lit disc's radiance (cd/m2)
     float4 sky;             // rgb: the sky's uniform irradiance (lux), stand-in until A2
-    float4 floor_;          // rgb: the night floor (lux), stand-in until R3
+    float4 floor_;          // rgb: the night floor (lux; a fixed share of the exposure), stand-in until R3
     float4 glow;            // rgb: heat-shield glow (cd/m2)
     float4 flow;            // xyz: unit velocity through the air (world)
     float4 shading;         // x: pre-exposure, y: local lights, z: 1 specular AA, w: 1 multiple scattering
 };
-
-constant bool vesselEncodesHDR [[function_constant(0)]];
 
 struct VesselOut {
     float4 position [[position]];
@@ -227,8 +225,8 @@ fragment float4 vessel_fragment(VesselOut in [[stage_in]], bool front [[front_fa
     c += orbit_environmentLight(p, ao, lighting, standIn, specularCube, irradianceCube, linear);
     c += m.emission;
 
-    float4 out = float4(orbit_exposed(c, object.shading.x), in.coverage * m.coverage);
-    return vesselEncodesHDR ? orbit_encodeHDR(out) : out;
+    // Linear light, pre-exposed: R1's resolve weights the samples.
+    return float4(orbit_exposed(c, object.shading.x), in.coverage * m.coverage);
 }
 """#
 

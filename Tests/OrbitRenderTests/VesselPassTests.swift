@@ -15,36 +15,33 @@ final class VesselPassTests: XCTestCase {
 
     func device() throws -> MTLDevice { try XCTUnwrap(RenderDevice.shared, "no Metal device") }
 
-    /// A renderer drawing into one-sample rgba16Float, as an HDR plan would.
+    /// The app's renderer (R1's HDR targets and post) at a fixed EV 15.
     func floatRenderer() throws -> SceneRenderer {
-        try SceneRenderer(device: try device(), outputFormat: .rgba16Float,
-                          passes: SceneRenderer.defaultPasses(loadsUserTextures: false),
-                          plan: DirectTargetPlan(colorFormat: .rgba16Float, sampleCount: 1))
+        let r = try SceneRenderer(device: try device(), loadsUserTextures: false)
+        r.settings = Self.manual(RenderSettings())
+        return r
     }
 
-    /// Renders `scene` into a float target and returns its decoded linear
-    /// values (the vessel shader's Karis encoding undone), rgba per pixel.
+    /// `s` at a fixed exposure, EV 15.
+    static func manual(_ s: RenderSettings) -> RenderSettings {
+        var s = s
+        s.post.exposure.mode = .manual
+        s.post.exposure.ev100 = 15
+        return s
+    }
+
+    /// Renders `scene` and returns its light before the tone map, cd/m² in
+    /// linear Rec. 709, rgba per pixel (R1's capture).
     func renderFloat(_ scene: RenderScene, renderer r: SceneRenderer) throws -> [Float] {
         let w = Int(scene.camera.viewport.width), h = Int(scene.camera.viewport.height)
-        let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba16Float, width: w, height: h, mipmapped: false)
-        d.usage = [.renderTarget, .shaderRead]
-        d.storageMode = .shared
-        let t = try XCTUnwrap(r.device.makeTexture(descriptor: d))
-        r.render(scene, to: t)?.waitUntilCompleted()
-        var raw = [Float16](repeating: 0, count: 4 * w * h)
-        raw.withUnsafeMutableBytes {
-            t.getBytes($0.baseAddress!, bytesPerRow: 8 * w, from: MTLRegionMake2D(0, 0, w, h), mipmapLevel: 0)
-        }
-        var out = [Float](repeating: 0, count: raw.count)
-        for i in stride(from: 0, to: raw.count, by: 4) {
-            let c = (Float(raw[i]), Float(raw[i + 1]), Float(raw[i + 2]))
-            let k = 1 / max(1 - max(c.0, max(c.1, c.2)), 1e-4)
-            out[i] = c.0 * k
-            out[i + 1] = c.1 * k
-            out[i + 2] = c.2 * k
-            out[i + 3] = Float(raw[i + 3])
-        }
-        return out
+        let target = try XCTUnwrap(OffscreenTarget(device: r.device, width: w, height: h))
+        let post = try XCTUnwrap(r.post, "R1's post pass")
+        post.capturesLight = true
+        r.renderAndWait(scene, into: target)
+        let c = try XCTUnwrap(post.capturedLight())
+        XCTAssertEqual([c.width, c.height], [w, h])
+        let k = Float(1 / post.control.preExposure)
+        return c.pixels.enumerated().map { $0.offset % 4 == 3 ? $0.element : $0.element * k }
     }
 
     /// A plate 10 m square facing the camera 10 m away, in `material`.
@@ -97,7 +94,7 @@ final class VesselPassTests: XCTestCase {
             scene.vessels[0].light.toSun = toSun
             let pixels = try renderFloat(scene, renderer: r)
             let centre = 4 * (32 * 64 + 32)
-            let gpu = Double(pixels[centre]) / StandInLighting.preExposure
+            let gpu = Double(pixels[centre])
             // The reference at the pixel's centre.
             let e = MaterialDefaults.entry(for: material)
             let p = Vec3(0, 10, 0) + Vec3(0.5, 0, -0.5) * (2 * 10 * tan(10 * Double.pi / 180) / 64)
@@ -105,12 +102,14 @@ final class VesselPassTests: XCTestCase {
             let point = ShadingReference.point(albedo: colour.0, metalness: e.metalness, roughness: e.roughness,
                                                reflectance: e.reflectance, n: n, v: v)
             let light = StandInLighting.vessel(scene.vessels[0], in: scene)
-            let expected = ShadingReference.sun(point, toSun: toSun, rho: scene.sun.angularRadius,
-                                                e: scene.sun.illuminance)
+            // R1 colours the Sun (5772 K, luminance 1): red is this much of the lux.
+            let sunRed = scene.sun.illuminance * Photometry.sunColor.r
+            let floor = StandInLighting.floorIlluminance(light.floor, preExposure: Exposure.exposure(ev100: 15))
+            let expected = ShadingReference.sun(point, toSun: toSun, rho: scene.sun.angularRadius, e: sunRed)
                 + ShadingReference.environment(point, bodyDirection: light.earthDirection,
                                                bodySinSigma2: light.earthSinSigma2,
                                                bodyRadiance: Double(light.earthRadiance.r),
-                                               uniform: light.sky + light.floor)
+                                               uniform: light.sky + floor)
             XCTAssertEqual(gpu, expected, accuracy: 0.01 * expected, "\(material), Sun \(toSun)")
         }
     }
@@ -152,7 +151,7 @@ final class VesselPassTests: XCTestCase {
         entry.aoNow = device.makeBuffer(bytes: codes, length: 12, options: .storageModeShared)
         entry.aoBake = AOBakeID(signature: scene.vessels[0].geometry.signature, settings: AmbientOcclusionSettings())
         entry.aoArrived = -Double.infinity
-        var settings = RenderSettings()
+        var settings = Self.manual(RenderSettings())
         settings.ambientOcclusion.enabled = true
         r.settings = settings
         let occluded = try renderFloat(scene, renderer: r)
@@ -211,7 +210,7 @@ final class VesselPassTests: XCTestCase {
         let scene = LookDevScenes.scene(vessel, at: Vec3(0, 100, 0), attitude: .identity, fovY: 20, width: 320,
                                         height: 200)
         func columns(_ wire: Double) throws -> (covered: Int, ink: Double) {
-            var s = RenderSettings()
+            var s = Self.manual(RenderSettings())
             s.shading.wireMinimumRadius = wire
             r.settings = s
             let target = try XCTUnwrap(OffscreenTarget(device: r.device, width: 320, height: 200))
@@ -248,6 +247,7 @@ final class VesselPassTests: XCTestCase {
         let (w, h) = (640, 400)
         let viewport = RenderScene.Viewport(width: Double(w), height: Double(h))
         let r = try SceneRenderer(device: try device(), loadsUserTextures: false)
+        r.settings = Self.manual(RenderSettings())
         let target = try XCTUnwrap(OffscreenTarget(device: r.device, width: w, height: h))
         let bare = SceneExtractor()
         r.renderAndWait(bare.extract(sim: sim, camera: camera, viewport: viewport, realTime: 0), into: target)
@@ -260,8 +260,9 @@ final class VesselPassTests: XCTestCase {
         let with = target.bytes()
         XCTAssertEqual(r.failures, [:])
         if let dir = ProcessInfo.processInfo.environment["ORBITSIM_LOOKDEV_DIR"] {
-            try ImageFiles.writePNG(with, width: w, height: h, order: .bgra,
-                                    to: URL(fileURLWithPath: dir).appendingPathComponent("r2-pad-site.png"))
+            let url = URL(fileURLWithPath: dir)
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+            try ImageFiles.writePNG(with, width: w, height: h, order: .bgra, to: url.appendingPathComponent("r2-pad-site.png"))
         }
         var changed = 0
         for i in stride(from: 0, to: with.count, by: 4) {
@@ -292,11 +293,11 @@ final class VesselPassTests: XCTestCase {
         let scene = SceneExtractor().extract(sim: sim, camera: camera,
                                              viewport: RenderScene.Viewport(width: 96, height: 160), realTime: 0)
         XCTAssertEqual(scene.emitters.count, 5)
-        var none = RenderSettings()
+        var none = Self.manual(RenderSettings())
         none.shading.plumeLights = 0
         r.settings = none
         let dark = try renderFloat(scene, renderer: r)
-        r.settings = RenderSettings()
+        r.settings = Self.manual(RenderSettings())
         let lit = try renderFloat(scene, renderer: r)
         var gain = 0.0
         for i in stride(from: 0, to: lit.count, by: 4) where lit[i + 1] > dark[i + 1] {

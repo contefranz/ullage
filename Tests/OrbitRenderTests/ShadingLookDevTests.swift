@@ -17,10 +17,13 @@ final class ShadingLookDevTests: XCTestCase {
     static let goldens = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Goldens")
 
     /// Ambient occlusion baked before the frame, as the app bakes it (its
-    /// rays are seeded: one result in every build).
+    /// rays are seeded: one result in every build), and a fixed exposure,
+    /// EV 15 ("sunny 16"), through R1's default tone curve.
     static var settings: RenderSettings {
         var s = RenderSettings()
         s.shading.waitForAmbientOcclusion = true
+        s.post.exposure.mode = .manual
+        s.post.exposure.ev100 = 15
         return s
     }
 

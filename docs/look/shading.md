@@ -11,16 +11,15 @@ what the tracks that come after R2 plug into. The code is the reference:
 ## Units and output
 
 - Light is photometric: illuminance in lux, luminance in cd/m², linear Rec. 709.
-- The Sun is `FrameUniforms.sunIlluminance` (lux), or A2's
-  `AtmosphereUniforms.sunTransmitted.rgb` when there is air (`radii.w` 1 and
-  `sunTransmitted.w` > 0). Its disc is an area light for the specular lobe.
-- A fragment's radiance times the pre-exposure (`FrameUniforms.exposure.x`,
-  R1's), clamped to 6e4 and NaN-guarded (`orbit_exposed`), is the output. The
-  vessel pipeline Karis-encodes it (`orbit_encodeHDR`) when the scene target
-  is a float format (function constant 0, set from `PassSetup.formats.color`).
-- **Until R1:** with `exposure` still (1, 0, 1, 0) the pass uses a stand-in
-  pre-exposure of EV 15 (`StandInLighting.preExposure`), so sunlit white
-  paint reads about 0.84 in today's LDR target.
+- The Sun is `FrameUniforms.sunIlluminance` (lux, coloured as R1's 5772 K
+  blackbody), or A2's `AtmosphereUniforms.sunTransmitted.rgb` when there is
+  air (`radii.w` 1 and `sunTransmitted.w` > 0). Its disc is an area light for
+  the specular lobe; R1's StarPass draws the disc itself.
+- The vessel shader writes linear radiance times the frame's pre-exposure
+  (`FrameUniforms.exposure.x`, R1's, valid from P0 on), clamped to 6e4 and
+  NaN-guarded (`orbit_exposed`), and blends linearly. It does not encode:
+  R1's `HDRResolvePass` weights every sample at the end of P3
+  (docs/look/units-and-exposure.md).
 
 ## The BRDF
 
@@ -125,10 +124,13 @@ VM1 evaluates per fragment.
   the reference body as a disc of its lit mean radiance (diffuse through the
   sphere's view factor with its horizon, specular where the reflection meets
   it, blurred with roughness), plus a uniform sky (A2's
-  `skyIrradiance.rgb` in air, else M1.5's sky term) and M1.5's night floor
-  (0.02 E⊙). Baked AO and Lagarde's specular occlusion weight it.
-- **Glow:** the heat shield's (`LegacyLighting.glowColor` × E⊙/π), strongest
-  facing the flow, until R1's blackbody glow.
+  `skyIrradiance.rgb` in air, else M1.5's sky term) and M1.5's night floor,
+  relative to the exposure: lux of 0.02 π / P, so a white surface shows 0.02
+  of the exposure's white whatever the exposure (R1's rule: scaled with the
+  Sun, the auto exposure would lift the night side to day). Baked AO and
+  Lagarde's specular occlusion weight it.
+- **Glow:** the heat shield's luminance (`RenderScene.Vessel.glow`, R1's
+  grey body at radiative equilibrium), strongest facing the flow.
 
 ## Sites (LC)
 
