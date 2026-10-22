@@ -109,15 +109,14 @@ public enum EffectTestScene {
         public var color: Vec3
     }
 
-    /// The slab's optical depth straight through its thickness, whatever
-    /// its size, and its single-scattering albedo (a cloud's).
-    public static let slabOpticalDepth = 1.0
+    /// The slab's single-scattering albedo (a cloud's). Its optical depth
+    /// through its thickness is the emitter's, whatever its size.
     public static let slabAlbedo = 0.9
 
     public static func slab(_ e: EffectTestEmitter, in frame: EffectTargetFrame) -> Slab {
         let thickness = 0.2 * max(e.size, 1e-3)
         return Slab(center: frame.point(e.position), axes: (frame.east, frame.north, frame.up),
-                    halfExtents: Vec3(e.size, e.size, thickness / 2), extinction: slabOpticalDepth / thickness,
+                    halfExtents: Vec3(e.size, e.size, thickness / 2), extinction: e.opticalDepth / thickness,
                     albedo: slabAlbedo)
     }
 

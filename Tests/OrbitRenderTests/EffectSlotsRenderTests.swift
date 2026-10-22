@@ -222,40 +222,54 @@ final class EffectSlotsRenderTests: XCTestCase {
 
     /// The slab reports its front where it becomes visible, as
     /// `EffectSlots.homogeneousFront` puts it for its source radiance (its
-    /// colour over its coverage, here read back), to the code's precision.
+    /// colour over its coverage, here read back), to the code's precision:
+    /// a dense slab, and an optically thin, bright one, whose radiance
+    /// brings its front well before its coverage would (or gives it one
+    /// where its coverage never reaches 2 %).
     func testSlabReportsItsFront() throws {
-        let f = try render(Self.shot([Self.slab]))
-        let fronts = try XCTUnwrap(f.capture.values(.halfResFronts))
-        let clouds = try XCTUnwrap(f.capture.values(.halfResClouds))
-        let slab = EffectTestScene.slab(Self.slab, in: EffectTargetFrame(scene: f.scene))
-        let cam = f.scene.camera, t = tan(cam.fovY / 2)
-        var checked = 0
-        for (x, y) in [(40, 30), (25, 40), (60, 45), (10, 48), (70, 35)] {
-            // The texel's centre ray, z = -1 in view axes: s along it is s metres deep.
-            let px = (Double(x) + 0.5) * 2, py = (Double(y) + 0.5) * 2
-            let view = Vec3((2 * px / 160 - 1) * t * cam.aspect, (1 - 2 * py / 100) * t, -1)
-            let dir = cam.worldToView.transposed * view
-            var enter = 0.0, exit = Double.infinity
-            for (axis, h) in [(slab.axes.east, slab.halfExtents.x), (slab.axes.north, slab.halfExtents.y),
-                              (slab.axes.up, slab.halfExtents.z)] {
-                let o = (-slab.center).dot(axis), d = dir.dot(axis)
-                let t0 = (-h - o) / d, t1 = (h - o) / d
-                enter = max(enter, min(t0, t1))
-                exit = min(exit, max(t0, t1))
+        var movedByRadiance = 0
+        for emitter in [Self.slab, EffectTestEmitter(.slab, size: 70, opticalDepth: 0.05)] {
+            let f = try render(Self.shot([emitter]))
+            let fronts = try XCTUnwrap(f.capture.values(.halfResFronts))
+            let clouds = try XCTUnwrap(f.capture.values(.halfResClouds))
+            let slab = EffectTestScene.slab(emitter, in: EffectTargetFrame(scene: f.scene))
+            let cam = f.scene.camera, t = tan(cam.fovY / 2)
+            var checked = 0
+            for y in stride(from: 3, to: fronts.height, by: 6) {
+                for x in stride(from: 3, to: fronts.width, by: 6) {
+                    // The texel's centre ray, z = -1 in view axes: s along it is s metres deep.
+                    let px = (Double(x) + 0.5) * 2, py = (Double(y) + 0.5) * 2
+                    let view = Vec3((2 * px / 160 - 1) * t * cam.aspect, (1 - 2 * py / 100) * t, -1)
+                    let dir = cam.worldToView.transposed * view
+                    var enter = 0.0, exit = Double.infinity
+                    for (axis, h) in [(slab.axes.east, slab.halfExtents.x), (slab.axes.north, slab.halfExtents.y),
+                                      (slab.axes.up, slab.halfExtents.z)] {
+                        let o = (-slab.center).dot(axis), d = dir.dot(axis)
+                        let t0 = (-h - o) / d, t1 = (h - o) / d
+                        enter = max(enter, min(t0, t1))
+                        exit = min(exit, max(t0, t1))
+                    }
+                    let code = fronts.texels[y * fronts.width + x][0], c = clouds.texels[y * clouds.width + x]
+                    let source = c[3] > 0 ? c[0..<3].max()! / c[3] : 0
+                    let extinction = slab.extinction * dir.length
+                    // Skip texels within a quarter texel of the slab's edge, where its ray barely enters.
+                    guard exit > enter + 1, let front = EffectSlots.homogeneousFront(entry: enter, exit: exit,
+                                                                                     extinction: extinction,
+                                                                                     source: source)
+                    else {
+                        if exit <= enter { XCTAssertEqual(code, EffectSlots.noFront, "\(x), \(y): no front") }
+                        continue
+                    }
+                    checked += 1
+                    XCTAssertEqual(EffectSlots.linearDepth(frontCode: code) / front, 1, accuracy: 0.004,
+                                   "\(emitter.opticalDepth): \(x), \(y)")
+                    let byCoverage = EffectSlots.homogeneousFront(entry: enter, exit: exit, extinction: extinction)
+                    if byCoverage.map({ $0 / front - 1 > 0.015 }) ?? true { movedByRadiance += 1 }
+                }
             }
-            let code = fronts.texels[y * fronts.width + x][0], c = clouds.texels[y * clouds.width + x]
-            let source = c[3] > 0 ? c[0..<3].max()! / c[3] : 0
-            guard exit > enter, let front = EffectSlots.homogeneousFront(entry: enter, exit: exit,
-                                                                         extinction: slab.extinction * dir.length,
-                                                                         source: source)
-            else {
-                XCTAssertEqual(code, EffectSlots.noFront, "\(x), \(y): no front")
-                continue
-            }
-            checked += 1
-            XCTAssertEqual(EffectSlots.linearDepth(frontCode: code) / front, 1, accuracy: 0.004, "\(x), \(y)")
+            XCTAssertGreaterThanOrEqual(checked, 20, "optical depth \(emitter.opticalDepth)")
         }
-        XCTAssertGreaterThanOrEqual(checked, 3)
+        XCTAssertGreaterThanOrEqual(movedByRadiance, 10, "the radiance brings fronts forward by over 1.5 %")
     }
 
     /// A bright, optically thin volume in front of a dense one: the cone's

@@ -74,17 +74,21 @@ public struct EffectTestEmitter: Codable, Equatable {
     public var axis = [0.0, 0.0, -1.0]
     /// How many sprites or sparks.
     public var count = 12
+    /// The slab's optical depth straight through its thickness: 1, a
+    /// cloud's, unless an optically thin one is wanted.
+    public var opticalDepth = 1.0
 
     public init(_ kind: Kind, position: [Double] = [0, 0, 0], size: Double = 50, axis: [Double] = [0, 0, -1],
-                count: Int = 12) {
+                count: Int = 12, opticalDepth: Double = 1) {
         self.kind = kind
         self.position = position
         self.size = size
         self.axis = axis
         self.count = count
+        self.opticalDepth = opticalDepth
     }
 
-    private enum CodingKeys: String, CodingKey { case kind, position, size, axis, count }
+    private enum CodingKeys: String, CodingKey { case kind, position, size, axis, count, opticalDepth }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -93,5 +97,6 @@ public struct EffectTestEmitter: Codable, Equatable {
         size = try c.decodeIfPresent(Double.self, forKey: .size) ?? 50
         axis = try c.decodeIfPresent([Double].self, forKey: .axis) ?? [0, 0, -1]
         count = try c.decodeIfPresent(Int.self, forKey: .count) ?? 12
+        opticalDepth = try c.decodeIfPresent(Double.self, forKey: .opticalDepth) ?? 1
     }
 }

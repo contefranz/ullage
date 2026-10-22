@@ -305,7 +305,9 @@ final class EffectSlotsTests: XCTestCase {
             XCTAssertLessThanOrEqual(acos(d.x) * 180 / Double.pi, 25.0001)
         }
         let slab = EffectTestScene.slab(EffectTestEmitter(.slab, size: 50), in: frame)
-        XCTAssertEqual(slab.extinction * 2 * slab.halfExtents.z, EffectTestScene.slabOpticalDepth, accuracy: 1e-12)
+        XCTAssertEqual(slab.extinction * 2 * slab.halfExtents.z, 1, accuracy: 1e-12)
+        let thin = EffectTestScene.slab(EffectTestEmitter(.slab, size: 50, opticalDepth: 0.05), in: frame)
+        XCTAssertEqual(thin.extinction * 2 * thin.halfExtents.z, 0.05, accuracy: 1e-12)
     }
 
     /// x rounded to the nearest half (binary16), for the front code's precision.
