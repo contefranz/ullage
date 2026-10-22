@@ -69,6 +69,46 @@ final class SceneExtractorTests: XCTestCase {
         XCTAssertEqual(v.farPointStyle, .kerosene)
     }
 
+    /// The S-II retros and the S-IVB's TX-280s are drawn off the physics'
+    /// thrust points (VG2: the retros' nozzles under their fairings' caps,
+    /// the TX-280s on fairings 17.5° round from the fin lines): each motor's
+    /// plume starts at its port, the drawn nozzle's exit, which the dresser
+    /// links to it, not at its thrust point. The TX-280s' plumes keep the
+    /// physics' exhaust, 10° off their nozzles' (a follow-up for the plume
+    /// code, which does not read the ports).
+    func testSolidMotorPlumesStartAtTheirPorts() throws {
+        let stack = VesselLibrary.saturnV()
+        let geometry = VesselGeometry(of: stack)
+        var ports: [String: (exit: Vec3, direction: Vec3, radius: Double)] = [:]
+        for part in stack.parts where ["S-II/S-IVB interstage", "S-IVB ullage rockets"].contains(part.name) {
+            for port in part.attachments {
+                guard let name = port.thruster else { continue }
+                let t = try XCTUnwrap(part.thrusters.first { $0.name == name })
+                let exit = port.position + part.offset - stack.structureOrigin
+                ports[name] = (exit, port.direction, port.radius)
+                let nozzle = try XCTUnwrap(geometry.nozzles[ObjectIdentifier(t)], name)
+                XCTAssertEqual((nozzle.exit - exit).length, 0, accuracy: 1e-9, name)
+                XCTAssertEqual(nozzle.radius, port.radius, accuracy: 1e-12, name)
+                XCTAssertGreaterThan((t.position + part.offset - stack.structureOrigin - exit).length, 0.5, name)
+                if name.hasPrefix("S-IVB ullage") { XCTAssertTrue(t.ignite(), name) }
+            }
+        }
+        XCTAssertEqual(ports.count, 4 + 2)
+        let lit = SceneExtractor.emitters(of: stack, geometry: geometry, at: .zero).filter {
+            $0.name.hasPrefix("S-IVB ullage")
+        }
+        XCTAssertEqual(lit.count, 2)
+        for e in lit {
+            let port = try XCTUnwrap(ports[e.name])
+            XCTAssertEqual((e.exit - stack.attitude.rotate(stack.structureOrigin + port.exit)).length, 0,
+                           accuracy: 1e-9, e.name)
+            XCTAssertEqual(e.exitRadius, port.radius, accuracy: 1e-12)
+            XCTAssertTrue(e.isSolid)
+            let off = acos(max(-1, min(1, e.axis.dot(stack.attitude.rotate(port.direction)))))
+            XCTAssertEqual(off * 180 / Double.pi, 10, accuracy: 0.1, e.name)
+        }
+    }
+
     /// The scene's clock: a reset on the first scene and on a change of
     /// warp, none while time runs on.
     func testClockAndTemporalReset() throws {

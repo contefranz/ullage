@@ -117,8 +117,10 @@ final class VisualShapeTests: XCTestCase {
 
     // Every nozzle link names a thruster of its part; every main engine of
     // the Saturn V has one bell (the SPS among them), but the F-1s, drawn in
-    // their parts (SICExteriorTests), and each SM RCS jet its nozzle, as the
-    // stand-in SM's SPS and RCS jets.
+    // their parts (SICExteriorTests); each SM RCS jet, S-II retro and S-IVB
+    // ullage motor its nozzle, the motors' drawn off the physics' thrust
+    // points (UpperStagesExteriorTests); as the stand-in SM's SPS and RCS
+    // jets.
     func testThrusterLinksResolve() {
         for v in vehicles() {
             for p in v.parts {
@@ -134,11 +136,13 @@ final class VisualShapeTests: XCTestCase {
             for t in p.thrusters {
                 let bells = p.shapes.filter { $0.thruster == t.name }
                 let parts = p.name == "S-IC" ? SICExteriorTests.f1Parts : 1
-                XCTAssertEqual(bells.count, t.groups.contains(.main) || t.name.hasPrefix("SM RCS") ? parts : 0, t.name)
+                let nozzled = ["SM RCS", "S-II retro", "S-IVB ullage"].contains { t.name.hasPrefix($0) }
+                XCTAssertEqual(bells.count, t.groups.contains(.main) || nozzled ? parts : 0, t.name)
                 linked += bells.count
             }
         }
-        XCTAssertEqual(linked, 5 * SICExteriorTests.f1Parts + 6 + 1 + 16)   // 5 F-1, 5 + 1 J-2, the SPS, the SM RCS
+        // 5 F-1s in their parts, 5 + 1 J-2, the SPS, the SM RCS, the S-II retros, the TX-280s.
+        XCTAssertEqual(linked, 5 * SICExteriorTests.f1Parts + 6 + 1 + 16 + 4 + 2)
         let real = stack.parts.first { $0.name == "SM" }!
         XCTAssertEqual(real.shapes.count, 1 + 1 + 4 + 16)
 
@@ -303,13 +307,15 @@ final class VisualShapeTests: XCTestCase {
 
         // The Saturn V within the base, the LES tip and the 33 ft body, but
         // for the S-IC's fins and engines and its interstage's ullage
-        // fairings (SICExteriorTests).
+        // fairings (SICExteriorTests), and the S-II's tunnel, fairings and
+        // antennas, which stand on its skin (UpperStagesExteriorTests).
         let stack = VesselLibrary.saturnV()
         let tip = AS506.station(AS506.baseStation) + AS506.overallHeight * 0.3048
+        let sIIReach = (396.0 / 2 + ApolloShapeData.sIIFeedFairingDepth) * inch
         for p in stack.parts {
             let envelope = SICExteriorTests.envelope(p.name)
             for s in p.shapes {
-                let limit = envelope?.radius ?? 396.0 / 2 * inch
+                let limit = envelope?.radius ?? (p.name == "S-II" ? sIIReach : 396.0 / 2 * inch)
                 for vertex in triangles(s, on: p, of: stack) {
                     let c = vertex.position
                     XCTAssertGreaterThanOrEqual(c.x, (envelope?.base ?? AS506.station(AS506.baseStation)) - 1e-9, p.name)
@@ -344,10 +350,14 @@ final class VisualShapeTests: XCTestCase {
     // plane at STA 1564; the interstage's four S-II ullage exits and its
     // ring's plane at STA 1760; the S-II retros on the aft interstage with
     // the S-II/S-IVB plane at STA 2746.5; the S-IVB's two ullage exits. Each
-    // port names its motor and sits on its exhaust line, downstream of its
-    // thrust point, the S-II ullage motors' turned about the vehicle's axis
-    // to their fairings, 49° round from the motors (SICExteriorTests); they
-    // stay where they were on the stack once their part has left.
+    // port names its motor and points along its exhaust, turned about the
+    // vehicle's axis with its fairing where that stands off the motor: the
+    // S-II ullage motors' 49° round (SICExteriorTests), the TX-280s' 17.5°
+    // back (UpperStagesExteriorTests). The S-IC retros' and S-II ullage
+    // motors' ports sit on that exhaust line, downstream of the thrust point
+    // turned with it; the upper stages' are at their drawn nozzles' exits,
+    // off it (UpperStagesExteriorTests). They stay where they were on the
+    // stack once their part has left.
     func testAttachments() throws {
         let stack = VesselLibrary.saturnV()
         func attachments(_ name: String) -> [VisualAttachment] { stack.parts.first { $0.name == name }!.attachments }
@@ -370,15 +380,17 @@ final class VisualShapeTests: XCTestCase {
                     let motor = try XCTUnwrap(part.thrusters.first { $0.name == a.thruster }, a.name)
                     XCTAssertTrue(motor.isSolid)
                     // In the construction frame, turned about the vehicle's axis.
-                    let angle = name == "S-IC/S-II interstage" ? 49 * Double.pi / 180 : 0
+                    let turns = ["S-IC/S-II interstage": 49.0, "S-IVB ullage rockets": -17.5]
+                    let angle = (turns[name] ?? 0) * Double.pi / 180
                     let c = cos(angle), s = sin(angle)
                     func turned(_ v: Vec3) -> Vec3 { Vec3(v.x, v.y * c - v.z * s, v.z * c + v.y * s) }
                     let offset = part.offset - stack.structureOrigin
                     let thrust = turned(motor.position + offset), exhaust = turned(-motor.direction)
+                    XCTAssertEqual((a.direction - exhaust).length, 0, accuracy: 1e-12, a.name)
+                    guard !["S-II/S-IVB interstage", "S-IVB ullage rockets"].contains(name) else { continue }
                     let run = a.position + offset - thrust, along = run.dot(a.direction)
                     XCTAssertEqual((run - a.direction * along).length, 0, accuracy: 1e-9, a.name)
                     XCTAssertGreaterThanOrEqual(along, 0, a.name)
-                    XCTAssertEqual((a.direction - exhaust).length, 0, accuracy: 1e-12)
                 }
             }
         }
