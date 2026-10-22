@@ -41,8 +41,8 @@ public final class FrameProfile: @unchecked Sendable {
 
     private let device: MTLDevice
     private let buffer: MTLCounterSampleBuffer
-    private var labels: [String] = []
-    private var kinds: [EncoderKind] = []
+    private(set) var labels: [String] = []
+    private(set) var kinds: [EncoderKind] = []
 
     /// What an encoder is, for its samples and the split overhead.
     enum EncoderKind {
@@ -73,7 +73,9 @@ public final class FrameProfile: @unchecked Sendable {
     }
 
     /// Times a render encoder; `continuation` for the split scene's encoders
-    /// after its first (`SceneTargetPlan.continuation`).
+    /// after its first (`SceneTargetPlan.continuation`). The scene's resume
+    /// after a break (`FrameContext.breaksScene`) is not one: the plain frame
+    /// pays for it too.
     func attach(_ d: MTLRenderPassDescriptor, pass: String, continuation: Bool = false) {
         guard let i = next(pass, continuation ? .sceneContinuation : .render),
               let a = d.sampleBufferAttachments[0] else { return }
