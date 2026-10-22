@@ -330,6 +330,9 @@ public final class VesselMeshCache {
     /// The cache's part entries now, for the tests.
     var partCount: Int { parts.count }
 
+    /// Waits for the subdivided meshes queued so far to be built (tests).
+    func waitForRefinement() { queue.sync {} }
+
     /// Builds the draw lists of new or changed vessels (their parts' meshes
     /// only for parts not seen before) and drops those of vessels and parts
     /// gone. Swaps in the subdivided meshes finished since.

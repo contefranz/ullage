@@ -65,7 +65,7 @@ Defined in LightingCommon; `SurfaceSample` in OrbitScene mirrors it.
 | `occlusion` | cavity occlusion of the indirect light, 1 none; the baked AO multiplies it; neither touches the Sun |
 | `emission` | cd/m², added after the lighting |
 | `anisotropy`, `tangent` | reserved; every lobe is isotropic until a track needs it |
-| `coverage` | 1 opaque |
+| `coverage` | honoured on thin-wire draws only (blended after the opaque geometry); other draws are opaque. Holes: `discard_fragment()` in the hook, at the cost of hidden-surface removal (LightingCommon has the contract) |
 
 A material evaluation never lights: it fills these and returns.
 

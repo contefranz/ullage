@@ -35,7 +35,13 @@ let lightingCommonSource = #"""
 //   emission    cd/m², added after the lighting (glow, lit windows).
 //   anisotropy  reserved, -1..1 along `tangent`: every lobe is isotropic
 //   tangent     until a track needs it.
-//   coverage    alpha to coverage (thin wires), 1 opaque.
+//   coverage    0..1, honoured only on thin-wire draws, which the vessel
+//               pass blends at their coverage after the opaque geometry
+//               (Persson's phone-wire AA). Every other draw is opaque and
+//               ignores it (R1's resolve ignores alpha too). A hook that
+//               needs a hole calls discard_fragment() itself, which costs
+//               the whole pipeline its hidden-surface removal: prefer
+//               geometry.
 // A material evaluation never lights: it gives these and returns.
 
 #define ORBIT_PI 3.14159265358979

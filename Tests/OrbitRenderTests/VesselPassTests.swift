@@ -173,6 +173,47 @@ final class VesselPassTests: XCTestCase {
         }
     }
 
+    /// Through the air, A2's way (`AtmosphereUniforms` with `radii.w` 1): the
+    /// Sun's light per channel is the transmitted colour (unitless, A1's
+    /// transmittance; here the pad's 7° Sun, (0.37, 0.18, 0.052)) times
+    /// its illuminance (w, lux), and the sky's irradiance replaces the
+    /// stand-in's. Each channel of white paint against the reference, 1 %.
+    func testSunlightThroughTheAirIsTransmittanceTimesLux() throws {
+        let atmosphere = AtmosphereInjection()
+        let device = try device()
+        let r = try SceneRenderer(device: device, outputFormat: .bgra8Unorm_srgb,
+                                  passes: SceneRenderer.defaultPasses(loadsUserTextures: false) + [atmosphere],
+                                  plan: HDRTargetPlan(outputFormat: .bgra8Unorm_srgb, sampleCount: 4))
+        r.settings = Self.manual(RenderSettings())
+        let toSun = Vec3(0, -1, 0)
+        var scene = plateScene()
+        scene.sun.direction = toSun
+        scene.vessels[0].light.toSun = toSun
+        let transmittance = (0.37, 0.18, 0.052), sky = (1.2e4, 1.5e4, 2.0e4)
+        atmosphere.uniforms.radii = SIMD4(6.378e6, 6.478e6, 30, 1)
+        atmosphere.uniforms.sunTransmitted = SIMD4(Float(transmittance.0), Float(transmittance.1),
+                                                   Float(transmittance.2), Float(scene.sun.illuminance))
+        atmosphere.uniforms.skyIrradiance = SIMD4(Float(sky.0), Float(sky.1), Float(sky.2), 0)
+        let pixels = try renderFloat(scene, renderer: r)
+        let centre = 4 * (32 * 64 + 32)
+        let p = Vec3(0, 10, 0) + Vec3(0.5, 0, -0.5) * (2 * 10 * tan(10 * Double.pi / 180) / 64)
+        let n = Vec3(0, -1, 0), v = (-p).normalized
+        let e = MaterialDefaults.entry(for: .apolloWhitePaint)
+        let point = ShadingReference.point(albedo: 0.8, metalness: 0, roughness: e.roughness,
+                                           reflectance: e.reflectance, n: n, v: v)
+        let light = StandInLighting.vessel(scene.vessels[0], in: scene)
+        let floor = StandInLighting.floorIlluminance(light.floor, preExposure: Exposure.exposure(ev100: 15))
+        let earth = light.earthRadiance
+        for (c, t, s, b) in [(0, transmittance.0, sky.0, Double(earth.r)), (1, transmittance.1, sky.1, Double(earth.g)),
+                             (2, transmittance.2, sky.2, Double(earth.b))] {
+            let expected = ShadingReference.sun(point, toSun: toSun, rho: scene.sun.angularRadius,
+                                                e: t * scene.sun.illuminance)
+                + ShadingReference.environment(point, bodyDirection: light.earthDirection,
+                                               bodySinSigma2: light.earthSinSigma2, bodyRadiance: b, uniform: s + floor)
+            XCTAssertEqual(Double(pixels[centre + c]), expected, accuracy: 0.01 * expected, "channel \(c)")
+        }
+    }
+
     /// The heat shield's glow is a luminance (R1's grey body,
     /// `RenderScene.Vessel.glow`, cd/m²) and is emitted as such where the
     /// surface faces the oncoming air: a dark heat-shield plate facing the
@@ -288,6 +329,88 @@ final class VesselPassTests: XCTestCase {
         _ = try renderFloat(scene, renderer: r)
         XCTAssertEqual(pass.ambientOcclusion.count, 1, "the moving clock asks for the vessel's bake")
         pass.ambientOcclusion.waitUntilIdle()
+    }
+
+    /// The shader's read of the DFG table (`orbit_dfg`) on the GPU, through
+    /// the texture the pass binds and a linear sampler: what the Swift
+    /// table's `lookup` gives, corners included (texels on 0 and 1).
+    func testShaderReadsTheDFGTableAsSwiftDoes() throws {
+        let device = try device()
+        let module = ShaderModule(name: "DFGTest", headers: [.shadowCommon, .lightingCommon], source: """
+            kernel void dfg_test(texture2d<float> lut [[texture(0)]], sampler s [[sampler(0)]],
+                                 const device float2 *input [[buffer(0)]], device float2 *out [[buffer(1)]],
+                                 uint i [[thread_position_in_grid]]) {
+                out[i] = orbit_dfg(lut, s, input[i].x, input[i].y);
+            }
+            """)
+        let library = try ShaderLibrary(device: device).library(module)
+        let pipeline = try device.makeComputePipelineState(function: try XCTUnwrap(library.makeFunction(name: "dfg_test")))
+        let lut = try XCTUnwrap(VesselPass.dfgTexture(device: device))
+        let d = MTLSamplerDescriptor()
+        d.minFilter = .linear
+        d.magFilter = .linear
+        d.sAddressMode = .clampToEdge
+        d.tAddressMode = .clampToEdge
+        let sampler = try XCTUnwrap(device.makeSamplerState(descriptor: d))
+        let points: [SIMD2<Float>] = [SIMD2(0, 0), SIMD2(1, 1), SIMD2(0.5, 0.5), SIMD2(0.13, 0.77), SIMD2(0.999, 0.01),
+                                      SIMD2(0.3, 1), SIMD2(1, 0.62), SIMD2(0.07, 0.33)]
+        let input = try XCTUnwrap(device.makeBuffer(bytes: points, length: 8 * points.count, options: .storageModeShared))
+        let output = try XCTUnwrap(device.makeBuffer(length: 8 * points.count, options: .storageModeShared))
+        let queue = try XCTUnwrap(device.makeCommandQueue())
+        let cb = try XCTUnwrap(queue.makeCommandBuffer()), enc = try XCTUnwrap(cb.makeComputeCommandEncoder())
+        enc.setComputePipelineState(pipeline)
+        enc.setTexture(lut, index: 0)
+        enc.setSamplerState(sampler, index: 0)
+        enc.setBuffer(input, offset: 0, index: 0)
+        enc.setBuffer(output, offset: 0, index: 1)
+        enc.dispatchThreads(MTLSize(width: points.count, height: 1, depth: 1),
+                            threadsPerThreadgroup: MTLSize(width: points.count, height: 1, depth: 1))
+        enc.endEncoding()
+        cb.commit()
+        cb.waitUntilCompleted()
+        let out = output.contents().bindMemory(to: SIMD2<Float>.self, capacity: points.count)
+        for (i, p) in points.enumerated() {
+            let t = BRDF.dfgTable.lookup(nv: Double(p.x), roughness: Double(p.y))
+            // The GPU's bilinear weights are fixed-point: a few 1e-3 between texels.
+            XCTAssertEqual(Double(out[i].x), t.a, accuracy: 3e-3, "A at \(p)")
+            XCTAssertEqual(Double(out[i].y), t.b, accuracy: 3e-3, "B at \(p)")
+        }
+        // On a texel the read is the texel itself.
+        let corner = BRDF.dfgTable.texel(BRDF.dfgTable.size - 1, BRDF.dfgTable.size - 1)
+        XCTAssertEqual(Double(out[1].x), corner.a, accuracy: 1e-4)
+        XCTAssertEqual(Double(out[1].y), corner.b, accuracy: 1e-4)
+    }
+
+    /// The app's AO path, in the background: the clock moves, the bake is
+    /// queued and done; once its fade has begun the part is refined off the
+    /// main thread, swapped in at the next frame (the drain), given its
+    /// stream, and the stream fades in from that frame over the settings'
+    /// half second.
+    func testBackgroundAOReachesThePart() throws {
+        let r = try floatRenderer()
+        let pass = try XCTUnwrap(r.graph.pass(named: "Vessels") as? VesselPass)
+        var scene = plateScene()
+        func frame(_ t: Double) throws {
+            scene.clock.realTime = t
+            _ = try renderFloat(scene, renderer: r)
+        }
+        try frame(0)
+        try frame(0.1)
+        pass.ambientOcclusion.waitUntilIdle()
+        try frame(0.2)
+        let entry = try XCTUnwrap(r.meshes.mesh(scene.vessels[0].id)?.parts.first)
+        XCTAssertNil(entry.mesh.subdividedEdge, "the bake shows from this frame: its fade has not begun")
+        try frame(0.3)
+        XCTAssertEqual(entry.refining, AmbientOcclusionSettings().maxEdge, "refining in the background")
+        r.meshes.waitForRefinement()
+        try frame(0.4)
+        XCTAssertEqual(entry.mesh.subdividedEdge, AmbientOcclusionSettings().maxEdge, "swapped in by the drain")
+        XCTAssertNil(entry.refining)
+        XCTAssertEqual(entry.aoNow?.length, 4 * entry.mesh.vertexCount, "the stream fits the refined mesh")
+        XCTAssertEqual(entry.aoArrived, 0.4)
+        XCTAssertEqual(VesselPass.fade(entry, now: 0.4, duration: 0.5), 0)
+        XCTAssertEqual(VesselPass.fade(entry, now: 0.65, duration: 0.5), 0.5, accuracy: 1e-6)
+        XCTAssertEqual(VesselPass.fade(entry, now: 1.0, duration: 0.5), 1)
     }
 
     /// A separation rebuilds draw lists, not geometry: after the CSM
@@ -501,4 +624,15 @@ final class VesselPassTests: XCTestCase {
                 .joined(separator: ", "))
         }
     }
+}
+
+/// Writes A2-style atmosphere uniforms in P0, as A2's pass will.
+@MainActor
+final class AtmosphereInjection: RenderPass {
+    let name = "Test atmosphere"
+    let stage = PassStage.prepare
+    let order = 1
+    var uniforms = AtmosphereUniforms()
+
+    func encode(_ f: FrameContext, _ e: PassEncoding) { f.atmosphere = uniforms }
 }

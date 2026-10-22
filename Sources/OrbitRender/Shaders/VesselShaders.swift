@@ -206,8 +206,12 @@ fragment float4 vessel_fragment(VesselOut in [[stage_in]], bool front [[front_fa
 
     OrbitShadingPoint p = orbit_shadingPoint(m, s.view, dfgLUT, linear, object.shading.z > 0.5,
                                              object.shading.w > 0.5);
-    // The Sun: through the air when A2 gives its transmission.
-    float3 sunLux = (air.radii.w > 0.5 && air.sunTransmitted.w > 0.0) ? air.sunTransmitted.rgb : f.sunIlluminance.rgb;
+    // The Sun: through the air when A2 gives its transmission. ShaderCommon's
+    // `sunTransmitted` is the transmitted colour (rgb, unitless: A1's
+    // transmittance, e.g. (0.37, 0.18, 0.052) for the pad's 7° Sun) and the
+    // illuminance it scales (w, lux): the lux per channel is their product.
+    float3 sunLux = (air.radii.w > 0.5 && air.sunTransmitted.w > 0.0) ? air.sunTransmitted.rgb * air.sunTransmitted.w
+                                                                       : f.sunIlluminance.rgb;
     float shadow = orbit_sunShadow(in.world, s.normal, lighting, shadowAtlas, shadowCompare);
     float3 c = orbit_sunLight(p, object.sun.xyz, object.sunDisc.x, object.sunDisc.y, object.sunDisc.z > 0.5,
                               sunLux * (object.sun.w * shadow));
