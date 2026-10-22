@@ -1,0 +1,56 @@
+# AS-506 (Apollo 11) launch vehicle as flown, 16 Jul 1969: paint regions, decals and probe points.
+# Conventions, columns and grades: docs/data/markings/README.md. Stations: Saturn V vehicle stations (STA, in).
+# Azimuth: degrees from Position I towards Position II (II 90, III 180, IV 270; fins A 45, B 135, C 225, D 315);
+# az_from > az_to wraps through 0. Rows are in paint order: a later row overrides an earlier one where they overlap.
+# AS-506 is registered on one photo (KSC-69P-397), whose azimuth references are AS-503's stripe edges: where a row
+# rests on that photo alone its azimuths are graded at most M. Rows "as AS-503" carry the AS-503 row id in the note.
+id,vehicle,element,kind,feature,frame,sta_from,sta_to,az_from,az_to,paint,params,photos,sources,grade,note
+506-001,AS-506,S-IC,base,stage white,STA,48.50,1541.00,0,360,white,,KSC-69P-397;ksc-69pc-443;6901057;S69-39961,,H,"Built white (no repaint, unlike AS-501 to AS-505: rocketryforum, secondary). As 503-001."
+506-002,AS-506,S-IC/S-II interstage,base,interstage white,STA,1541.00,1760.00,0,360,white,,KSC-69P-397;ksc-69pc-443,,H,
+506-003,AS-506,S-II,base,stage white,STA,1760.00,2519.00,0,360,white,,KSC-69P-397;ksc-69pc-443;S69-39961,,H,
+506-004,AS-506,S-II/S-IVB interstage,base,interstage white,STA,2519.00,2746.50,0,360,white,,KSC-69P-397;6974206,,H,
+506-005,AS-506,S-IVB,base,stage white,STA,2746.50,3222.56,0,360,white,,KSC-69P-397;6974206;S69-39961,,H,
+506-010,AS-506,S-IC,region,lower roll stripe (Position I to fin A),STA,48.50,628.80,0,45,black,,ksc-69pc-443;6901001,BCD,M,"As 503-010. Seen right of the sector D USA in ksc-69pc-443 (not registered). Top measured 620.8-627.4 on KSC-69P-397, the intertank's bottom joint 628.8."
+506-011,AS-506,S-IC,region,lower roll stripe (Position II to fin B),STA,48.50,628.80,90,135,black,,,BCD,L,As 503-011; not seen on AS-506.
+506-012,AS-506,S-IC,region,lower roll stripe (Position III to fin C),STA,48.50,628.80,180,225,black,,KSC-69P-397,BCD,M,Its right edge was a registration reference (225 deg); the USA and flag between this stripe and the next fall where AS-503's do.
+506-013,AS-506,S-IC,region,lower roll stripe (Position IV to fin D),STA,48.50,628.80,270,315,black,,KSC-69P-397;6901057,BCD,M,Edges were registration references (270 and 315 deg; residuals 0.3 and -2.7 deg).
+506-020,AS-506,S-IC forward skirt to S-II aft skirt,region,upper roll stripe (Position I to fin A),STA,1420.30,1847.00,0,45,black,,ksc-69pc-443,BCD,L,As 503-020.
+506-021,AS-506,S-IC forward skirt to S-II aft skirt,region,upper roll stripe (Position II to fin B),STA,1420.30,1847.00,90,135,black,,,BCD,L,As 503-021.
+506-022,AS-506,S-IC forward skirt to S-II aft skirt,region,upper roll stripe (Position III to fin C),STA,1420.30,1847.00,180,225,black,,KSC-69P-397,BCD,M,"Edges 224.9 (interstage) and 225.2 deg (forward skirt); foot 1416.8, top 1844.0."
+506-023,AS-506,S-IC forward skirt to S-II aft skirt,region,upper roll stripe (Position IV to fin D),STA,1420.30,1847.00,270,315,black,,KSC-69P-397,BCD,M,"Edges 269.9-270.1 and 315.5-316.2 deg; foot 1414.6, top 1844.0."
+506-030,AS-506,S-II aft skirt,region,black cap over the A sector,STA,1795.00,1847.00,52.2,90,black,,,,L,As 503-030.
+506-031,AS-506,S-II aft skirt,region,black cap over the B sector,STA,1795.00,1847.00,139.4,180,black,,,,L,As 503-031.
+506-033,AS-506,S-II aft skirt,region,black cap over the C sector,STA,1795.00,1847.00,246,270,black,,KSC-69P-397,,M,"From 245.6 deg (black from 250 deg at STA 1820 when sampled on the registered photo); foot 1793.4, top 1844.0. AS-503 shows no cap here up to 258 deg (503-033): disputed, for Franz at CP2."
+506-032,AS-506,S-II aft skirt,region,black cap over the D sector,STA,1795.00,1847.00,317.9,360,black,,ksc-69pc-443,,L,As 503-032; a cap shows above the sector D USA in ksc-69pc-443 (not registered).
+506-040,AS-506,S-IC/S-II interstage,region,separation ridge at STA 1564,STA,1562.0,1566.0,0,360,white,,KSC-69P-397;ksc-69pc-443,BCD,M,As 503-040.
+506-041,AS-506,S-IC/S-II interstage,region,separation ridge at STA 1760,STA,1758.0,1762.0,0,360,white,,KSC-69P-397;ksc-69pc-443,BCD,M,As 503-041.
+506-050,AS-506,S-IC/S-II interstage,region,S-II ullage-motor fairings near fins A B D,STA,1563.56,1740.70,45.5,52.5,white,copies=45.5-52.5/135.5-142.5/315.5-322.5,,"BCD; MSFC-MAN-506 (four motors, AS506Data)",L,As 503-050/051/053: one row for three fairings.
+506-052,AS-506,S-IC/S-II interstage,region,S-II ullage-motor fairing near fin C,STA,1563.56,1740.70,225.5,232.5,white,,KSC-69P-397,BCD,M,"A white pointed fairing 223.2-240.8 deg, STA 1754-1890 at its visible top: the ullage fairing's top and the feed-line fairing above it merge in this photo."
+506-055,AS-506,S-II aft skirt,region,LH2 feed-line fairings,STA,1722.00,2015.75,39.0,52.2,white,copies=39.0-52.2/130.3-139.4/220-229/307.0-317.9,KSC-69P-397,BCD; D5 Table 6-II,L,As 503-055 to 503-058: one row for four fairings. AS-506 shows white at the cap's level from 219.5 to 245.6 deg.
+506-060,AS-506,S-II/S-IVB interstage,region,quadrant A all black,STA,2519.00,2746.50,0,90,black,,6974206,BCD,L,"As 503-060. 6974206 (the S-IVB with its aft interstage in the VAB, Mar 1969) shows quadrant blocks, not registered."
+506-061,AS-506,S-II/S-IVB interstage,region,quadrant B upper half black,STA,2632.75,2746.50,90,180,black,,6974206,BCD,L,As 503-061.
+506-062,AS-506,S-II/S-IVB interstage,region,quadrant C lower half black,STA,2519.00,2632.75,180,270,black,,KSC-69P-397,BCD,M,"Right end 269.8 deg; split measured at 2644.7-2649.1 and foot at 2525.3, both extrapolated beyond the photo's references (+-15 in); taken at AS-503's mid-length split."
+506-063,AS-506,S-II/S-IVB interstage,region,quadrant D all white,STA,2519.00,2746.50,270,360,white,,KSC-69P-397,,M,White right of 269.8 deg.
+506-065,AS-506,S-II/S-IVB interstage,region,S-II retrorocket fairing on fin C,STA,2555,2580,216,221,white,,KSC-69P-397,M503 p. 5-26,L,"A white strip in quadrant C's black at 218.5 deg, STA 2568 (extrapolated). 6.5 deg off the fin line, more than AS-503's fin A fairing (503-064): take the fin line (225) if VG2 puts the retros on the diagonals."
+506-070,AS-506,IU and S-IVB forward skirt,region,black band,STA,3155.0,3258.56,0,360,black,,KSC-69P-397;ksc-69pc-443;6974206;S69-39961,BCD,M,"As 503-070. 6974206 shows the S-IVB's forward skirt black over its upper part only (the IU not yet mounted); the stations on KSC-69P-397 are extrapolated (3179-3304), so AS-503's are used."
+506-100,AS-506,S-IC,decal,USA (sector A and B),STA,372.0,590.0,61.5,72.5,red,copies=61.5-72.5/151.1-165.2;text=USA;letters=upright stacked top to bottom,,,L,As 503-100/101: one row for two decals.
+506-102,AS-506,S-IC,decal,USA (sector C),STA,371.9,588.7,241.1,254.4,red,text=USA;letters=upright stacked top to bottom;letter_h=54;letter_w=46;pitch=81.3;top=588.7;bottom=371.9,KSC-69P-397;6901057,,M,"Centre 247.5 deg. U 588.7-535.3, S 507.4-452.3, A 417.1(apex)-371.9 (KSC-69P-397, black-and-white). Red: ksc-69pc-443, S69-39962."
+506-103,AS-506,S-IC,decal,USA (sector D),STA,372.0,590.0,331.1,342.8,red,text=USA;letters=upright stacked top to bottom,ksc-69pc-443;6901001,,M,"Seen centred in the white sector right of the sector C USA (ksc-69pc-443, not registered); extents as AS-503's (503-103)."
+506-110,AS-506,S-IC,decal,US flags (sectors A and B),STA,1116.0,1196.0,47.7,89.7,flag,copies=47.7-89.7/138.2-179.3;union=upper hoist;hoist=low azimuth,,EO 10834,L,As 503-110/111.
+506-112,AS-506,S-IC,decal,US flag (sector C),STA,1114.1,1194.4,228.1,269.0,flag,union=upper hoist;hoist=low azimuth;hoist_in=80;fly_deg=40.9,KSC-69P-397,EO 10834,M,"Hoist 228.1-228.2, fly 268.9-269.0 deg; STA 1114.1-1194.4. Frost hides the flags in the launch-day photos (ksc-69pc-443)."
+506-113,AS-506,S-IC,decal,US flag (sector D),STA,1116.0,1196.0,316.4,359.6,flag,union=upper hoist;hoist=low azimuth,KSC-69P-397,EO 10834,M,Hoist edge 316.4 deg at STA 1171 near the limb; the rest as AS-503's (503-113).
+506-120,AS-506,S-II,decal,UNITED STATES (sectors A B C),STA,1918.0,2376.0,19.9,25.9,red,copies=19.9-25.9/109.0-116.0/199.7-206.4;text=UNITED STATES;letters=upright stacked top to bottom,ksc-69pc-443,,L,"As 503-120 to 503-122: one row for three decals. ksc-69pc-443 shows one in the S-II's middle (not registered)."
+506-123,AS-506,S-II,decal,UNITED STATES (sector D),STA,1926.8,2383.1,288.2,294.8,red,text=UNITED STATES;letters=upright stacked top to bottom;letter_w=23,KSC-69P-397,,M,"Centre 291.5 deg (sector middle 292.5); top of U 2383.1, foot of the last S 1926.8."
+506-130,AS-506,S-IC,decal,Position plates,STA,373.0,401.7,357.0,3.0,white,copies=357-3/87-93/177-183/267-273;plate=light with dark numeral,6901057,,L,As 503-130/131: plates at the stripe edges at the foot of the USA (6901057).
+506-140,AS-506,S-IC,decal,S-IC-6 stencil,STA,380,400,190,215,white,text=S-IC-6;plate=white stencil on black,6901057,,L,"A small white stencil on a black stripe near the base (6901057, not registered: the stripe could be any of the four). AS-503's reads S-IC-3 (6761894)."
+506-200,AS-506,S-IC,probe,lower stripe sector C,STA,500,500,202.5,202.5,black,,KSC-69P-397,,M,
+506-201,AS-506,S-IC,probe,lower white sector C beside USA,STA,500,500,232,232,white,,KSC-69P-397,,M,
+506-202,AS-506,S-IC,probe,USA letter S centre,STA,480,480,247.5,247.5,red,,KSC-69P-397,,M,
+506-203,AS-506,S-IC,probe,intertank,STA,750,750,292.5,292.5,white,,KSC-69P-397,,H,
+506-204,AS-506,S-IC,probe,flag field,STA,1150,1150,255,255,flag,,KSC-69P-397,,M,
+506-205,AS-506,S-IC/S-II interstage,probe,interstage stripe,STA,1660,1660,292.5,292.5,black,,KSC-69P-397,,M,
+506-206,AS-506,S-II aft skirt,probe,cap over C,STA,1820,1820,260,260,black,,KSC-69P-397,,M,
+506-207,AS-506,S-II aft skirt,probe,white below the cap,STA,1777,1777,255,255,white,,KSC-69P-397,,M,
+506-208,AS-506,S-II/S-IVB interstage,probe,quadrant C lower,STA,2560,2560,250,250,black,,KSC-69P-397,,M,
+506-209,AS-506,S-II/S-IVB interstage,probe,quadrant D,STA,2632,2632,300,300,white,,KSC-69P-397,,M,
+506-210,AS-506,S-II,probe,tank white,STA,2200,2200,250,250,white,,KSC-69P-397,,H,
