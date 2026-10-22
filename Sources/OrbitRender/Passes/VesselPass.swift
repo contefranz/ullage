@@ -79,17 +79,26 @@ public final class VesselPass: RenderPass {
         return try s.device.makeRenderPipelineState(descriptor: d)
     }
 
-    /// `BRDF.dfgTable` as an rg32Float texture.
+    /// `BRDF.dfgTable` as a texture the linear sampler filters: rg32Float
+    /// where the GPU filters 32-bit floats, else rg16Float.
     static func dfgTexture(device: MTLDevice) -> MTLTexture? {
         let table = BRDF.dfgTable
-        let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rg32Float, width: table.size, height: table.size,
-                                                         mipmapped: false)
+        let wide = device.supports32BitFloatFiltering
+        let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: wide ? .rg32Float : .rg16Float,
+                                                         width: table.size, height: table.size, mipmapped: false)
         d.usage = .shaderRead
         d.storageMode = .shared
         guard let t = device.makeTexture(descriptor: d) else { return nil }
-        table.values.withUnsafeBytes {
-            t.replace(region: MTLRegionMake2D(0, 0, table.size, table.size), mipmapLevel: 0,
-                      withBytes: $0.baseAddress!, bytesPerRow: table.size * 8)
+        let region = MTLRegionMake2D(0, 0, table.size, table.size)
+        if wide {
+            table.values.withUnsafeBytes {
+                t.replace(region: region, mipmapLevel: 0, withBytes: $0.baseAddress!, bytesPerRow: table.size * 8)
+            }
+        } else {
+            let half = table.values.map { Float16($0) }
+            half.withUnsafeBytes {
+                t.replace(region: region, mipmapLevel: 0, withBytes: $0.baseAddress!, bytesPerRow: table.size * 4)
+            }
         }
         return t
     }

@@ -58,16 +58,25 @@ final class VesselPassTests: XCTestCase {
                                    height: size.1)
     }
 
-    /// The DFG texture holds the Swift bake, texel for texel.
+    /// The DFG texture holds the Swift bake, texel for texel (to half
+    /// precision where the GPU does not filter 32-bit floats).
     func testDFGTextureIsTheSwiftBake() throws {
         let t = try XCTUnwrap(VesselPass.dfgTexture(device: try device()))
         let n = BRDF.dfgTable.size
         XCTAssertEqual([t.width, t.height], [n, n])
         var values = [Float](repeating: 0, count: 2 * n * n)
-        values.withUnsafeMutableBytes {
-            t.getBytes($0.baseAddress!, bytesPerRow: 8 * n, from: MTLRegionMake2D(0, 0, n, n), mipmapLevel: 0)
+        if t.pixelFormat == .rg32Float {
+            values.withUnsafeMutableBytes {
+                t.getBytes($0.baseAddress!, bytesPerRow: 8 * n, from: MTLRegionMake2D(0, 0, n, n), mipmapLevel: 0)
+            }
+        } else {
+            var half = [Float16](repeating: 0, count: 2 * n * n)
+            half.withUnsafeMutableBytes {
+                t.getBytes($0.baseAddress!, bytesPerRow: 4 * n, from: MTLRegionMake2D(0, 0, n, n), mipmapLevel: 0)
+            }
+            values = half.map { Float($0) }
         }
-        XCTAssertEqual(values, BRDF.dfgTable.values)
+        for (a, b) in zip(values, BRDF.dfgTable.values) { XCTAssertEqual(a, b, accuracy: 1e-3) }
     }
 
     /// The radiance of white paint facing the camera, lit by the Sun from
