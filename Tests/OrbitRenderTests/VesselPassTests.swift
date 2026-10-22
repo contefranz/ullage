@@ -44,6 +44,47 @@ final class VesselPassTests: XCTestCase {
         return c.pixels.enumerated().map { $0.offset % 4 == 3 ? $0.element : $0.element * k }
     }
 
+    /// The exposure's guard (LightingCommon's `orbit_exposed`) on the GPU:
+    /// a NaN or an infinity in any channel blacks the sample out, rather
+    /// than reaching min() first and coming out as a 6e4 highlight that
+    /// would pass R1's own guard into the bloom; finite light is
+    /// pre-exposed and clamped to [0, 6e4]. The inputs come from a buffer,
+    /// so fast math cannot fold them.
+    func testExposureGuardsNaNBeforeItClamps() throws {
+        let device = try device()
+        let module = ShaderModule(name: "ExposedTest", headers: [.shadowCommon, .lightingCommon], source: """
+            kernel void exposed_test(const device float4 *input [[buffer(0)]], device float4 *out [[buffer(1)]],
+                                     uint i [[thread_position_in_grid]]) {
+                out[i] = float4(orbit_exposed(input[i].xyz, input[i].w), 0.0);
+            }
+            """)
+        let library = try ShaderLibrary(device: device).library(module)
+        let pipeline = try device.makeComputePipelineState(function: try XCTUnwrap(library.makeFunction(name: "exposed_test")))
+        let nan = Float(bitPattern: 0x7fc0_0000)
+        let input: [SIMD4<Float>] = [
+            SIMD4(nan, 1, 1, 1), SIMD4(1, nan, 1, 1), SIMD4(.infinity, 1, 1, 1), SIMD4(-.infinity, 1, 1, 1),
+            SIMD4(2, 4, 8, 0.5), SIMD4(1e9, -3, 0, 1), SIMD4(1, 1, 1, nan),
+        ]
+        let expected: [SIMD3<Float>] = [.zero, .zero, .zero, .zero, SIMD3(1, 2, 4), SIMD3(60_000, 0, 0), .zero]
+        let inBuffer = try XCTUnwrap(device.makeBuffer(bytes: input, length: 16 * input.count, options: .storageModeShared))
+        let outBuffer = try XCTUnwrap(device.makeBuffer(length: 16 * input.count, options: .storageModeShared))
+        let queue = try XCTUnwrap(device.makeCommandQueue())
+        let cb = try XCTUnwrap(queue.makeCommandBuffer()), enc = try XCTUnwrap(cb.makeComputeCommandEncoder())
+        enc.setComputePipelineState(pipeline)
+        enc.setBuffer(inBuffer, offset: 0, index: 0)
+        enc.setBuffer(outBuffer, offset: 0, index: 1)
+        enc.dispatchThreads(MTLSize(width: input.count, height: 1, depth: 1),
+                            threadsPerThreadgroup: MTLSize(width: input.count, height: 1, depth: 1))
+        enc.endEncoding()
+        cb.commit()
+        cb.waitUntilCompleted()
+        let out = outBuffer.contents().bindMemory(to: SIMD4<Float>.self, capacity: input.count)
+        for (i, e) in expected.enumerated() {
+            let o = SIMD3(out[i].x, out[i].y, out[i].z)
+            XCTAssertEqual(o, e, "input \(input[i])")
+        }
+    }
+
     /// A plate 10 m square facing the camera 10 m away, in `material`.
     func plateScene(material: MaterialKey = .apolloWhitePaint, colour: (Double, Double, Double) = (0.8, 0.8, 0.8),
                     shapes extra: [VisualShape] = [], size: (Int, Int) = (64, 64)) -> RenderScene {
@@ -78,40 +119,86 @@ final class VesselPassTests: XCTestCase {
 
     /// The radiance of white paint facing the camera, lit by the Sun from
     /// behind the camera, the stand-in Earth below and the night floor:
-    /// the GPU's (over the pre-exposure) is the Swift reference's within
-    /// 1 %. Also through the DFG table (rough metal) and with the Sun to
-    /// one side.
+    /// the GPU's, as R1 captures its light, is the Swift reference's within
+    /// 1 %. Also through the DFG table (rough metal) and with the Sun to one
+    /// side, at EV 15 and at EV 11, where the paint is 13 times the
+    /// exposure's white.
+    ///
+    /// This pins the encoding contract: the vessel shader writes linear,
+    /// pre-exposed light and R1's resolve alone weights the samples. Were
+    /// the shader to Karis-encode as well, its values could never pass 1
+    /// (sunlit paint would read 0.46 at EV 15); were nobody to, or were the
+    /// pre-exposure missing, the light would come back wrong by orders of
+    /// magnitude.
     func testRadianceMatchesTheSwiftReference() throws {
         let r = try floatRenderer()
         XCTAssertEqual(r.failures.filter { $0.key == "Vessels" }, [:])
-        for (material, colour, toSun) in [
-            (MaterialKey.apolloWhitePaint, (0.8, 0.8, 0.8), Vec3(0, -1, 0)),
-            (.apolloWhitePaint, (0.8, 0.8, 0.8), Vec3(-0.6, -0.6, 0.53).normalized),
-            (MaterialDefaults.lookDev(.metal, roughness: 0.6), (0.913, 0.913, 0.913), Vec3(0.3, -0.9, 0.3).normalized),
-        ] {
-            var scene = plateScene(material: material, colour: colour)
-            scene.sun.direction = toSun
-            scene.vessels[0].light.toSun = toSun
-            let pixels = try renderFloat(scene, renderer: r)
-            let centre = 4 * (32 * 64 + 32)
-            let gpu = Double(pixels[centre])
-            // The reference at the pixel's centre.
-            let e = MaterialDefaults.entry(for: material)
-            let p = Vec3(0, 10, 0) + Vec3(0.5, 0, -0.5) * (2 * 10 * tan(10 * Double.pi / 180) / 64)
-            let n = Vec3(0, -1, 0), v = (-p).normalized
-            let point = ShadingReference.point(albedo: colour.0, metalness: e.metalness, roughness: e.roughness,
-                                               reflectance: e.reflectance, n: n, v: v)
-            let light = StandInLighting.vessel(scene.vessels[0], in: scene)
-            // R1 colours the Sun (5772 K, luminance 1): red is this much of the lux.
-            let sunRed = scene.sun.illuminance * Photometry.sunColor.r
-            let floor = StandInLighting.floorIlluminance(light.floor, preExposure: Exposure.exposure(ev100: 15))
-            let expected = ShadingReference.sun(point, toSun: toSun, rho: scene.sun.angularRadius, e: sunRed)
-                + ShadingReference.environment(point, bodyDirection: light.earthDirection,
-                                               bodySinSigma2: light.earthSinSigma2,
-                                               bodyRadiance: Double(light.earthRadiance.r),
-                                               uniform: light.sky + floor)
-            XCTAssertEqual(gpu, expected, accuracy: 0.01 * expected, "\(material), Sun \(toSun)")
+        for ev in [15.0, 11.0] {
+            var settings = r.settings
+            settings.post.exposure.ev100 = ev
+            r.settings = settings
+            for (material, colour, toSun) in [
+                (MaterialKey.apolloWhitePaint, (0.8, 0.8, 0.8), Vec3(0, -1, 0)),
+                (.apolloWhitePaint, (0.8, 0.8, 0.8), Vec3(-0.6, -0.6, 0.53).normalized),
+                (MaterialDefaults.lookDev(.metal, roughness: 0.6), (0.913, 0.913, 0.913),
+                 Vec3(0.3, -0.9, 0.3).normalized),
+            ] {
+                var scene = plateScene(material: material, colour: colour)
+                scene.sun.direction = toSun
+                scene.vessels[0].light.toSun = toSun
+                let pixels = try renderFloat(scene, renderer: r)
+                let centre = 4 * (32 * 64 + 32)
+                let gpu = Double(pixels[centre])
+                // The reference at the pixel's centre.
+                let e = MaterialDefaults.entry(for: material)
+                let p = Vec3(0, 10, 0) + Vec3(0.5, 0, -0.5) * (2 * 10 * tan(10 * Double.pi / 180) / 64)
+                let n = Vec3(0, -1, 0), v = (-p).normalized
+                let point = ShadingReference.point(albedo: colour.0, metalness: e.metalness, roughness: e.roughness,
+                                                   reflectance: e.reflectance, n: n, v: v)
+                let light = StandInLighting.vessel(scene.vessels[0], in: scene)
+                // R1 colours the Sun (5772 K, luminance 1): red is this much of the lux.
+                let sunRed = scene.sun.illuminance * Photometry.sunColor.r
+                let exposure = Exposure.exposure(ev100: ev)
+                let floor = StandInLighting.floorIlluminance(light.floor, preExposure: exposure)
+                let expected = ShadingReference.sun(point, toSun: toSun, rho: scene.sun.angularRadius, e: sunRed)
+                    + ShadingReference.environment(point, bodyDirection: light.earthDirection,
+                                                   bodySinSigma2: light.earthSinSigma2,
+                                                   bodyRadiance: Double(light.earthRadiance.r),
+                                                   uniform: light.sky + floor)
+                XCTAssertEqual(gpu, expected, accuracy: 0.01 * expected, "\(material), Sun \(toSun), EV \(ev)")
+                if ev == 11, material == .apolloWhitePaint, toSun.y == -1 {
+                    XCTAssertGreaterThan(gpu * exposure, 10, "linear light keeps its headroom above the exposure's white")
+                }
+            }
         }
+    }
+
+    /// The heat shield's glow is a luminance (R1's grey body,
+    /// `RenderScene.Vessel.glow`, cd/m²) and is emitted as such where the
+    /// surface faces the oncoming air: a dark heat-shield plate facing the
+    /// camera and the flow, unlit, shows its glow's luminance.
+    func testGlowIsItsLuminance() throws {
+        let r = try floatRenderer()
+        var plate = VisualShape.box(from: .zero, length: 0.1, width: 10, height: 10, axis: -.unitY,
+                                    color: (0.05, 0.05, 0.05))
+        plate.material = .apolloAblator
+        plate.emissive = .heatShield
+        let part = VesselPart(name: "Heat shield", dryMass: 1, length: 1, radius: 5, shapes: [plate])
+        let vessel = Vessel(name: "Heat shield", parts: [part], reference: Self.system.earth)
+        var scene = LookDevScenes.scene(vessel, at: Vec3(0, 10, 0), attitude: .identity, fovY: 20, width: 64,
+                                        height: 64)
+        scene.vessels[0].light.sunlit = 0
+        scene.vessels[0].light.earthStrength = 0
+        scene.vessels[0].glow = RenderScene.RGB(2.0e5, 1.2e5, 0.6e5)
+        scene.vessels[0].flowDirection = Vec3(0, -1, 0)
+        XCTAssertEqual(StandInLighting.vessel(scene.vessels[0], in: scene).glow, scene.vessels[0].glow,
+                       "the stand-in passes R1's luminance through")
+        let pixels = try renderFloat(scene, renderer: r)
+        let centre = 4 * (32 * 64 + 32)
+        // The night floor adds about 40 cd/m² on this albedo.
+        XCTAssertEqual(Double(pixels[centre]), 2.0e5, accuracy: 0.01 * 2.0e5)
+        XCTAssertEqual(Double(pixels[centre + 1]), 1.2e5, accuracy: 0.01 * 1.2e5)
+        XCTAssertEqual(Double(pixels[centre + 2]), 0.6e5, accuracy: 0.01 * 0.6e5)
     }
 
     /// R5's contract: each vertex's packed AO decodes in the vertex
@@ -143,7 +230,7 @@ final class VesselPassTests: XCTestCase {
         mesh.vertices = [vertex(-3, -2), vertex(0, 4), vertex(3, -2)]
         mesh.indices = [0, 2, 1]
         let device = try device()
-        let tri = try XCTUnwrap(PartMesh.build(meshes: [mesh], info: [entry.info[0]], paint: [[]], subdivided: true,
+        let tri = try XCTUnwrap(PartMesh.build(meshes: [mesh], info: [entry.info[0]], paint: [[]], subdivided: 0.5,
                                                device: device))
         entry.mesh = tri
         let codes = [AmbientOcclusion.pack(front: 0.2, back: 0), AmbientOcclusion.pack(front: 1, back: 0.5),
@@ -160,6 +247,47 @@ final class VesselPassTests: XCTestCase {
         // by about 0.8 over the triangle's 6 m, a pixel is 5.5 cm.
         XCTAssertEqual(ratio, (0.2 + 1 + 1) / 3, accuracy: 0.03, "per-vertex decode")
         XCTAssertGreaterThan(abs(ratio - 0.40), 0.2, "not the decode of an interpolated code")
+    }
+
+    /// A bake under another subdivision (`AmbientOcclusionSettings.maxEdge`)
+    /// refines the part again: its mesh, its stream and the bake it records
+    /// all follow the new edge, and the previous stream (another layout) is
+    /// dropped rather than faded from.
+    func testANewSubdivisionRefinesThePartAgain() throws {
+        let r = try floatRenderer()
+        var settings = r.settings
+        settings.shading.waitForAmbientOcclusion = true
+        settings.ambientOcclusion.maxEdge = 2
+        r.settings = settings
+        let scene = plateScene()
+        _ = try renderFloat(scene, renderer: r)
+        let entry = try XCTUnwrap(r.meshes.mesh(scene.vessels[0].id)?.parts.first)
+        XCTAssertEqual(entry.mesh.subdividedEdge, 2)
+        let coarse = entry.mesh.vertexCount
+        XCTAssertEqual(entry.aoNow?.length, 4 * coarse)
+        settings.ambientOcclusion.maxEdge = 1
+        r.settings = settings
+        _ = try renderFloat(scene, renderer: r)
+        XCTAssertEqual(entry.mesh.subdividedEdge, 1)
+        XCTAssertGreaterThan(entry.mesh.vertexCount, coarse)
+        XCTAssertEqual(entry.aoBake?.settings.maxEdge, 1)
+        XCTAssertEqual(entry.aoNow?.length, 4 * entry.mesh.vertexCount, "the stream fits the new mesh")
+        XCTAssertNil(entry.aoBefore, "nothing to fade from in another layout")
+    }
+
+    /// Frames whose clock stands still (snapshots, tests) ask the baker for
+    /// nothing, so no bake runs that could never show; once the clock moves,
+    /// the vessel's bake is queued.
+    func testNoBakeWhileTheClockStandsStill() throws {
+        let r = try floatRenderer()
+        let pass = try XCTUnwrap(r.graph.pass(named: "Vessels") as? VesselPass)
+        var scene = plateScene()
+        for _ in 0..<3 { _ = try renderFloat(scene, renderer: r) }
+        XCTAssertEqual(pass.ambientOcclusion.count, 0, "no bake while the clock stands still")
+        scene.clock.realTime += 0.1
+        _ = try renderFloat(scene, renderer: r)
+        XCTAssertEqual(pass.ambientOcclusion.count, 1, "the moving clock asks for the vessel's bake")
+        pass.ambientOcclusion.waitUntilIdle()
     }
 
     /// A separation rebuilds draw lists, not geometry: after the CSM

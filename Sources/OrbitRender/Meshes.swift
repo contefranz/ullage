@@ -130,13 +130,15 @@ final class PartMesh {
     /// The shapes in buffer order, and each one's vertex range.
     let order: [Int]
     let shapeVertices: [Range<Int>]
-    /// Built from R5's subdivided meshes, which its AO streams follow.
-    let isSubdivided: Bool
+    /// The edge (m, `AmbientOcclusionSettings.maxEdge`) of the R5 bake whose
+    /// subdivided meshes it was built from, which its AO streams follow; nil
+    /// for the shapes' own meshes.
+    let subdividedEdge: Double?
     /// A sphere holding every vertex (part frame, m), for culling.
     let bounds: (centre: Vec3, radius: Double)
 
     init(vertices: MTLBuffer, indices: MTLBuffer, vertexCount: Int, indexCount: Int, draws: [Draw], order: [Int],
-         shapeVertices: [Range<Int>], isSubdivided: Bool, bounds: (centre: Vec3, radius: Double)) {
+         shapeVertices: [Range<Int>], subdividedEdge: Double?, bounds: (centre: Vec3, radius: Double)) {
         self.vertices = vertices
         self.indices = indices
         self.vertexCount = vertexCount
@@ -144,7 +146,7 @@ final class PartMesh {
         self.draws = draws
         self.order = order
         self.shapeVertices = shapeVertices
-        self.isSubdivided = isSubdivided
+        self.subdividedEdge = subdividedEdge
         self.bounds = bounds
     }
 
@@ -169,7 +171,7 @@ final class PartMesh {
     /// Builds the mesh of `meshes` (part frame, one per shape) with each
     /// vertex's paint id (`paint`, per shape, empty for none). Thread-safe:
     /// it touches no shared state.
-    static func build(meshes: [VisualShape.Mesh], info: [ShapeInfo], paint: [[UInt8]], subdivided: Bool,
+    static func build(meshes: [VisualShape.Mesh], info: [ShapeInfo], paint: [[UInt8]], subdivided: Double?,
                       device: MTLDevice) -> PartMesh? {
         let order = order(info)
         var vertices: [VertexV2] = [], indices: [UInt32] = [], ranges = [Range<Int>](repeating: 0..<0, count: info.count)
@@ -205,7 +207,7 @@ final class PartMesh {
               let ib = device.makeBuffer(bytes: indices, length: indices.count * 4, options: .storageModeShared)
         else { return nil }
         return PartMesh(vertices: vb, indices: ib, vertexCount: vertices.count, indexCount: indices.count, draws: draws,
-                        order: order, shapeVertices: ranges, isSubdivided: subdivided,
+                        order: order, shapeVertices: ranges, subdividedEdge: subdivided,
                         bounds: boundingSphere(meshes.flatMap { $0.vertices.map(\.position) }))
     }
 
@@ -224,7 +226,7 @@ final class PartMesh {
     /// One packed AO value per vertex of this (subdivided) mesh, from the
     /// bake's part `baked`, nil when the bake's meshes are not this one's.
     func ambientOcclusion(_ baked: BakedAmbientOcclusion.Part, device: MTLDevice) -> MTLBuffer? {
-        guard isSubdivided, baked.shapes.count == shapeVertices.count else { return nil }
+        guard subdividedEdge != nil, baked.shapes.count == shapeVertices.count else { return nil }
         var values = [Float](repeating: AmbientOcclusion.unoccluded, count: vertexCount)
         for (s, range) in shapeVertices.enumerated() {
             let shape = baked.shapes[s]
@@ -250,14 +252,23 @@ final class PartEntry {
     /// When the current stream arrived (the renderer's clock, s), which its
     /// fade-in counts from.
     var aoArrived = -Double.infinity
-    /// A subdivided mesh is being built.
-    var refining = false
+    /// The edge of the subdivided mesh being built off the main thread.
+    var refining: Double?
 
     init(key: PartKey, part: VesselGeometry.Part, info: [PartMesh.ShapeInfo], mesh: PartMesh) {
         self.key = key
         self.part = part
         self.info = info
         self.mesh = mesh
+    }
+
+    /// A new subdivision: the streams of the old one no longer fit.
+    func swap(to m: PartMesh) {
+        mesh = m
+        refining = nil
+        aoNow = nil
+        aoBefore = nil
+        aoBake = nil
     }
 }
 
@@ -327,9 +338,8 @@ public final class VesselMeshCache {
             self.device = device
             materials = VesselMaterialTable(device: device)
         }
-        for (entry, mesh) in finished.drain() where !entry.mesh.isSubdivided {
-            entry.mesh = mesh
-            entry.refining = false
+        for (entry, mesh) in finished.drain() where entry.refining == mesh.subdividedEdge {
+            entry.swap(to: mesh)
         }
         var live = Set<UUID>(), changed = false
         for v in scene.vessels {
@@ -379,7 +389,7 @@ public final class VesselMeshCache {
         }
         let meshes = part.shapes.map { $0.mesh() }
         let paint = Self.paint(part, meshes: meshes)
-        guard let mesh = PartMesh.build(meshes: meshes, info: info, paint: paint, subdivided: false, device: device)
+        guard let mesh = PartMesh.build(meshes: meshes, info: info, paint: paint, subdivided: nil, device: device)
         else { return nil }
         partsBuilt += 1
         return PartEntry(key: key, part: part, info: info, mesh: mesh)
@@ -396,36 +406,39 @@ public final class VesselMeshCache {
     // MARK: Ambient occlusion
 
     /// Gives the parts of `mesh` the streams of `baked`, `mesh`'s vessel's
-    /// bake, arriving at `now` (the renderer's clock, s). A part still on
-    /// its first mesh is refined first from the bake's subdivided meshes:
-    /// off the main thread (it draws its old stream until then), or now
-    /// when `synchronously` (snapshots), its stream then fully faded in.
+    /// bake, arriving at `now` (the renderer's clock, s). A part not yet on
+    /// this bake's subdivision (its first mesh, or one subdivided to another
+    /// `maxEdge`) is refined first from the bake's meshes: off the main
+    /// thread (it draws its old mesh and stream until then), or now when
+    /// `synchronously` (snapshots), its stream then fully faded in.
     func apply(_ baked: BakedAmbientOcclusion, to mesh: VesselMesh, now: Double, synchronously: Bool = false) {
         guard let device else { return }
         let id = AOBakeID(signature: baked.signature, settings: baked.settings)
+        let edge = baked.settings.maxEdge
         let bakedParts = Dictionary(baked.parts.map { ($0.id, $0) }) { a, _ in a }
         for entry in mesh.parts {
             guard entry.aoBake != id, let bakedPart = bakedParts[entry.part.id] else { continue }
-            if !entry.mesh.isSubdivided {
+            if entry.mesh.subdividedEdge != edge {
                 let part = entry.part, info = entry.info, meshes = bakedPart.shapes.map(\.mesh)
                 if synchronously {
                     guard let m = PartMesh.build(meshes: meshes, info: info, paint: Self.paint(part, meshes: meshes),
-                                                 subdivided: true, device: device) else { continue }
-                    entry.mesh = m
-                    entry.refining = false
+                                                 subdivided: edge, device: device) else { continue }
+                    entry.swap(to: m)
                 } else {
-                    guard !entry.refining else { continue }
-                    entry.refining = true
-                    let job = RefineJob(entry: entry, part: part, info: info, meshes: meshes, device: device,
+                    guard entry.refining != edge else { continue }
+                    entry.refining = edge
+                    let job = RefineJob(entry: entry, part: part, info: info, meshes: meshes, edge: edge, device: device,
                                         finished: finished)
                     queue.async { job.run() }
                     continue
                 }
             }
+            // A bake whose meshes are not the part's (a part identifier
+            // reused) is taken as seen, so that it is not retried each frame.
+            entry.aoBake = id
             guard let stream = entry.mesh.ambientOcclusion(bakedPart, device: device) else { continue }
             entry.aoBefore = entry.aoNow
             entry.aoNow = stream
-            entry.aoBake = id
             entry.aoArrived = synchronously ? -Double.infinity : now
         }
     }
@@ -438,12 +451,13 @@ struct RefineJob: @unchecked Sendable {
     let part: VesselGeometry.Part
     let info: [PartMesh.ShapeInfo]
     let meshes: [VisualShape.Mesh]
+    let edge: Double
     let device: MTLDevice
     let finished: FinishedMeshes
 
     func run() {
         let paint = VesselMeshCache.paint(part, meshes: meshes)
-        if let m = PartMesh.build(meshes: meshes, info: info, paint: paint, subdivided: true, device: device) {
+        if let m = PartMesh.build(meshes: meshes, info: info, paint: paint, subdivided: edge, device: device) {
             finished.add(entry, m)
         }
     }

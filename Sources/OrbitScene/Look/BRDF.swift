@@ -156,9 +156,11 @@ public enum BRDF {
     }
 
     /// The DFG table the shaders sample (texture 22, rg): `size` × `size`
-    /// texels, n·v along x and perceptual roughness along y, each at its
-    /// texel's centre ((i + 0.5) / size), so that a bilinear, edge-clamped
-    /// sampler reads it at (n·v, r) directly. Red is A, green B.
+    /// texels, n·v along x and perceptual roughness along y, texel i at
+    /// i / (size - 1), so that the first and last texels sit on 0 and 1
+    /// exactly (a table of texel-centred samples would stop at 0.992 and
+    /// read α = 1 3 % high). The shader reads it at
+    /// (x (size - 1) + 0.5) / size (`orbit_dfg`). Red is A, green B.
     public struct DFGTable {
         public let size: Int
         /// Row-major from roughness 0, (A, B) per texel.
@@ -170,11 +172,11 @@ public enum BRDF {
             return (Double(values[k]), Double(values[k + 1]))
         }
 
-        /// A and B at (`nv`, `roughness`) as the GPU's bilinear, clamped
-        /// sampler reads them.
+        /// A and B at (`nv`, `roughness`) as the GPU's bilinear sampler
+        /// reads them.
         public func lookup(nv: Double, roughness: Double) -> (a: Double, b: Double) {
-            let n = Double(size)
-            let x = min(max(nv * n - 0.5, 0), n - 1), y = min(max(roughness * n - 0.5, 0), n - 1)
+            let n = Double(size - 1)
+            let x = min(max(nv, 0), 1) * n, y = min(max(roughness, 0), 1) * n
             let i0 = Int(x), j0 = Int(y), i1 = min(i0 + 1, size - 1), j1 = min(j0 + 1, size - 1)
             let fx = x - Double(i0), fy = y - Double(j0)
             func mix(_ p: (a: Double, b: Double), _ q: (a: Double, b: Double), _ t: Double) -> (a: Double, b: Double) {
@@ -187,16 +189,16 @@ public enum BRDF {
     /// The table's default size, 64² (design-renderer-core §5).
     public static let dfgTableSize = 64
 
-    /// Bakes the DFG table: each texel's (A, B) at its centre, roughness
-    /// unclamped (α = r², so the first row is nearly a mirror's), spread
-    /// over the cores. About 0.1 s at -O on an M3 Pro.
+    /// Bakes the DFG table: each texel's (A, B), roughness unclamped (α =
+    /// r², so the first row is a mirror's), spread over the cores. About
+    /// 0.1 s at -O on an M3 Pro.
     public static func bakeDFG(size: Int = dfgTableSize, samples: Int = 512) -> DFGTable {
         var values = [Float](repeating: 0, count: 2 * size * size)
         values.withUnsafeMutableBufferPointer { out in
             DispatchQueue.concurrentPerform(iterations: size) { j in
-                let r = (Double(j) + 0.5) / Double(size)
+                let r = Double(j) / Double(size - 1)
                 for i in 0..<size {
-                    let nv = (Double(i) + 0.5) / Double(size)
+                    let nv = Double(i) / Double(size - 1)
                     let t = dfg(nv: nv, alpha: r * r, samples: samples)
                     out[2 * (j * size + i)] = Float(t.a)
                     out[2 * (j * size + i) + 1] = Float(t.b)

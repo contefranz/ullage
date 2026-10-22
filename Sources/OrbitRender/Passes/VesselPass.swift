@@ -37,8 +37,17 @@ public final class VesselPass: RenderPass {
     private var site: [PartMesh?]?
     /// R5's baker: each vessel's AO, once per mesh signature.
     public let ambientOcclusion = AmbientOcclusionBaker()
+    /// The renderer's clock at the last frame: while it stands still (a
+    /// snapshot, a test) no bake is asked for, since none could fade in.
+    private var lastRealTime: Double?
 
     public init() {}
+
+    deinit {
+        // Bakes still queued are dropped; one already running ends unseen
+        // (R5's baker cannot stop a bake midway).
+        ambientOcclusion.removeAll()
+    }
 
     public func setUp(_ s: PassSetup) throws {
         let library = try s.shaders.library(.vessel)
@@ -121,10 +130,12 @@ public final class VesselPass: RenderPass {
         let draw = Drawing(encoder: enc, opaque: opaque, wire: wire, dummy: dummy,
                            wireRadius: Float(settings.wireMinimumRadius))
         let frustum = Frustum(f.scene.camera)
+        let clockMoves = lastRealTime.map { $0 != f.scene.clock.realTime } ?? false
+        lastRealTime = f.scene.clock.realTime
 
         for v in f.scene.vessels {
             guard let mesh = f.mesh(of: v) else { continue }
-            applyAmbientOcclusion(of: v, mesh: mesh, f: f, settings: settings)
+            applyAmbientOcclusion(of: v, mesh: mesh, f: f, settings: settings, clockMoves: clockMoves)
             draw.setObject(Self.object(StandInLighting.vessel(v, in: f.scene), scene: f.scene, settings: settings,
                                        shading: shading))
             let attitude = v.attitude.matrix
@@ -159,10 +170,12 @@ public final class VesselPass: RenderPass {
 
     /// Gives `v`'s parts its bake's AO streams: baked now when the settings
     /// wait for it (snapshots), else once the baker has it and its fade has
-    /// begun, so a frame whose clock stands still (a snapshot's) never
-    /// changes its meshes from one render to the next.
+    /// begun. Nothing is asked of the baker while the clock stands still
+    /// (`clockMoves` false: a snapshot's or a test's frames), so such frames
+    /// never queue a bake that could not show, nor change their meshes from
+    /// one render to the next.
     private func applyAmbientOcclusion(of v: RenderScene.Vessel, mesh: VesselMesh, f: FrameContext,
-                                       settings: ShadingSettings) {
+                                       settings: ShadingSettings, clockMoves: Bool) {
         let now = f.scene.clock.realTime
         if settings.waitForAmbientOcclusion {
             if let baked = ambientOcclusion.bakeNow(v.geometry) {
@@ -170,6 +183,7 @@ public final class VesselPass: RenderPass {
             }
             return
         }
+        guard clockMoves else { return }
         let lookup = ambientOcclusion.lookup(v.geometry, now: now)
         if let baked = lookup.baked, lookup.fade > 0 { f.meshes.apply(baked, to: mesh, now: now) }
     }
@@ -268,7 +282,7 @@ public final class VesselPass: RenderPass {
             let info = shapes.map { PartMesh.ShapeInfo(culled: false, wire: false, thruster: nil, pivot: .zero,
                                                        material: materials.id($0)) }
             return PartMesh.build(meshes: shapes.map { $0.mesh() }, info: info, paint: shapes.map { _ in [] },
-                                  subdivided: false, device: device)
+                                  subdivided: nil, device: device)
         }
         guard let main = mesh(gores: 12, colours: [orange, white]),
               let drogue = mesh(gores: 8, colours: [white, orange]) else { return nil }
@@ -342,7 +356,7 @@ public final class VesselPass: RenderPass {
                                    material: materials.id($0))
             }
             return PartMesh.build(meshes: e.shapes.map { $0.mesh() }, info: info, paint: e.shapes.map { _ in [] },
-                                  subdivided: false, device: device)
+                                  subdivided: nil, device: device)
         }
     }
 

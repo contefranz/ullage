@@ -7,8 +7,12 @@ let lightingCommonSource = #"""
 // ------------------------------------------------------------- lighting ---
 //
 // Units. Light is photometric: illuminance in lux, luminance (radiance) in
-// cd/m², linear Rec. 709. A shader multiplies what it outputs by the frame's
-// pre-exposure (FrameUniforms.exposure.x, R1) and clamps it to 6e4.
+// cd/m², linear Rec. 709. A shader writes linear light times the frame's
+// pre-exposure (FrameUniforms.exposure.x, R1), guarded and clamped by
+// `orbit_exposed`, and blends linearly. It never calls orbit_encodeHDR: R1's
+// HDRResolvePass alone weights the scene's samples for the resolve, so
+// exactly one side encodes (VesselPassTests.testRadianceMatchesTheSwiftReference
+// fails if a vessel's light is encoded twice, or not pre-exposed).
 //
 // Roughness. Materials give a perceptual roughness r in 0..1; the lobes use
 // alpha = r^2, r clamped at ORBIT_MIN_ROUGHNESS.
@@ -98,6 +102,15 @@ inline float orbit_filteredAlpha2(float alpha2, float3 n) {
     return saturate(alpha2 + min(widening, 0.18));
 }
 
+// The DFG table's A and B at (n.v, perceptual roughness): its texels sit on
+// i / (size - 1), so the coordinates are scaled onto the texel centres
+// (`BRDF.DFGTable`).
+inline float2 orbit_dfg(texture2d<float> dfgLUT, sampler linear, float nv, float roughness) {
+    float n = float(dfgLUT.get_width());
+    float2 uv = (saturate(float2(nv, roughness)) * (n - 1.0) + 0.5) / n;
+    return dfgLUT.sample(linear, uv, level(0.0)).rg;
+}
+
 // The fragment's lobes: F0 and the diffuse albedo from the sample, alpha
 // filtered (`specularAA`), the DFG table read at (n.v, sqrt(alpha)), and the
 // multiple-scattering terms (Fdez-Aguera 2019 for the environment; Kulla
@@ -115,7 +128,7 @@ inline OrbitShadingPoint orbit_shadingPoint(SurfaceSample s, float3 v, texture2d
     p.roughness = sqrt(p.alpha);
     p.f0 = mix(float3(s.reflectance), s.albedo, s.metalness);
     p.diffuse = s.albedo * (1.0 - s.metalness);
-    p.dfg = dfgLUT.sample(linear, float2(p.nv, p.roughness), level(0.0)).rg;
+    p.dfg = orbit_dfg(dfgLUT, linear, p.nv, p.roughness);
     float ess = p.dfg.x + p.dfg.y;
     float3 fssEss = p.f0 * p.dfg.x + p.dfg.y;
     float3 multiple = float3(0.0);
@@ -280,10 +293,14 @@ inline float3 orbit_environmentLight(OrbitShadingPoint p, float ao, constant Lig
     return prefiltered * p.specularWeight * so + irradianceOverPi * p.diffuseWeight * ao;
 }
 
-// Pre-exposure, the FP16 ceiling and a NaN guard: what a shader writes.
+// Pre-exposure, a NaN guard and the FP16 ceiling: what a shader writes. The
+// guard comes first: min() returns its other argument for a NaN (and clamps
+// an infinity), so after it a NaN would read as a 6e4 highlight. Any NaN or
+// infinity in a channel blacks the sample out.
 inline float3 orbit_exposed(float3 radiance, float preExposure) {
-    float3 c = min(radiance * preExposure, float3(ORBIT_MAX_HDR));
-    return orbit_isNotFinite(c) ? float3(0.0) : max(c, float3(0.0));
+    float3 c = radiance * preExposure;
+    if (orbit_isNotFinite(c)) { return float3(0.0); }
+    return clamp(c, float3(0.0), float3(ORBIT_MAX_HDR));
 }
 """#
 

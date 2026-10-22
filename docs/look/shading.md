@@ -16,17 +16,23 @@ what the tracks that come after R2 plug into. The code is the reference:
   air (`radii.w` 1 and `sunTransmitted.w` > 0). Its disc is an area light for
   the specular lobe; R1's StarPass draws the disc itself.
 - The vessel shader writes linear radiance times the frame's pre-exposure
-  (`FrameUniforms.exposure.x`, R1's, valid from P0 on), clamped to 6e4 and
-  NaN-guarded (`orbit_exposed`), and blends linearly. It does not encode:
-  R1's `HDRResolvePass` weights every sample at the end of P3
-  (docs/look/units-and-exposure.md).
+  (`FrameUniforms.exposure.x`, R1's, valid from P0 on) and blends linearly.
+  `orbit_exposed` blacks out a sample with a NaN or an infinity in any
+  channel, then clamps to [0, 6e4] (in that order: `min` would turn a NaN
+  into 6e4).
+- **Exactly one side encodes:** R1's `HDRResolvePass` weights every sample at
+  the end of P3 (docs/look/units-and-exposure.md); no scene shader calls
+  `orbit_encodeHDR`. `VesselPassTests.testRadianceMatchesTheSwiftReference`
+  checks the light R1 captures against the Swift reference at EV 15 and at
+  EV 11 (13 times the exposure's white), so it fails if a shader encodes
+  too or forgets the pre-exposure.
 
 ## The BRDF
 
 - Lambert diffuse; GGX, height-correlated Smith visibility, Schlick Fresnel.
   Perceptual roughness r, α = r², r ≥ 0.045.
 - Multiple scattering from the 64² DFG table (texture 22, rg = A, B, read at
-  (n·v, √α)): Fdez-Agüera's weights for the environment, Kulla and Conty's
+  (n·v, √α); texel i at i / 63, so 0 and 1 are texel centres: `orbit_dfg`): Fdez-Agüera's weights for the environment, Kulla and Conty's
   1 + F0 (1/Ess − 1) for lights. The table is baked in Swift
   (`BRDF.dfgTable`); the pass binds it and leaves it in the frame's slot for
   later encoders.
@@ -104,9 +110,14 @@ VM1 evaluates per fragment.
   (vertex buffer 3, the previous bake's at 4). The vertex function decodes
   its own vertex's code (`AmbientOcclusion.unpack`), the rasteriser
   interpolates (front, back), the fragment function picks the face seen and
-  fades from the previous bake. A bake is applied only once its fade has
-  begun, so a snapshot's frame (whose clock stands still) never changes;
-  `ShadingSettings.waitForAmbientOcclusion` bakes before the frame.
+  fades from the previous bake.
+- A part is refined to a bake's own subdivision (`maxEdge`): a bake under
+  another edge refines it again and drops the old streams.
+- While the renderer's clock stands still (snapshots, tests, R1's exposure
+  warm-up) the pass asks the baker for nothing, so no bake runs that could
+  never show and the meshes never change between renders;
+  `ShadingSettings.waitForAmbientOcclusion` bakes before the frame instead.
+  Queued bakes are dropped with the pass.
 
 ## Lights and the environment
 

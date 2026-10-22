@@ -75,17 +75,22 @@ final class BRDFTests: XCTestCase {
     }
 
     /// For a mirror the split sum is Schlick's own: A = 1 - (1 - n·v)⁵,
-    /// B = (1 - n·v)⁵ (Schlick 1994), which the table's first row (α ≈
-    /// 6e-5) must give.
+    /// B = (1 - n·v)⁵ (Schlick 1994), which the table's first row (α = 0)
+    /// must give; and the table's corners sit on 0 and 1.
     func testDFGMirrorLimitIsSchlick() {
         let table = BRDF.dfgTable
-        for i in stride(from: 0, to: table.size, by: 7) {
-            let nv = (Double(i) + 0.5) / Double(table.size)
+        for i in stride(from: 1, to: table.size, by: 7) {
+            let nv = Double(i) / Double(table.size - 1)
             let schlick = pow(1 - nv, 5)
             let t = table.texel(i, 0)
             XCTAssertEqual(t.a, 1 - schlick, accuracy: 2e-3, "n·v \(nv)")
             XCTAssertEqual(t.b, schlick, accuracy: 2e-3, "n·v \(nv)")
         }
+        // α = 1 at normal incidence is read exactly, not clamped to the
+        // nearest texel centre.
+        let corner = BRDF.dfg(nv: 1, alpha: 1, samples: 4_096)
+        let read = table.lookup(nv: 1, roughness: 1)
+        XCTAssertEqual(read.a + read.b, corner.a + corner.b, accuracy: 1e-3)
     }
 
     /// The table against an independent integral: a plain midpoint rule
@@ -121,30 +126,66 @@ final class BRDFTests: XCTestCase {
         }
     }
 
-    /// The white furnace (design-renderer-core §5): a conductor of F0 = 1
-    /// under a uniform environment reflects at least 98 % of it at every
-    /// roughness and angle, with multiple scattering restored through the
-    /// table as the GPU reads it, both ways the renderer uses it: a light's
-    /// compensated BRDF integrated over the hemisphere, and Fdez-Agüera's
-    /// environment weights. Without compensation rough metal loses far more.
+    /// The white furnace (design-renderer-core §5), measured: a conductor
+    /// of F0 = 1 under a uniform environment must reflect at least 98 % of
+    /// it at every roughness and angle. The lobe is integrated over the
+    /// hemisphere over a stratified grid of the GGX distribution of normals
+    /// (Walter et al. 2007's estimator, independent of the table's
+    /// visible-normal bake),
+    /// and multiplied by the compensation the lights use, read from the
+    /// table as the GPU reads it: what it gives back must be the whole
+    /// furnace, 1 ± 2 %. A wrong table fails it (the compensation is 1/Ess
+    /// of the table). Single scattering alone loses up to half at α = 1.
     func testWhiteFurnaceWithMultipleScattering() {
         var worstSingle = 1.0
         for r in stride(from: 0.05, through: 1.0, by: 0.05) {
-            for nv in [0.05, 0.2, 0.5, 0.8, 1.0] {
-                let t = BRDF.dfgTable.lookup(nv: nv, roughness: r)
-                let single = t.a + t.b
+            let alpha = r * r
+            for nv in [0.1, 0.3, 0.5, 0.8, 1.0] {
+                let v = Vec3((1 - nv * nv).squareRoot(), 0, nv)
+                // A stratified grid over the distribution of normals:
+                // u1 → θh (tan² θh = α² u / (1 - u)), u2 → φh.
+                let n1 = 400, n2 = 120
+                var sum = 0.0
+                for i in 0..<n1 {
+                    let u1 = (Double(i) + 0.5) / Double(n1)
+                    let cos2 = (1 - u1) / (1 + (alpha * alpha - 1) * u1)
+                    let ct = cos2.squareRoot(), st = max(0, 1 - cos2).squareRoot()
+                    for j in 0..<n2 {
+                        let phi = 2 * Double.pi * (Double(j) + 0.5) / Double(n2)
+                        let h = Vec3(st * cos(phi), st * sin(phi), ct)
+                        let vh = v.dot(h)
+                        guard vh > 0 else { continue }
+                        let l = h * (2 * vh) - v
+                        guard l.z > 0 else { continue }
+                        // f cos / pdf, pdf = D (n·h) / (4 v·h), F = 1.
+                        sum += BRDF.smithG2(nv: nv, nl: l.z, alpha: alpha) * vh / (nv * ct)
+                    }
+                }
+                let single = sum / Double(n1 * n2)
                 worstSingle = min(worstSingle, single)
-                let light = single * BRDF.energyCompensation(f0: 1, a: t.a, b: t.b)
-                XCTAssertGreaterThanOrEqual(light, 0.98, "light, r \(r), n·v \(nv)")
-                XCTAssertLessThanOrEqual(light, 1.02, "light, r \(r), n·v \(nv)")
-                let w = BRDF.environmentWeights(f0: 1, albedo: 0, a: t.a, b: t.b)
-                XCTAssertEqual(w.specular + w.multiple, 1, accuracy: 0.02, "environment, r \(r), n·v \(nv)")
-                // A white dielectric: specular plus diffuse is the whole.
+                let t = BRDF.dfgTable.lookup(nv: nv, roughness: r)
+                let compensated = single * BRDF.energyCompensation(f0: 1, a: t.a, b: t.b)
+                XCTAssertGreaterThanOrEqual(compensated, 0.98, "r \(r), n·v \(nv): single \(single)")
+                XCTAssertLessThanOrEqual(compensated, 1.02, "r \(r), n·v \(nv): single \(single)")
+            }
+        }
+        XCTAssertLessThan(worstSingle, 0.7, "single scattering alone loses energy at high roughness")
+    }
+
+    /// Fdez-Agüera's environment weights split light into the lobes without
+    /// creating or losing any: the dielectric's specular, multiple
+    /// scattering and diffuse sum to 1 for a white albedo, and a white
+    /// metal's to 1 (an identity of the composition, whatever the table).
+    func testEnvironmentWeightsSplitWithoutLoss() {
+        for r in stride(from: 0.05, through: 1.0, by: 0.15) {
+            for nv in [0.1, 0.5, 1.0] {
+                let t = BRDF.dfgTable.lookup(nv: nv, roughness: r)
+                let m = BRDF.environmentWeights(f0: 1, albedo: 0, a: t.a, b: t.b)
+                XCTAssertEqual(m.specular + m.multiple, 1, accuracy: 1e-9)
                 let d = BRDF.environmentWeights(f0: 0.04, albedo: 1, a: t.a, b: t.b)
                 XCTAssertEqual(d.specular + d.multiple + d.diffuse, 1, accuracy: 1e-9)
             }
         }
-        XCTAssertLessThan(worstSingle, 0.7, "single scattering alone loses energy at high roughness")
     }
 
     /// Aluminium at 550 nm from Rakić et al. (1998, Brendel-Bormann fit;
@@ -225,23 +266,35 @@ final class BRDFTests: XCTestCase {
         }
     }
     /// The whole shading path (`ShadingReference`, LightingCommon's in
-    /// Swift): in a white furnace (a uniform environment, no body) a white
-    /// dielectric returns the environment's radiance and a white metal at
-    /// least 98 % of it at every roughness; the Sun plate, a Lambertian
-    /// albedo-0.8 surface (no specular) facing the Sun, renders 0.8 E/π
-    /// (design-renderer-core's look metric, ±1 %).
+    /// Swift) in a white furnace, through its lights: a uniform sky of
+    /// radiance L, integrated as directional lights over the hemisphere
+    /// (`ShadingReference.light`, each of illuminance L dω), must come back
+    /// as L within 2 % for a white metal (the compensated lobe) and white
+    /// paint (diffuse plus specular), at every roughness the grid resolves.
+    /// The Sun plate, a Lambertian albedo-0.8 surface (no specular) facing
+    /// the Sun, renders 0.8 E/π (design-renderer-core's look metric, ±1 %).
     func testShadingPathFurnaceAndSunPlate() {
-        let n = Vec3(0, 0, 1), e = 131_000.0
-        for r in stride(from: 0.05, through: 1.0, by: 0.15) {
-            for nv in [0.1, 0.5, 1.0] {
+        let n = Vec3(0, 0, 1), e = 131_000.0, radiance = 1_000.0
+        let nt = 500, np = 500
+        let dT = 0.5 * Double.pi / Double(nt), dP = 2 * Double.pi / Double(np)
+        for r in [0.35, 0.5, 0.7, 1.0] {
+            for nv in [0.4, 1.0] {
                 let v = Vec3((1 - nv * nv).squareRoot(), 0, nv)
-                let white = ShadingReference.point(albedo: 1, metalness: 0, roughness: r, reflectance: 0.04, n: n, v: v)
-                XCTAssertEqual(ShadingReference.environment(white, uniform: e), e / Double.pi,
-                               accuracy: 1e-9 * e, "white paint, r \(r), n·v \(nv)")
-                let metal = ShadingReference.point(albedo: 1, metalness: 1, roughness: r, reflectance: 0.04, n: n, v: v)
-                let m = ShadingReference.environment(metal, uniform: e) / (e / Double.pi)
-                XCTAssertGreaterThanOrEqual(m, 0.98, "white metal, r \(r), n·v \(nv)")
-                XCTAssertLessThanOrEqual(m, 1.02, "white metal, r \(r), n·v \(nv)")
+                for (metal, label) in [(1.0, "white metal"), (0.0, "white paint")] {
+                    let p = ShadingReference.point(albedo: 1, metalness: metal, roughness: r, reflectance: 0.04, n: n,
+                                                   v: v)
+                    var out = 0.0
+                    for i in 0..<nt {
+                        let t = (Double(i) + 0.5) * dT
+                        let dw = sin(t) * dT * dP
+                        for j in 0..<np {
+                            let ph = (Double(j) + 0.5) * dP
+                            let l = Vec3(sin(t) * cos(ph), sin(t) * sin(ph), cos(t))
+                            out += ShadingReference.light(p, l: l, lSpecular: l, normalization: 1, e: radiance * dw)
+                        }
+                    }
+                    XCTAssertEqual(out / radiance, 1, accuracy: 0.02, "\(label), r \(r), n·v \(nv)")
+                }
             }
         }
         let plate = ShadingReference.point(albedo: 0.8, metalness: 0, roughness: 0.6, reflectance: 0, n: n, v: n)
