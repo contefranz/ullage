@@ -132,6 +132,13 @@ public protocol RenderPass: AnyObject {
     var writes: Set<ResourceID> { get }
     /// False for a slot nobody has filled yet: the graph skips it, at no cost.
     var isEnabled: Bool { get }
+    /// A pass in a render stage (P1-P3, P5) that makes encoders of its own
+    /// on the command buffer (half-resolution targets, compute) instead of
+    /// drawing in the shared one: the graph ends the scene's encoder before
+    /// it, and the next pass that draws in the scene opens its stage's own
+    /// render pass or resumes the scene (`SceneTargetPlan.continuation`).
+    /// It gets `.commandBuffer`. False by default.
+    var encodesOnCommandBuffer: Bool { get }
     /// Whether it runs this frame (a debug view only while one is chosen);
     /// the encoders are planned around the passes that run.
     func isActive(in f: FrameContext) -> Bool
@@ -146,6 +153,7 @@ extension RenderPass {
     public var reads: Set<ResourceID> { [] }
     public var writes: Set<ResourceID> { [] }
     public var isEnabled: Bool { true }
+    public var encodesOnCommandBuffer: Bool { false }
     public func isActive(in f: FrameContext) -> Bool { true }
     public func setUp(_ s: PassSetup) throws {}
     public func resize(_ size: RenderSize) {}
