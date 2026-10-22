@@ -349,3 +349,41 @@ extension FrameGraphTests {
         XCTAssertNotEqual(log.encoders["plume"], log.encoders["vessel"])
     }
 }
+
+extension FrameGraphTests {
+    /// While timing, the scene's resume after a break is measured whole,
+    /// under the pass that broke the scene: the plain frame loads and
+    /// stores the targets there too. The pass after it draws in a
+    /// continuation, which loses the split overhead as usual.
+    func testTimingChargesTheBreakToItsPass() throws {
+        let log = RecordingPass.Log()
+        let halfRes = RecordingPass("halfRes", .transparent, 1, log: log)
+        halfRes.encodesOnCommandBuffer = true
+        let composite = RecordingPass("composite", .transparent, 2, log: log)
+        var profile: FrameProfile?
+        composite.onEncode = { f in profile = f.profile }
+        let r = try renderer([RecordingPass("vessel", .opaque, log: log), RecordingPass("plume", .transparent, 0, log: log),
+                              halfRes, composite, RecordingPass("marker", .overlay, log: log)])
+        guard r.profiler.isSupported else { throw XCTSkip("no timestamp counters on this GPU") }
+        r.profiling = true
+        r.profileInterval = 1
+        try render(r)
+        let p = try XCTUnwrap(profile, "a timed frame")
+        XCTAssertEqual(zip(p.labels, p.kinds).map { "\($0) \($1)" },
+                       ["vessel render", "plume sceneContinuation", "\(FrameProfile.splitOverhead) sceneContinuation",
+                        "halfRes render", "composite sceneContinuation", "marker sceneContinuation"])
+        XCTAssertEqual(log.entries, ["vessel:render", "plume:render", "halfRes:cb", "composite:render", "marker:render"])
+
+        // Its timings: the resume's load and store stay with the pass that
+        // broke the scene, and the continuations lose the overhead.
+        let stamps: [UInt64] = [1, 11, 20, 120,       // vessel: 10 + 100
+                                120, 125, 130, 210,   // plume: 5 + 80, less 50
+                                210, 211, 220, 269,   // the overhead: 1 + 49
+                                300, 301, 310, 359,   // the resume: 1 + 49, kept
+                                360, 370, 380, 480,   // composite: 10 + 100, less 50
+                                480, 481, 490, 560]   // marker: 1 + 70, less 50
+        let t = FrameProfile.timings(labels: p.labels, kinds: p.kinds, stamps: stamps, secondsPerTick: 1)
+        XCTAssertEqual(t.map(\.pass), ["vessel", "plume", FrameProfile.splitOverhead, "halfRes", "composite", "marker"])
+        XCTAssertEqual(t.map(\.seconds), [110, 35, 50, 50, 60, 21])
+    }
+}
