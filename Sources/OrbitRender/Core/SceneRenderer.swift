@@ -89,9 +89,10 @@ public final class SceneRenderer {
     /// Every slot P0-P5, in order: today's stars, planets, vessels, orbit
     /// line, plumes, far points and markers, and each track's stub.
     public static func defaultPasses(loadsUserTextures: Bool = true) -> [RenderPass] {
-        [
+        let shadows = ShadowPass()
+        return [
             // P0
-            AtmosphereLUTPass(), CloudPass(), ShadowPass(), EnvironmentProbePass(), ParticleSimulationPass(),
+            AtmosphereLUTPass(), CloudPass(), shadows, EnvironmentProbePass(), ParticleSimulationPass(),
             // P1
             StarPass(), PlanetPass(loadsUserTextures: loadsUserTextures), VesselPass(),
             // P2
@@ -99,7 +100,7 @@ public final class SceneRenderer {
             // P3
             OrbitLinePass(), PlumePass(), FarPointPass(), HalfResTransparentPass(), ParticleDrawPass(), EntryPass(),
             // P4
-            PostPass(), DebugViewPass(),
+            PostPass(), DebugViewPass(), ShadowDebugPass(shadows: shadows),
             // P5
             MarkerPass(),
         ]

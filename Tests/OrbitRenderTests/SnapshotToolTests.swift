@@ -34,8 +34,8 @@ final class SnapshotToolTests: XCTestCase {
         guard try s.renderer(userTextures: false).profiler.isSupported else {
             throw XCTSkip("no timestamp counters on this GPU")
         }
-        XCTAssertEqual(timed.timings.map(\.pass), ["Stars", "Planets", "Vessels", "Orbit line", "Plumes", "Far points",
-                                                   "Markers", FrameProfile.splitOverhead])
+        XCTAssertEqual(timed.timings.map(\.pass), ["Shadows", "Stars", "Planets", "Vessels", "Orbit line", "Plumes",
+                                                   "Far points", "Markers", FrameProfile.splitOverhead])
         // Each render pass's vertex and fragment time less what splitting
         // costs (an empty encoder's time): small passes may read 0.
         for t in timed.timings { XCTAssertGreaterThanOrEqual(t.seconds, 0, t.pass) }
