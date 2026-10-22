@@ -125,7 +125,13 @@ inline float3 orbit_viewRay(float2 p, constant FrameUniforms &f) {
 }
 
 // Karis' tone-mapped weighting, so an MSAA resolve does not alias bright
-// highlights: encode before the resolve, decode after.
+// highlights. Not for scene passes: under R1's HDR plan every pass that
+// draws into the scene (P1-P3) writes linear Rec. 709 luminance times
+// FrameUniforms.exposure.x, clamped below 6e4, and blends in linear light;
+// the scene's last draw (HDRResolvePass) weights each sample for the resolve
+// itself, with the weight in alpha, and post decodes it (PostShaders). A
+// scene pass calling orbit_encodeHDR would have its light weighted twice;
+// HDRRuleTests fails if any shader module calls these two.
 inline float4 orbit_encodeHDR(float4 c) {
     return float4(c.rgb / (1.0 + max(c.r, max(c.g, c.b))), c.a);
 }

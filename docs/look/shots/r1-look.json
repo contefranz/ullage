@@ -1,0 +1,15 @@
+{
+  "goldens": "none",
+  "shots": [
+    {"name": "r1-photo-mode", "scenario": "as506-parking-orbit", "reference": "f/11, 1/250 s, ISO 64",
+     "camera": {"yaw": -34.4, "pitch": 20, "distance": 70, "lens": "hasselblad80"},
+     "settings": {"post": {"exposure": {"mode": "photo"}}}},
+    {"name": "r1-neutral", "scenario": "as506-parking-orbit", "advance": ["stage", "wait:6"],
+     "camera": {"yaw": -114.6, "pitch": 22.9, "distance": 45},
+     "settings": {"post": {"toneCurve": "neutral"}}},
+    {"name": "r1-agx", "scenario": "as506-parking-orbit", "advance": ["stage", "wait:6"],
+     "camera": {"yaw": -114.6, "pitch": 22.9, "distance": 45}},
+    {"name": "r1-orbital-night", "scenario": "as506-parking-orbit", "advance": ["wait:2400"],
+     "camera": {"yaw": 150, "pitch": 30, "distance": 70}}
+  ]
+}
