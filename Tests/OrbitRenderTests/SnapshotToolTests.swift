@@ -40,9 +40,13 @@ final class SnapshotToolTests: XCTestCase {
         // costs (an empty encoder's time): small passes may read 0.
         for t in timed.timings { XCTAssertGreaterThanOrEqual(t.seconds, 0, t.pass) }
         XCTAssertGreaterThan(timed.timings.last!.seconds, 0, "the split overhead is measured")
-        let sum = timed.timings.map(\.seconds).reduce(0, +)
         // The record's GPU time is an unsplit frame's: less than a split
-        // frame's passes and overhead together.
+        // frame's render stages and overhead together. P0's passes (the
+        // shadow maps) are left out: their encoders run alongside the
+        // scene's first ones, so their spans overlap the scene's and a sum
+        // would count that time twice.
+        let prepare = Set(try s.renderer(userTextures: false).graph.passes.filter { $0.stage == .prepare }.map(\.name))
+        let sum = timed.timings.filter { !prepare.contains($0.pass) }.map(\.seconds).reduce(0, +)
         XCTAssertGreaterThan(timed.record.gpuMilliseconds, 0)
         XCTAssertLessThan(sum, 2 * timed.record.gpuMilliseconds / 1_000 + 2 * timed.timings.last!.seconds,
                           "\(timed.timings)")
