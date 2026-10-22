@@ -308,7 +308,9 @@ final class VesselPassTests: XCTestCase {
     /// The pass's GPU time on the plan's display (3024 × 1964, 4× MSAA) for
     /// the budget's two cases, the pad (the stack and LC-39A filling the
     /// view) and low Earth orbit: a report, not a test (ORBITSIM_PERF=1; it
-    /// holds the GPU lock).
+    /// holds the GPU lock). ORBITSIM_PERF_QUARTER=1 renders a quarter of the
+    /// pixels (what is geometry), ORBITSIM_PERF_NOSITE=1 leaves the pad out,
+    /// ORBITSIM_PERF_AO_EDGE=<m> sets R5's subdivision (`maxEdge`).
     func testPassTimeReport() throws {
         guard ProcessInfo.processInfo.environment["ORBITSIM_PERF"] == "1" else {
             throw XCTSkip("set ORBITSIM_PERF=1 to time the pass (it holds the GPU lock)")
@@ -328,6 +330,9 @@ final class VesselPassTests: XCTestCase {
         r.setStars(try StarCatalog.bundled())
         var settings = RenderSettings()
         settings.shading.waitForAmbientOcclusion = true
+        if let edge = ProcessInfo.processInfo.environment["ORBITSIM_PERF_AO_EDGE"].flatMap(Double.init) {
+            settings.ambientOcclusion.maxEdge = edge
+        }
         r.settings = settings
         let target = try XCTUnwrap(OffscreenTarget(device: r.device, width: w, height: h))
         for (label, id, script, view) in cases {
