@@ -9,8 +9,11 @@ import Metal
 /// against `sceneDepth`. The light in the scene's colour is linear Rec. 709
 /// luminance times the frame's pre-exposure (`FrameUniforms.exposure.x`).
 ///
-/// When the encoders are split for timing, the samples are stored between
-/// them in private textures, so the image is the same.
+/// When the encoders are split for timing, or a render-stage pass encodes on
+/// the command buffer (`FrameContext.breaksScene`), the samples are stored
+/// between encoders in private textures, so the image is the same. A pass
+/// that breaks the scene finds `sceneDepth` resolved as far as the scene has
+/// gone; `hdrColor` is final only in P4 (the resolve's weighting is last).
 @MainActor
 public final class HDRTargetPlan: SceneTargetPlan {
     public static let colorFormat = MTLPixelFormat.rgba16Float
@@ -77,7 +80,7 @@ public final class HDRTargetPlan: SceneTargetPlan {
     }
 
     private func scenePass(_ f: FrameContext) -> MTLRenderPassDescriptor? {
-        let split = f.splitsEncoders
+        let split = f.splitsEncoders || f.breaksScene
         if split {
             unsplitFrames = 0
             if stored.depth == nil { stored = (target(Self.colorFormat, .private), target(depthFormat, .private)) }

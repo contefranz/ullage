@@ -334,3 +334,49 @@ final class HDRLookTests: XCTestCase {
         }
     }
 }
+
+extension HDRLookTests {
+    /// A render-stage pass on the command buffer (`encodesOnCommandBuffer`,
+    /// R6's half-resolution targets) breaks the scene's encoder: the HDR plan
+    /// stores its MSAA samples, and the image is the same, also while timing.
+    func testBreakingTheSceneKeepsThePixels() throws {
+        final class Gap: RenderPass {
+            let name = "Gap"
+            let stage = PassStage.transparent
+            let order = 15
+            var encodesOnCommandBuffer: Bool { true }
+            var broke = false
+            func encode(_ f: FrameContext, _ e: PassEncoding) {
+                guard case .commandBuffer = e else { return XCTFail("a pass on the command buffer") }
+                broke = f.breaksScene
+            }
+        }
+        let scenario = try XCTUnwrap(Scenario.named("as506-pad"))
+        let sim = scenario.build(SceneRendererTests.system)
+        var camera = OrbitCamera()
+        let v = try XCTUnwrap(sim.focus)
+        camera.target = .vessel(v.id)
+        camera.distance = max(v.boundingRadius * 3, 30)
+        camera.update(sim: sim)
+        let scene = SceneExtractor().extract(sim: sim, camera: camera,
+                                             viewport: RenderScene.Viewport(width: 320, height: 200), realTime: 0)
+        let stars = try StarCatalog.bundled()
+        func image(_ extra: [RenderPass], timing: Bool = false) throws -> [UInt8] {
+            let r = try SceneRenderer(device: try device(), outputFormat: .bgra8Unorm_srgb,
+                                      passes: SceneRenderer.defaultPasses(loadsUserTextures: false) + extra,
+                                      plan: HDRTargetPlan(outputFormat: .bgra8Unorm_srgb, sampleCount: 4))
+            XCTAssertEqual(r.failures, [:])
+            r.setStars(stars)
+            r.profiling = timing
+            r.profileInterval = 1
+            let target = try XCTUnwrap(OffscreenTarget(device: r.device, width: 320, height: 200))
+            r.renderAndWait(scene, into: target)
+            return target.bytes()
+        }
+        let gap = Gap()
+        let plain = try image([])
+        XCTAssertEqual(try image([gap]), plain)
+        XCTAssertTrue(gap.broke, "the plan was told")
+        XCTAssertEqual(try image([Gap()], timing: true), plain, "while timing")
+    }
+}
