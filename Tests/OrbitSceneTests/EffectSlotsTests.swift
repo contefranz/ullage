@@ -59,8 +59,12 @@ final class EffectSlotsTests: XCTestCase {
         // behind: all the weight on the nearest in depth.
         XCTAssertEqual(EffectSlots.upsampleWeights(bilinear: bilinear, depths: [0, 0.0102, 0, 0.0099],
                                                    depth: 0.01, tolerance: 0.1), [0, 0, 0, 1])
-        // A sky pixel next to the vessel: the sky texel with the larger
-        // bilinear weight wins the tie.
+        // A sky pixel next to the vessel, two sky texels tied in depth: the
+        // one with the larger bilinear weight wins, though its index is higher.
+        let nearTexel3 = [1.0 / 16, 3.0 / 16, 3.0 / 16, 9.0 / 16]
+        XCTAssertEqual(EffectSlots.upsampleWeights(bilinear: nearTexel3, depths: [0, 0.01, 0.01, 0],
+                                                   depth: 0, tolerance: 0.1), [0, 0, 0, 1])
+        // Equal weights too: the lower index.
         XCTAssertEqual(EffectSlots.upsampleWeights(bilinear: bilinear, depths: [0.01, 0, 0, 0.01],
                                                    depth: 0, tolerance: 0.1), [0, 1, 0, 0])
         // The tolerance is relative, whatever the distance.
