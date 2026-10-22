@@ -98,8 +98,8 @@ fragment EffectCloudOut effect_test_slab_fragment(EffectTestOut in [[stage_in]],
 // The back faces of the cone's proxy (circumscribed, so every texel whose
 // ray meets the cone is covered); the fragment intersects the ray with the
 // cone, clamps the exit at the scene, and marches 24 jittered steps of an
-// emissive, slightly absorbing medium, hot at the apex and cooling along
-// the axis. Energy-conserving steps (Hillaire 2015).
+// emissive, slightly absorbing medium, hot at the apex with a few shock
+// cells, cooling along the axis. Energy-conserving steps (Hillaire 2015).
 struct EffectTestConeOut {
     float4 position [[position]];
 };
@@ -172,8 +172,10 @@ fragment EffectVolumeOut effect_test_cone_fragment(EffectTestConeOut in [[stage_
         float xi = clamp(x / length_, 0.0, 1.0);
         float r = length(v - x * axis), rx = max(x * k, 1e-3);
         float density = exp(-3.0 * (r / rx) * (r / rx)) * pow(1.0 - xi, 1.5) * (1.0 - exp(-xi * 40.0));
-        float3 emission = mix(float3(1.0, 0.86, 0.6) * 6.0, float3(1.0, 0.36, 0.08) * 1.2, sqrt(xi));
-        float sigma = density * 1.5 / radius;
+        // Shock cells near the exit, fading downstream.
+        float cells = 1.0 + 0.6 * cos(2.0 * M_PI_F * xi / 0.09) * exp(-5.0 * xi);
+        float3 emission = mix(float3(1.0, 0.9, 0.7) * 9.0, float3(1.0, 0.42, 0.1) * 2.0, sqrt(xi)) * cells;
+        float sigma = density * 0.5 / radius;
         float3 j = density * emission / radius;
         float dtau = sigma * ds * len;
         float stepT = exp(-dtau);
