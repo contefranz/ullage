@@ -12,8 +12,8 @@ final class SceneRendererTests: XCTestCase {
     func testDefaultPasses() throws {
         let r = try SceneRenderer(device: try XCTUnwrap(RenderDevice.shared), loadsUserTextures: false)
         XCTAssertEqual(r.failures, [:])
-        XCTAssertEqual(r.graph.active.map(\.name), ["Stars", "Planets", "Vessels", "Orbit line", "Plumes", "Far points",
-                                                    "Debug view", "Markers"])
+        XCTAssertEqual(r.graph.active.map(\.name), ["Shadows", "Stars", "Planets", "Vessels", "Orbit line", "Plumes",
+                                                    "Far points", "Debug view", "Sun-shadow view", "Markers"])
         XCTAssertEqual(Set(r.graph.passes.map(\.name)).count, r.graph.passes.count, "pass names are unique")
         for stage in PassStage.allCases {
             XCTAssertTrue(r.graph.passes.contains { $0.stage == stage }, "a pass in every slot, \(stage)")

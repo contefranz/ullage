@@ -1,0 +1,29 @@
+{
+  "goldens": "scene",
+  "shots": [
+    {"name": "r4-pad-sun-side", "scenario": "as506-pad",
+     "camera": {"yaw": 60, "pitch": 12, "distance": 190},
+     "settings": {"debug": {"view": "sunShadow"}}},
+    {"name": "r4-pad-shadow-side", "scenario": "as506-pad",
+     "camera": {"yaw": -120, "pitch": 30, "distance": 200},
+     "settings": {"debug": {"view": "sunShadow"}}},
+    {"name": "r4-ml-deck", "scenario": "as506-pad",
+     "camera": {"yaw": -100, "pitch": 40, "distance": 75, "lens": "hasselblad80"},
+     "settings": {"debug": {"view": "sunShadow"}}},
+    {"name": "r4-les-on-cm", "scenario": "as506-pad", "advance": ["met:120"],
+     "camera": {"yaw": 100, "pitch": 42, "distance": 70},
+     "settings": {"debug": {"view": "sunShadow"}}},
+    {"name": "r4-sic-skin", "scenario": "as506-pad", "advance": ["met:120"],
+     "camera": {"frame": "vessel", "yaw": 90, "pitch": 75, "distance": 110, "lens": "hasselblad250"},
+     "settings": {"debug": {"view": "sunShadow"}}},
+    {"name": "r4-staging", "scenario": "as506-pad", "advance": ["ev:S-IC/S-II separation", "wait:2"],
+     "camera": {"frame": "vessel", "yaw": 60, "pitch": 10, "distance": 70, "lens": "hasselblad80"},
+     "settings": {"debug": {"view": "sunShadow"}}},
+    {"name": "r4-csm-separation", "scenario": "as506-parking-orbit", "advance": ["stage", "wait:6"],
+     "camera": {"yaw": -114.6, "pitch": 22.9, "distance": 45},
+     "settings": {"debug": {"view": "sunShadow"}}},
+    {"name": "r4-parking-orbit", "scenario": "as506-parking-orbit",
+     "camera": {"yaw": -34.4, "pitch": 20, "distance": 45},
+     "settings": {"debug": {"view": "sunShadow"}}}
+  ]
+}
