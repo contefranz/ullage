@@ -34,18 +34,19 @@ final class SnapshotToolTests: XCTestCase {
         guard try s.renderer(userTextures: false).profiler.isSupported else {
             throw XCTSkip("no timestamp counters on this GPU")
         }
-        XCTAssertEqual(timed.timings.map(\.pass), ["Stars", "Planets", "Vessels", "Orbit line", "Plumes", "Far points",
-                                                   "Markers", FrameProfile.splitOverhead])
+        // The overhead is measured where the scene's encoders end, before post.
+        XCTAssertEqual(timed.timings.map(\.pass), ["Stars", "Planets", "Vessels", "Plumes", "Far points", "HDR resolve",
+                                                   FrameProfile.splitOverhead, "Post", "Orbit line", "Markers"])
         // Each render pass's vertex and fragment time less what splitting
         // costs (an empty encoder's time): small passes may read 0.
         for t in timed.timings { XCTAssertGreaterThanOrEqual(t.seconds, 0, t.pass) }
-        XCTAssertGreaterThan(timed.timings.last!.seconds, 0, "the split overhead is measured")
+        let overhead = try XCTUnwrap(timed.timings.first { $0.pass == FrameProfile.splitOverhead }).seconds
+        XCTAssertGreaterThan(overhead, 0, "the split overhead is measured")
         let sum = timed.timings.map(\.seconds).reduce(0, +)
         // The record's GPU time is an unsplit frame's: less than a split
         // frame's passes and overhead together.
         XCTAssertGreaterThan(timed.record.gpuMilliseconds, 0)
-        XCTAssertLessThan(sum, 2 * timed.record.gpuMilliseconds / 1_000 + 2 * timed.timings.last!.seconds,
-                          "\(timed.timings)")
+        XCTAssertLessThan(sum, 2 * timed.record.gpuMilliseconds / 1_000 + 2 * overhead, "\(timed.timings)")
     }
 
     /// The split overhead comes off the scene's continuations only: not

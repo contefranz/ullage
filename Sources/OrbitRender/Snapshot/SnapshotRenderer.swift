@@ -42,6 +42,9 @@ public final class SnapshotRenderer {
         /// A timed (split) frame's pixels, which must equal `pixels`; nil
         /// without timing.
         public let profiledPixels: [UInt8]?
+        /// The frame's light before the tone map, cd/m² in linear Rec. 709,
+        /// RGBA rows top first (R1's HDR targets); nil without them.
+        public let light: [Float]?
         public let record: SnapshotRecord
     }
 
@@ -62,7 +65,31 @@ public final class SnapshotRenderer {
             gpuTimes.append(frameGPUTime(r) ?? 0)
             return target.bytes()
         }
+        // The exposure starts over for each shot; an automatic one is set by
+        // the shot's own histograms (frames whose image is thrown away): the
+        // first snap it, the next adapt in half-second steps until it
+        // settles, as it would in the app (a night floor relative to the
+        // exposure moves its own target).
+        let post = r.post
+        post?.control.reset()
+        if let post, shot.settings.post.exposure.fixedEV100 == nil {
+            r.settings = shot.settings
+            var adapting = scene
+            adapting.clock.realDt = 0.5
+            var previous = Double.nan
+            for i in 0..<48 {
+                r.renderAndWait(i <= ExposureControl.snapCount ? scene : adapting, into: target)
+                if i > ExposureControl.snapCount, abs(post.control.ev100 - previous) < 0.005 { break }
+                previous = post.control.ev100
+            }
+        }
+        post?.capturesLight = true
         let pixels = frame(shot.settings)
+        let light = post?.capturedLight().map { c in
+            let k = Float(1 / (post?.control.preExposure ?? 1))
+            return c.pixels.enumerated().map { $0.offset % 4 == 3 ? 1 : $0.element * k }
+        }
+        let exposure = post.map { ($0.control.ev100, $0.control.preExposure) }
         var gpu = gpuTimes[0]       // the main frame's, not an AOV's
         var aovs: [(view: DebugView, pixels: [UInt8])] = []
         for view in shot.aovs where view != .none {
@@ -90,10 +117,14 @@ public final class SnapshotRenderer {
             gpu = Self.median(Array(gpuTimes.suffix(timingFrames)))
         }
         r.settings = RenderSettings()
-        let record = SnapshotRecord(shot: shot, prepared: prepared, scene: scene, gpuSeconds: gpu, timings: timings,
+        var record = SnapshotRecord(shot: shot, prepared: prepared, scene: scene, gpuSeconds: gpu, timings: timings,
                                     failures: r.failures, gpuFamily: GPUFamily.name(device))
+        if let exposure {
+            record.ev100 = exposure.0
+            record.preExposure = exposure.1
+        }
         return Output(shot: shot, pixels: pixels, aovs: aovs, timings: timings, profiledPixels: profiledPixels,
-                      record: record)
+                      light: light, record: record)
     }
 
     static func median(_ xs: [Double]) -> Double {
@@ -116,8 +147,10 @@ public struct SnapshotRecord: Codable {
     public var height: Int
     public var camera: Camera
     public var vessels: [String]
-    /// 1 until R1's HDR: the PNG is the frame, the PFM its linear light.
+    /// The frame's pre-exposure (scene luminance to the tone map's input)
+    /// and EV100; the PFM is the frame's light in cd/m², before it.
     public var preExposure: Double
+    public var ev100: Double?
     public var gpuFamily: String
     /// The frame's GPU time and each pass's (when timed), ms.
     public var gpuMilliseconds: Double

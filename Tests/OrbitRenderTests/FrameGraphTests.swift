@@ -20,6 +20,7 @@ final class RecordingPass: RenderPass {
     var reads: Set<ResourceID> = []
     var writes: Set<ResourceID> = []
     var isEnabled = true
+    var encodesOnCommandBuffer = false
     var failsSetUp = false
     var setUps = 0
     let log: Log
@@ -119,7 +120,8 @@ final class FrameGraphTests: XCTestCase {
         }
         var passes = SceneRenderer.defaultPasses(loadsUserTextures: false)
         passes.append(BrokenShaderPass())
-        let r = try renderer(passes)
+        let r = try SceneRenderer(device: try device(), outputFormat: .bgra8Unorm_srgb, passes: passes,
+                                  plan: HDRTargetPlan(outputFormat: .bgra8Unorm_srgb, sampleCount: 4))
         XCTAssertEqual(r.graph.failures.keys.sorted(), ["Broken shader"])
         XCTAssertNotNil(r.shaders.errors["BrokenModule"])
         try render(r)
@@ -233,5 +235,118 @@ extension FrameGraphTests {
         try render(r2)
         XCTAssertEqual(log2.entries, ["vessel:render", "debug:cb"])
         XCTAssertTrue(resolved, "the depth resolved for it")
+    }
+}
+
+extension FrameGraphTests {
+    /// A render-stage pass on the command buffer ends the scene's encoder;
+    /// the passes after it draw in the resumed scene, the overlay too.
+    func testPassOnTheCommandBufferBreaksTheScene() throws {
+        let log = RecordingPass.Log()
+        let halfRes = RecordingPass("halfRes", .transparent, 1, log: log)
+        halfRes.encodesOnCommandBuffer = true
+        var broken = false
+        halfRes.onEncode = { f in broken = f.breaksScene }
+        let r = try renderer([RecordingPass("vessel", .opaque, log: log), RecordingPass("plume", .transparent, 0, log: log),
+                              halfRes, RecordingPass("composite", .transparent, 2, log: log),
+                              RecordingPass("marker", .overlay, log: log)])
+        try render(r)
+        XCTAssertEqual(log.entries, ["vessel:render", "plume:render", "halfRes:cb", "composite:render", "marker:render"])
+        XCTAssertTrue(broken, "the plan was told")
+        XCTAssertEqual(log.encoders["plume"], log.encoders["vessel"])
+        XCTAssertNotEqual(log.encoders["composite"], log.encoders["vessel"], "the scene resumed in a new encoder")
+        XCTAssertEqual(log.encoders["marker"], log.encoders["composite"])
+    }
+
+    /// Breaking the scene keeps the image: the direct plan stores the MSAA
+    /// samples and resolves again where the scene resumes. Also while timing.
+    func testBreakingTheSceneKeepsThePixels() throws {
+        final class Gap: RenderPass {
+            let name = "Gap"
+            let stage = PassStage.transparent
+            let order = 15
+            var encodesOnCommandBuffer: Bool { true }
+            var encoded = 0
+            func encode(_ f: FrameContext, _ e: PassEncoding) {
+                guard case .commandBuffer = e else { return XCTFail("a pass on the command buffer") }
+                encoded += 1
+            }
+        }
+        let scenario = try XCTUnwrap(Scenario.named("as506-pad"))
+        let sim = scenario.build(SceneRendererTests.system)
+        var camera = OrbitCamera()
+        let v = try XCTUnwrap(sim.focus)
+        camera.target = .vessel(v.id)
+        camera.distance = max(v.boundingRadius * 3, 30)
+        camera.update(sim: sim)
+        let scene = SceneExtractor().extract(sim: sim, camera: camera,
+                                             viewport: RenderScene.Viewport(width: 320, height: 200), realTime: 0)
+        let stars = try StarCatalog.bundled()
+        func image(_ extra: [RenderPass], timing: Bool = false) throws -> [UInt8] {
+            let device = try device()
+            let r = try SceneRenderer(device: device, outputFormat: .bgra8Unorm_srgb,
+                                      passes: SceneRenderer.defaultPasses(loadsUserTextures: false) + extra,
+                                      plan: DirectTargetPlan(colorFormat: .bgra8Unorm_srgb, sampleCount: 4))
+            r.setStars(stars)
+            r.profiling = timing
+            r.profileInterval = 1
+            let target = try XCTUnwrap(OffscreenTarget(device: device, width: 320, height: 200))
+            r.renderAndWait(scene, into: target)
+            return target.bytes()
+        }
+        let gap = Gap()
+        let plain = try image([])
+        XCTAssertEqual(try image([gap]), plain)
+        XCTAssertEqual(try image([gap], timing: true), plain)
+        XCTAssertEqual(gap.encoded, 2)
+    }
+
+    /// A plan that opens a render pass of its own for P3: a pass on the
+    /// command buffer at the start of P3 costs no continuation, and the
+    /// stage's render pass opens for the first pass that draws in it.
+    func testStageOpensItsOwnPassAfterABreak() throws {
+        final class StagedPlan: SceneTargetPlan {
+            var continuations = 0
+            var depth: MTLTexture?
+            func formats(for stage: PassStage) -> SceneFormats {
+                SceneFormats(color: .bgra8Unorm_srgb, depth: .depth32Float, sampleCount: 1, output: .bgra8Unorm_srgb)
+            }
+            var provides: Set<ResourceID> { [.sceneColor, .sceneDepth, .output] }
+            func resize(_ size: RenderSize, device: MTLDevice) {
+                let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .depth32Float, width: size.width,
+                                                                 height: size.height, mipmapped: false)
+                d.usage = .renderTarget
+                d.storageMode = .private
+                depth = device.makeTexture(descriptor: d)
+            }
+            func renderPass(for stage: PassStage, _ f: FrameContext) -> MTLRenderPassDescriptor? {
+                guard stage == .opaque || stage == .transparent else { return nil }
+                let pass = MTLRenderPassDescriptor()
+                pass.colorAttachments[0].texture = f.output
+                pass.colorAttachments[0].loadAction = stage == .opaque ? .clear : .load
+                pass.colorAttachments[0].storeAction = .store
+                pass.depthAttachment.texture = depth
+                pass.depthAttachment.loadAction = stage == .opaque ? .clear : .load
+                pass.depthAttachment.clearDepth = 0
+                pass.depthAttachment.storeAction = .store
+                return pass
+            }
+            func continuation(_ f: FrameContext) -> MTLRenderPassDescriptor? {
+                continuations += 1
+                return nil
+            }
+        }
+        let log = RecordingPass.Log()
+        let halfRes = RecordingPass("halfRes", .transparent, 0, log: log)
+        halfRes.encodesOnCommandBuffer = true
+        let plan = StagedPlan()
+        let device = try device()
+        let r = try SceneRenderer(device: device, outputFormat: .bgra8Unorm_srgb,
+                                  passes: [RecordingPass("vessel", .opaque, log: log), halfRes,
+                                           RecordingPass("plume", .transparent, 1, log: log)], plan: plan)
+        try render(r)
+        XCTAssertEqual(log.entries, ["vessel:render", "halfRes:cb", "plume:render"])
+        XCTAssertEqual(plan.continuations, 0)
+        XCTAssertNotEqual(log.encoders["plume"], log.encoders["vessel"])
     }
 }

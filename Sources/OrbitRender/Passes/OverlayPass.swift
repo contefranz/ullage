@@ -4,19 +4,17 @@ import simd
 import OrbitCore
 import OrbitScene
 
-/// The focus vessel's orbit line, then the parachutes' risers, as lines
-/// tested against the opaque depth. It runs first in P3, where the M1.5
-/// renderer drew them (before the plumes); R1 moves the orbit line to P5
-/// when overlays draw after tone mapping, and R2 makes the risers quads.
+/// The focus vessel's orbit line, tested against the scene's depth, drawn
+/// after tone mapping in display colours (P5, before the markers). The
+/// parachutes' risers are thin tubes in the vessel pass (R2).
 @MainActor
 public final class OrbitLinePass: RenderPass {
     public let name = "Orbit line"
-    public let stage = PassStage.transparent
-    public let order = 0
+    public let stage = PassStage.overlay
+    public let order = -10
 
     private var pipeline: MTLRenderPipelineState?
     static let orbitColor = SIMD4<Float>(0.3, 1.0, 0.45, 0.8)
-    static let riserColor = SIMD4<Float>(0.82, 0.8, 0.74, 0.85)
 
     public init() {}
 
@@ -33,12 +31,6 @@ public final class OrbitLinePass: RenderPass {
             strips.append(strip.count)
             lines += strip.map { LineVertex(position: SIMD4($0, 1), color: Self.orbitColor) }
         }
-        for c in f.scene.canopies where f.drawsMesh(c.vesselID) {
-            for (a, b) in c.risers {
-                lines.append(LineVertex(position: SIMD4(a, 1), color: Self.riserColor))
-                lines.append(LineVertex(position: SIMD4(b, 1), color: Self.riserColor))
-            }
-        }
         guard let b = f.arena.push(lines) else { return }
         enc.setRenderPipelineState(pipeline)
         enc.setDepthStencilState(f.states.depthReadOnly)
@@ -49,9 +41,6 @@ public final class OrbitLinePass: RenderPass {
         for count in strips {
             enc.drawPrimitives(type: .lineStrip, vertexStart: start, vertexCount: count)
             start += count
-        }
-        if lines.count > start {
-            enc.drawPrimitives(type: .line, vertexStart: start, vertexCount: lines.count - start)
         }
     }
 }
