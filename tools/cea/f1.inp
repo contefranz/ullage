@@ -1,0 +1,20 @@
+# F-1 thrust chamber (S-IC), rated: NASA CEA input deck (RP-1311 free form).
+# Run by tools/make_exhaust_table.py; the specs take the frozen expansion.
+#
+# p,psia: 982 psia nozzle stagnation (Betts, NTRS 20140011656, "Chamber
+#   Pressure, ns": H); the 1,125 psia often quoted is the injector end's.
+# o/f: the thrust chamber's 2.404, derived from the engine's 2.27 (Betts, H)
+#   less the gas generator's 167 lb/s at 0.416 (R-3896-1, read through a
+#   search extract: M) out of 5,737 lb/s (Betts): (3982.6 - 49.1) /
+#   (1754.4 - 117.9). The turbine exhaust enters the nozzle extension at
+#   10:1 as a film (ApolloExhaust), not in this deck.
+# supar: 10 at the regeneratively cooled chamber's end, 16 at the extension's
+#   exit (R-3896-1, MSFC-MAN-503 Fig. 4-6: H).
+# Reactants at their run temperatures: RP-1 at 298.15 K, LOX at its normal
+#   boiling point, 90.17 K (the deck's choice: M).
+reac
+  fuel=RP-1  wt%=100 t(k)=298.15
+  oxid=O2(L) wt%=100 t(k)=90.17
+prob case=F-1 rocket p,psia=982 o/f=2.404 eql frozen nfz=2 supar=10,16
+output siunits trace=1e-5
+end

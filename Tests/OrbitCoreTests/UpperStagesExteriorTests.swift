@@ -292,7 +292,8 @@ final class UpperStagesExteriorTests: XCTestCase {
     // of a 104.68 in motor that starts after STA 2519 and whose 9 in case
     // fits its fairing, outside the cone, on the motor's diagonal, the
     // exhaust against its thrust; the nozzle under the cap, linked to the
-    // motor, so that the plume starts at the port. They stay put when the
+    // motor, so that the plume starts at the port, its exit the exhaust
+    // spec's. They stay put when the
     // S-II and the interstage leave.
     func testRetroPorts() throws {
         let tilt = S.sIIRetroTilt * Double.pi / 180
@@ -315,7 +316,10 @@ final class UpperStagesExteriorTests: XCTestCase {
             XCTAssertGreaterThan(r, 198 - (2_624 - 2_519) * slope + 4)
             XCTAssertEqual(angle(theta(c), 45 + 90 * Double(k)), 0, accuracy: 1e-9)
             XCTAssertEqual((port.direction + motor.direction).length, 0, accuracy: 1e-12)
-            XCTAssertEqual(port.radius / inch, 3.5, accuracy: 1e-12)
+            // The exhaust spec's exit (8.15 in, P1), inside the 9 in case.
+            XCTAssertEqual(port.radius, ApolloExhaust.sIIRetro.spec.exitRadius, accuracy: 1e-12)
+            XCTAssertEqual(2 * port.radius / inch, 8.148, accuracy: 1e-9)
+            XCTAssertLessThan(2 * port.radius / inch, S.sIIRetroCaseDiameter)
             let nozzle = try linkedNozzle(motor.name, on: interstage)
             XCTAssertEqual((nozzle.shape.origin - port.position).length, 0, accuracy: 1e-12)
             XCTAssertEqual((nozzle.shape.axis + port.direction).length, 0, accuracy: 1e-12)
@@ -367,7 +371,9 @@ final class UpperStagesExteriorTests: XCTestCase {
 
     // The APS modules at Positions I and III, 24 in deep on the aft skirt
     // from STA 2748 to 2862; an aligned cone near each APS engine, which
-    // `VesselGeometry` takes as its nozzle (within 0.6 m, along its thrust).
+    // `VesselGeometry` takes as its nozzle (within 0.6 m, along its thrust),
+    // its exit the engine's exhaust spec's (6.43 in, the ullage engine's
+    // 2.21 in).
     func testAPSModules() throws {
         let sIVB = try part("S-IVB")
         let modules = sIVB.shapes.filter { isPrism($0) && $0.origin.y == 0 && $0.origin.z != 0 }
@@ -391,6 +397,10 @@ final class UpperStagesExteriorTests: XCTestCase {
                 return (s.origin + s.axis * s.length - t.position).length < 0.6
             }
             XCTAssertNotNil(nozzle, t.name)
+            if case let .frustum(base, _)? = nozzle?.kind {
+                XCTAssertEqual(base, try XCTUnwrap(ExhaustLibrary.spec(for: t, in: sIVB)).exitRadius, accuracy: 1e-12,
+                               t.name)
+            }
         }
     }
 
@@ -398,8 +408,9 @@ final class UpperStagesExteriorTests: XCTestCase {
     // and D diagonals towards Positions II and IV (D5: 15-20°), on the aft
     // skirt from STA 2748; their exits at the nozzles below, aft and 35°
     // out, each nozzle linked to its motor so that the plume starts at the
-    // exit. Fairings, nozzles and exits leave with their part at the
-    // ullage jettison (event 5), where they were on the stack.
+    // exit, the exhaust spec's 6.22 in. Fairings, nozzles and exits leave
+    // with their part at the ullage jettison (event 5), where they were on
+    // the stack.
     func testTX280Fairings() throws {
         let stack = VesselLibrary.saturnV()
         let rockets = try part("S-IVB ullage rockets", of: stack)
@@ -429,6 +440,7 @@ final class UpperStagesExteriorTests: XCTestCase {
             XCTAssertEqual((nozzle.shape.origin - e.position).length, 0, accuracy: 1e-12)
             XCTAssertEqual((nozzle.shape.axis + e.direction).length, 0, accuracy: 1e-12)
             XCTAssertEqual(nozzle.exitRadius, e.radius, accuracy: 1e-12)
+            XCTAssertEqual(e.radius, ApolloExhaust.sIVBUllage.spec.exitRadius, accuracy: 1e-12)
         }
 
         // Jettisoned and dressed on its own: every port and every vertex of

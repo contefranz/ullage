@@ -1,0 +1,16 @@
+# SPS (AJ10-137), the service module's engine: NASA CEA input deck.
+# Run by tools/make_exhaust_table.py; the spec takes the frozen expansion.
+#
+# p,psia: 100, the AOH's "SPS Pc normal 95 to 105 %" (AOH Vol. 1 p. 2.4-43,
+#   tools/data/aoh_block2_sps_rcs.csv: H).
+# Fuel: Aerozine 50, 50/50 UDMH/hydrazine by weight (AOH p. 2.4-1: H).
+# o/f: 1.6 (AOH p. 2.4-1: H).
+# supar: 6 at the ablative chamber's exit, 62.5 at the nozzle extension's
+#   (AOH p. 2.4-43: H).
+reac
+  fuel=N2H4(L)         wt%=50 t(k)=298.15
+  fuel=C2H8N2(L),UDMH  wt%=50 t(k)=298.15
+  oxid=N2O4(L)         wt%=100 t(k)=298.15
+prob case=SPS rocket p,psia=100 o/f=1.6 eql frozen nfz=2 supar=6,62.5
+output siunits trace=1e-5
+end

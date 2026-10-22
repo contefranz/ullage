@@ -1,0 +1,17 @@
+# J-2 (S-II and S-IVB), rated: NASA CEA input deck (RP-1311 free form).
+# Run by tools/make_exhaust_table.py; the spec takes the frozen expansion.
+#
+# p,psia: 763 psia at the rated mixture ratio 5.5 (Purdue J-2 table, read
+#   through a search extract, M; Wikipedia 5,260 kPa agrees).
+# o/f: 5.5, the rated engine mixture ratio; the gas generator's share is left
+#   in (its exhaust enters the nozzle through the turbine exhaust manifold,
+#   MSFC-MAN-503 Fig. 5-6). AS-506's S-II ran 5.0 at its start, 5.5 to the
+#   EMR shift and 4.34 after it, its S-IVB about 4.96: j2_settings.inp.
+# supar: 27.5 (AS506Data: SP-8120's 14.7 in throat, H).
+# LH2 at 20.27 K and LOX at 90.17 K, their normal boiling points (M).
+reac
+  fuel=H2(L) wt%=100 t(k)=20.27
+  oxid=O2(L) wt%=100 t(k)=90.17
+prob case=J-2 rocket p,psia=763 o/f=5.5 eql frozen nfz=2 supar=27.5
+output siunits trace=1e-5
+end
