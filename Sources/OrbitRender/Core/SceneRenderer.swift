@@ -55,8 +55,8 @@ public final class SceneRenderer {
 
     public enum Failure: Error { case noDevice, noResources }
 
-    /// The renderer with the default passes (`defaultPasses`) on the
-    /// default target plan: 4× MSAA in `outputFormat`.
+    /// The renderer with the default passes (`defaultPasses`) on R1's HDR
+    /// target plan: 4× MSAA rgba16Float, post into `outputFormat`.
     public convenience init(device: MTLDevice? = nil, outputFormat: MTLPixelFormat = .bgra8Unorm_srgb,
                             sampleCount: Int = SceneRenderer.defaultSampleCount,
                             loadsUserTextures: Bool = true) throws {
@@ -64,7 +64,7 @@ public final class SceneRenderer {
         let samples = device.supportsTextureSampleCount(sampleCount) ? sampleCount : 1
         try self.init(device: device, outputFormat: outputFormat,
                       passes: Self.defaultPasses(loadsUserTextures: loadsUserTextures),
-                      plan: DirectTargetPlan(colorFormat: outputFormat, sampleCount: samples))
+                      plan: HDRTargetPlan(outputFormat: outputFormat, sampleCount: samples))
     }
 
     public init(device: MTLDevice, outputFormat: MTLPixelFormat, passes: [RenderPass], plan: SceneTargetPlan) throws {
@@ -86,22 +86,25 @@ public final class SceneRenderer {
         graph.setUp(device: device, shaders: shaders, states: states)
     }
 
-    /// Every slot P0-P5, in order: today's stars, planets, vessels, orbit
-    /// line, plumes, far points and markers, and each track's stub.
+    /// Every slot P0-P5, in order: R1's exposure, stars, plumes and far
+    /// points, resolve and post; today's planets, vessels, orbit line and
+    /// markers; and each track's stub.
     public static func defaultPasses(loadsUserTextures: Bool = true) -> [RenderPass] {
-        [
+        let post = PostPass()
+        return [
             // P0
-            AtmosphereLUTPass(), CloudPass(), ShadowPass(), EnvironmentProbePass(), ParticleSimulationPass(),
+            post.exposurePass, AtmosphereLUTPass(), CloudPass(), ShadowPass(), EnvironmentProbePass(),
+            ParticleSimulationPass(),
             // P1
             StarPass(), PlanetPass(loadsUserTextures: loadsUserTextures), VesselPass(),
             // P2
             AtmosphereCompositePass(),
             // P3
-            OrbitLinePass(), PlumePass(), FarPointPass(), HalfResTransparentPass(), ParticleDrawPass(), EntryPass(),
+            PlumePass(), FarPointPass(), HalfResTransparentPass(), ParticleDrawPass(), EntryPass(), post.resolvePass,
             // P4
-            PostPass(), DebugViewPass(),
+            post, DebugViewPass(),
             // P5
-            MarkerPass(),
+            OrbitLinePass(), MarkerPass(),
         ]
     }
 

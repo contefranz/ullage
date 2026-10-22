@@ -119,7 +119,8 @@ final class FrameGraphTests: XCTestCase {
         }
         var passes = SceneRenderer.defaultPasses(loadsUserTextures: false)
         passes.append(BrokenShaderPass())
-        let r = try renderer(passes)
+        let r = try SceneRenderer(device: try device(), outputFormat: .bgra8Unorm_srgb, passes: passes,
+                                  plan: HDRTargetPlan(outputFormat: .bgra8Unorm_srgb, sampleCount: 4))
         XCTAssertEqual(r.graph.failures.keys.sorted(), ["Broken shader"])
         XCTAssertNotNil(r.shaders.errors["BrokenModule"])
         try render(r)

@@ -5,9 +5,10 @@ import OrbitRender
 import OrbitScene
 
 // orbitsnap renders snapshot specs offscreen, with no window, and writes
-// what a session needs to look at them: per shot <name>.png, <name>.pfm,
-// <name>.<view>.png for each debug view asked for, <name>.json (camera,
-// time, GPU ms), and contact.jpg for all of them.
+// what a session needs to look at them: per shot <name>.png, <name>.pfm
+// (the light before the tone map, cd/m²), <name>.<view>.png for each debug
+// view asked for, <name>.json (camera, time, exposure, GPU ms), and
+// contact.jpg for all of them.
 
 let usage = """
     usage: orbitsnap SPEC.json... --out DIR [options]
@@ -141,7 +142,11 @@ func parse(_ args: [String]) -> Options {
         var verdict = ""
         do {
             try ImageFiles.writePNG(output.pixels, width: w, height: h, order: .bgra, to: file(".png"))
-            try ImageFiles.writePFM(output.pixels, width: w, height: h, order: .bgra, to: file(".pfm"))
+            if let light = output.light {
+                try ImageFiles.writePFM(light: light, width: w, height: h, to: file(".pfm"))
+            } else {
+                try ImageFiles.writePFM(output.pixels, width: w, height: h, order: .bgra, to: file(".pfm"))
+            }
             for aov in output.aovs {
                 try ImageFiles.writePNG(aov.pixels, width: w, height: h, order: .bgra, to: file(".\(aov.view.rawValue).png"))
             }

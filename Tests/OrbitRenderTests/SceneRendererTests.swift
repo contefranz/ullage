@@ -8,12 +8,12 @@ import OrbitScene
 final class SceneRendererTests: XCTestCase {
     static let system = try! SolarSystem.bundled()
 
-    /// Today's passes are set up and active, every track's stub is off.
+    /// Today's passes and R1's are set up and active, every track's stub is off.
     func testDefaultPasses() throws {
         let r = try SceneRenderer(device: try XCTUnwrap(RenderDevice.shared), loadsUserTextures: false)
         XCTAssertEqual(r.failures, [:])
-        XCTAssertEqual(r.graph.active.map(\.name), ["Stars", "Planets", "Vessels", "Orbit line", "Plumes", "Far points",
-                                                    "Debug view", "Markers"])
+        XCTAssertEqual(r.graph.active.map(\.name), ["Exposure", "Stars", "Planets", "Vessels", "Plumes", "Far points",
+                                                    "HDR resolve", "Post", "Debug view", "Orbit line", "Markers"])
         XCTAssertEqual(Set(r.graph.passes.map(\.name)).count, r.graph.passes.count, "pass names are unique")
         for stage in PassStage.allCases {
             XCTAssertTrue(r.graph.passes.contains { $0.stage == stage }, "a pass in every slot, \(stage)")
