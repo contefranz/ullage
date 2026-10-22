@@ -25,12 +25,14 @@ struct EffectTestUniforms {
     var light = SIMD4<Float>.zero
     var params = SIMD4<Float>.zero
 
-    /// The frame's light and scales, with neither shape.
+    /// The frame's light and scales, with neither shape. `photometric`: the
+    /// scene's colour is light in cd/m² (R1's float target), not today's
+    /// display-relative 0-1.
     @MainActor
-    init(_ f: FrameContext, hdrOpaque: Bool = false) {
+    init(_ f: FrameContext, photometric: Bool) {
         light = SIMD4(f.scene.sun.direction, Float(f.scene.sun.illuminance / Photometry.solarIlluminanceAt1AU))
-        params = SIMD4(f.frame.exposure.x * EffectTestEmitters.radianceScale, Float(EffectTestScene.slabAlbedo),
-                       f.frame.frame.x, hdrOpaque ? 1 : 0)
+        params = SIMD4(EffectTestEmitters.radianceScale(f, photometric: photometric), Float(EffectTestScene.slabAlbedo),
+                       f.frame.frame.x, 0)
     }
 }
 
@@ -39,15 +41,27 @@ struct EffectTestUniforms {
 public final class EffectTestEmitters: HalfResEffect {
     public let name = "Effect test emitters"
 
-    /// Today's display-relative scale (1: a white surface facing the Sun).
-    /// R1's units change it, here only.
-    static let radianceScale: Float = 1
+    /// What the test emitters' radiance is multiplied by. They are lit in
+    /// today's display-relative scale (1: a white Lambert surface facing the
+    /// Sun at 1 AU). On a photometric target (R1's) that is E⊙/π cd/m², times
+    /// the frame's pre-exposure, as R1's bridge scales today's shaders; on
+    /// the direct LDR target it is drawn as it is.
+    static func radianceScale(_ f: FrameContext, photometric: Bool) -> Float {
+        photometric ? f.frame.exposure.x * Float(Photometry.solarIlluminanceAt1AU / Double.pi) : f.frame.exposure.x
+    }
+
+    /// Whether a scene colour format holds photometric light (R1's float
+    /// targets) rather than today's display-relative colour.
+    static func isPhotometric(_ format: MTLPixelFormat) -> Bool {
+        [.rgba16Float, .rgba32Float, .rg11b10Float].contains(format)
+    }
     /// Sides of the cone's proxy and of the column.
     static let segments = 32
 
     private var slab: MTLRenderPipelineState?
     private var cone: MTLRenderPipelineState?
     private var sprites: MTLRenderPipelineState?
+    private var photometric = false
     /// Tests: draws the sprites last to first (OIT must not mind).
     var reversesSprites = false
 
@@ -55,6 +69,7 @@ public final class EffectTestEmitters: HalfResEffect {
 
     public func setUpHalfRes(_ s: HalfResSetup) throws {
         let library = try s.shaders.library(.effectTest)
+        photometric = Self.isPhotometric(s.sceneFormats.color)
         slab = try s.pipeline(library, vertex: "effect_test_fullscreen_vertex", fragment: "effect_test_slab_fragment",
                               layer: .clouds)
         cone = try s.pipeline(library, vertex: "effect_test_cone_vertex", fragment: "effect_test_cone_fragment",
@@ -79,7 +94,7 @@ public final class EffectTestEmitters: HalfResEffect {
     public func encodeHalfRes(_ f: FrameContext, _ slots: HalfResSlots, _ enc: MTLRenderCommandEncoder) {
         let frame = EffectTargetFrame(scene: f.scene)
         for e in f.settings.transparency.testEmitters {
-            var u = EffectTestUniforms(f)
+            var u = EffectTestUniforms(f, photometric: photometric)
             switch e.kind {
             case .slab:
                 guard let slab else { continue }
@@ -168,7 +183,7 @@ public final class EffectTestOpaquePass: RenderPass {
     private var column: MTLRenderPipelineState?
     private var backdrop: MTLRenderPipelineState?
     private var depthAlways: MTLDepthStencilState?
-    private var hdr = false
+    private var photometric = false
 
     public init() {}
 
@@ -186,13 +201,12 @@ public final class EffectTestOpaquePass: RenderPass {
         d.depthCompareFunction = .always
         d.isDepthWriteEnabled = true
         depthAlways = s.device.makeDepthStencilState(descriptor: d)
-        // R1's targets take Karis-encoded colour in P1.
-        hdr = [.rgba16Float, .rgba32Float, .rg11b10Float].contains(s.formats.color)
+        photometric = EffectTestEmitters.isPhotometric(s.formats.color)
     }
 
     public func encode(_ f: FrameContext, _ e: PassEncoding) {
         guard case .render(let enc) = e, let column, let backdrop, let depthAlways else { return }
-        var u = EffectTestUniforms(f, hdrOpaque: hdr)
+        var u = EffectTestUniforms(f, photometric: photometric)
         enc.setCullMode(.none)
         if f.settings.transparency.testBackdrop {
             enc.setRenderPipelineState(backdrop)
@@ -240,6 +254,7 @@ public final class EffectTestSparksPass: RenderPass {
     public let order = 36
 
     private var pipeline: MTLRenderPipelineState?
+    private var photometric = false
 
     public init() {}
 
@@ -250,6 +265,7 @@ public final class EffectTestSparksPass: RenderPass {
     public func setUp(_ s: PassSetup) throws {
         pipeline = try PipelineBuilder.scene(try s.shaders.library(.effectTest), vertex: "effect_test_spark_vertex",
                                              fragment: "effect_test_spark_fragment", blend: .additive, setup: s)
+        photometric = EffectTestEmitters.isPhotometric(s.formats.color)
     }
 
     /// EffectTestShaders' EffectTestSpark.
@@ -266,7 +282,7 @@ public final class EffectTestSparksPass: RenderPass {
             .flatMap { EffectTestScene.sparks($0, in: frame) }
             .map { Spark(start: SIMD4($0.start, Float($0.width)), end: SIMD4($0.end, 0), color: SIMD4($0.color, 0)) }
         guard let b = f.arena.push(sparks) else { return }
-        var u = EffectTestUniforms(f)
+        var u = EffectTestUniforms(f, photometric: photometric)
         enc.setRenderPipelineState(pipeline)
         enc.setDepthStencilState(f.states.depthReadOnly)
         enc.setCullMode(.none)

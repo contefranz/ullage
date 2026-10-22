@@ -1,6 +1,8 @@
 // The effect slots' depth downsample (track R6 owns this module): the scene
 // depth to the half-resolution test depth, a checkerboard of each quad's
-// nearest and farthest (EffectSlots.halfResDepth).
+// nearest and farthest (EffectSlots.halfResDepth), and the frame's depth
+// pixel by pixel, four to a texel, for the composite: inside the resumed
+// scene the plan resolves into the scene depth, so it cannot be read there.
 let halfResTransparentShaderSource = #"""
 // ---------------------------------------------------- half-res depth ---
 
@@ -17,6 +19,7 @@ vertex EffectFullscreenOut effect_fullscreen_vertex(uint vid [[vertex_id]]) {
 
 struct EffectDepthOut {
     float4 depths [[color(0)]];        // x: test depth, y: the quad's other extreme
+    float4 pixels [[color(1)]];        // the quad's pixels: x (0,0), y (1,0), z (0,1), w (1,1); 0 off the frame
     float depth [[depth(any)]];        // the test depth, for the effects' depth test
 };
 
@@ -29,6 +32,7 @@ fragment EffectDepthOut effect_depth_fragment(EffectFullscreenOut in [[stage_in]
     uint s = uint(e.scale.x + 0.5);
     uint2 size = uint2(scene.get_width(), scene.get_height());
     float nearest = 0.0, farthest = 1.0e30;
+    float pixels[4] = {0.0, 0.0, 0.0, 0.0};
     for (uint dy = 0; dy < s; dy++) {
         for (uint dx = 0; dx < s; dx++) {
             uint2 p = t * s + uint2(dx, dy);
@@ -36,6 +40,7 @@ fragment EffectDepthOut effect_depth_fragment(EffectFullscreenOut in [[stage_in]
                 float d = scene.read(p);
                 nearest = max(nearest, d);
                 farthest = min(farthest, d);
+                pixels[dy * 2 + dx] = d;
             }
         }
     }
@@ -43,6 +48,7 @@ fragment EffectDepthOut effect_depth_fragment(EffectFullscreenOut in [[stage_in]
     bool even = ((t.x + t.y) & 1u) == 0u;
     EffectDepthOut o;
     o.depths = float4(even ? nearest : farthest, even ? farthest : nearest, 0.0, 0.0);
+    o.pixels = float4(pixels[0], pixels[1], pixels[2], pixels[3]);
     o.depth = o.depths.x;
     return o;
 }

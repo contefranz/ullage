@@ -17,7 +17,7 @@ public final class TransparentCompositePass: RenderPass {
     public let name = "Transparent composite"
     public let stage = PassStage.transparent
     public let order = 35
-    public var reads: Set<ResourceID> { [.sceneDepth, .halfResDepth, .halfResFronts] }
+    public var reads: Set<ResourceID> { [.halfResDepth, .halfResPixelDepths, .halfResFronts] }
 
     let slots: HalfResTransparentPass
     private var pipeline: MTLRenderPipelineState?
@@ -36,12 +36,14 @@ public final class TransparentCompositePass: RenderPass {
 
     public func encode(_ f: FrameContext, _ e: PassEncoding) {
         guard case .render(let enc) = e, let pipeline, let u = slots.uniformsBuffer,
-              let depths = f.textures[.halfResDepth], let fronts = f.textures[.halfResFronts] else { return }
+              let depths = f.textures[.halfResDepth], let pixelDepths = f.textures[.halfResPixelDepths],
+              let fronts = f.textures[.halfResFronts] else { return }
         enc.setRenderPipelineState(pipeline)
         enc.setDepthStencilState(f.states.noDepth)
         enc.setFragmentBuffer(u.buffer, offset: u.offset, index: HalfResTransparentPass.uniformsIndex)
         enc.setFragmentTexture(depths, index: HalfResTransparentPass.sceneDepthIndex)
         Self.bindLayers(enc, f, fronts: fronts, standIn: depths)
+        enc.setFragmentTexture(pixelDepths, index: 5)
         enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
     }
 

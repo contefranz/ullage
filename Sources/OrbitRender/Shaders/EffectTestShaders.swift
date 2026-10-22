@@ -4,7 +4,7 @@
 // soft sprites through the OIT pair, additive sparks at full resolution, and
 // an opaque column and black backdrop in P1. Radiance is in today's
 // display-relative scale (1: a white surface facing the Sun), times
-// params.x.
+// params.x (EffectTestEmitters.radianceScale).
 let effectTestShaderSource = #"""
 // --------------------------------------------------- effect test emitters ---
 
@@ -16,7 +16,7 @@ struct EffectTestUniforms {
     float4 coneApex;    // xyz: camera-relative (m), w: length (m)
     float4 coneAxis;    // xyz: unit, apex to base, w: base radius (m)
     float4 light;       // xyz: unit, camera -> Sun (world), w: the Sun's strength (1 at 1 AU)
-    float4 params;      // x: radiance scale (pre-exposure), y: slab albedo, z: frame index, w: 1 when P1 is HDR (Karis-encoded)
+    float4 params;      // x: radiance scale (pre-exposure, and R1's E⊙/π on a photometric target), y: slab albedo, z: frame index
 };
 
 struct EffectTestOut {
@@ -309,9 +309,10 @@ vertex EffectTestColumnOut effect_test_column_vertex(uint vid [[vertex_id]],
     return o;
 }
 
+// Linear light times the scale, as every scene pass writes it (the target
+// plan weights the samples for its resolve itself).
 inline float4 effect_test_opaque(float3 c, constant EffectTestUniforms &u) {
-    float4 out = float4(c * u.params.x, 1.0);
-    return u.params.w > 0.5 ? orbit_encodeHDR(out) : out;
+    return float4(c * u.params.x, 1.0);
 }
 
 fragment float4 effect_test_column_fragment(EffectTestColumnOut in [[stage_in]],

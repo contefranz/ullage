@@ -79,7 +79,8 @@ inline float4 effect_compositeLayers(EffectLayers l) {
 
 // The upsample (EffectSlots.upsampleWeights) and the composite
 // (EffectSlots.compositePixel), blended premultiplied over the scene:
-// rgb + (1 - a) * scene.
+// rgb + (1 - a) * scene. The pixel's depth comes from the downsample's copy,
+// texture 5 (`.halfResPixelDepths`).
 // - At full resolution, the pixel's own texel.
 // - At half resolution, the four test depths in one gather. Where they are
 //   all within the tolerance of the pixel's depth, the layers are filtered
@@ -91,13 +92,13 @@ inline float4 effect_compositeLayers(EffectLayers l) {
 fragment float4 effect_composite_fragment(EffectFullscreenOut in [[stage_in]],
                                           constant EffectSlotUniforms &e [[buffer(ORBIT_EFFECT_BUFFER_SLOTS)]],
                                           sampler linear [[sampler(ORBIT_SAMPLER_LINEAR_CLAMP)]],
-                                          depth2d<float> sceneDepth [[texture(ORBIT_TEXTURE_SCENE_DEPTH)]],
                                           texture2d<float> halfResDepth [[texture(ORBIT_EFFECT_TEXTURE_HALFRES_DEPTH)]],
                                           texture2d<float> clouds [[texture(0)]],
                                           texture2d<float> volumes [[texture(1)]],
                                           texture2d<float> accumulation [[texture(2)]],
                                           texture2d<float> revealage [[texture(3)]],
-                                          texture2d<float> fronts [[texture(4)]]) {
+                                          texture2d<float> fronts [[texture(4)]],
+                                          texture2d<float> pixelDepths [[texture(5)]]) {
     uint2 px = uint2(in.position.xy);
     uint used = uint(e.scale.w + 0.5);
     uint2 last = uint2(e.target.xy) - 1u;
@@ -110,7 +111,10 @@ fragment float4 effect_composite_fragment(EffectFullscreenOut in [[stage_in]],
         float2 cell = floor(t), fr = t - cell;
         float4 bilinear = float4((1.0 - fr.x) * (1.0 - fr.y), fr.x * (1.0 - fr.y), (1.0 - fr.x) * fr.y, fr.x * fr.y);
         float4 depths = effect_gatherOrder(halfResDepth.gather(linear, uv));
-        float4 apart = abs(log2(max(depths, float4(1e-30))) - log2(max(sceneDepth.read(px), 1e-30)));
+        // The pixel's own depth, from the downsample's copy (the scene's is
+        // this encoder's resolve target).
+        float depth = pixelDepths.read(px / 2u)[(px.x & 1u) + 2u * (px.y & 1u)];
+        float4 apart = abs(log2(max(depths, float4(1e-30))) - log2(max(depth, 1e-30)));
         if (all(apart <= e.scale.z)) {
             single = int2(-1);
             l = effect_sampleLayers(uv, used, linear, clouds, volumes, accumulation, revealage);

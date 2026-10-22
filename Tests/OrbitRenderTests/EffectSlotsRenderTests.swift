@@ -26,8 +26,8 @@ final class EffectSlotsRenderTests: XCTestCase {
         let stage = PassStage.post
         let order = 2_000
         var reads: Set<ResourceID> { [.sceneDepth] }
-        static let ids: [ResourceID] = [.sceneDepth, .halfResDepth, .halfResClouds, .halfResTransparent,
-                                        .oitAccumulation, .oitRevealage, .halfResFronts]
+        static let ids: [ResourceID] = [.sceneDepth, .halfResDepth, .halfResPixelDepths, .halfResClouds,
+                                        .halfResTransparent, .oitAccumulation, .oitRevealage, .halfResFronts]
         var images: [ResourceID: (width: Int, height: Int, format: MTLPixelFormat, buffer: MTLBuffer)] = [:]
 
         func encode(_ f: FrameContext, _ e: PassEncoding) {
@@ -37,6 +37,7 @@ final class EffectSlotsRenderTests: XCTestCase {
                 guard let t = f.textures[id] else { continue }
                 let bpp: Int
                 switch t.pixelFormat {
+                case .rgba32Float: bpp = 16
                 case .rg32Float, .rgba16Float: bpp = 8
                 case .r16Float: bpp = 2
                 default: bpp = 4
@@ -57,6 +58,9 @@ final class EffectSlotsRenderTests: XCTestCase {
             guard let i = images[id] else { return nil }
             let n = i.width * i.height
             switch i.format {
+            case .rgba32Float:
+                let p = i.buffer.contents().bindMemory(to: Float.self, capacity: 4 * n)
+                return (i.width, i.height, (0..<n).map { t in (0..<4).map { Double(p[4 * t + $0]) } })
             case .rg32Float:
                 let p = i.buffer.contents().bindMemory(to: Float.self, capacity: 2 * n)
                 return (i.width, i.height, (0..<n).map { [Double(p[2 * $0]), Double(p[2 * $0 + 1])] })
@@ -133,11 +137,13 @@ final class EffectSlotsRenderTests: XCTestCase {
     // MARK: Depth
 
     /// The test depth and its other extreme are the maths' checkerboard of
-    /// the resolved scene depth, at half and full resolution.
+    /// the resolved scene depth, at half and full resolution; the
+    /// composite's copy of the depth holds each pixel exactly.
     func testDepthDownsampleMatchesTheMaths() throws {
         for resolution in EffectResolution.allCases {
             let f = try render(Self.shot([Self.column, Self.slab], resolution: resolution))
             let scene = try XCTUnwrap(f.capture.values(.sceneDepth)), half = try XCTUnwrap(f.capture.values(.halfResDepth))
+            let pixels = try XCTUnwrap(f.capture.values(.halfResPixelDepths))
             let s = resolution.scale
             XCTAssertTrue(EffectSlots.targetSize(width: 160, height: 100, scale: s) == (half.width, half.height))
             var edges = 0
@@ -146,7 +152,9 @@ final class EffectSlotsRenderTests: XCTestCase {
                     var quad: [Double] = []
                     for dy in 0..<s {
                         for dx in 0..<s where s * x + dx < scene.width && s * y + dy < scene.height {
-                            quad.append(scene.texels[(s * y + dy) * scene.width + s * x + dx][0])
+                            let d = scene.texels[(s * y + dy) * scene.width + s * x + dx][0]
+                            quad.append(d)
+                            XCTAssertEqual(pixels.texels[y * half.width + x][2 * dy + dx], d, "\(resolution) pixel copy")
                         }
                     }
                     let want = EffectSlots.halfResDepth(quad, x: x, y: y), got = half.texels[y * half.width + x]

@@ -32,6 +32,15 @@ import OrbitScene
 //      test (`HalfResSlots.noDepth`), back faces only. Sprites test
 //      against the test depth (`HalfResSlots.depthTest`) and fade softly
 //      on texture 18.
+// 4. The scene's depth around a break: a pass on the command buffer reads
+//    `f.textures[.sceneDepth]`, resolved as far as the scene has gone. In
+//    the resumed scene that texture is the encoder's own resolve target, so
+//    nothing there samples it (nor slot 19, which the target plans leave
+//    unbound). A pass there tests against the depth attachment, or reads
+//    `.halfResPixelDepths` on frames the slots run.
+// 5. Units: radiance is linear light times `FrameUniforms.exposure.x`, never
+//    `orbit_encodeHDR`-ed (the target plan weights the samples itself), and
+//    the composite comes back into the scene in P3 before the plan's resolve.
 
 /// The layers an effect draws into this frame.
 public struct HalfResLayers: OptionSet, Hashable {
@@ -79,6 +88,11 @@ extension ResourceID {
     public static let halfResClouds = ResourceID("halfResClouds")
     /// The layers' fronts (rgba16Float front codes: r clouds, g volumes, b OIT).
     public static let halfResFronts = ResourceID("halfResFronts")
+    /// The frame's depth pixel by pixel, four to a texel (rgba32Float,
+    /// reversed-Z: x (0,0), y (1,0), z (0,1), w (1,1) of each quad; x alone
+    /// at full resolution). Inside the resumed scene the plan resolves into
+    /// `.sceneDepth`, so the passes there read this instead.
+    public static let halfResPixelDepths = ResourceID("halfResPixelDepths")
 }
 
 /// The half-resolution targets' formats, by colour attachment
@@ -88,6 +102,8 @@ public enum HalfResFormats {
     public static let depth = MTLPixelFormat.depth32Float
     /// The downsample's min/max target, which texture 18 binds.
     public static let sceneDepth = MTLPixelFormat.rg32Float
+    /// The frame's depth, four pixels to a texel (`.halfResPixelDepths`).
+    public static let pixelDepths = MTLPixelFormat.rgba32Float
     static let clouds = 0, volumes = 1, oitAccumulation = 2, oitRevealage = 3, fronts = 4
 }
 
@@ -97,6 +113,8 @@ public struct HalfResSetup {
     public let device: MTLDevice
     public let shaders: ShaderLibrary
     public let states: CommonStates
+    /// The scene's formats in P3 (a float colour: light in cd/m², R1's target).
+    public let sceneFormats: SceneFormats
 
     /// A pipeline that draws `layer` into the half-resolution targets:
     /// - clouds and volumes premultiplied over, into their own attachment;
@@ -211,7 +229,8 @@ public final class HalfResTransparentPass: RenderPass {
     public var encodesOnCommandBuffer: Bool { true }
     public var reads: Set<ResourceID> { [.sceneDepth] }
     public var writes: Set<ResourceID> {
-        [.halfResDepth, .halfResClouds, .halfResTransparent, .oitAccumulation, .oitRevealage, .halfResFronts]
+        [.halfResDepth, .halfResPixelDepths, .halfResClouds, .halfResTransparent, .oitAccumulation, .oitRevealage,
+         .halfResFronts]
     }
 
     /// The effects, in the order they draw.
@@ -257,6 +276,7 @@ public final class HalfResTransparentPass: RenderPass {
         d.vertexFunction = vfn
         d.fragmentFunction = ffn
         d.colorAttachments[0].pixelFormat = HalfResFormats.sceneDepth
+        d.colorAttachments[1].pixelFormat = HalfResFormats.pixelDepths
         d.depthAttachmentPixelFormat = HalfResFormats.depth
         depthPipeline = try s.device.makeRenderPipelineState(descriptor: d)
         let w = MTLDepthStencilDescriptor()
@@ -267,7 +287,7 @@ public final class HalfResTransparentPass: RenderPass {
         noDepth = s.states.noDepth
 
         effectFailures = [:]
-        let setup = HalfResSetup(device: s.device, shaders: s.shaders, states: s.states)
+        let setup = HalfResSetup(device: s.device, shaders: s.shaders, states: s.states, sceneFormats: s.formats)
         for e in effects {
             do {
                 try e.setUpHalfRes(setup)
@@ -297,8 +317,8 @@ public final class HalfResTransparentPass: RenderPass {
             d.storageMode = .private
             return f.pool.texture(d)
         }
-        guard let depths = target(HalfResFormats.sceneDepth), let testDepth = target(HalfResFormats.depth, .renderTarget),
-              let idle = idleTargets(size) else { return }
+        guard let depths = target(HalfResFormats.sceneDepth), let pixelDepths = target(HalfResFormats.pixelDepths),
+              let testDepth = target(HalfResFormats.depth, .renderTarget), let idle = idleTargets(size) else { return }
         let ids: [ResourceID] = [.halfResClouds, .halfResTransparent, .oitAccumulation, .oitRevealage, .halfResFronts]
         let usedAt: [Bool] = [used.contains(.clouds), used.contains(.volumes), used.contains(.oit), used.contains(.oit), true]
         var colors: [MTLTexture] = []
@@ -317,6 +337,9 @@ public final class HalfResTransparentPass: RenderPass {
         dp.colorAttachments[0].texture = depths
         dp.colorAttachments[0].loadAction = .dontCare
         dp.colorAttachments[0].storeAction = .store
+        dp.colorAttachments[1].texture = pixelDepths
+        dp.colorAttachments[1].loadAction = .dontCare
+        dp.colorAttachments[1].storeAction = .store
         dp.depthAttachment.texture = testDepth
         dp.depthAttachment.loadAction = .dontCare
         dp.depthAttachment.storeAction = .store
@@ -365,6 +388,7 @@ public final class HalfResTransparentPass: RenderPass {
         }
 
         f.textures[.halfResDepth] = depths
+        f.textures[.halfResPixelDepths] = pixelDepths
         for (i, id) in ids.enumerated() where usedAt[i] { f.textures[id] = colors[i] }
         layers = used
         uniformsBuffer = (u.buffer, u.offset)
