@@ -149,7 +149,7 @@ public final class SceneExtractor {
     }
 
     /// The heat flux through the heat shield's thermal lag
-    /// (`LegacyLighting.thermalLag`, simulation time), as a glow.
+    /// (`LegacyLighting.thermalLag`, simulation time), as the glow's luminance.
     private func heatShieldGlow(_ v: Vessel, time: Epoch) -> RenderScene.RGB {
         var state = thermal[v.id] ?? (v.heatFlux, time)
         let dt = time - state.time
@@ -160,7 +160,7 @@ public final class SceneExtractor {
             state.time = time
         }
         thermal[v.id] = state
-        return LegacyLighting.glowColor(heatFlux: state.flux)
+        return LegacyLighting.glowLuminance(heatFlux: state.flux)
     }
 
     /// One emitter per thruster delivering thrust, from its nozzle's exit
