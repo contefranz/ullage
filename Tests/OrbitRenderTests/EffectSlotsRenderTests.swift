@@ -206,11 +206,13 @@ final class EffectSlotsRenderTests: XCTestCase {
 
     // MARK: Fronts
 
-    /// The slab reports its front where 2 % of the light is absorbed, as
-    /// `EffectSlots.homogeneousFront` puts it, to the code's precision.
+    /// The slab reports its front where it becomes visible, as
+    /// `EffectSlots.homogeneousFront` puts it for its source radiance (its
+    /// colour over its coverage, here read back), to the code's precision.
     func testSlabReportsItsFront() throws {
         let f = try render(Self.shot([Self.slab]))
         let fronts = try XCTUnwrap(f.capture.values(.halfResFronts))
+        let clouds = try XCTUnwrap(f.capture.values(.halfResClouds))
         let slab = EffectTestScene.slab(Self.slab, in: EffectTargetFrame(scene: f.scene))
         let cam = f.scene.camera, t = tan(cam.fovY / 2)
         var checked = 0
@@ -227,9 +229,11 @@ final class EffectSlotsRenderTests: XCTestCase {
                 enter = max(enter, min(t0, t1))
                 exit = min(exit, max(t0, t1))
             }
-            let code = fronts.texels[y * fronts.width + x][0]
+            let code = fronts.texels[y * fronts.width + x][0], c = clouds.texels[y * clouds.width + x]
+            let source = c[3] > 0 ? c[0..<3].max()! / c[3] : 0
             guard exit > enter, let front = EffectSlots.homogeneousFront(entry: enter, exit: exit,
-                                                                         extinction: slab.extinction * dir.length)
+                                                                         extinction: slab.extinction * dir.length,
+                                                                         source: source)
             else {
                 XCTAssertEqual(code, EffectSlots.noFront, "\(x), \(y): no front")
                 continue
@@ -238,6 +242,25 @@ final class EffectSlotsRenderTests: XCTestCase {
             XCTAssertEqual(EffectSlots.linearDepth(frontCode: code) / front, 1, accuracy: 0.004, "\(x), \(y)")
         }
         XCTAssertGreaterThanOrEqual(checked, 3)
+    }
+
+    /// A bright, optically thin volume in front of a dense one: the cone's
+    /// rim and tips, under 2 % coverage but visibly bright, report their
+    /// fronts, nearer than the slab behind them, so they go over it.
+    func testABrightThinVolumeReportsItsFront() throws {
+        let f = try render(Self.shot([EffectTestEmitter(.cone, position: [0, 30, 45], size: 36), Self.slab]))
+        let volumes = try XCTUnwrap(f.capture.values(.halfResTransparent))
+        let clouds = try XCTUnwrap(f.capture.values(.halfResClouds))
+        let fronts = try XCTUnwrap(f.capture.values(.halfResFronts))
+        var thin = 0
+        for i in volumes.texels.indices {
+            let v = volumes.texels[i], radiance = v[0..<3].max()!
+            guard v[3] > 0, v[3] < EffectSlots.frontOpacity, radiance >= 2 * EffectSlots.frontRadiance,
+                  clouds.texels[i][3] > 0.5 else { continue }
+            thin += 1
+            XCTAssertLessThan(fronts.texels[i][1], fronts.texels[i][0], "texel \(i): the glow in front of the deck")
+        }
+        XCTAssertGreaterThan(thin, 20, "thin, bright texels before the deck")
     }
 
     // MARK: OIT

@@ -19,10 +19,14 @@ import OrbitScene
 //    targets' viewport.
 //    - A volume (clouds, plumes) writes premultiplied radiance, pre-exposed
 //      (FrameUniforms.exposure.x), with 1 − T in a. It writes its front
-//      code too: `orbit_frontCode` of the linear depth where its 1 − T
-//      first reaches `EffectSlots.frontOpacity` (2 %). It draws its own
-//      items back to front.
-//    - OIT fragments (smoke) return `orbit_oitOutput`, in any order.
+//      code too: `orbit_frontCode` of the nearest linear depth where its
+//      contribution, accumulated front to back, becomes visible
+//      (`orbit_frontReached`: coverage 2 % or radiance 1/256, so a bright
+//      thin glow has a front), else ORBIT_EFFECT_NO_FRONT, which sorts
+//      beneath every layer that has one. It draws its own items back to
+//      front.
+//    - OIT fragments (smoke) return `orbit_oitOutput`, in any order; each
+//      reports its front if it is visible on its own.
 //    - Depth: a proxy that marches clamps its march at
 //      `orbit_effectSceneDistance` (texture 18) and draws with no depth
 //      test (`HalfResSlots.noDepth`), back faces only. Sprites test
@@ -174,7 +178,7 @@ public struct EffectSlotUniforms {
     /// the depth factor's bounds.
     public var oit = SIMD4<Float>.zero
     /// x: the front opacity, y: the most a fragment adds to an
-    /// accumulation channel.
+    /// accumulation channel, z: the front radiance (pre-exposed).
     public var front = SIMD4<Float>.zero
 
     public init() {}
@@ -187,7 +191,8 @@ public struct EffectSlotUniforms {
                            Float(layers.rawValue))
         oit = SIMD4(Float(min(max(reference, 1), 1e6)), Float(EffectSlots.oitWeightExponent),
                     Float(EffectSlots.oitWeightRange.min), Float(EffectSlots.oitWeightRange.max))
-        front = SIMD4(Float(EffectSlots.frontOpacity), Float(EffectSlots.oitMaxAccumulation), 0, 0)
+        front = SIMD4(Float(EffectSlots.frontOpacity), Float(EffectSlots.oitMaxAccumulation),
+                      Float(EffectSlots.frontRadiance), 0)
     }
 }
 

@@ -44,7 +44,7 @@ public enum EffectResolution: String, Codable, CaseIterable {
 public struct EffectTestEmitter: Codable, Equatable {
     public enum Kind: String, Codable, CaseIterable {
         /// A lit homogeneous box, a cloud deck's stand-in (C2): the clouds
-        /// layer, its front where its opacity reaches 2 %.
+        /// layer, its front where it becomes visible (`EffectSlots.frontReached`).
         case slab
         /// A ray-marched emissive cone, a plume's stand-in (P2): the volumes
         /// layer, drawn as the back faces of its proxy.

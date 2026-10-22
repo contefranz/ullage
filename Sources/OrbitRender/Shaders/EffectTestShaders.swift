@@ -55,7 +55,7 @@ inline float effect_test_boxExit(float3 p, float3 d, float3 h) {
 // ------------------------------------------------------------- the slab ---
 // A lit homogeneous box, analytic: transmittance, single scattering of the
 // Sun through the slab above the segment's middle (HG, g = 0.6) and a sky
-// ambient; its front where 2 % is absorbed.
+// ambient; its front where it becomes visible (EffectSlots.frontReached).
 fragment EffectCloudOut effect_test_slab_fragment(EffectTestOut in [[stage_in]],
                                                   constant FrameUniforms &frame [[buffer(ORBIT_BUFFER_FRAME)]],
                                                   constant EffectSlotUniforms &e [[buffer(ORBIT_EFFECT_BUFFER_SLOTS)]],
@@ -89,7 +89,12 @@ fragment EffectCloudOut effect_test_slab_fragment(EffectTestOut in [[stage_in]],
     EffectCloudOut out;
     float coverage = 1.0 - transmittance;
     out.color = float4(radiance * coverage * u.params.x, coverage);
-    float front = enter - log(1.0 - e.front.x) / (sigma * len);
+    // Where it becomes visible: by coverage, or by radiance (its source
+    // times the coverage), whichever first (EffectSlots.homogeneousFront).
+    float3 source = radiance * u.params.x;
+    float brightest = max(source.r, max(source.g, source.b));
+    float visible = brightest > 0.0 ? min(e.front.x, e.front.z / brightest) : e.front.x;
+    float front = enter - log(1.0 - visible) / (sigma * len);
     out.front = float4(front <= exit ? orbit_frontCode(front) : ORBIT_EFFECT_NO_FRONT);
     return out;
 }
@@ -99,7 +104,8 @@ fragment EffectCloudOut effect_test_slab_fragment(EffectTestOut in [[stage_in]],
 // ray meets the cone is covered); the fragment intersects the ray with the
 // cone, clamps the exit at the scene, and marches 24 jittered steps of an
 // emissive, slightly absorbing medium, hot at the apex with a few shock
-// cells, cooling along the axis. Energy-conserving steps (Hillaire 2015).
+// cells, cooling along the axis. Energy-conserving steps (Hillaire 2015). Its
+// front is the first step where it becomes visible (orbit_frontReached).
 struct EffectTestConeOut {
     float4 position [[position]];
 };
@@ -181,7 +187,9 @@ fragment EffectVolumeOut effect_test_cone_fragment(EffectTestConeOut in [[stage_
         float stepT = exp(-dtau);
         radiance += transmittance * (sigma > 1e-6 ? j / sigma * (1.0 - stepT) : j * ds * len);
         transmittance *= stepT;
-        if (front >= ORBIT_EFFECT_NO_FRONT && 1.0 - transmittance >= e.front.x) { front = orbit_frontCode(s); }
+        if (front >= ORBIT_EFFECT_NO_FRONT && orbit_frontReached(1.0 - transmittance, radiance * u.params.x, e)) {
+            front = orbit_frontCode(s);
+        }
         if (transmittance < 0.01) { break; }
     }
     EffectVolumeOut out;

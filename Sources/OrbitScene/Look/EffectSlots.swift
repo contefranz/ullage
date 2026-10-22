@@ -84,9 +84,22 @@ public enum EffectSlots {
 
     // MARK: Front depth
 
-    /// The opacity at which a layer reports its front: where 1 − T first
-    /// reaches it along the ray (a march), or a sprite at least this opaque.
+    /// Where an item reports its front: the nearest depth at which its own
+    /// contribution, accumulated front to back, becomes visible. That is
+    /// where its coverage 1 − T reaches `frontOpacity`, or its premultiplied,
+    /// pre-exposed radiance (the largest channel) reaches `frontRadiance`,
+    /// whichever comes first. So a bright, optically thin glow reports a
+    /// front as surely as a dense deck does. An OIT fragment counts on its
+    /// own: fragments are summed in any order, so none can see the others.
     public static let frontOpacity = 0.02
+    /// About one 8-bit step of a display-relative (pre-exposed) image.
+    public static let frontRadiance = 1.0 / 256
+
+    /// Whether an item's accumulated coverage and radiance (largest channel)
+    /// have become visible: its front is here.
+    public static func frontReached(coverage: Double, radiance: Double) -> Bool {
+        coverage >= frontOpacity || radiance >= frontRadiance
+    }
 
     /// A front depth as stored: log2 of the linear depth in metres, in one
     /// rgba16Float channel per layer, blended with min. 1.1 % relative at
@@ -104,11 +117,15 @@ public enum EffectSlots {
     }
 
     /// The front of a homogeneous medium entered at `entry` (any unit along
-    /// the ray) with `extinction` per that unit: where 1 − T reaches
-    /// `frontOpacity`; nil when it does not before `exit`.
-    public static func homogeneousFront(entry: Double, exit: Double, extinction: Double) -> Double? {
+    /// the ray) with `extinction` per that unit, whose premultiplied radiance
+    /// is `source` × (1 − T) (its source radiance, largest channel,
+    /// pre-exposed): where `frontReached` first holds; nil when it does not
+    /// before `exit`.
+    public static func homogeneousFront(entry: Double, exit: Double, extinction: Double,
+                                        source: Double = 0) -> Double? {
         guard extinction > 0 else { return nil }
-        let t = entry - log(1 - frontOpacity) / extinction
+        let coverage = source > 0 ? min(frontOpacity, frontRadiance / source) : frontOpacity
+        let t = entry - log(1 - coverage) / extinction
         return t <= exit ? t : nil
     }
 

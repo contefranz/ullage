@@ -27,7 +27,7 @@ struct EffectSlotUniforms {
     float4 target;      // xy: the targets' size (texels), zw: 1 / size
     float4 scale;       // x: frame pixels per texel (2 half, 1 full), y: 1 / x, z: log2(1 + upsample tolerance), w: layers drawn (1 clouds, 2 volumes, 4 OIT)
     float4 oit;         // x: reference depth (m), y: weight exponent, z: least depth factor, w: largest
-    float4 front;       // x: front opacity, y: most a fragment adds to an accumulation channel
+    float4 front;       // x: front opacity, y: most a fragment adds to an accumulation channel, z: front radiance (pre-exposed)
 };
 
 // The view ray through point p of the effect targets (texel centres at
@@ -52,6 +52,14 @@ inline float orbit_frontCode(float linearDepth) {
     return min(log2(max(linearDepth, 1.0 / 16384.0)), ORBIT_EFFECT_NO_FRONT);
 }
 
+// Whether an item's contribution so far (its coverage 1 - T and its
+// premultiplied, pre-exposed radiance) has become visible: its front is
+// here (EffectSlots.frontReached). A volume tests it as it marches front to
+// back and reports the first depth where it holds.
+inline bool orbit_frontReached(float coverage, float3 radiance, constant EffectSlotUniforms &e) {
+    return coverage >= e.front.x || max(radiance.r, max(radiance.g, radiance.b)) >= e.front.z;
+}
+
 // McGuire and Bavoil's weight on depth relative to the frame's reference.
 inline float orbit_oitWeight(float alpha, float linearDepth, constant EffectSlotUniforms &e) {
     float f = pow(max(linearDepth, 1e-6) / max(e.oit.x, 1e-6), -e.oit.y);
@@ -59,7 +67,8 @@ inline float orbit_oitWeight(float alpha, float linearDepth, constant EffectSlot
 }
 
 // What a clouds effect writes: premultiplied radiance (pre-exposed) and
-// 1 - T in a; its front code in every channel (the pipeline keeps r).
+// 1 - T in a; its front code in every channel (the pipeline keeps r), at the
+// first depth where orbit_frontReached holds, or ORBIT_EFFECT_NO_FRONT.
 struct EffectCloudOut {
     float4 color [[color(ORBIT_EFFECT_CLOUDS)]];
     float4 front [[color(ORBIT_EFFECT_FRONT)]];
@@ -79,13 +88,15 @@ struct EffectOITOut {
     float4 front [[color(ORBIT_EFFECT_FRONT)]];
 };
 
-// An OIT fragment of premultiplied colour (pre-exposed) at a linear depth.
+// An OIT fragment of premultiplied colour (pre-exposed) at a linear depth;
+// its front if it is visible on its own (orbit_frontReached).
 inline EffectOITOut orbit_oitOutput(float4 premultiplied, float linearDepth, constant EffectSlotUniforms &e) {
     float w = orbit_oitWeight(premultiplied.a, linearDepth, e);
     EffectOITOut o;
     o.accumulation = float4(min(premultiplied.rgb * w, e.front.y), premultiplied.a * w);
     o.revealage = premultiplied.a;
-    o.front = float4(premultiplied.a >= e.front.x ? orbit_frontCode(linearDepth) : ORBIT_EFFECT_NO_FRONT);
+    o.front = float4(orbit_frontReached(premultiplied.a, premultiplied.rgb, e) ? orbit_frontCode(linearDepth)
+                                                                              : ORBIT_EFFECT_NO_FRONT);
     return o;
 }
 """#

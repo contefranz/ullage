@@ -142,13 +142,44 @@ final class EffectSlotsTests: XCTestCase {
         XCTAssertLessThan(EffectSlots.frontCode(linearDepth: 1e300), EffectSlots.noFront + 1)
     }
 
-    /// A homogeneous medium reports its front where 2 % is absorbed.
+    /// A dark homogeneous medium reports its front where 2 % is absorbed; a
+    /// bright one sooner, where its radiance is first visible.
     func testHomogeneousFront() throws {
         let t = try XCTUnwrap(EffectSlots.homogeneousFront(entry: 10, exit: 50, extinction: 0.1))
         XCTAssertEqual(t, 10 - log(0.98) / 0.1, accuracy: 1e-12)
         XCTAssertEqual(1 - exp(-0.1 * (t - 10)), EffectSlots.frontOpacity, accuracy: 1e-12)
         XCTAssertNil(EffectSlots.homogeneousFront(entry: 10, exit: 10.1, extinction: 0.1))
         XCTAssertNil(EffectSlots.homogeneousFront(entry: 10, exit: 50, extinction: 0))
+        // A glow of source radiance 2: visible at a coverage of 1/512.
+        let glow = try XCTUnwrap(EffectSlots.homogeneousFront(entry: 10, exit: 50, extinction: 0.1, source: 2))
+        let coverage = 1 - exp(-0.1 * (glow - 10))
+        XCTAssertEqual(2 * coverage, EffectSlots.frontRadiance, accuracy: 1e-12)
+        XCTAssertTrue(EffectSlots.frontReached(coverage: coverage * 1.001, radiance: 2 * coverage * 1.001))
+        XCTAssertFalse(EffectSlots.frontReached(coverage: coverage * 0.999, radiance: 2 * coverage * 0.999))
+        XCTAssertLessThan(glow, t)
+        // A glow too thin to reach 2 % still has its front.
+        XCTAssertNotNil(EffectSlots.homogeneousFront(entry: 10, exit: 10.1, extinction: 0.1, source: 2))
+        // A dim medium falls back on its coverage.
+        XCTAssertEqual(EffectSlots.homogeneousFront(entry: 10, exit: 50, extinction: 0.1, source: 0.1), t)
+    }
+
+    /// A bright, optically thin plume in front of a dense deck reports a
+    /// front by its radiance, so it goes over the deck: the deck dims it to
+    /// a tenth when it sorts beneath for want of a front.
+    func testABrightThinLayerGoesInFront() {
+        let plume = P(0.3, 0.12, 0.03, 0.01)
+        XCTAssertFalse(plume.a >= EffectSlots.frontOpacity, "too thin to report by coverage")
+        XCTAssertTrue(EffectSlots.frontReached(coverage: plume.a, radiance: max(plume.r, plume.g, plume.b)))
+        let deck = EffectSlots.LayerSample(P(0.45, 0.45, 0.5, 0.9), front: 600)
+        let reported = EffectSlots.composite([deck, EffectSlots.LayerSample(plume, front: 200)])
+        XCTAssertEqual(reported, plume.over(deck.color))
+        let unreported = EffectSlots.composite([deck, EffectSlots.LayerSample(plume, front: .infinity)])
+        XCTAssertEqual(unreported, deck.color.over(plume))
+        XCTAssertGreaterThan(reported.r - unreported.r, 0.25, "the plume's glow, not a tenth of it")
+        // Faint smoke: a fragment visible on its own by its radiance alone.
+        let smoke = P(0.006, 0.006, 0.006, 0.012)
+        XCTAssertTrue(EffectSlots.frontReached(coverage: smoke.a, radiance: smoke.r))
+        XCTAssertFalse(EffectSlots.frontReached(coverage: 0.01, radiance: 0.002))
     }
 
     func testOITWeight() {
