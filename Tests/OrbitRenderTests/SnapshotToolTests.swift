@@ -223,13 +223,13 @@ final class SnapshotToolTests: XCTestCase {
         let png = try AppSnapshot.write(scene, renderer: r)
         let second = try AppSnapshot.write(scene, renderer: r)
         XCTAssertNotEqual(second, png, "a second snapshot in the same second does not overwrite the first")
-        for suffix in [".png", ".pfm", ".depth.png", ".normals.png", ".luminance.png", ".json"] {
+        for suffix in [".png", ".pfm", ".depth.png", ".normals.png", ".luminance.png", ".sunShadow.png", ".json"] {
             try FileManager.default.removeItem(at: dir.appendingPathComponent(second.deletingPathExtension().lastPathComponent + suffix))
         }
         let stem = png.deletingPathExtension().lastPathComponent
         let files = Set(try FileManager.default.contentsOfDirectory(atPath: dir.path))
         XCTAssertEqual(files, [stem + ".png", stem + ".pfm", stem + ".depth.png", stem + ".normals.png",
-                               stem + ".luminance.png", stem + ".json"])
+                               stem + ".luminance.png", stem + ".sunShadow.png", stem + ".json"])
         let back = try ImageFiles.readPNG(png)
         XCTAssertEqual([back.width, back.height], [160, 100])
         XCTAssertEqual(r.settings, RenderSettings(), "the renderer's settings are put back")

@@ -108,4 +108,7 @@ public enum DebugView: String, Codable, CaseIterable {
     case normals
     /// The image's luminance in false colour, one band per stop.
     case luminance
+    /// The Sun's visible share from the shadow maps on every surface, tinted
+    /// by the map that served it (R4's `ShadowDebugPass`).
+    case sunShadow
 }
