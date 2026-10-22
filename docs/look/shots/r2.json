@@ -1,0 +1,29 @@
+{
+  "goldens": "none",
+  "shots": [
+    {"name": "r2-pad-stack", "scenario": "as506-pad",
+     "camera": {"yaw": -60, "pitch": 4, "distance": 210, "fov": 38},
+     "settings": {"shading": {"waitForAmbientOcclusion": true}}, "reference": "S69-39961"},
+    {"name": "r2-pad-base", "scenario": "as506-pad",
+     "camera": {"yaw": -35, "pitch": -2, "distance": 62, "fov": 62},
+     "settings": {"shading": {"waitForAmbientOcclusion": true}}, "aovs": ["luminance"]},
+    {"name": "r2-liftoff-plume-light", "scenario": "as506-pad", "advance": ["met:3"],
+     "camera": {"yaw": 150, "pitch": -2, "distance": 62, "fov": 62},
+     "settings": {"shading": {"waitForAmbientOcclusion": true}}},
+    {"name": "r2-csm-orbit-noon", "scenario": "as506-parking-orbit", "advance": ["stage", "wait:20"],
+     "camera": {"target": "vessel:Apollo 11", "frame": "vessel", "yaw": 200, "pitch": 18, "distance": 16, "fov": 40},
+     "settings": {"shading": {"waitForAmbientOcclusion": true}}},
+    {"name": "r2-csm-orbit-glint", "scenario": "as506-parking-orbit", "advance": ["stage", "wait:20"],
+     "camera": {"target": "vessel:Apollo 11", "frame": "vessel", "yaw": 20, "pitch": -12, "distance": 14, "fov": 40},
+     "settings": {"shading": {"waitForAmbientOcclusion": true}}},
+    {"name": "r2-sivb-interstage", "scenario": "as506-pad", "advance": ["ev:S-IC/S-II separation", "wait:1"],
+     "camera": {"frame": "vessel", "yaw": 20, "pitch": -25, "distance": 50},
+     "settings": {"shading": {"waitForAmbientOcclusion": true}}},
+    {"name": "r2-entry-glow", "scenario": "apollo7-cm-ei", "advance": ["wait:330"],
+     "camera": {"frame": "vessel", "yaw": 126, "pitch": -17.2, "distance": 14},
+     "settings": {"shading": {"waitForAmbientOcclusion": true}}},
+    {"name": "r2-main-chutes", "scenario": "apollo7-cm-ei", "advance": ["ev:mains deployed", "wait:25"],
+     "camera": {"yaw": -149, "pitch": 5.7, "distance": 70},
+     "settings": {"shading": {"waitForAmbientOcclusion": true}}}
+  ]
+}
