@@ -15,7 +15,7 @@ import OrbitScene
 /// - **Its memory**: 32 MB a 4096² layer; the atlas grows to the most
 ///   layers a frame has used and keeps them.
 /// - **Casters**: the vessels' meshes with their gimballed nozzles, as
-///   positions alone (`CasterMesh`), and the sites' elements as the
+///   positions alone, welded (`CasterMesh`), and the sites' elements as the
 ///   countdown moves them (`SiteMeshes`). Open shapes are drawn two-sided;
 ///   a closed shape's faces turned from the Sun are culled, which changes
 ///   no depth (its Sun-side faces are nearer) and halves the pad's fill.
@@ -159,6 +159,9 @@ public final class ShadowPass: RenderPass {
         return atlas
     }
 
+    /// Whether every vessel's caster mesh is welded yet (for tests).
+    var isWelded: Bool { casterMeshes.values.allSatisfy { $0.welded != nil } }
+
     /// The vessel's caster mesh, made from its mesh once per signature.
     private func casterMesh(_ v: RenderScene.Vessel, _ mesh: VesselMesh, device: MTLDevice) -> CasterMesh? {
         if let c = casterMeshes[v.id], c.signature == mesh.signature { return c }
@@ -168,6 +171,7 @@ public final class ShadowPass: RenderPass {
     }
 
     /// What a caster draws.
+    @MainActor
     private enum Caster {
         case vessel(RenderScene.Vessel, CasterMesh)
         case site(RenderScene.Site, SiteMeshes, Double, LC39A.Countdown)
@@ -181,11 +185,19 @@ public final class ShadowPass: RenderPass {
             }
             switch self {
             case let .vessel(v, mesh):
-                enc.setVertexBuffer(mesh.positions, offset: 0, index: 0)
+                let welded = mesh.welded
+                enc.setVertexBuffer(welded?.positions ?? mesh.positions, offset: 0, index: 0)
                 for (i, (rotation, translation, range)) in VesselPlacement.groups(v, mesh.groups).enumerated() {
                     enc.setCullMode(mesh.groups[i].culled ? .back : .none)
                     clip(rotation, translation)
-                    enc.drawPrimitives(type: .triangle, vertexStart: range.lowerBound, vertexCount: range.count)
+                    if let welded {
+                        let r = welded.ranges[i]
+                        enc.drawIndexedPrimitives(type: .triangle, indexCount: r.count, indexType: .uint32,
+                                                  indexBuffer: welded.indices,
+                                                  indexBufferOffset: r.lowerBound * MemoryLayout<UInt32>.stride)
+                    } else {
+                        enc.drawPrimitives(type: .triangle, vertexStart: range.lowerBound, vertexCount: range.count)
+                    }
                 }
             case let .site(site, meshes, t, countdown):
                 for element in meshes.elements {
@@ -340,8 +352,23 @@ enum VesselPlacement {
 /// vertex fetch of the mesh's), in the mesh's groups, and its sphere in the
 /// construction frame, widened by 2% and 0.25 m for the nozzles'
 /// gimballing.
+@MainActor
 final class CasterMesh {
+    /// The positions welded: each distinct one once (66,152 of the Saturn
+    /// V's 376,782 vertices), the triangles' indices into them, and each
+    /// group's index range, in `VesselMesh.groups`' order.
+    struct Welded {
+        let positions: MTLBuffer
+        let indices: MTLBuffer
+        let ranges: [Range<Int>]
+    }
+
+    /// The mesh's positions alone (float4), in its order: drawn until
+    /// `welded` is ready.
     let positions: MTLBuffer
+    /// Welded on a background queue (about 25 ms for the Saturn V), so a
+    /// staging does not wait for it.
+    private(set) var welded: Welded?
     let groups: [VesselMesh.Group]
     let signature: VesselGeometry.Signature
     let centre: Vec3
@@ -362,6 +389,57 @@ final class CasterMesh {
         signature = mesh.signature
         centre = s.centre
         radius = s.radius * 1.02 + 0.25
+        let job = WeldJob(positions: positions, ranges: mesh.groups.map(\.range), device: device)
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let welded = job.run()
+            Task { @MainActor in self?.welded = welded }
+        }
+    }
+
+    /// Welding, off the main thread: the positions buffer is read only.
+    private struct WeldJob: @unchecked Sendable {
+        let positions: MTLBuffer
+        let ranges: [Range<Int>]
+        let device: MTLDevice
+
+        /// A position's bits, so equal positions weld.
+        struct Key: Hashable {
+            let x: UInt32, y: UInt32, z: UInt32
+        }
+
+        func run() -> Welded? {
+            let source = positions.contents().bindMemory(to: SIMD4<Float>.self,
+                                                         capacity: positions.length / MemoryLayout<SIMD4<Float>>.stride)
+            var points: [SIMD4<Float>] = [], indices: [UInt32] = [], out: [Range<Int>] = []
+            indices.reserveCapacity(ranges.map(\.count).reduce(0, +))
+            for range in ranges {
+                // Within its group: a gimballed group turns on its own.
+                var seen: [Key: UInt32] = [:]
+                seen.reserveCapacity(range.count / 3)
+                let start = indices.count
+                for i in range {
+                    let p = source[i]
+                    let key = Key(x: p.x.bitPattern, y: p.y.bitPattern, z: p.z.bitPattern)
+                    if let k = seen[key] {
+                        indices.append(k)
+                    } else {
+                        let k = UInt32(points.count)
+                        seen[key] = k
+                        points.append(p)
+                        indices.append(k)
+                    }
+                }
+                out.append(start..<indices.count)
+            }
+            guard !points.isEmpty,
+                  let p = device.makeBuffer(bytes: points, length: points.count * MemoryLayout<SIMD4<Float>>.stride,
+                                            options: .storageModeShared),
+                  let i = device.makeBuffer(bytes: indices, length: indices.count * MemoryLayout<UInt32>.stride,
+                                            options: .storageModeShared) else { return nil }
+            p.label = "Shadow caster positions, welded"
+            i.label = "Shadow caster indices"
+            return Welded(positions: p, indices: i, ranges: out)
+        }
     }
 }
 

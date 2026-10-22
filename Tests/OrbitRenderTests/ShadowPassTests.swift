@@ -335,6 +335,36 @@ final class ShadowPassTests: XCTestCase {
         return (median(times.values[0]) - median(times.values[1])) / Double(copies)
     }
 
+    /// The sun-shadow view's own GPU time at the scene's viewport, s: whole
+    /// frames (the default passes) with it against the same frames with
+    /// F0's normals view, interleaved, medians. An upper bound on the
+    /// receivers' cost: every pixel evaluates `orbit_sunShadow`, after
+    /// reconstructing its normal from depth.
+    func receiverCost(_ scene: RenderScene, frames: Int = 120) throws -> Double {
+        let device = try device()
+        final class Times: @unchecked Sendable {
+            let lock = NSLock()
+            var values: [[Double]] = [[], []]
+            func add(_ t: Double, _ k: Int) { lock.withLock { values[k].append(t) } }
+        }
+        let renderers = try [DebugView.sunShadow, .normals].map { view in
+            let r = try SceneRenderer(device: device, loadsUserTextures: false)
+            r.settings.debug.view = view
+            return r
+        }
+        let w = Int(scene.camera.viewport.width), h = Int(scene.camera.viewport.height)
+        let target = try XCTUnwrap(OffscreenTarget(device: device, width: w, height: h))
+        let times = Times()
+        for i in 0..<frames {
+            for (k, r) in renderers.enumerated() {
+                r.render(scene, to: target.texture) { cb in if i >= 20 { times.add(cb.gpuEndTime - cb.gpuStartTime, k) } }
+            }
+        }
+        for r in renderers { r.renderAndWait(scene, into: target) }
+        func median(_ v: [Double]) -> Double { v.sorted()[v.count / 2] }
+        return median(times.values[0]) - median(times.values[1])
+    }
+
     func padScene(distance: Double = 170, yaw: Double? = nil, pitch: Double? = nil,
                   scenario name: String = "as506-pad", advance: [String] = []) throws -> RenderScene {
         let scenario = try XCTUnwrap(Scenario.named(name))
@@ -370,6 +400,8 @@ final class ShadowPassTests: XCTestCase {
                          try shadowCost(scene, settings: s, copies: 2) * 1e3))
             s.maxMaps = 2
             print(String(format: "COST %@ Medium (2 maps): %.3f ms", name, try shadowCost(scene, settings: s) * 1e3))
+            print(String(format: "COST %@ receivers (sun-shadow view, full frame): %.3f ms", name,
+                         try receiverCost(scene) * 1e3))
         }
     }
 
@@ -419,6 +451,21 @@ final class ShadowPassTests: XCTestCase {
                                  normals: [up, up], pass: pass)
         XCTAssertLessThan(deck[0].0, 0.1, "the deck west of the LUT")
         XCTAssertGreaterThan(deck[1].0, 0.95, "the deck east of it")
+
+        // The vehicle's welded caster mesh (ready a moment later) draws the
+        // same shadows as its plain positions did.
+        let points = (0..<400).map { k in vessel.position + axis * (Double(k % 20) * 4 - 40) + across * 5.6
+            + up.cross(axis).normalized * (Double(k / 20) * 0.6 - 6) }
+        let normals = Array(repeating: across, count: points.count)
+        let weldedAlready = pass.isWelded
+        let plain = try probe.run(points, normals: normals, pass: pass)
+        let deadline = Date().addingTimeInterval(5)
+        while !pass.isWelded, Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+        XCTAssertTrue(pass.isWelded)
+        try draw(scene, r)
+        let welded = try probe.run(points, normals: normals, pass: pass)
+        XCTAssertEqual(plain.map(\.0), welded.map(\.0))
+        if weldedAlready { print("note: the weld finished before the first frame; plain and welded not compared") }
     }
 
 }
