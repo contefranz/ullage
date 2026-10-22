@@ -26,10 +26,17 @@ vertex PlumeOut plume_vertex(uint vid [[vertex_id]],
     return o;
 }
 
+// R1's bridge until P2's plumes: today's intensities are relative to a white
+// Lambert surface facing the Sun, so they are scaled by E⊙/π (cd/m²) and the
+// frame's pre-exposure.
+static float plume_legacyScale(constant FrameUniforms &frame) {
+    return frame.exposure.x * frame.sunIlluminance.w / M_PI_F;
+}
+
 // Additive: a cone seen side-on (dense on its axis, fading to the tail, with
 // a hot line near the exit and, for kerosene, a dark fuel-rich core just
 // below it), and a soft disc over the exit that carries the plume end-on.
-fragment float4 plume_fragment(PlumeOut in [[stage_in]]) {
+fragment float4 plume_fragment(PlumeOut in [[stage_in]], constant FrameUniforms &frame [[buffer(ORBIT_BUFFER_FRAME)]]) {
     float a;
     if (in.shape.w < 0.5) {
         float x2 = in.shape.x * in.shape.x, y = clamp(in.shape.y, 0.0, 1.0);
@@ -42,7 +49,7 @@ fragment float4 plume_fragment(PlumeOut in [[stage_in]]) {
         float r2 = dot(in.shape.xy, in.shape.xy);
         a = pow(max(1.0 - r2, 0.0), 2.0);
     }
-    return float4(in.color.rgb * a, 0.0);
+    return float4(in.color.rgb * (a * plume_legacyScale(frame)), 0.0);
 }
 """#
 

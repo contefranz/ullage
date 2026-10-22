@@ -38,6 +38,16 @@ struct DepthColorOut {
     float depth [[depth(any)]];
 };
 
+// R1's bridge until A2 and E2 make this pass photometric: today's colours
+// are light relative to a white Lambert surface facing the Sun, so they are
+// scaled by E⊙/π (cd/m²) and the frame's pre-exposure; the ambient floor
+// (options.y) instead stays as it was on screen, a night floor relative to
+// the exposure (as R3's will be), so the night side stays dark under any
+// exposure rather than lit like a room.
+static float planet_legacyScale(constant FrameUniforms &frame) {
+    return frame.exposure.x * frame.sunIlluminance.w / M_PI_F;
+}
+
 // Longitude-seam-free texture lookup (Tarini's method).
 static float4 sampleEquirect(texture2d<float> tex, sampler smp, float lon, float lat) {
     float v = 0.5 - lat / M_PI_F;
@@ -52,7 +62,8 @@ static float4 sampleEquirect(texture2d<float> tex, sampler smp, float lon, float
 fragment DepthColorOut planet_fragment(FullscreenOut in [[stage_in]],
                                        constant PlanetUniforms &u [[buffer(0)]],
                                        texture2d<float> tex [[texture(0)]],
-                                       sampler smp [[sampler(0)]]) {
+                                       sampler smp [[sampler(0)]],
+                                       constant FrameUniforms &frame [[buffer(ORBIT_BUFFER_FRAME)]]) {
     float3 dView = normalize(float3(in.ndc.x * u.params.y, in.ndc.y * u.params.z, -1.0));
     float3 d = (u.viewToWorld * float4(dView, 0.0)).xyz;
     float3 oc = -u.centerRadius.xyz;            // camera relative to planet centre (world)
@@ -83,7 +94,7 @@ fragment DepthColorOut planet_fragment(FullscreenOut in [[stage_in]],
         float day = smoothstep(-0.25, 0.25, dot(q, sun));
         float a = clamp(density * 1.2, 0.0, 1.0) * day;
         // Premultiplied output; at most 85% opaque so the Sun still shows through.
-        o.color = float4(u.atmosphere.rgb * a, 0.85 * a);
+        o.color = float4(u.atmosphere.rgb * (a * planet_legacyScale(frame)), 0.85 * a);
         // Depth of the ray's closest approach, so the sky covers bodies drawn
         // earlier (bodies are drawn farthest first).
         o.depth = clamp(u.params.w / (max(tca, R) * -dView.z), 0.0, 1.0);
@@ -100,7 +111,7 @@ fragment DepthColorOut planet_fragment(FullscreenOut in [[stage_in]],
 
     float3 color;
     if (u.sunDir.w > 0.5) {
-        color = u.baseColor.rgb * 4.0;
+        color = u.baseColor.rgb * 4.0 * planet_legacyScale(frame);
     } else {
         float lat = asin(clamp(nb.z, -1.0, 1.0));
         float lon = atan2(nb.y, nb.x);
@@ -117,13 +128,15 @@ fragment DepthColorOut planet_fragment(FullscreenOut in [[stage_in]],
             albedo = mix(albedo, float3(0.9, 0.9, 0.9), gridLine * 0.35);
         }
         float diffuse = max(dot(n, sun), 0.0);
-        color = albedo * (diffuse + u.options.y);
+        float3 lit = albedo * diffuse, night = albedo * u.options.y;
         if (H > 0.0) {
             float density = exp(-max(alt, 0.0) / H);
-            float haze = 1.0 - exp(-t * density / (12.0 * H));
+            float haze = clamp(1.0 - exp(-t * density / (12.0 * H)), 0.0, 0.85);
             float day = smoothstep(-0.2, 0.3, dot(n, sun));
-            color = mix(color, u.atmosphere.rgb * day, clamp(haze, 0.0, 0.85));
+            lit = mix(lit, u.atmosphere.rgb * day, haze);
+            night *= 1.0 - haze;
         }
+        color = lit * planet_legacyScale(frame) + night;
     }
     float3 hitView = dView * t;
     o.color = float4(color, 1.0);
