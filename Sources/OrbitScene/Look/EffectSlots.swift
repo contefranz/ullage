@@ -226,4 +226,51 @@ public enum EffectSlots {
     public static func composite(_ layers: [LayerSample]) -> Premultiplied {
         compositeOrder(layers.map(\.front)).reduce(.clear) { below, i in layers[i].color.over(below) }
     }
+
+    /// One texel of the targets, as the composite reads it.
+    public struct Texel {
+        public var clouds: Premultiplied
+        public var volumes: Premultiplied
+        public var accumulation: Premultiplied
+        public var revealage: Double
+        /// Front codes: clouds, volumes, OIT.
+        public var fronts: [Double]
+
+        public init(clouds: Premultiplied, volumes: Premultiplied, accumulation: Premultiplied, revealage: Double,
+                    fronts: [Double]) {
+            self.clouds = clouds
+            self.volumes = volumes
+            self.accumulation = accumulation
+            self.revealage = revealage
+            self.fronts = fronts
+        }
+    }
+
+    /// The composite at one pixel, step by step as the GPU does it:
+    /// - the drawn layers' texels mixed with the upsample weights;
+    /// - each front the least code among the texels that weigh;
+    /// - the OIT pair resolved after mixing;
+    /// - the layers composited in front order.
+    public static func compositePixel(_ texels: [Texel], weights: [Double], drawn: Set<Layer>) -> Premultiplied {
+        var colors = [Premultiplied](repeating: .clear, count: 3)
+        var fronts = [Double](repeating: noFront, count: 3)
+        var accumulation = Premultiplied.clear, revealage = 0.0
+        for (t, w) in zip(texels, weights) where w > 0 {
+            if drawn.contains(.clouds) {
+                colors[0] = colors[0] + w * t.clouds
+                fronts[0] = min(fronts[0], t.fronts[0])
+            }
+            if drawn.contains(.volumes) {
+                colors[1] = colors[1] + w * t.volumes
+                fronts[1] = min(fronts[1], t.fronts[1])
+            }
+            if drawn.contains(.oit) {
+                accumulation = accumulation + w * t.accumulation
+                revealage += w * t.revealage
+                fronts[2] = min(fronts[2], t.fronts[2])
+            }
+        }
+        if drawn.contains(.oit) { colors[2] = oitResolve(accumulation: accumulation, revealage: revealage) }
+        return composite((0..<3).map { LayerSample(colors[$0], front: linearDepth(frontCode: fronts[$0])) })
+    }
 }

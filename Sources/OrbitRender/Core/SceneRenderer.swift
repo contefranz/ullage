@@ -89,17 +89,21 @@ public final class SceneRenderer {
     /// Every slot P0-P5, in order: today's stars, planets, vessels, orbit
     /// line, plumes, far points and markers, and each track's stub.
     public static func defaultPasses(loadsUserTextures: Bool = true) -> [RenderPass] {
-        [
+        // The effects drawn at half resolution, in order: clouds (C2),
+        // plumes (P2), smoke (P3); R6's test emitters first.
+        let slots = HalfResTransparentPass(effects: [EffectTestEmitters()])
+        return [
             // P0
             AtmosphereLUTPass(), CloudPass(), ShadowPass(), EnvironmentProbePass(), ParticleSimulationPass(),
             // P1
-            StarPass(), PlanetPass(loadsUserTextures: loadsUserTextures), VesselPass(),
+            StarPass(), PlanetPass(loadsUserTextures: loadsUserTextures), VesselPass(), EffectTestOpaquePass(),
             // P2
             AtmosphereCompositePass(),
             // P3
-            OrbitLinePass(), PlumePass(), FarPointPass(), HalfResTransparentPass(), ParticleDrawPass(), EntryPass(),
+            slots, OrbitLinePass(), PlumePass(), FarPointPass(), TransparentCompositePass(slots: slots),
+            EffectTestSparksPass(), ParticleDrawPass(), EntryPass(),
             // P4
-            PostPass(), DebugViewPass(),
+            PostPass(), DebugViewPass(), EffectDebugViewPass(slots: slots),
             // P5
             MarkerPass(),
         ]
