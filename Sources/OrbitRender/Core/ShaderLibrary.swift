@@ -35,7 +35,8 @@ public struct ShaderModule {
     /// Every module, for the compile tests and `scripts/check-shaders.sh`.
     /// A track adding a module adds it here.
     public static let all: [ShaderModule] = [.planet, .vessel, .star, .overlay, .plume, .debug, .atmosphere, .cloud,
-                                             .particle, .entry, .post, .shadow, .probe]
+                                             .particle, .entry, .post, .shadow, .probe,
+                                             .halfResTransparent, .transparentComposite, .effectTest]
 }
 
 /// Compiles shader modules on first use and keeps the libraries, and the

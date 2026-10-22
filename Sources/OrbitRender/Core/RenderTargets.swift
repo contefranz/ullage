@@ -20,9 +20,11 @@ public protocol SceneTargetPlan: AnyObject {
     /// in the encoder the previous render stage opened. Called once per
     /// stage and frame, in order; `f.wanted` says what later passes read.
     func renderPass(for stage: PassStage, _ f: FrameContext) -> MTLRenderPassDescriptor?
-    /// For split encoding (`FrameContext.splitsEncoders`, the GPU timings):
-    /// a render pass that goes on drawing the scene where the last encoder
-    /// stopped, with the same attachments and formats.
+    /// A render pass that goes on drawing the scene where the last encoder
+    /// stopped, with the same attachments and formats: for split encoding
+    /// (`FrameContext.splitsEncoders`, the GPU timings), and to resume the
+    /// scene after a render-stage pass on the command buffer
+    /// (`FrameContext.breaksScene`), timed or not.
     func continuation(_ f: FrameContext) -> MTLRenderPassDescriptor?
 }
 
@@ -33,8 +35,11 @@ public protocol SceneTargetPlan: AnyObject {
 /// When a later pass reads `.sceneColor` or `.sceneDepth` (a debug view),
 /// the scene resolves into frame textures instead (depth with the nearest
 /// sample, `.max` in reversed-Z), and that pass writes the output. When the
-/// encoders are split for timing, the samples are stored between them in
-/// private textures, so the image is the same.
+/// encoders are split for timing, or a render-stage pass encodes on the
+/// command buffer (`FrameContext.breaksScene`), the samples are stored
+/// between encoders in private textures, so the image is the same. A broken
+/// scene resolves its colour when it resumes for the last time
+/// (`FrameContext.resumesLast`), which stores no samples.
 @MainActor
 public final class DirectTargetPlan: SceneTargetPlan {
     public let colorFormat: MTLPixelFormat
@@ -91,7 +96,7 @@ public final class DirectTargetPlan: SceneTargetPlan {
 
     public func renderPass(for stage: PassStage, _ f: FrameContext) -> MTLRenderPassDescriptor? {
         guard stage == .opaque else { return nil }
-        let split = f.splitsEncoders
+        let split = f.splitsEncoders || f.breaksScene
         if split {
             unsplitFrames = 0
             if stored.depth == nil {
@@ -114,7 +119,14 @@ public final class DirectTargetPlan: SceneTargetPlan {
         if let color {
             c.texture = color
             c.resolveTexture = resolved
-            c.storeAction = split ? .storeAndMultisampleResolve : .multisampleResolve
+            // Timing resolves after every encoder. A broken scene resolves
+            // when it resumes (`continuation`), unless a pass reads the
+            // resolved colour on the way.
+            if f.splitsEncoders || f.wanted.contains(.sceneColor) {
+                c.storeAction = .storeAndMultisampleResolve
+            } else {
+                c.storeAction = split ? .store : .multisampleResolve
+            }
         } else {
             c.texture = resolved
             c.storeAction = .store
@@ -142,8 +154,19 @@ public final class DirectTargetPlan: SceneTargetPlan {
 
     public func continuation(_ f: FrameContext) -> MTLRenderPassDescriptor? {
         guard let pass = current?.copy() as? MTLRenderPassDescriptor else { return nil }
-        pass.colorAttachments[0].loadAction = .load
-        pass.depthAttachment.loadAction = .load
+        let c = pass.colorAttachments[0]!, z = pass.depthAttachment!
+        c.loadAction = .load
+        z.loadAction = .load
+        if c.resolveTexture != nil {
+            // The scene's last encoder resolves and stores nothing; any other
+            // keeps the samples and resolves, as a scene ending there must.
+            c.storeAction = f.resumesLast ? .multisampleResolve : .storeAndMultisampleResolve
+        }
+        if f.resumesLast, sampleCount > 1 {
+            // Depth is read-only from P2 on: its resolve before the break stands.
+            z.storeAction = .dontCare
+            z.resolveTexture = nil
+        }
         return pass
     }
 }
