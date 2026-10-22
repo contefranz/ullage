@@ -387,8 +387,9 @@ public final class VesselMeshCache {
     func apply(_ baked: BakedAmbientOcclusion, to mesh: VesselMesh, now: Double, synchronously: Bool = false) {
         guard let device else { return }
         let id = AOBakeID(signature: baked.signature, settings: baked.settings)
-        for (entry, bakedPart) in zip(mesh.parts, baked.parts) where bakedPart.id == entry.part.id {
-            guard entry.aoBake != id else { continue }
+        let bakedParts = Dictionary(baked.parts.map { ($0.id, $0) }) { a, _ in a }
+        for entry in mesh.parts {
+            guard entry.aoBake != id, let bakedPart = bakedParts[entry.part.id] else { continue }
             if !entry.mesh.isSubdivided {
                 let part = entry.part, info = entry.info, meshes = bakedPart.shapes.map(\.mesh)
                 if synchronously {

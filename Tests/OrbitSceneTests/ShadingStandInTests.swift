@@ -43,12 +43,13 @@ final class ShadingStandInTests: XCTestCase {
     /// its exit, afterburning in air (2,300 K), of the order of 10⁸ cd each
     /// (a sooty column of 1.8 m radius and 36 m glowing at about 1e6
     /// cd/m², some 40 times sunlit white paint), so the five light the pad
-    /// at about a megalux from 30 m. Sorted, at most 8.
+    /// at about a megalux from 30 m. The cluster is lit as one light, its
+    /// intensity the five's, its column holding all five.
     func testF1PlumesLightThePadAtLiftoff() throws {
         let s = try scene("as506-pad", advance: 0.5)
-        let lights = PlumeLights.lights(s)
-        XCTAssertEqual(lights.count, 5)
-        for l in lights {
+        let each = s.emitters.compactMap(PlumeLights.light)
+        XCTAssertEqual(each.count, 5)
+        for l in each {
             let e = try XCTUnwrap(s.emitters.min {
                 ($0.exit + $0.axis * (0.5 * l.length) - l.centre).length < ($1.exit + $1.axis * (0.5 * l.length) - l.centre).length
             })
@@ -62,10 +63,16 @@ final class ShadingStandInTests: XCTestCase {
             XCTAssertEqual(luminance, l.luminousIntensity, accuracy: 1e-3 * l.luminousIntensity)
             XCTAssertGreaterThan(l.intensity.r, l.intensity.b, "a flame is warm")
         }
-        let total = lights.reduce(0) { $0 + $1.luminousIntensity }
+        let total = each.reduce(0) { $0 + $1.luminousIntensity }
         XCTAssertGreaterThan(total / (30 * 30), 1e4, "lux at 30 m")
         XCTAssertLessThan(total / (30 * 30), 3e6)
-        XCTAssertLessThanOrEqual(PlumeLights.lights(s, maximum: 3).count, 3)
+        let lights = PlumeLights.lights(s)
+        XCTAssertEqual(lights.count, 1, "the five F-1s as one cluster")
+        XCTAssertEqual(lights[0].luminousIntensity, total, accuracy: 1e-9 * total)
+        for l in each {
+            XCTAssertLessThanOrEqual((l.centre - lights[0].centre).length + l.radius, lights[0].radius + 1e-9)
+        }
+        XCTAssertLessThanOrEqual(PlumeLights.lights(s, maximum: 0).count, 0)
     }
 
     /// A J-2 in vacuum (hydrogen, nearly invisible) lights far less than an

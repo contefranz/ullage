@@ -78,13 +78,53 @@ public enum PlumeLights {
                           range: (intensity / cutoffIlluminance).squareRoot(), luminousIntensity: intensity)
     }
 
-    /// The scene's brightest plume lights at the camera, at most `maximum`.
+    /// The scene's brightest plume lights at the camera, at most `maximum`,
+    /// each engine cluster's merged into one (`merged`).
     public static func lights(_ scene: RenderScene, maximum: Int = PlumeLights.maximum) -> [PlumeLight] {
-        let all = scene.emitters.compactMap(light)
+        let all = merged(scene.emitters.compactMap(light))
         func weight(_ l: PlumeLight) -> Double {
             l.luminousIntensity / max(l.centre.lengthSquared, l.length * l.length)
         }
         return Array(all.sorted { weight($0) > weight($1) }.prefix(maximum))
+    }
+
+    /// Plumes side by side (axes within 10°, centres closer than three
+    /// columns' widths) lit as one column: the cluster's centre and axis
+    /// weighted by intensity, wide enough to hold every member, as long as
+    /// the longest, with their summed intensity. Five F-1s light the pad
+    /// as one line light, a fifth of the cost per pixel.
+    public static func merged(_ lights: [PlumeLight]) -> [PlumeLight] {
+        var clusters: [[PlumeLight]] = []
+        for l in lights {
+            if let k = clusters.firstIndex(where: { c in
+                c.contains { m in
+                    m.axis.dot(l.axis) > cos(10 * Double.pi / 180)
+                        && (m.centre - l.centre).length < 3 * (m.radius + l.radius)
+                }
+            }) {
+                clusters[k].append(l)
+            } else {
+                clusters.append([l])
+            }
+        }
+        return clusters.map { c in
+            guard c.count > 1 else { return c[0] }
+            let total = c.reduce(0) { $0 + $1.luminousIntensity }
+            var centre = Vec3.zero, axis = Vec3.zero
+            var r: Float = 0, g: Float = 0, b: Float = 0
+            for m in c {
+                let w = m.luminousIntensity / total
+                centre = centre + m.centre * w
+                axis = axis + m.axis * w
+                r += m.intensity.r
+                g += m.intensity.g
+                b += m.intensity.b
+            }
+            let radius = c.map { ($0.centre - centre).length + $0.radius }.max() ?? 0
+            return PlumeLight(centre: centre, axis: axis.normalized, length: c.map(\.length).max() ?? 0,
+                              radius: radius, intensity: RenderScene.RGB(r, g, b),
+                              range: (total / cutoffIlluminance).squareRoot(), luminousIntensity: total)
+        }
     }
 
     /// Air at `pressureRatio` of sea level's for the plume model: the

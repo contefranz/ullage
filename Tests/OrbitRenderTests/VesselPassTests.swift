@@ -224,7 +224,8 @@ final class VesselPassTests: XCTestCase {
     }
 
     /// LC-39A drawn by the vessel pass: with the site placed, the tower and
-    /// the deck show beside the vehicle; nothing fails.
+    /// the deck show beside the vehicle; nothing fails. (ORBITSIM_LOOKDEV_DIR
+    /// keeps the frame, r2-pad-site.png.)
     func testDrawsThePad() throws {
         let scenario = try XCTUnwrap(Scenario.named("as506-pad"))
         let sim = scenario.build(Self.system)
@@ -235,9 +236,10 @@ final class VesselPassTests: XCTestCase {
         camera.yaw = -1.2
         camera.pitch = 0.15
         camera.update(sim: sim)
-        let viewport = RenderScene.Viewport(width: 320, height: 200)
+        let (w, h) = (640, 400)
+        let viewport = RenderScene.Viewport(width: Double(w), height: Double(h))
         let r = try SceneRenderer(device: try device(), loadsUserTextures: false)
-        let target = try XCTUnwrap(OffscreenTarget(device: r.device, width: 320, height: 200))
+        let target = try XCTUnwrap(OffscreenTarget(device: r.device, width: w, height: h))
         let bare = SceneExtractor()
         r.renderAndWait(bare.extract(sim: sim, camera: camera, viewport: viewport, realTime: 0), into: target)
         let without = target.bytes()
@@ -248,12 +250,16 @@ final class VesselPassTests: XCTestCase {
         r.renderAndWait(scene, into: target)
         let with = target.bytes()
         XCTAssertEqual(r.failures, [:])
+        if let dir = ProcessInfo.processInfo.environment["ORBITSIM_LOOKDEV_DIR"] {
+            try ImageFiles.writePNG(with, width: w, height: h, order: .bgra,
+                                    to: URL(fileURLWithPath: dir).appendingPathComponent("r2-pad-site.png"))
+        }
         var changed = 0
         for i in stride(from: 0, to: with.count, by: 4) {
             let db = abs(Int(with[i]) - Int(without[i])), dg = abs(Int(with[i + 1]) - Int(without[i + 1]))
             if db + dg > 30 { changed += 1 }
         }
-        XCTAssertGreaterThan(changed, 320 * 200 / 50, "the tower, deck and pad cover a good part of the view")
+        XCTAssertGreaterThan(changed, w * h / 50, "the tower, deck and pad cover a good part of the view")
         XCTAssertEqual(VesselPass.countdown(at: sim.time).name, LC39A.Countdown.apollo11.name)
     }
 
@@ -288,5 +294,64 @@ final class VesselPassTests: XCTestCase {
             gain += Double(lit[i + 1]) - Double(dark[i + 1])
         }
         XCTAssertGreaterThan(gain, 0, "the plumes add light")
+    }
+    /// The pass's GPU time on the plan's display (3024 × 1964, 4× MSAA) for
+    /// the budget's two cases, the pad (the stack and LC-39A filling the
+    /// view) and low Earth orbit: a report, not a test (ORBITSIM_PERF=1; it
+    /// holds the GPU lock).
+    func testPassTimeReport() throws {
+        guard ProcessInfo.processInfo.environment["ORBITSIM_PERF"] == "1" else {
+            throw XCTSkip("set ORBITSIM_PERF=1 to time the pass (it holds the GPU lock)")
+        }
+        let lock = GPULock { print("waiting for the GPU lock (\(GPULock.url.path))") }
+        defer { withExtendedLifetime(lock) {} }
+        let (w, h) = (3024, 1964)
+        let cases: [(String, String, [String], (Double, Double, Double, Double))] = [
+            ("pad, stack and LC-39A", "as506-pad", [], (-1.2, 0.12, 190, 50)),
+            ("pad, the base close", "as506-pad", [], (-0.6, -0.03, 62, 62)),
+            ("liftoff, plume lights", "as506-pad", ["met:3"], (2.6, -0.03, 62, 62)),
+            ("LEO, the stack", "as506-parking-orbit", [], (-0.6, 0.35, 70, 50)),
+            ("LEO, CSM close", "as506-parking-orbit", ["stage", "wait:20"], (3.5, 0.3, 16, 40)),
+        ]
+        let r = try SceneRenderer(device: try device(), loadsUserTextures: false)
+        r.setStars(try StarCatalog.bundled())
+        var settings = RenderSettings()
+        settings.shading.waitForAmbientOcclusion = true
+        r.settings = settings
+        let target = try XCTUnwrap(OffscreenTarget(device: r.device, width: w, height: h))
+        for (label, id, script, view) in cases {
+            let scenario = try XCTUnwrap(Scenario.named(id))
+            let sim = scenario.build(Self.system)
+            try ScenarioScript(script).run(on: sim, missionClockZero: scenario.missionClockZero) { _ in }
+            var camera = OrbitCamera()
+            let v = try XCTUnwrap(sim.focus)
+            camera.target = .vessel(v.id)
+            (camera.yaw, camera.pitch, camera.distance) = (view.0, view.1, view.2)
+            camera.fovY = view.3 * Double.pi / 180
+            camera.update(sim: sim)
+            let x = SceneExtractor()
+            x.sites = [LC39A.placement()]
+            let scene = x.extract(sim: sim, camera: camera, viewport: RenderScene.Viewport(width: Double(w),
+                                                                                             height: Double(h)),
+                                  realTime: 0)
+            for _ in 0..<3 { r.renderAndWait(scene, into: target) }
+            r.profiling = true
+            r.profileInterval = 1
+            var vessels: [Double] = [], frames: [Double] = []
+            for _ in 0..<25 {
+                r.renderAndWait(scene, into: target)
+                if let t = r.lastReport?.passes.first(where: { $0.pass == "Vessels" }) { vessels.append(t.seconds) }
+            }
+            r.profiling = false
+            for _ in 0..<10 {
+                r.renderAndWait(scene, into: target)
+                if let g = r.lastReport?.gpu { frames.append(g) }
+            }
+            func median(_ xs: [Double]) -> Double { xs.isEmpty ? .nan : xs.sorted()[xs.count / 2] }
+            let triangles = scene.vessels.compactMap { r.meshes.mesh($0.id) }
+                .flatMap(\.parts).reduce(0) { $0 + $1.mesh.indexCount / 3 }
+            print(String(format: "R2 PERF %@: vessel pass %.2f ms, frame %.2f ms, %d vessel triangles", label,
+                         median(vessels) * 1_000, median(frames) * 1_000, triangles))
+        }
     }
 }
