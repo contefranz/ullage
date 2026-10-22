@@ -49,7 +49,7 @@ fragment float4 plume_fragment(PlumeOut in [[stage_in]], constant FrameUniforms 
         float r2 = dot(in.shape.xy, in.shape.xy);
         a = pow(max(1.0 - r2, 0.0), 2.0);
     }
-    return float4(in.color.rgb * (a * plume_legacyScale(frame)), 0.0);
+    return float4(min(in.color.rgb * (a * plume_legacyScale(frame)), 60000.0), 0.0);   // below half float's overflow
 }
 """#
 

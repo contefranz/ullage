@@ -44,6 +44,8 @@ struct DepthColorOut {
 // (options.y) instead stays as it was on screen, a night floor relative to
 // the exposure (as R3's will be), so the night side stays dark under any
 // exposure rather than lit like a room.
+// The scene's colour is half float: light is clamped below its overflow.
+#define PLANET_FP16_MAX 60000.0
 static float planet_legacyScale(constant FrameUniforms &frame) {
     return frame.exposure.x * frame.sunIlluminance.w / M_PI_F;
 }
@@ -94,7 +96,7 @@ fragment DepthColorOut planet_fragment(FullscreenOut in [[stage_in]],
         float day = smoothstep(-0.25, 0.25, dot(q, sun));
         float a = clamp(density * 1.2, 0.0, 1.0) * day;
         // Premultiplied output; at most 85% opaque so the Sun still shows through.
-        o.color = float4(u.atmosphere.rgb * (a * planet_legacyScale(frame)), 0.85 * a);
+        o.color = float4(min(u.atmosphere.rgb * (a * planet_legacyScale(frame)), PLANET_FP16_MAX), 0.85 * a);
         // Depth of the ray's closest approach, so the sky covers bodies drawn
         // earlier (bodies are drawn farthest first).
         o.depth = clamp(u.params.w / (max(tca, R) * -dView.z), 0.0, 1.0);
@@ -139,7 +141,7 @@ fragment DepthColorOut planet_fragment(FullscreenOut in [[stage_in]],
         color = lit * planet_legacyScale(frame) + night;
     }
     float3 hitView = dView * t;
-    o.color = float4(color, 1.0);
+    o.color = float4(min(color, PLANET_FP16_MAX), 1.0);
     o.depth = clamp(u.params.w / max(-hitView.z, 1e-6), 0.0, 1.0);
     return o;
 }

@@ -125,11 +125,13 @@ public enum ToneCurves {
 public struct ToneLUT {
     /// Points per axis.
     public static let size = 33
-    /// The log₂ input range: 2^-12 to 2^5. Darker channels read as the first
-    /// point, brighter ones as the last; AgX is black below about 2^-12.5
-    /// and white above about 2^4.
+    /// The log₂ input range: 2^-12 to 2^7. Darker channels read as the first
+    /// point, brighter ones as the last. AgX is black below about 2^-12.5,
+    /// and grey is white above about 2^4; but its inset matrix leaks a bright
+    /// channel into the others, so a saturated colour (a heat shield's red
+    /// glow) keeps whitening until its channels reach about 2^7.
     public static let minLog2 = -12.0
-    public static let maxLog2 = 5.0
+    public static let maxLog2 = 7.0
 
     public let curve: ToneCurve
     /// RGBA, red fastest, then green, then blue.

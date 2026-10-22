@@ -14,7 +14,18 @@ constexpr sampler post_linear(filter::linear, address::clamp_to_edge);
 struct PostUniforms {
     float4 size;        // xy: destination size (px), zw: source size (px)
     float4 params;      // x: bloom mix of the level below (upsample), zw: the histogram's EV100 range
-    float4 sun;         // xy: the Sun's centre (px, may be off screen), z: its radius (px), w: 1 when in front
+    float4 glare;       // x: k E⊙ (cd/m² at 1 rad), y: its share (0 off), z: its smallest angle (rad)
+    float4 sunView;     // xyz: unit vector to the Sun (view axes)
+};
+
+// The Sun's visibility probe: 64 directions over its disc.
+#define POST_MAX_OCCULTERS 8
+struct SunProbeUniforms {
+    float4 sun;         // xyz: unit, camera -> Sun (world), w: angular radius (rad)
+    float4 axisU;       // xyz: unit, across the disc
+    float4 axisV;       // xyz: unit, across the disc
+    float4 params;      // x: bodies in use, y: drawn depth nearer than this (m) occludes, z: 1 to probe
+    float4 bodies[POST_MAX_OCCULTERS];  // xyz: unit direction to a body's centre (world), w: cos of its angular radius
 };
 
 struct ToneUniforms {
@@ -42,10 +53,29 @@ vertex PostVertexOut post_fullscreen_vertex(uint vid [[vertex_id]]) {
 
 // ------------------------------------------------------------- resolve ---
 
-// Light in, finite and below half float's overflow.
+// Light in, finite and below half float's overflow: NaN and -∞ are no
+// light, +∞ (light past half float's range, which a shader that does not
+// clamp writes) saturates.
+static float post_cleanChannel(float x) {
+    uint b = as_type<uint>(x);
+    if ((b & 0x7f800000u) == 0x7f800000u) {
+        return (b & 0x807fffffu) == 0u ? POST_FP16_MAX : 0.0;
+    }
+    return clamp(x, 0.0, POST_FP16_MAX);
+}
 static float3 post_clean(float3 c) {
-    if (orbit_isNotFinite(c)) { return float3(0.0); }
-    return clamp(c, 0.0, POST_FP16_MAX);
+    return float3(post_cleanChannel(c.r), post_cleanChannel(c.g), post_cleanChannel(c.b));
+}
+
+// The Sun's veiling glare along a view ray (view axes), per lux of its
+// illuminance at 1 rad: 1/θ², θ no smaller than `minAngle` (the disc's
+// diameter). The tone map adds it, and the meter counts it. θ² comes from
+// its series in 1 - cos θ, without acos: 2(1 - c)(1 + (1 - c)/3), within
+// 1 % to 20° and 8 % at 90°, where the veil is faint.
+static float post_glare(float3 ray, float3 sunView, float minAngle) {
+    float k = 1.0 - clamp(dot(normalize(ray), sunView), -1.0, 1.0);
+    float theta2 = 2.0 * k * (1.0 + k / 3.0);
+    return 1.0 / max(theta2, minAngle * minAngle);
 }
 
 // The last draw of the scene: each sample's light is weighted by 1 / (1 +
@@ -132,6 +162,9 @@ kernel void post_downsample_first(texture2d<float> hdr [[texture(0)]],
 // The luminance histogram, centre-weighted, in EV100 bins, of a bloom level
 // at an eighth of the resolution: a meter of zones, in which stars and
 // other points spread below the darkest bin and only extended light counts.
+// It counts the Sun's veiling glare as the tone map will add it (the
+// visibility probe runs first), so that the glare cannot white out a frame
+// the meter thought dark.
 kernel void post_histogram(texture2d<float> src [[texture(0)]],
                            device atomic_uint *histogram [[buffer(0)]],
                            constant PostUniforms &u [[buffer(1)]],
@@ -152,6 +185,11 @@ kernel void post_histogram(texture2d<float> src [[texture(0)]],
         float2 p = (float2(gid) + 0.5) / size * 2.0 - 1.0;
         uint w = uint(16.0 * (1.0 + 3.0 * max(0.0, 1.0 - 0.5 * dot(p, p))) + 0.5);
         float l = post_luma(c) / max(frame.exposure.x, 1e-30);   // cd/m²
+        if (u.glare.y > 0.0) {
+            float2 pixel = (float2(gid) + 0.5) / size * frame.viewport.xy;
+            float seen = float(atomic_load_explicit(&histogram[POST_HISTOGRAM_SUN], memory_order_relaxed)) / 64.0;
+            l += u.glare.x * u.glare.y * seen * post_glare(orbit_viewRay(pixel, frame), u.sunView.xyz, u.glare.z);
+        }
         float ev = log2(max(l, 1e-30) * 8.0);
         uint bin = POST_HISTOGRAM_DARK;
         if (ev >= u.params.z) {
@@ -219,27 +257,37 @@ kernel void post_bloom_capture(texture2d<float> first [[texture(0)]],
 
 // ------------------------------------------------------ the Sun's visibility ---
 
-// 64 points over the Sun's disc (a Vogel spiral) against the resolved depth:
-// a point is seen where nothing was drawn (reversed-Z: depth 0) or off the
-// screen. One threadgroup of 64.
+// 64 directions over the Sun's disc (a Vogel spiral). A direction is hidden
+// by a body whose disc holds it (on screen or off: the Earth hides an
+// eclipsed Sun outside the frame too), or, on screen, by drawn depth nearer
+// than `params.y` (vessels, the pad). Farther depth is a planet's, which the
+// discs already account for, or the legacy sky's, which is translucent and
+// does not hide the Sun. One threadgroup of 64.
 kernel void post_sun_visibility(depth2d<float> depth [[texture(0)]],
                                 device atomic_uint *histogram [[buffer(0)]],
-                                constant PostUniforms &u [[buffer(1)]],
+                                constant SunProbeUniforms &u [[buffer(1)]],
+                                constant FrameUniforms &frame [[buffer(ORBIT_BUFFER_FRAME)]],
                                 uint i [[thread_index_in_threadgroup]]) {
     if (i >= 64u) { return; }
-    uint seen = 0u;
-    if (u.sun.w > 0.5) {
-        float r = u.sun.z * sqrt((float(i) + 0.5) / 64.0);
-        float a = float(i) * 2.39996323;
-        float2 p = u.sun.xy + r * float2(cos(a), sin(a));
+    bool seen = u.params.z > 0.5;
+    float r = u.sun.w * sqrt((float(i) + 0.5) / 64.0);
+    float a = float(i) * 2.39996323;
+    float3 d = normalize(u.sun.xyz + tan(r) * (cos(a) * u.axisU.xyz + sin(a) * u.axisV.xyz));
+    for (int b = 0; b < min(int(u.params.x), POST_MAX_OCCULTERS); b++) {
+        if (dot(d, u.bodies[b].xyz) >= u.bodies[b].w) { seen = false; }
+    }
+    float4 clip = frame.viewProjection * float4(d, 1.0);
+    if (seen && clip.w > 0.0) {
+        float2 ndc = clip.xy / clip.w;
+        float2 p = float2((ndc.x + 1.0) * 0.5 * frame.viewport.x, (1.0 - ndc.y) * 0.5 * frame.viewport.y);
         float2 size = float2(depth.get_width(), depth.get_height());
-        if (any(p < 0.0) || any(p >= size)) {
-            seen = 1u;
-        } else {
-            seen = depth.read(uint2(p)) <= 0.0 ? 1u : 0u;
+        if (all(p >= 0.0) && all(p < size)) {
+            float z = depth.read(uint2(p));
+            float distance = orbit_linearDepth(z, frame.camera.x) * length(orbit_viewRay(p, frame));
+            if (z > 0.0 && distance < u.params.y) { seen = false; }
         }
     }
-    atomic_fetch_add_explicit(&histogram[POST_HISTOGRAM_SUN], seen, memory_order_relaxed);
+    atomic_fetch_add_explicit(&histogram[POST_HISTOGRAM_SUN], seen ? 1u : 0u, memory_order_relaxed);
 }
 
 // -------------------------------------------------------------- tone map ---
@@ -303,11 +351,8 @@ fragment float4 post_tonemap_fragment(PostVertexOut in [[stage_in]],
         // Veiling glare around the Sun, L = k E / θ², scaled by the share of
         // its disc in view and faded out as it leaves the frame.
         float seen = float(histogram[POST_HISTOGRAM_SUN]) / 64.0;
-        float3 ray = normalize(orbit_viewRay(in.position.xy, frame));
-        float cosTheta = dot(ray, u.sunView.xyz);
-        float theta = acos(clamp(cosTheta, -1.0, 1.0));
-        float r = max(theta, 2.0 * u.glare.z);
-        c += u.sunColor.rgb * (u.glare.x * u.glare.y * seen * frame.exposure.x / (r * r));
+        float g = post_glare(orbit_viewRay(in.position.xy, frame), u.sunView.xyz, 2.0 * u.glare.z);
+        c += u.sunColor.rgb * (u.glare.x * u.glare.y * seen * frame.exposure.x * g);
     }
     c = post_clean(c * u.params.y);
     float3 o = post_toneCurve(c, lut, u);

@@ -250,10 +250,10 @@ final class HDRLookTests: XCTestCase {
         XCTAssertEqual(pyramid / image, 1, accuracy: 0.01)
     }
 
-    /// A NaN and an infinity drawn into one pixel each stop at the resolve:
-    /// the light stays finite, nothing beyond those pixels changes in it,
-    /// and the output, with the bloom on, by a step at most (the bloom sees
-    /// the two pixels gone dark).
+    /// A NaN and a -∞ drawn into one pixel each stop at the resolve: the
+    /// light stays finite, nothing beyond those pixels changes in it, and
+    /// the output, with the bloom on, by a step at most (the bloom sees the
+    /// two pixels gone dark).
     func testNaNIsContained() throws {
         let w = 64, h = 64
         let pass = LightTestPass()
@@ -262,7 +262,7 @@ final class HDRLookTests: XCTestCase {
         pass.shapes = [LightTestPass.screen(500)]
         let clean = try render(r, post, scene(width: w, height: h))
         pass.shapes += [LightTestPass.pixels(x: 20, y: 30, w: w, h: h, value: .nan),
-                        LightTestPass.pixels(x: 44, y: 10, w: w, h: h, value: .infinity)]
+                        LightTestPass.pixels(x: 44, y: 10, w: w, h: h, value: -.infinity)]
         let dirty = try render(r, post, scene(width: w, height: h))
         XCTAssertFalse(dirty.light.contains { !$0.isFinite }, "finite light")
         for y in 0..<h {
@@ -380,3 +380,210 @@ extension HDRLookTests {
         XCTAssertEqual(try image([Gap()], timing: true), plain, "while timing")
     }
 }
+
+/// The review's findings on R1 (contefranz/ullage#64), each with a test that
+/// fails without its fix.
+extension HDRLookTests {
+    /// +∞, light past half float's range (a shader that does not clamp, or
+    /// additive light summed past it), saturates at the resolve rather than
+    /// going dark; NaN still counts as no light.
+    func testInfinitySaturates() throws {
+        let w = 32, h = 32
+        let pass = LightTestPass()
+        let (r, post) = try renderer([pass])
+        r.settings = settings(ev100: 0)
+        pass.shapes = [LightTestPass.pixels(x: 10, y: 10, size: 2, w: w, h: h, value: .infinity),
+                       LightTestPass.pixels(x: 20, y: 20, size: 2, w: w, h: h, value: .nan)]
+        let (light, output, _) = try render(r, post, scene(width: w, height: h))
+        let p = Exposure.exposure(ev100: 0)
+        XCTAssertEqual(Self.luminance(light, 10 * w + 10) * p, 6e4, accuracy: 6e4 * 0.01, "saturated")
+        XCTAssertEqual(Self.luminance(light, 20 * w + 20), 0, "NaN is no light")
+        XCTAssertEqual(output[4 * (10 * w + 10) + 1], 255, "white, not black")
+    }
+
+    /// Today's planet and vessel shaders clamp their light below half
+    /// float's overflow: at EV -4 on the pad (sunlit paint 4.5e5 after
+    /// pre-exposure) the scene's raw resolve holds no +∞.
+    func testBridgeShadersClampTheirLight() throws {
+        let post = PostPass()
+        let raw = RawSceneCapture()
+        let passes: [RenderPass] = [post.exposurePass, StarPass(), PlanetPass(loadsUserTextures: false), VesselPass(),
+                                    raw]
+        let r = try SceneRenderer(device: try device(), outputFormat: .bgra8Unorm_srgb, passes: passes,
+                                  plan: HDRTargetPlan(outputFormat: .bgra8Unorm_srgb, sampleCount: 4))
+        XCTAssertEqual(r.failures, [:])
+        r.settings = settings(ev100: -4)
+        var shot = SnapshotSpec.Shot(name: "pad", scenario: "as506-pad")
+        shot.width = 160
+        shot.height = 100
+        let prepared = try shot.prepare(system: SceneRendererTests.system)
+        let target = try XCTUnwrap(OffscreenTarget(device: r.device, width: 160, height: 100))
+        r.renderAndWait(shot.scene(prepared), into: target)
+        let halves = try XCTUnwrap(raw.halves())
+        let infinite = halves.indices.filter { $0 % 4 != 3 && halves[$0] & 0x7fff == 0x7c00 }.count
+        XCTAssertEqual(infinite, 0, "+∞ in the raw scene")
+        let largest = halves.indices.filter { $0 % 4 != 3 }.map { Float(Float16(bitPattern: halves[$0])) }.max() ?? 0
+        XCTAssertEqual(Double(largest), 6e4, accuracy: 6e4 * 0.01, "the sunlit side is clamped, not lost")
+    }
+
+    /// The camera looking -z, the Sun 5° outside the frame's right edge.
+    func sunOutsideFrame(width: Int, height: Int, fovY: Double) -> Vec3 {
+        let halfX = atan(tan(fovY / 2) * Double(width) / Double(height))
+        let a = halfX + 5 * Double.pi / 180
+        return Vec3(sin(a), 0, -cos(a))
+    }
+
+    /// An eclipsed Sun just outside the frame gives no glare: the probe
+    /// tests the Earth's disc off screen too. With the Earth gone, the same
+    /// Sun does glare (the test's control).
+    func testNoGlareFromAnEclipsedSunOffFrame() throws {
+        let w = 128, h = 80, fovY = 1.0
+        let (r, post) = try renderer()
+        var s = settings(ev100: -3)
+        s.post.sunGlare = true
+        r.settings = s
+        let sun = sunOutsideFrame(width: w, height: h, fovY: fovY)
+        var eclipsed = scene(width: w, height: h, fovY: fovY, sun: sun)
+        // The Earth 7,000 km away, between the camera and the Sun.
+        let earthRadius = 6_378_137.0
+        eclipsed.bodies = [RenderScene.Body(id: 399, name: "Earth", position: sun * 7.0e6,
+                                            orientation: BodyOrientation(icrfToBody: .identity, angularVelocity: .zero),
+                                            figure: Ellipsoid(equatorialRadius: earthRadius, flattening: 0),
+                                            radius: earthRadius, isSun: false, toSun: sun)]
+        func frame(_ scene: RenderScene) throws -> (visibility: Double, brightest: UInt8) {
+            post.control.reset()
+            var out: [UInt8] = []
+            for _ in 0..<2 { out = try render(r, post, scene).output }
+            _ = try render(r, post, scene)
+            return (post.control.sunVisibility, out.enumerated().filter { $0.offset % 4 != 3 }.map(\.element).max() ?? 0)
+        }
+        let dark = try frame(eclipsed)
+        XCTAssertEqual(dark.visibility, 0, "the Earth hides the Sun off screen")
+        XCTAssertLessThan(dark.brightest, 3, "no glare in the Earth's shadow")
+        let lit = try frame(scene(width: w, height: h, fovY: fovY, sun: sun))
+        XCTAssertEqual(lit.visibility, 1)
+        XCTAssertGreaterThan(lit.brightest, 100, "the uneclipsed Sun glares")
+    }
+
+    /// From the pad, the legacy sky's depth does not hide the Sun: the probe
+    /// sees all of its disc through the translucent sky.
+    func testSunSeenThroughTheSky() throws {
+        var shot = SnapshotSpec.Shot(name: "pad", scenario: "as506-pad")
+        shot.width = 160
+        shot.height = 100
+        let prepared = try shot.prepare(system: SceneRendererTests.system)
+        var scene = shot.scene(prepared)
+        // Turn the camera to the Sun.
+        let forward = scene.sun.direction, back = -forward
+        let right = Vec3(0, 0, 1).cross(back).normalized, up = back.cross(right)
+        scene.camera.worldToView = Mat3(rows: right, up, back)
+        let r = try SceneRenderer(device: try device(), loadsUserTextures: false)
+        let post = try XCTUnwrap(r.post)
+        var s = settings(ev100: 15)
+        s.post.sunGlare = true
+        r.settings = s
+        post.control.reset()
+        let target = try XCTUnwrap(OffscreenTarget(device: r.device, width: 160, height: 100))
+        for _ in 0..<3 { r.renderAndWait(scene, into: target) }
+        XCTAssertEqual(post.control.sunVisibility, 1, "the Sun is in view above the pad")
+    }
+
+    /// The meter counts the Sun's glare: with the Sun in view and nothing
+    /// else lit (the Sun under 2 % of the meter's zones), the auto exposure
+    /// settles where most of the frame is not white (EV 12; without it,
+    /// EV 0.9 and the glare whites out every pixel).
+    func testMeterCountsTheGlare() throws {
+        let w = 1024, h = 640, fovY = 50 * Double.pi / 180
+        let (r, post) = try renderer(stars: true)
+        var s = settings(ev100: nil)
+        s.post.sunGlare = true
+        s.post.dither = false
+        r.settings = s
+        let view = scene(width: w, height: h, fovY: fovY, sun: Vec3(0.2, 0.1, -1).normalized, realDt: 0.25)
+        post.control.reset()
+        var out: [UInt8] = []
+        for _ in 0..<40 { out = try render(r, post, view).output }
+        let white = stride(from: 0, to: out.count, by: 4).filter { out[$0 + 1] == 255 }.count
+        XCTAssertLessThan(Double(white) / Double(w * h), 0.1, "EV \(post.control.ev100)")
+    }
+
+    /// Bright saturated colours whiten through AgX's LUT as AgX itself does,
+    /// within 2 steps of 8-bit sRGB, on the GPU (the LUT used to stop each
+    /// channel at 2^5).
+    func testBrightSaturatedColoursWhiten() throws {
+        let (r, post) = try renderer()
+        let glow = Photometry.blackbody(2_041).color
+        let colors: [SIMD4<Float>] = [SIMD4(100, 10, 1, 1), SIMD4(64, 4, 1, 1), SIMD4(1, 1, 50, 1),
+                                      SIMD4(Float(glow.r * 45), Float(glow.g * 45), Float(glow.b * 45), 1)]
+        let gpu = try XCTUnwrap(post.toneProbe(colors, curve: .agx, queue: r.queue))
+        func srgb(_ x: Double) -> Double {
+            let c = min(max(x, 0), 1)
+            return 255 * (c <= 0.003_130_8 ? 12.92 * c : 1.055 * pow(c, 1 / 2.4) - 0.055)
+        }
+        for (c, o) in zip(colors, gpu) {
+            let e = ToneCurves.agx(Photometry.RGB(Double(c.x), Double(c.y), Double(c.z)))
+            for (a, b) in [(Double(o.x), e.r), (Double(o.y), e.g), (Double(o.z), e.b)] {
+                XCTAssertEqual(srgb(a), srgb(b), accuracy: 2, "\(c)")
+            }
+        }
+    }
+}
+
+/// P4: copies the scene's raw resolve (`hdrColor`, half floats) for a test.
+@MainActor
+final class RawSceneCapture: RenderPass {
+    let name = "Raw capture"
+    let stage = PassStage.post
+    let order = 0
+    var reads: Set<ResourceID> { [.hdrColor] }
+    private var copy: MTLTexture?
+
+    func encode(_ f: FrameContext, _ e: PassEncoding) {
+        guard let hdr = f.textures[.hdrColor] else { return }
+        let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: hdr.pixelFormat, width: hdr.width,
+                                                         height: hdr.height, mipmapped: false)
+        d.storageMode = .shared
+        guard let t = f.device.makeTexture(descriptor: d), let b = f.makeBlitEncoder() else { return }
+        b.copy(from: hdr, to: t)
+        b.endEncoding()
+        copy = t
+    }
+
+    /// RGBA half floats' bits, rows top first.
+    func halves() -> [UInt16]? {
+        guard let t = copy else { return nil }
+        var out = [UInt16](repeating: 0, count: 4 * t.width * t.height)
+        out.withUnsafeMutableBytes {
+            t.getBytes($0.baseAddress!, bytesPerRow: 8 * t.width, from: MTLRegionMake2D(0, 0, t.width, t.height),
+                       mipmapLevel: 0)
+        }
+        return out
+    }
+}
+
+/// The rule for scene passes under R1's HDR plan, enforced: none weights its
+/// own light (`orbit_encodeHDR`), and the resolve's weighting is the scene's
+/// last draw.
+@MainActor
+final class HDRRuleTests: XCTestCase {
+    func testNoShaderModuleEncodesItsLight() {
+        for m in ShaderModule.all {
+            for (part, source) in [(m.name, m.source)] + m.headers.map({ ($0.name, $0.source) }) {
+                for helper in ["orbit_encodeHDR(", "orbit_decodeHDR("] {
+                    XCTAssertFalse(source.contains(helper),
+                                   "\(part) calls \(helper): scene passes write linear light × exposure.x; R1's resolve weights it")
+                }
+            }
+        }
+    }
+
+    func testTheResolveIsTheScenesLastDraw() throws {
+        let r = try SceneRenderer(device: try XCTUnwrap(RenderDevice.shared), loadsUserTextures: false)
+        let scene = r.graph.passes.filter { $0.stage.isRenderStage && $0.stage <= .transparent }
+        XCTAssertTrue(scene.last is HDRResolvePass, "last in the scene: \(scene.last?.name ?? "none")")
+        for p in scene where !(p is HDRResolvePass) {
+            XCTAssertLessThan(p.order, HDRResolvePass.sceneOrder, p.name)
+        }
+    }
+}
+

@@ -10,9 +10,18 @@ estimate).
 
 - **Light** in the scene targets is luminance in cd/m², in linear Rec. 709
   primaries, times the frame's **pre-exposure** P = 1 / (1.2 · 2^EV100)
-  (`FrameUniforms.exposure.x`). A pixel value of 1 is the sensor's
-  saturation. Shaders write `L × P`; nothing above 6e4 survives the
-  resolve (half float's range).
+  (`FrameUniforms.exposure.x`), which is this frame's exposure. A pixel
+  value of 1 is the sensor's saturation.
+- **The rule for every pass that draws into the scene:**
+  - write `L × P` in linear light and blend in linear light;
+  - clamp below 6e4, half float's overflow (+∞ that gets through, such as
+    additive light summed past it, saturates at the resolve; NaN and -∞ count
+    as no light);
+  - **never call `orbit_encodeHDR`**: the resolve weights every sample
+    itself, so a pass that weights its own light has it weighted twice;
+  - in P3, keep the order below `HDRResolvePass.sceneOrder` (1,000,000).
+  `HDRRuleTests` checks the encoding and the order. (ShaderCommon's comment on
+  `orbit_encodeHDR` and design-renderer-core.md §3 predate this.)
 - **The Sun** (`FrameUniforms.sunIlluminance`): rgb is its illuminance
   above any air in lux, coloured; w its total.
 
@@ -58,8 +67,10 @@ Checks in `Tests/OrbitSceneTests/PhotometryTests.swift`: the 1948 candela
 ## Tone mapping and post
 
 - **AgX** (default), from three.js, baked into a 33³ LUT over log₂ input
-  from 2^-12 to 2^5: within a step of 8-bit sRGB on average, 2 steps for 99 %
-  of colours. **PBR Neutral** is evaluated in the shader (a per-channel LUT
+  from 2^-12 to 2^7 (AgX's inset matrix leaks a bright channel into the
+  others, so a saturated colour such as the heat shield's red glow keeps
+  whitening up to about 2^7): within a step of 8-bit sRGB on average, 2
+  steps for 99 % of colours. **PBR Neutral** is evaluated in the shader (a per-channel LUT
   follows its min/max structure poorly).
 - **Resolve**: the scene's last draw weights each MSAA sample by
   1 / (1 + its brightest channel), weight in alpha, so the hardware's
@@ -71,9 +82,15 @@ Checks in `Tests/OrbitSceneTests/PhotometryTests.swift`: the 1948 candela
   up; level i holds (1 - 0.6) · 0.6ⁱ of the light; the tone map makes the top
   as it reads it. 3 % of the image's light is spread, with no threshold. The
   pyramid conserves energy within 1 %.
-- **Sun visibility**: 64 points over the disc against the resolved depth.
-  It scales a veiling glare L = 3e-4 E⊙/θ² (a tenth of the eye's
-  Stiles-Holladay glare), which fades out 10° outside the frame.
+- **Sun visibility**: 64 directions over the disc. A direction is hidden by
+  any body's disc (an equatorial sphere, as `Eclipse` has it), on screen or
+  off, so an eclipsed Sun outside the frame gives no glare; and, on screen,
+  by drawn depth nearer than 1,000 km (vessels, the pad). Farther depth is a
+  planet's, which its disc accounts for, or the legacy sky's, which is
+  translucent and does not hide the Sun. It scales a veiling glare
+  L = 3e-4 E⊙/θ² (a tenth of the eye's Stiles-Holladay glare), which fades
+  out 10° outside the frame. The meter counts the glare as the tone map
+  adds it, so the auto exposure stops down for it.
 - **Dither**: ±1 step of the 8-bit output (within about 20 %), triangular,
   from a 64² blue noise moving each frame.
 

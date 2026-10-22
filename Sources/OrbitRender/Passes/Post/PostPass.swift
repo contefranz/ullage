@@ -35,6 +35,10 @@ public final class PostPass: RenderPass {
     static let meteredLevel = 2
     /// The glare fades out as the Sun leaves the frame, over this angle (rad).
     static let glareFade = 10 * Double.pi / 180
+    /// Drawn depth nearer than this hides the Sun from the visibility probe
+    /// (vessels, the pad), m; farther depth is a planet's, which the probe
+    /// tests by its disc, or the legacy sky's, which does not hide the Sun.
+    static let occluderRange = 1.0e6
     /// Each level of the bloom keeps this share of the level below it, so
     /// level i holds (1 - r) rⁱ of the light (the last level the rest).
     public static let bloomSpread = 0.6
@@ -93,7 +97,8 @@ public final class PostPass: RenderPass {
             w = max(1, w / 2)
             h = max(1, h / 2)
         }
-        let sun = sunOnScreen(f)
+        let sunView = Self.sunView(f)
+        let share = settings.sunGlare ? glareShare(f) : 0
 
         guard let c = f.makeComputeEncoder() else { return }
         f.bindShared(c)
@@ -103,7 +108,9 @@ public final class PostPass: RenderPass {
         var u = PostUniforms(size: SIMD4(Float(levels[0].down.width), Float(levels[0].down.height), Float(size.width),
                                          Float(size.height)),
                              params: SIMD4(0, 0, Float(LuminanceHistogram.minEV100), Float(LuminanceHistogram.maxEV100)),
-                             sun: sun.uniform)
+                             glare: SIMD4(Float(Self.glareConstant * f.scene.sun.illuminance), Float(share),
+                                          Float(2 * f.scene.sun.angularRadius), 0),
+                             sunView: SIMD4(sunView, 0))
         c.setTexture(hdr, index: 0)
         c.setTexture(levels[0].down, index: 1)
         c.setBytes(&u, length: MemoryLayout<PostUniforms>.stride, index: 1)
@@ -116,8 +123,10 @@ public final class PostPass: RenderPass {
         }
         // The Sun's visibility, 64 samples in one threadgroup.
         if let p = pipelines["post_sun_visibility"] {
+            var probe = Self.sunProbe(f.scene)
             c.setComputePipelineState(p)
             c.setTexture(depth, index: 0)
+            c.setBytes(&probe, length: MemoryLayout<SunProbeUniforms>.stride, index: 1)
             c.dispatchThreadgroups(MTLSize(width: 1, height: 1, depth: 1),
                                    threadsPerThreadgroup: MTLSize(width: 64, height: 1, depth: 1))
         }
@@ -180,7 +189,7 @@ public final class PostPass: RenderPass {
         pass.colorAttachments[0].loadAction = .dontCare
         pass.colorAttachments[0].storeAction = .store
         guard let r = f.makeRenderEncoder(pass) else { return }
-        var t = toneUniforms(f, sun: sun)
+        var t = toneUniforms(f, sunView: sunView, share: share)
         r.setRenderPipelineState(tonePipeline)
         r.setFragmentTexture(hdr, index: 0)
         r.setFragmentTexture(levels[0].down, index: 1)
@@ -238,23 +247,36 @@ public final class PostPass: RenderPass {
         return (out, t.width, t.height)
     }
 
-    // MARK: The Sun on screen
+    // MARK: The Sun
 
-    struct SunOnScreen {
-        var uniform = SIMD4<Float>.zero       // xy: centre (px), z: radius (px), w: 1 in front
-        var view = SIMD3<Float>(0, 0, -1)     // unit, view axes
+    /// The unit vector to the Sun in view axes.
+    static func sunView(_ f: FrameContext) -> SIMD3<Float> {
+        let v = f.scene.camera.worldToView * f.scene.sun.direction
+        return SIMD3(Float(v.x), Float(v.y), Float(v.z))
     }
 
-    private func sunOnScreen(_ f: FrameContext) -> SunOnScreen {
-        let cam = f.scene.camera, sun = f.scene.sun
-        let v = cam.worldToView * sun.direction
-        var s = SunOnScreen(view: SIMD3(Float(v.x), Float(v.y), Float(v.z)))
-        guard v.z < -1e-6 else { return s }
-        let tanY = tan(cam.fovY / 2)
-        let ndc = (x: v.x / (-v.z * tanY * cam.aspect), y: v.y / (-v.z * tanY))
-        let px = (ndc.x + 1) / 2 * cam.viewport.width, py = (1 - ndc.y) / 2 * cam.viewport.height
-        s.uniform = SIMD4(Float(px), Float(py), Float(max(sun.angularRadius * cam.pixelsPerRadian, 0.5)), 1)
-        return s
+    /// The visibility probe's Sun, the axes across its disc, and the discs of
+    /// the bodies that may hide it, largest first: a body's equatorial radius
+    /// as a sphere, as `Eclipse` has it (half the sky from inside it).
+    static func sunProbe(_ scene: RenderScene) -> SunProbeUniforms {
+        let d = scene.sun.direction
+        let u = VisualShape.defaultReference(for: d).cross(d).normalized, v = d.cross(u)
+        var discs: [(direction: Vec3, angle: Double)] = []
+        for b in scene.bodies where !b.isSun && b.distance - b.figure.equatorialRadius < scene.sun.distance {
+            let r = b.figure.equatorialRadius
+            discs.append((b.position.normalized, b.distance > r ? asin(r / b.distance) : Double.pi / 2))
+        }
+        discs.sort { $0.angle > $1.angle }
+        var p = SunProbeUniforms(sun: SIMD4(d, Float(scene.sun.angularRadius)), axisU: SIMD4(u, 0), axisV: SIMD4(v, 0),
+                                 params: SIMD4(Float(min(discs.count, SunProbeUniforms.maxOcculters)),
+                                               Float(occluderRange), 1, 0))
+        withUnsafeMutableBytes(of: &p.bodies) { raw in
+            let slots = raw.bindMemory(to: SIMD4<Float>.self)
+            for (i, disc) in discs.prefix(SunProbeUniforms.maxOcculters).enumerated() {
+                slots[i] = SIMD4(disc.direction, Float(cos(disc.angle)))
+            }
+        }
+        return p
     }
 
     /// The glare's share: 1 while the Sun is within the frame, fading to 0
@@ -269,14 +291,13 @@ public final class PostPass: RenderPass {
         return max(0, min(1, 1 - outside / Self.glareFade))
     }
 
-    private func toneUniforms(_ f: FrameContext, sun: SunOnScreen) -> ToneUniforms {
+    private func toneUniforms(_ f: FrameContext, sunView: SIMD3<Float>, share: Double) -> ToneUniforms {
         let p = f.settings.post
         let e = Photometry.sunColor.scaled(by: f.scene.sun.illuminance)
         return ToneUniforms(
             params: SIMD4(Float(max(0, min(1, p.bloom))), 1, p.toneCurve == .neutral ? 1 : 0, p.dither ? 1 : 0),
-            glare: SIMD4(Float(Self.glareConstant), p.sunGlare ? Float(glareShare(f)) : 0,
-                         Float(f.scene.sun.angularRadius), 0),
-            sunView: SIMD4(sun.view, 0),
+            glare: SIMD4(Float(Self.glareConstant), Float(share), Float(f.scene.sun.angularRadius), 0),
+            sunView: SIMD4(sunView, 0),
             sunColor: SIMD4(Float(e.r), Float(e.g), Float(e.b), 0),
             output: SIMD4(outputIsSRGB ? 1 : 0, 0, 0, 0),
             lut: SIMD4(Float(ToneLUT.size), Float(ToneLUT.minLog2), Float(ToneLUT.maxLog2), 0),
@@ -314,11 +335,19 @@ public final class PostPass: RenderPass {
 /// The scene's last draw (P3, after every other): weights each sample's
 /// light for the resolve (Karis), in tile memory, so the passes before it
 /// blend in linear light and only the resolve is weighted. Track R1.
+///
+/// The rule for every pass that draws into the scene: write linear Rec. 709
+/// luminance (cd/m²) times this frame's pre-exposure
+/// (`FrameUniforms.exposure.x`), below 6e4, and never `orbit_encodeHDR`,
+/// which would weight the light twice; draw with an order below
+/// `sceneOrder` in P3. HDRRuleTests checks both.
 @MainActor
 public final class HDRResolvePass: RenderPass {
     public let name = "HDR resolve"
     public let stage = PassStage.transparent
-    public let order = 1_000_000
+    public let order = HDRResolvePass.sceneOrder
+    /// Its order in P3: every pass that draws into the scene comes before it.
+    public static let sceneOrder = 1_000_000
 
     private var pipeline: MTLRenderPipelineState?
 
@@ -346,7 +375,21 @@ public final class HDRResolvePass: RenderPass {
 struct PostUniforms {
     var size: SIMD4<Float>
     var params: SIMD4<Float>
+    /// x: k E⊙ (cd/m² at 1 rad), y: the glare's share, z: its smallest angle (rad).
+    var glare: SIMD4<Float>
+    /// xyz: unit vector to the Sun, view axes.
+    var sunView: SIMD4<Float>
+}
+
+struct SunProbeUniforms {
+    static let maxOcculters = 8
     var sun: SIMD4<Float>
+    var axisU: SIMD4<Float>
+    var axisV: SIMD4<Float>
+    /// x: bodies in use, y: drawn depth nearer than this (m) occludes, z: 1 to probe.
+    var params: SIMD4<Float>
+    var bodies = (SIMD4<Float>.zero, SIMD4<Float>.zero, SIMD4<Float>.zero, SIMD4<Float>.zero, SIMD4<Float>.zero,
+                  SIMD4<Float>.zero, SIMD4<Float>.zero, SIMD4<Float>.zero)
 }
 
 struct ToneUniforms {

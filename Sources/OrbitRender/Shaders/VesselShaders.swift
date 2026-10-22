@@ -44,6 +44,7 @@ vertex MeshOut mesh_vertex(uint vid [[vertex_id]],
 // the ambient floor (LegacyLighting.ambientFloor, in light.y with the sky's
 // light) stays as it was on screen, a night floor relative to the exposure.
 #define VESSEL_LEGACY_FLOOR 0.02
+#define VESSEL_FP16_MAX 60000.0      // the scene's colour is half float
 static float vessel_legacyScale(constant FrameUniforms &frame) {
     return frame.exposure.x * frame.sunIlluminance.w / M_PI_F;
 }
@@ -66,7 +67,7 @@ fragment float4 mesh_fragment(MeshOut in [[stage_in]], bool front [[front_facing
         float facing = max(dot(n, u.flowDir.xyz), 0.0);
         c += u.glow.rgb * (frame.exposure.x * (0.2 + 0.8 * facing));
     }
-    return float4(c, 1.0);
+    return float4(min(c, VESSEL_FP16_MAX), 1.0);
 }
 """#
 

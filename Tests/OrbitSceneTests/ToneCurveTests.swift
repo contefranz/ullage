@@ -106,8 +106,8 @@ final class ToneCurveTests: XCTestCase {
     }
 
     /// The 33³ LUT over log₂ input follows AgX: under a step of 8-bit sRGB
-    /// on average and under 2 steps for 99 % of colours (the worst are
-    /// saturated colours far over white).
+    /// on average and under 2 steps for 99 % of colours, bright saturated
+    /// ones included.
     func testAgXLUTAccuracy() {
         let lut = ToneLUT(.agx)
         XCTAssertEqual(lut.texels.count, 33 * 33 * 33 * 4)
@@ -129,6 +129,16 @@ final class ToneCurveTests: XCTestCase {
         errors.sort()
         XCTAssertLessThan(errors.reduce(0, +) / Double(errors.count), 1)
         XCTAssertLessThan(errors[Int(Double(errors.count) * 0.99)], 2)
+        // Bright saturated colours keep whitening as AgX's inset matrix leaks
+        // their bright channel into the others: the heat shield's glow, and
+        // colours whose channels pass 2^5 (the LUT used to stop there).
+        let glow = Photometry.blackbody(2_041).color, cool = Photometry.blackbody(1_200).color
+        for c in [RGB(100, 10, 1), RGB(64, 4, 1), RGB(1, 1, 50), glow.scaled(by: 45), cool.scaled(by: 100)] {
+            let a = lut.sample(c), b = ToneCurves.agx(c)
+            for (x, y) in [(a.r, b.r), (a.g, b.g), (a.b, b.b)] {
+                XCTAssertEqual(255 * srgb(x), 255 * srgb(y), accuracy: 2, "\(c)")
+            }
+        }
         // On the grid itself the LUT is the curve.
         let c = RGB(ToneLUT.input(7), ToneLUT.input(20), ToneLUT.input(13))
         assertEqual(lut.sample(c), ToneCurves.agx(c), accuracy: 1e-6)
