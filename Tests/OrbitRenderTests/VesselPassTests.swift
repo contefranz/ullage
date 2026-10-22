@@ -315,7 +315,8 @@ final class VesselPassTests: XCTestCase {
         }
         let lock = GPULock { print("waiting for the GPU lock (\(GPULock.url.path))") }
         defer { withExtendedLifetime(lock) {} }
-        let (w, h) = (3024, 1964)
+        let quarter = ProcessInfo.processInfo.environment["ORBITSIM_PERF_QUARTER"] == "1"
+        let (w, h) = quarter ? (1512, 982) : (3024, 1964)
         let cases: [(String, String, [String], (Double, Double, Double, Double))] = [
             ("pad, stack and LC-39A", "as506-pad", [], (-1.2, 0.12, 190, 50)),
             ("pad, the base close", "as506-pad", [], (-0.6, -0.03, 62, 62)),
@@ -340,17 +341,18 @@ final class VesselPassTests: XCTestCase {
             camera.fovY = view.3 * Double.pi / 180
             camera.update(sim: sim)
             let x = SceneExtractor()
-            x.sites = [LC39A.placement()]
+            x.sites = ProcessInfo.processInfo.environment["ORBITSIM_PERF_NOSITE"] == "1" ? [] : [LC39A.placement()]
             let scene = x.extract(sim: sim, camera: camera, viewport: RenderScene.Viewport(width: Double(w),
                                                                                              height: Double(h)),
                                   realTime: 0)
             for _ in 0..<3 { r.renderAndWait(scene, into: target) }
             r.profiling = true
             r.profileInterval = 1
-            var vessels: [Double] = [], frames: [Double] = []
+            var vessels: [Double] = [], frames: [Double] = [], passes: [String: [Double]] = [:]
             for _ in 0..<25 {
                 r.renderAndWait(scene, into: target)
                 if let t = r.lastReport?.passes.first(where: { $0.pass == "Vessels" }) { vessels.append(t.seconds) }
+                for t in r.lastReport?.passes ?? [] { passes[t.pass, default: []].append(t.seconds) }
             }
             r.profiling = false
             for _ in 0..<10 {
@@ -362,6 +364,8 @@ final class VesselPassTests: XCTestCase {
                 .flatMap(\.parts).reduce(0) { $0 + $1.mesh.indexCount / 3 }
             print(String(format: "R2 PERF %@: vessel pass %.2f ms, frame %.2f ms, %d vessel triangles", label,
                          median(vessels) * 1_000, median(frames) * 1_000, triangles))
+            print("R2 PERF   passes: " + passes.keys.sorted().map { String(format: "%@ %.2f", $0, median(passes[$0]!) * 1_000) }
+                .joined(separator: ", "))
         }
     }
 }

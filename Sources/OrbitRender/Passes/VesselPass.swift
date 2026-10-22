@@ -120,6 +120,7 @@ public final class VesselPass: RenderPass {
                                    settings.multipleScattering ? 1 : 0)
         let draw = Drawing(encoder: enc, opaque: opaque, wire: wire, dummy: dummy,
                            wireRadius: Float(settings.wireMinimumRadius))
+        let frustum = Frustum(f.scene.camera)
 
         for v in f.scene.vessels {
             guard let mesh = f.mesh(of: v) else { continue }
@@ -129,6 +130,11 @@ public final class VesselPass: RenderPass {
             let attitude = v.attitude.matrix
             let translation = v.position + v.attitude.rotate(v.structureOrigin)
             for (entry, offset) in zip(mesh.parts, mesh.offsets) {
+                // A gimballed nozzle swings within a metre or so of its null pose.
+                let b = entry.mesh.bounds
+                guard frustum.contains(translation + attitude * (offset + b.centre), radius: b.radius + 1) else {
+                    continue
+                }
                 let aoSettings = f.settings.ambientOcclusion
                 let ao = aoSettings.enabled
                     ? (entry.aoNow, entry.aoBefore, Self.fade(entry, now: f.scene.clock.realTime,
@@ -146,7 +152,7 @@ public final class VesselPass: RenderPass {
             }
             drawCanopies(of: v, f: f, draw: draw, materials: materials)
         }
-        drawSites(f, draw: draw, materials: materials, shading: shading, settings: settings)
+        drawSites(f, draw: draw, materials: materials, shading: shading, settings: settings, frustum: frustum)
         draw.drawWires(depth: f.states.depthReadOnly, then: f.states.depthWrite)
         enc.setCullMode(.none)
     }
@@ -307,7 +313,7 @@ public final class VesselPass: RenderPass {
     static let siteRange = 100_000.0
 
     private func drawSites(_ f: FrameContext, draw: Drawing, materials: VesselMaterialTable, shading: SIMD4<Float>,
-                           settings: ShadingSettings) {
+                           settings: ShadingSettings, frustum: Frustum) {
         let near = f.scene.sites.filter { $0.name == "LC-39A" && $0.origin.length < Self.siteRange }
         guard !near.isEmpty else { return }
         if site == nil { site = Self.siteMeshes(device: f.device, materials: materials) }
@@ -320,6 +326,8 @@ public final class VesselPass: RenderPass {
             for (element, mesh) in zip(LC39A.elements, site) {
                 guard let mesh else { continue }
                 let (r, o) = element.transform(at: t, countdown)
+                let centre = s.origin + s.orientation * (r * mesh.bounds.centre + o)
+                guard frustum.contains(centre, radius: mesh.bounds.radius) else { continue }
                 let model = simd_float4x4(rotation: s.orientation * r, translation: s.origin + s.orientation * o)
                 draw.part(mesh, ao: (nil, nil, 0)) { _ in model }
             }
@@ -341,6 +349,30 @@ public final class VesselPass: RenderPass {
     /// The countdown of the launch nearest `epoch`: Apollo 8's or Apollo 11's.
     static func countdown(at epoch: Epoch) -> LC39A.Countdown {
         [LC39A.Countdown.apollo8, .apollo11].min { abs($0.rangeTime(at: epoch)) < abs($1.rangeTime(at: epoch)) }!
+    }
+}
+
+/// The camera's view volume, for culling whole parts: the four sides and
+/// the near plane of the infinite projection, in camera-relative world.
+struct Frustum {
+    let worldToView: Mat3
+    let tanX: Double, tanY: Double, near: Double
+
+    init(_ c: RenderScene.Camera) {
+        worldToView = c.worldToView
+        tanY = tan(c.fovY / 2)
+        tanX = tanY * c.aspect
+        near = c.near
+    }
+
+    /// Whether a sphere at camera-relative `centre` of `radius` may show.
+    func contains(_ centre: Vec3, radius r: Double) -> Bool {
+        let p = worldToView * centre
+        let depth = -p.z
+        guard depth + r >= near else { return false }
+        let kx = 1 / (1 + tanX * tanX).squareRoot(), ky = 1 / (1 + tanY * tanY).squareRoot()
+        return (depth * tanX - p.x) * kx >= -r && (depth * tanX + p.x) * kx >= -r
+            && (depth * tanY - p.y) * ky >= -r && (depth * tanY + p.y) * ky >= -r
     }
 }
 

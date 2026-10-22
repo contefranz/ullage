@@ -132,9 +132,11 @@ final class PartMesh {
     let shapeVertices: [Range<Int>]
     /// Built from R5's subdivided meshes, which its AO streams follow.
     let isSubdivided: Bool
+    /// A sphere holding every vertex (part frame, m), for culling.
+    let bounds: (centre: Vec3, radius: Double)
 
     init(vertices: MTLBuffer, indices: MTLBuffer, vertexCount: Int, indexCount: Int, draws: [Draw], order: [Int],
-         shapeVertices: [Range<Int>], isSubdivided: Bool) {
+         shapeVertices: [Range<Int>], isSubdivided: Bool, bounds: (centre: Vec3, radius: Double)) {
         self.vertices = vertices
         self.indices = indices
         self.vertexCount = vertexCount
@@ -143,6 +145,7 @@ final class PartMesh {
         self.order = order
         self.shapeVertices = shapeVertices
         self.isSubdivided = isSubdivided
+        self.bounds = bounds
     }
 
     /// Whether `shape` is a thin tube: a frustum at most 10 cm in radius
@@ -202,7 +205,20 @@ final class PartMesh {
               let ib = device.makeBuffer(bytes: indices, length: indices.count * 4, options: .storageModeShared)
         else { return nil }
         return PartMesh(vertices: vb, indices: ib, vertexCount: vertices.count, indexCount: indices.count, draws: draws,
-                        order: order, shapeVertices: ranges, isSubdivided: subdivided)
+                        order: order, shapeVertices: ranges, isSubdivided: subdivided,
+                        bounds: boundingSphere(meshes.flatMap { $0.vertices.map(\.position) }))
+    }
+
+    /// A sphere around `points`: the box's centre and the farthest point.
+    static func boundingSphere(_ points: [Vec3]) -> (centre: Vec3, radius: Double) {
+        guard let first = points.first else { return (.zero, 0) }
+        var lo = first, hi = first
+        for p in points {
+            lo = Vec3(min(lo.x, p.x), min(lo.y, p.y), min(lo.z, p.z))
+            hi = Vec3(max(hi.x, p.x), max(hi.y, p.y), max(hi.z, p.z))
+        }
+        let c = (lo + hi) * 0.5
+        return (c, points.reduce(0) { max($0, ($1 - c).length) })
     }
 
     /// One packed AO value per vertex of this (subdivided) mesh, from the
