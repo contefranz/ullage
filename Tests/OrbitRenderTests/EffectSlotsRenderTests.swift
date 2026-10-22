@@ -294,12 +294,59 @@ final class EffectSlotsRenderTests: XCTestCase {
 
     // MARK: The cone's proxy
 
-    /// With the camera inside the cone, its back faces still draw it.
+    /// With the camera inside the cone, its back faces still draw it, and
+    /// the march starts at the camera: the centre texel's coverage is the
+    /// optical depth from the camera to where the ray leaves, integrated
+    /// here (24 jittered steps on the GPU). Front faces alone would draw
+    /// nothing; a march from behind the camera would add the cone there.
     func testCameraInsideTheCone() throws {
-        let f = try render(Self.shot([EffectTestEmitter(.cone, position: [0, 0, 600], size: 1_200)]))
+        let emitter = EffectTestEmitter(.cone, position: [0, 0, 2_000], size: 4_000)
+        let f = try render(Self.shot([emitter]))
+        let cone = EffectTestScene.cone(emitter, in: EffectTargetFrame(scene: f.scene))
+        let k = cone.radius / cone.length
+        func inside(_ p: Vec3) -> Bool {
+            let v = p - cone.apex, x = v.dot(cone.axis)
+            return x >= 0 && x <= cone.length && (v - cone.axis * x).length <= x * k
+        }
+        // The camera is at the origin, well inside the cone (and its proxy, which is larger).
+        let v = -cone.apex, x = v.dot(cone.axis)
+        XCTAssertTrue(inside(.zero))
+        XCTAssertLessThan((v - cone.axis * x).length, 0.5 * x * k, "the camera well inside")
+
+        // The centre texel's ray (the shader's density, extinction 0.5 / radius).
         let volumes = try XCTUnwrap(f.capture.values(.halfResTransparent))
-        let centre = volumes.texels[(volumes.height / 2) * volumes.width + volumes.width / 2]
-        XCTAssertGreaterThan(centre[3], 0.05, "the volume around the camera")
+        let tx = volumes.width / 2, ty = volumes.height / 2
+        let cam = f.scene.camera, t = tan(cam.fovY / 2)
+        let px = (Double(tx) + 0.5) * 2, py = (Double(ty) + 0.5) * 2
+        let dir = cam.worldToView.transposed * Vec3((2 * px / 160 - 1) * t * cam.aspect, (1 - 2 * py / 100) * t, -1)
+        func extinction(_ p: Vec3) -> Double {
+            guard inside(p) else { return 0 }
+            let v = p - cone.apex, x = v.dot(cone.axis), xi = x / cone.length
+            let r = (v - cone.axis * x).length, rx = max(x * k, 1e-3)
+            let density = exp(-3 * (r / rx) * (r / rx)) * pow(1 - xi, 1.5) * (1 - exp(-xi * 40))
+            return density * 0.5 / cone.radius
+        }
+        func opacity(from s0: Double) -> Double {
+            let ds = 0.5
+            var tau = 0.0, s = s0
+            while s < 20_000 {
+                tau += extinction(dir * (s + ds / 2)) * ds * dir.length
+                s += ds
+            }
+            return 1 - exp(-tau)
+        }
+        // Where the ray, run backwards, leaves the cone behind the camera.
+        var back = 0.0
+        while inside(dir * (back - 1)) { back -= 1 }
+        XCTAssertLessThan(back, -100, "the cone runs on behind the camera")
+        let fromCamera = opacity(from: 0), fromBehind = opacity(from: back)
+        let gpu = volumes.texels[ty * volumes.width + tx][3]
+        print(String(format: "Inside the cone: coverage %.4f on the GPU, %.4f from the camera, %.4f from behind it",
+                     gpu, fromCamera, fromBehind))
+        XCTAssertGreaterThan(fromCamera, 0.05)
+        XCTAssertEqual(gpu, fromCamera, accuracy: 0.1 * fromCamera)
+        XCTAssertGreaterThan(abs(fromBehind - fromCamera), 0.2 * fromCamera, "the two marches differ enough to tell")
+        XCTAssertLessThan(5 * abs(gpu - fromCamera), abs(gpu - fromBehind))
     }
 
     // MARK: Cost
