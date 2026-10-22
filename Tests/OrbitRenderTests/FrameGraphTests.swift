@@ -258,18 +258,43 @@ extension FrameGraphTests {
     }
 
     /// Breaking the scene keeps the image: the direct plan stores the MSAA
-    /// samples and resolves again where the scene resumes. Also while timing.
+    /// samples and resolves again where the scene resumes. Also while
+    /// timing, with the break in P1 (opaque passes draw after it), and with
+    /// nothing drawing after the break (the frame's end resolves). The
+    /// resolved depth a later pass reads is the same too.
     func testBreakingTheSceneKeepsThePixels() throws {
         final class Gap: RenderPass {
             let name = "Gap"
-            let stage = PassStage.transparent
-            let order = 15
+            let stage: PassStage
+            let order: Int
             var encodesOnCommandBuffer: Bool { true }
             var encoded = 0
+            init(_ stage: PassStage, _ order: Int) {
+                self.stage = stage
+                self.order = order
+            }
             func encode(_ f: FrameContext, _ e: PassEncoding) {
                 guard case .commandBuffer = e else { return XCTFail("a pass on the command buffer") }
                 encoded += 1
             }
+        }
+        /// Copies the resolved scene depth (P4).
+        final class DepthReader: RenderPass {
+            let name = "Depth reader"
+            let stage = PassStage.post
+            let order = 0
+            var reads: Set<ResourceID> { [.sceneDepth] }
+            var buffer: MTLBuffer?
+            func encode(_ f: FrameContext, _ e: PassEncoding) {
+                guard let t = f.textures[.sceneDepth], let blit = f.makeBlitEncoder(),
+                      let b = f.device.makeBuffer(length: 4 * t.width * t.height, options: .storageModeShared) else { return }
+                blit.copy(from: t, sourceSlice: 0, sourceLevel: 0, sourceOrigin: MTLOrigin(),
+                          sourceSize: MTLSize(width: t.width, height: t.height, depth: 1), to: b, destinationOffset: 0,
+                          destinationBytesPerRow: 4 * t.width, destinationBytesPerImage: 4 * t.width * t.height)
+                blit.endEncoding()
+                buffer = b
+            }
+            var bytes: [UInt8] { buffer.map { Array(UnsafeRawBufferPointer(start: $0.contents(), count: $0.length)) } ?? [] }
         }
         let scenario = try XCTUnwrap(Scenario.named("as506-pad"))
         let sim = scenario.build(SceneRendererTests.system)
@@ -293,11 +318,77 @@ extension FrameGraphTests {
             r.renderAndWait(scene, into: target)
             return target.bytes()
         }
-        let gap = Gap()
         let plain = try image([])
-        XCTAssertEqual(try image([gap]), plain)
-        XCTAssertEqual(try image([gap], timing: true), plain)
-        XCTAssertEqual(gap.encoded, 2)
+        for (stage, order) in [(PassStage.transparent, 15), (.opaque, 15), (.overlay, 100)] {
+            let gap = Gap(stage, order)
+            XCTAssertEqual(try image([gap]), plain, "a break in \(stage)")
+            XCTAssertEqual(try image([gap], timing: true), plain, "a break in \(stage), timed")
+            XCTAssertEqual(gap.encoded, 2)
+        }
+        let plainDepth = DepthReader()
+        _ = try image([plainDepth])
+        XCTAssertFalse(plainDepth.bytes.isEmpty)
+        for (stage, order) in [(PassStage.transparent, 15), (.opaque, 15)] {
+            let depth = DepthReader()
+            _ = try image([Gap(stage, order), depth])
+            XCTAssertEqual(depth.bytes, plainDepth.bytes, "the resolved depth with a break in \(stage)")
+        }
+    }
+
+    /// The plan is told which resume is the scene's last: after the frame's
+    /// last break, from P2 on, without timing. That one resolves the colour
+    /// and stores no samples; the others keep them.
+    func testTheLastResumeOnlyResolves() throws {
+        final class Watching: SceneTargetPlan {
+            let inner = DirectTargetPlan(colorFormat: .bgra8Unorm_srgb, sampleCount: 4)
+            var resumes: [String] = []
+            func formats(for stage: PassStage) -> SceneFormats { inner.formats(for: stage) }
+            var provides: Set<ResourceID> { inner.provides }
+            func resize(_ size: RenderSize, device: MTLDevice) { inner.resize(size, device: device) }
+            func renderPass(for stage: PassStage, _ f: FrameContext) -> MTLRenderPassDescriptor? {
+                inner.renderPass(for: stage, f)
+            }
+            func continuation(_ f: FrameContext) -> MTLRenderPassDescriptor? {
+                let d = inner.continuation(f)
+                if let d {
+                    let c = d.colorAttachments[0].storeAction, z = d.depthAttachment.storeAction
+                    resumes.append("\(f.resumesLast ? "last" : "more") \(c == .multisampleResolve ? "resolve" : "store+resolve") "
+                                   + "\(z == .dontCare ? "no depth" : "depth")")
+                }
+                return d
+            }
+        }
+        func resumes(_ passes: [RenderPass], timing: Bool = false) throws -> [String] {
+            let plan = Watching()
+            let r = try SceneRenderer(device: try device(), outputFormat: .bgra8Unorm_srgb, passes: passes, plan: plan)
+            r.profiling = timing
+            r.profileInterval = 1
+            try render(r)
+            return plan.resumes
+        }
+        func breaker(_ name: String, _ stage: PassStage, _ order: Int, _ log: RecordingPass.Log) -> RecordingPass {
+            let p = RecordingPass(name, stage, order, log: log)
+            p.encodesOnCommandBuffer = true
+            return p
+        }
+        let log = RecordingPass.Log()
+        // Two breaks in P3: the first resume keeps the samples for the second.
+        XCTAssertEqual(try resumes([RecordingPass("vessel", .opaque, log: log), breaker("a", .transparent, 0, log),
+                                    RecordingPass("plume", .transparent, 1, log: log), breaker("b", .transparent, 2, log),
+                                    RecordingPass("composite", .transparent, 3, log: log),
+                                    RecordingPass("marker", .overlay, log: log)]),
+                       ["more store+resolve depth", "last resolve no depth"])
+        // A break in P1: opaque passes after it still write depth.
+        XCTAssertEqual(try resumes([RecordingPass("planet", .opaque, 0, log: log), breaker("a", .opaque, 1, log),
+                                    RecordingPass("vessel", .opaque, 2, log: log)]),
+                       ["more store+resolve depth"])
+        // Nothing draws after the break: the frame's end resolves.
+        XCTAssertEqual(try resumes([RecordingPass("vessel", .opaque, log: log), breaker("a", .transparent, 0, log)]),
+                       ["last resolve no depth"])
+        // Timing keeps every sample.
+        XCTAssertFalse(try resumes([RecordingPass("vessel", .opaque, log: log), breaker("a", .transparent, 0, log),
+                                    RecordingPass("composite", .transparent, 1, log: log)], timing: true)
+            .contains { $0.hasPrefix("last") })
     }
 
     /// A plan that opens a render pass of its own for P3: a pass on the

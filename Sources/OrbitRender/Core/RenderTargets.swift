@@ -37,7 +37,9 @@ public protocol SceneTargetPlan: AnyObject {
 /// sample, `.max` in reversed-Z), and that pass writes the output. When the
 /// encoders are split for timing, or a render-stage pass encodes on the
 /// command buffer (`FrameContext.breaksScene`), the samples are stored
-/// between encoders in private textures, so the image is the same.
+/// between encoders in private textures, so the image is the same. A broken
+/// scene resolves its colour when it resumes for the last time
+/// (`FrameContext.resumesLast`), which stores no samples.
 @MainActor
 public final class DirectTargetPlan: SceneTargetPlan {
     public let colorFormat: MTLPixelFormat
@@ -117,7 +119,14 @@ public final class DirectTargetPlan: SceneTargetPlan {
         if let color {
             c.texture = color
             c.resolveTexture = resolved
-            c.storeAction = split ? .storeAndMultisampleResolve : .multisampleResolve
+            // Timing resolves after every encoder. A broken scene resolves
+            // when it resumes (`continuation`), unless a pass reads the
+            // resolved colour on the way.
+            if f.splitsEncoders || f.wanted.contains(.sceneColor) {
+                c.storeAction = .storeAndMultisampleResolve
+            } else {
+                c.storeAction = split ? .store : .multisampleResolve
+            }
         } else {
             c.texture = resolved
             c.storeAction = .store
@@ -145,8 +154,19 @@ public final class DirectTargetPlan: SceneTargetPlan {
 
     public func continuation(_ f: FrameContext) -> MTLRenderPassDescriptor? {
         guard let pass = current?.copy() as? MTLRenderPassDescriptor else { return nil }
-        pass.colorAttachments[0].loadAction = .load
-        pass.depthAttachment.loadAction = .load
+        let c = pass.colorAttachments[0]!, z = pass.depthAttachment!
+        c.loadAction = .load
+        z.loadAction = .load
+        if c.resolveTexture != nil {
+            // The scene's last encoder resolves and stores nothing; any other
+            // keeps the samples and resolves, as a scene ending there must.
+            c.storeAction = f.resumesLast ? .multisampleResolve : .storeAndMultisampleResolve
+        }
+        if f.resumesLast, sampleCount > 1 {
+            // Depth is read-only from P2 on: its resolve before the break stands.
+            z.storeAction = .dontCare
+            z.resolveTexture = nil
+        }
         return pass
     }
 }

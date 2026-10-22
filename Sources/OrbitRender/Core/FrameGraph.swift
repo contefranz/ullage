@@ -67,6 +67,9 @@ public final class FrameGraph {
         let running = active.filter { $0.isActive(in: f) }
         f.wanted = Set(running.filter { $0.stage > .opaque }.flatMap(\.reads))
         f.breaksScene = running.contains { $0.stage.isRenderStage && $0.encodesOnCommandBuffer }
+        // Where the frame's last break is: the resume after it, from P2 on,
+        // is the scene's last encoder when timing does not split them.
+        let lastBreak = running.lastIndex { $0.stage.isRenderStage && $0.encodesOnCommandBuffer } ?? -1
         let cb = f.commandBuffer
         for p in running where p.stage == .prepare {
             f.currentPass = p.name
@@ -98,10 +101,19 @@ public final class FrameGraph {
             open(next, FrameProfile.splitOverhead, continuation: true)
             overheadMeasured = true
         }
+        // A scene left suspended by a break, at a stage on the command buffer
+        // or the frame's end, resumes once more, empty, to resolve.
+        func finishScene() {
+            guard suspended, !f.splitsEncoders else { return }
+            f.resumesLast = true
+            if let next = plan.continuation(f) { open(next, "resolve") }
+            f.resumesLast = false
+        }
         for stage in PassStage.allCases where stage != .prepare {
             let here = running.filter { $0.stage == stage }
             if !stage.isRenderStage {
                 guard !here.isEmpty else { continue }
+                finishScene()
                 measureSplitOverhead()
                 encoder?.endEncoding()
                 encoder = nil
@@ -146,9 +158,12 @@ public final class FrameGraph {
                     // for the pass that broke the scene, kept whole, before
                     // this pass's continuation.
                     if f.splitsEncoders, let resume = plan.continuation(f) { open(resume, breaker) }
+                    let index = running.firstIndex { $0 === p } ?? 0
+                    f.resumesLast = !f.splitsEncoders && stage > .opaque && index > lastBreak
                     if let next = plan.continuation(f) {
                         open(next, f.splitsEncoders ? p.name : "\(stage)", continuation: f.splitsEncoders)
                     }
+                    f.resumesLast = false
                 } else if f.splitsEncoders, encoder != nil, let next = plan.continuation(f) {
                     open(next, p.name, continuation: true)
                 }
@@ -162,6 +177,7 @@ public final class FrameGraph {
             // render pass, for its load and clear actions.
             if let pass = fresh { open(pass, "\(stage)") }
         }
+        finishScene()
         measureSplitOverhead()
         encoder?.endEncoding()
         f.currentPass = nil
