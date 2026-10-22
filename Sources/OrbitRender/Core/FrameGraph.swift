@@ -76,8 +76,10 @@ public final class FrameGraph {
 
         var encoder: MTLRenderCommandEncoder?
         // The scene's encoder was ended for a render-stage pass on the
-        // command buffer: the next pass drawing in the scene resumes it.
+        // command buffer (`breaker`): the next pass drawing in the scene
+        // resumes it.
         var suspended = false
+        var breaker = ""
         func open(_ descriptor: MTLRenderPassDescriptor, _ label: String, continuation: Bool = false) {
             encoder?.endEncoding()
             f.profile?.attach(descriptor, pass: label, continuation: continuation)
@@ -121,7 +123,10 @@ public final class FrameGraph {
             for p in here {
                 if p.encodesOnCommandBuffer {
                     measureSplitOverhead()
-                    if encoder != nil { suspended = true }
+                    if encoder != nil {
+                        suspended = true
+                        breaker = p.name
+                    }
                     encoder?.endEncoding()
                     encoder = nil
                     f.currentPass = p.name
@@ -135,8 +140,17 @@ public final class FrameGraph {
                 if let pass = fresh {
                     open(pass, f.splitsEncoders ? p.name : "\(stage)")
                     fresh = nil
-                } else if encoder == nil ? suspended : f.splitsEncoders, let next = plan.continuation(f) {
-                    open(next, f.splitsEncoders ? p.name : "\(stage)", continuation: true)
+                } else if encoder == nil, suspended {
+                    // The resume loads and stores the targets in the plain
+                    // frame too: while timing, an empty encoder measures it
+                    // for the pass that broke the scene, kept whole, before
+                    // this pass's continuation.
+                    if f.splitsEncoders, let resume = plan.continuation(f) { open(resume, breaker) }
+                    if let next = plan.continuation(f) {
+                        open(next, f.splitsEncoders ? p.name : "\(stage)", continuation: f.splitsEncoders)
+                    }
+                } else if f.splitsEncoders, encoder != nil, let next = plan.continuation(f) {
+                    open(next, p.name, continuation: true)
                 }
                 guard let encoder else { continue }
                 f.currentPass = p.name

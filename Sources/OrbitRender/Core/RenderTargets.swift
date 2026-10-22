@@ -20,9 +20,11 @@ public protocol SceneTargetPlan: AnyObject {
     /// in the encoder the previous render stage opened. Called once per
     /// stage and frame, in order; `f.wanted` says what later passes read.
     func renderPass(for stage: PassStage, _ f: FrameContext) -> MTLRenderPassDescriptor?
-    /// For split encoding (`FrameContext.splitsEncoders`, the GPU timings):
-    /// a render pass that goes on drawing the scene where the last encoder
-    /// stopped, with the same attachments and formats.
+    /// A render pass that goes on drawing the scene where the last encoder
+    /// stopped, with the same attachments and formats: for split encoding
+    /// (`FrameContext.splitsEncoders`, the GPU timings), and to resume the
+    /// scene after a render-stage pass on the command buffer
+    /// (`FrameContext.breaksScene`), timed or not.
     func continuation(_ f: FrameContext) -> MTLRenderPassDescriptor?
 }
 
