@@ -329,6 +329,16 @@ Some design notes:
   docstring).
 - `coastlines.bin` (the app's MAP MFD): Natural Earth 1:110m coastlines
   (public domain), built with `tools/make_coastlines.py`.
+- Clouds: ERA5 (Hersbach et al. 2020, Copernicus Climate Change Service, CC
+  BY 4.0), read from Google's ARCO-ERA5 copy by `tools/make_clouds_era5.py`:
+  the zonal climatology in `Sources/OrbitScene/Earth/CloudClimatology.swift`
+  (1961–1990 means, bundled with this attribution), and each mission's
+  field (hourly around launch and on Apollo 7's last day, 3-hourly
+  otherwise), which you fetch with
+  `python3 -I tools/make_clouds_era5.py mission apollo8` into
+  `Sources/OrbitScene/Resources` (not in the repository). Contains modified
+  Copernicus Climate Change Service information 2026. The sky at the pad at
+  launch is NASA TM X-64796's (Johnson 1973), in `tools/data/`.
 - AS-506's postflight trajectory and flight evaluation report tables, which the
   tests check the ascent against, are transcribed in `docs/data/as506/` and
   `tools/data/`; the Apollo spacecraft's (68-FM-184, the Apollo 7 and 11
