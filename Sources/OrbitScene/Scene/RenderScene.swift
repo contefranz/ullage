@@ -218,7 +218,8 @@ public struct RenderScene {
         public var thrusters: [ThrusterKey: ThrusterPose]
         /// Today's lighting heuristics (`LegacyLighting`).
         public var light: LegacyLight
-        /// The heat shield's glow, linear RGB, added on emissive vertices.
+        /// The heat shield's glow, cd/m² in linear Rec. 709, added on emissive
+        /// vertices (`LegacyLighting.glowLuminance`).
         public var glow: RGB
         /// Unit velocity through the air (world); zero in vacuum.
         public var flowDirection: Vec3
