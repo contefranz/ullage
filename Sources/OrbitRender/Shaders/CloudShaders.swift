@@ -40,7 +40,7 @@ struct CloudUniforms {
     float4 lookDev;           // x: 1 a uniform homogeneous layer, y: its cover, z: its optical depth, w: 1 force far, 2 force march
     float4 target;            // xy: the march target's size, zw: frame pixels per texel
     float4 lut;               // x: LUT depths, y: cosines, z: least depth, w: ln(most / least)
-    float4 lut2;              // x: least cosine, y: 1 with a field, z: shadow altitudes 0, w: unused
+    float4 lut2;              // x: least cosine, y: 1 with a field, z: the low layer's base at the camera (m), w: unused
     float4 shadow;            // x: extent (m), y: texels, z: 1 drawn, w: steps
     float4 shadowCenter;      // xyz: the map's centre minus the camera, body axes (m)
     float4 shadowU;           // xyz: the map's u axis (body)
@@ -544,17 +544,18 @@ inline float3 cloud_figureDir(float3 d, constant CloudUniforms &u) { return floa
 
 // --------------------------------------------------- the far surface ---
 
-// The slab LUT (CloudSlabLUT) for layer l at optical depth tau, the Sun's
-// cosine mu0 and the eye's mu: single scattering without phase, the Sun's
-// diffuse light, the sky's, the transmittance.
-inline float4 cloud_slabLUT(texture3d<float> lut, sampler s, int l, float tau, float mu0, float mu, constant CloudUniforms &u) {
+// The slab LUT (CloudSlabLUT) for block b (layer l from above: 2l, from
+// below: 2l + 1) at optical depth tau, the Sun's cosine mu0 and the eye's
+// mu (from the zenith above, the nadir below): single scattering without
+// phase, the Sun's diffuse light, the sky's, the transmittance.
+inline float4 cloud_slabLUT(texture3d<float> lut, sampler s, int b, float tau, float mu0, float mu, constant CloudUniforms &u) {
     float depths = u.lut.x, cosines = u.lut.y;
     float thin = clamp(tau / u.lut.z, 0.0, 1.0);
     float k = log(max(tau, u.lut.z) / u.lut.z) / u.lut.w * (depths - 1.0);
     float x = clamp((mu - u.lut2.x) / (1.0 - u.lut2.x), 0.0, 1.0) * (cosines - 1.0);
     float y = clamp((mu0 - u.lut2.x) / (1.0 - u.lut2.x), 0.0, 1.0) * (cosines - 1.0);
-    float z = float(l) * depths + clamp(k, 0.0, depths - 1.0);
-    float3 uvw = (float3(x, y, z) + 0.5) / float3(cosines, cosines, 2.0 * depths);
+    float z = float(b) * depths + clamp(k, 0.0, depths - 1.0);
+    float3 uvw = (float3(x, y, z) + 0.5) / float3(cosines, cosines, 4.0 * depths);
     float4 v = lut.sample(s, uvw);
     // Below the least depth the light grows as the optical depth.
     return float4(v.rgb * thin, thin < 1.0 ? exp(-tau / max(mu, 0.02)) : v.a);
@@ -580,8 +581,11 @@ inline CloudResult cloud_farLayer(float3 of, float3 df, float3 d, float c, float
     if (th < 0.0) { return r; }
     float3 pf = of + df * th;
     float3 up = normalize(float3(pf.x, pf.y, pf.z * u.cameraFigure.w));
-    float mu = -dot(d, up);
-    if (mu <= 0.0) { return r; }   // seen from below: the march's
+    // Seen from above (the eye's cosine from the zenith) or from below
+    // (from the nadir).
+    float muSigned = -dot(d, up);
+    bool below = muSigned < 0.0;
+    float mu = max(abs(muSigned), 0.02);
     float mu0 = dot(u.sun.xyz, up);
     float4 wa, wb;
     if (u.lookDev.x > 0.5) {
@@ -605,7 +609,7 @@ inline CloudResult cloud_farLayer(float3 of, float3 df, float3 d, float c, float
     }
     if (cover <= 0.002) { return r; }
     float tau = u.lookDev.x > 0.5 ? u.lookDev.z : beta * u.extinction.w * thickness * u.regime.w;
-    float4 v = cloud_slabLUT(lut, linear, layer, tau, mu0, mu, u);
+    float4 v = cloud_slabLUT(lut, linear, 2 * layer + (below ? 1 : 0), tau, mu0, mu, u);
     // The air above the layer's top, where its light comes from.
     float top = layer == 0 ? wb.x : u.layers.y;
     float3 sun = u.sunLight.rgb * cloud_sunTransmittance(top, mu0, trans, linear, u);
@@ -794,7 +798,7 @@ inline CloudResult cloud_march(float3 d, float t0, float t1, bool near, float ji
         float mu0 = dot(u.sun.xyz, up);
         // The light march towards the Sun, with this sample's weather;
         // fewer samples far away.
-        float tauSun = 0.0;
+        float tauSun = 0.0, lastSigma = 0.0;
         // CloudLighting's light march: CLOUD_LIGHT_SAMPLES midpoints of
         // segments ending at (k/K)², unrolled so their fetches overlap.
         #pragma unroll
@@ -802,9 +806,13 @@ inline CloudResult cloud_march(float3 d, float t0, float t1, bool near, float ji
             float a0 = float(k) / float(CLOUD_LIGHT_SAMPLES), a1 = float(k + 1) / float(CLOUD_LIGHT_SAMPLES);
             float e0 = a0 * a0, e1 = a1 * a1;
             float sl = lightDistance * 0.5 * (e0 + e1);
-            tauSun += cloud_lightDensity(q + u.sun.xyz * sl, h + sl * mu0, w, t, wrap, u) * lightDistance * (e1 - e0);
+            lastSigma = cloud_lightDensity(q + u.sun.xyz * sl, h + sl * mu0, w, t, wrap, u);
+            tauSun += lastSigma * lightDistance * (e1 - e0);
         }
-        float tcol = min(c.column * (1.0 - c.h01), tauSun * max(mu0, u.lighting.y));
+        // CloudLighting.columnDepth: the light march's depth only if it came
+        // out of the cloud.
+        float byHeight = c.column * (1.0 - c.h01);
+        float tcol = lastSigma <= 0.0 ? min(byHeight, tauSun * max(mu0, u.lighting.y)) : byHeight;
         float3 sunT = cloud_sunTransmittance(h, mu0, trans, linear, u);
         float3 sky = cloud_skyIrradiance(h, mu0, irr, linear, u);
         float3 source = u.sunLight.rgb * sunT * (phase * exp(-tauSun) + cloud_sunDiffuse(tcol, c.column, mu0, muUp, u))
@@ -873,12 +881,18 @@ inline CloudRay cloud_ray(float2 px, constant CloudUniforms &u, constant FrameUn
     r.t1 = min(r.inside ? (top.y >= 0.0 ? top.y : top.x) : top.y, tGround);
     if (r.inside) { r.t1 = min(r.t1, u.march.w); }
     r.valid = !(top.x < 0.0 && top.y < 0.0) && r.t1 > r.t0 && r.t0 >= 0.0;
+    // The footprint where the ray meets the low layer's reference shell,
+    // from above or from below.
     float2 hitLow = cloud_shell(r.of, r.df, u.shell.w);
-    float tl = hitLow.x >= 0.0 ? hitLow.x : max(r.t0, 0.0);
+    float tl = hitLow.x >= 0.0 ? hitLow.x : (hitLow.y >= 0.0 ? hitLow.y : max(r.t0, 0.0));
     float3 pf = r.of + r.df * tl;
     float3 up = normalize(float3(pf.x, pf.y, pf.z * u.cameraFigure.w));
-    float footprint = tl * u.footprint.x / max(-dot(r.d, up), 0.02);
-    r.wFar = max(u.regime.z, r.inside ? 0.0 : cloud_smoothstep(u.footprint.y, u.footprint.z, footprint));
+    float footprint = tl * u.footprint.x / max(abs(dot(r.d, up)), 0.02);
+    // In the shell, the far layer only while the camera is clear of the
+    // layers (under the cloud base there, or over the mid layer): inside a
+    // cloud the march is everything.
+    bool clear = !r.inside || u.radii.y < u.lut2.z - 100.0 || u.radii.y > u.layers.y + 500.0;
+    r.wFar = max(u.regime.z, clear ? cloud_smoothstep(u.footprint.y, u.footprint.z, footprint) : 0.0);
     if (u.lookDev.w > 1.5) { r.wFar = 0.0; }
     if (u.lookDev.w > 0.5 && u.lookDev.w < 1.5) { r.wFar = 1.0; }
     return r;
@@ -1133,7 +1147,7 @@ fragment EffectCloudOut cloud_slot_fragment(CloudSlotOut in [[stage_in]],
                                             wrap, linear, weather, u);
         CloudResult farLow = cloud_farLayer(ray.of, ray.df, ray.d, u.shell.w, u.shellMid.z, 0, t, slab, trans, irr,
                                             wrap, linear, weather, u);
-        CloudResult far = cloud_over(farMid, farLow);
+        CloudResult far = farLow.front < farMid.front ? cloud_over(farLow, farMid) : cloud_over(farMid, farLow);
         float wf = ray.wFar;
         CloudResult m = result;
         result.color = mix(m.color, far.color, wf);

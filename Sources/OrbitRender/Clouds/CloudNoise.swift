@@ -78,7 +78,8 @@ final class CloudNoiseVolumes {
 /// The far LUT and the air's tables, as textures.
 @MainActor
 final class CloudTables {
-    /// CloudSlabLUT: x the view cosine, y the Sun's, z optical depth by layer.
+    /// CloudSlabLUT: x the view cosine, y the Sun's, z optical depth by layer
+    /// and side (from above, from below).
     let slab: MTLTexture
     /// A1's transmittance (256×64) and sky irradiance (64×16), rgba32Float.
     let transmittance: MTLTexture
@@ -104,7 +105,7 @@ final class CloudTables {
 
     init?(device: MTLDevice) {
         let lut = Self.slabLUT
-        let n = CloudSlabLUT.cosines, depth = CloudSlabLUT.depths * lut.slabs.count
+        let n = CloudSlabLUT.cosines, depth = CloudSlabLUT.depths * lut.slabs.count * 2
         let d = MTLTextureDescriptor()
         d.textureType = .type3D
         d.pixelFormat = .rgba32Float

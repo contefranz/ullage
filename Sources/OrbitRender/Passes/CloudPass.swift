@@ -529,7 +529,10 @@ public final class CloudPass: RenderPass, HalfResEffect {
         u.target = SIMD4(Float(size.width), Float(size.height), Float(scale), Float(scale))
         u.lut = SIMD4(Float(CloudSlabLUT.depths), Float(CloudSlabLUT.cosines), Float(CloudSlabLUT.minDepth),
                       Float(log(CloudSlabLUT.maxDepth / CloudSlabLUT.minDepth)))
-        u.lut2 = SIMD4(Float(CloudSlabLUT.minCosine), hasField ? 1 : 0, 0, 0)
+        // The low layer's base where the camera is: under it, far clouds
+        // seen from below may be the surface layer.
+        let lowBase = s.lookDev != nil ? 1_000 : CloudLayerModel.layers(sample)[0].base
+        u.lut2 = SIMD4(Float(CloudSlabLUT.minCosine), hasField ? 1 : 0, Float(lowBase), 0)
         u.shadowLevels = SIMD4(Self.shadowLevels[0], Self.shadowLevels[1], Self.shadowLevels[2], Self.shadowLevels[3])
         let table = CloudCoverage.standard
         func entry(_ i: Int) -> SIMD4<Float> {
