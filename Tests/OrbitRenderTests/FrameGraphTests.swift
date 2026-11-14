@@ -259,18 +259,52 @@ extension FrameGraphTests {
     }
 
     /// Breaking the scene keeps the image: the direct plan stores the MSAA
-    /// samples and resolves again where the scene resumes. Also while timing.
+    /// samples and resolves again where the scene resumes. Also while
+    /// timing; with the break in P1 (opaque passes draw after it); with
+    /// nothing drawing after the break; with the breaker first in P1, before
+    /// the scene's first encoder; and with a breaker in P5 after a P4 pass
+    /// that leaves the output alone. The resolved depth a later pass reads
+    /// is the same too.
     func testBreakingTheSceneKeepsThePixels() throws {
         final class Gap: RenderPass {
             let name = "Gap"
-            let stage = PassStage.transparent
-            let order = 15
+            let stage: PassStage
+            let order: Int
             var encodesOnCommandBuffer: Bool { true }
             var encoded = 0
+            init(_ stage: PassStage, _ order: Int) {
+                self.stage = stage
+                self.order = order
+            }
             func encode(_ f: FrameContext, _ e: PassEncoding) {
                 guard case .commandBuffer = e else { return XCTFail("a pass on the command buffer") }
                 encoded += 1
             }
+        }
+        /// A P4 pass that does nothing (a compute post leaving the output alone).
+        final class NoopPost: RenderPass {
+            let name = "Noop post"
+            let stage = PassStage.post
+            let order = 0
+            func encode(_ f: FrameContext, _ e: PassEncoding) {}
+        }
+        /// Copies the resolved scene depth (P4).
+        final class DepthReader: RenderPass {
+            let name = "Depth reader"
+            let stage = PassStage.post
+            let order = 0
+            var reads: Set<ResourceID> { [.sceneDepth] }
+            var buffer: MTLBuffer?
+            func encode(_ f: FrameContext, _ e: PassEncoding) {
+                guard let t = f.textures[.sceneDepth], let blit = f.makeBlitEncoder(),
+                      let b = f.device.makeBuffer(length: 4 * t.width * t.height, options: .storageModeShared) else { return }
+                blit.copy(from: t, sourceSlice: 0, sourceLevel: 0, sourceOrigin: MTLOrigin(),
+                          sourceSize: MTLSize(width: t.width, height: t.height, depth: 1), to: b, destinationOffset: 0,
+                          destinationBytesPerRow: 4 * t.width, destinationBytesPerImage: 4 * t.width * t.height)
+                blit.endEncoding()
+                buffer = b
+            }
+            var bytes: [UInt8] { buffer.map { Array(UnsafeRawBufferPointer(start: $0.contents(), count: $0.length)) } ?? [] }
         }
         let scenario = try XCTUnwrap(Scenario.named("as506-pad"))
         let sim = scenario.build(SceneRendererTests.system)
@@ -294,11 +328,94 @@ extension FrameGraphTests {
             r.renderAndWait(scene, into: target)
             return target.bytes()
         }
-        let gap = Gap()
         let plain = try image([])
-        XCTAssertEqual(try image([gap]), plain)
-        XCTAssertEqual(try image([gap], timing: true), plain)
-        XCTAssertEqual(gap.encoded, 2)
+        XCTAssertGreaterThan(plain.filter { $0 != 0 }.count, plain.count / 2, "a frame with something in it")
+        for (stage, order) in [(PassStage.transparent, 15), (.opaque, 15), (.opaque, -5), (.overlay, 100)] {
+            let gap = Gap(stage, order)
+            XCTAssertEqual(try image([gap]), plain, "a break in \(stage) at \(order)")
+            XCTAssertEqual(try image([gap], timing: true), plain, "a break in \(stage) at \(order), timed")
+            XCTAssertEqual(gap.encoded, 2)
+        }
+        let afterPost = try image([NoopPost()])
+        XCTAssertEqual(try image([NoopPost(), Gap(.overlay, 100)]), afterPost, "a break in P5 after a P4 pass")
+        XCTAssertEqual(try image([NoopPost(), Gap(.overlay, 100)], timing: true), afterPost,
+                       "a break in P5 after a P4 pass, timed")
+        let plainDepth = DepthReader()
+        _ = try image([plainDepth])
+        XCTAssertFalse(plainDepth.bytes.isEmpty)
+        for (stage, order) in [(PassStage.transparent, 15), (.opaque, 15)] {
+            let depth = DepthReader()
+            _ = try image([Gap(stage, order), depth])
+            XCTAssertEqual(depth.bytes, plainDepth.bytes, "the resolved depth with a break in \(stage)")
+        }
+    }
+
+    /// The plan hears where the scene ends and where it only breaks: a break
+    /// with a pass drawing in the scene after it keeps the samples (resume),
+    /// and everything else ends the scene (end): the frame's end, a stage
+    /// on the command buffer, a break nothing draws after. A breaker that
+    /// runs before the scene opens, or after P4 has ended it, ends nothing.
+    func testTheSceneEndsWhereItEnds() throws {
+        final class Watching: SceneTargetPlan {
+            let inner = DirectTargetPlan(colorFormat: .bgra8Unorm_srgb, sampleCount: 4)
+            var ends: [String] = []
+            func formats(for stage: PassStage) -> SceneFormats { inner.formats(for: stage) }
+            var provides: Set<ResourceID> { inner.provides }
+            func resize(_ size: RenderSize, device: MTLDevice) { inner.resize(size, device: device) }
+            func renderPass(for stage: PassStage, _ f: FrameContext) -> MTLRenderPassDescriptor? {
+                inner.renderPass(for: stage, f)
+            }
+            func continuation(_ f: FrameContext) -> MTLRenderPassDescriptor? { inner.continuation(f) }
+            func endScene(_ encoder: MTLRenderCommandEncoder, resumes: Bool, _ f: FrameContext) {
+                ends.append(resumes ? "resume" : "end")
+                inner.endScene(encoder, resumes: resumes, f)
+            }
+        }
+        final class NoopPost: RenderPass {
+            let name = "Noop post"
+            let stage = PassStage.post
+            let order = 0
+            func encode(_ f: FrameContext, _ e: PassEncoding) {}
+        }
+        func ends(_ passes: [RenderPass], timing: Bool = false) throws -> [String] {
+            let plan = Watching()
+            let r = try SceneRenderer(device: try device(), outputFormat: .bgra8Unorm_srgb, passes: passes, plan: plan)
+            r.profiling = timing
+            r.profileInterval = 1
+            try render(r)
+            return plan.ends
+        }
+        func breaker(_ name: String, _ stage: PassStage, _ order: Int, _ log: RecordingPass.Log) -> RecordingPass {
+            let p = RecordingPass(name, stage, order, log: log)
+            p.encodesOnCommandBuffer = true
+            return p
+        }
+        let log = RecordingPass.Log()
+        // Two breaks in P3, then the frame's end.
+        XCTAssertEqual(try ends([RecordingPass("vessel", .opaque, log: log), breaker("a", .transparent, 0, log),
+                                 RecordingPass("plume", .transparent, 1, log: log), breaker("b", .transparent, 2, log),
+                                 RecordingPass("composite", .transparent, 3, log: log),
+                                 RecordingPass("marker", .overlay, log: log)]),
+                       ["resume", "resume", "end"])
+        // A break in P1.
+        XCTAssertEqual(try ends([RecordingPass("planet", .opaque, 0, log: log), breaker("a", .opaque, 1, log),
+                                 RecordingPass("vessel", .opaque, 2, log: log)]),
+                       ["resume", "end"])
+        // Nothing draws after the break: the scene ends there.
+        XCTAssertEqual(try ends([RecordingPass("vessel", .opaque, log: log), breaker("a", .transparent, 0, log)]),
+                       ["end"])
+        // The breaker before the scene opens.
+        XCTAssertEqual(try ends([breaker("cull", .opaque, -5, log), RecordingPass("vessel", .opaque, 0, log: log)]),
+                       ["end"])
+        // A P4 pass ends the scene; a breaker in P5 then breaks nothing.
+        XCTAssertEqual(try ends([RecordingPass("vessel", .opaque, log: log), NoopPost(),
+                                 breaker("late", .overlay, 100, log)]),
+                       ["end"])
+        // Timing: the break and every split resume, the last encoder ends.
+        let timed = try ends([RecordingPass("vessel", .opaque, log: log), breaker("a", .transparent, 0, log),
+                              RecordingPass("composite", .transparent, 1, log: log)], timing: true)
+        XCTAssertEqual(timed.last, "end")
+        XCTAssertEqual(timed.filter { $0 == "end" }.count, 1, "\(timed)")
     }
 
     /// A plan that opens a render pass of its own for P3: a pass on the
@@ -386,5 +503,99 @@ extension FrameGraphTests {
         let t = FrameProfile.timings(labels: p.labels, kinds: p.kinds, stamps: stamps, secondsPerTick: 1)
         XCTAssertEqual(t.map(\.pass), ["vessel", "plume", FrameProfile.splitOverhead, "halfRes", "composite", "marker"])
         XCTAssertEqual(t.map(\.seconds), [110, 35, 50, 50, 60, 21])
+    }
+}
+
+extension FrameGraphTests {
+    /// The plan the renderer ships (R1's HDR targets) keeps the image across
+    /// breaks too: in P3, in P1, before the scene's first encoder and in P5
+    /// (its overlay), plain and timed. Its scene encoders take their stores
+    /// as they end; its overlay's keep theirs (the validation layer checks).
+    func testBreakingTheSceneOnTheShippingPlanKeepsThePixels() throws {
+        final class Gap: RenderPass {
+            let name = "Gap"
+            let stage: PassStage
+            let order: Int
+            var encodesOnCommandBuffer: Bool { true }
+            init(_ stage: PassStage, _ order: Int) {
+                self.stage = stage
+                self.order = order
+            }
+            func encode(_ f: FrameContext, _ e: PassEncoding) {}
+        }
+        let scenario = try XCTUnwrap(Scenario.named("as506-pad"))
+        let sim = scenario.build(SceneRendererTests.system)
+        var camera = OrbitCamera()
+        let v = try XCTUnwrap(sim.focus)
+        camera.target = .vessel(v.id)
+        camera.distance = max(v.boundingRadius * 3, 30)
+        camera.update(sim: sim)
+        let scene = SceneExtractor().extract(sim: sim, camera: camera,
+                                             viewport: RenderScene.Viewport(width: 320, height: 200), realTime: 0)
+        let stars = try StarCatalog.bundled()
+        func image(_ extra: [RenderPass], timing: Bool = false) throws -> [UInt8] {
+            let device = try device()
+            let r = try SceneRenderer(device: device, outputFormat: .bgra8Unorm_srgb,
+                                      passes: SceneRenderer.defaultPasses(loadsUserTextures: false) + extra,
+                                      plan: HDRTargetPlan(outputFormat: .bgra8Unorm_srgb, sampleCount: 4))
+            r.setStars(stars)
+            r.profiling = timing
+            r.profileInterval = 1
+            let target = try XCTUnwrap(OffscreenTarget(device: device, width: 320, height: 200))
+            r.renderAndWait(scene, into: target)
+            return target.bytes()
+        }
+        let plain = try image([])
+        XCTAssertGreaterThan(plain.filter { $0 != 0 }.count, plain.count / 2, "a frame with something in it")
+        for (stage, order) in [(PassStage.transparent, 15), (.opaque, 15), (.opaque, -5), (.overlay, 100)] {
+            XCTAssertEqual(try image([Gap(stage, order)]), plain, "a break in \(stage) at \(order)")
+            XCTAssertEqual(try image([Gap(stage, order)], timing: true), plain, "a break in \(stage) at \(order), timed")
+        }
+    }
+
+    /// Where the graph tells the shipping plan the scene ends: a break that
+    /// passes draw after resumes; P4 or the overlay's own render pass ends
+    /// the scene; the overlay's encoder ends at the frame's end.
+    func testTheShippingPlanHearsWhereTheSceneEnds() throws {
+        final class Watching: SceneTargetPlan {
+            let inner = HDRTargetPlan(outputFormat: .bgra8Unorm_srgb, sampleCount: 4)
+            var ends: [String] = []
+            func formats(for stage: PassStage) -> SceneFormats { inner.formats(for: stage) }
+            var provides: Set<ResourceID> { inner.provides }
+            func resize(_ size: RenderSize, device: MTLDevice) { inner.resize(size, device: device) }
+            func renderPass(for stage: PassStage, _ f: FrameContext) -> MTLRenderPassDescriptor? {
+                inner.renderPass(for: stage, f)
+            }
+            func continuation(_ f: FrameContext) -> MTLRenderPassDescriptor? { inner.continuation(f) }
+            func endScene(_ encoder: MTLRenderCommandEncoder, resumes: Bool, _ f: FrameContext) {
+                ends.append(resumes ? "resume" : "end")
+                inner.endScene(encoder, resumes: resumes, f)
+            }
+        }
+        final class NoopPost: RenderPass {
+            let name = "Noop post"
+            let stage = PassStage.post
+            let order = 0
+            func encode(_ f: FrameContext, _ e: PassEncoding) {}
+        }
+        func ends(_ passes: [RenderPass]) throws -> [String] {
+            let plan = Watching()
+            try render(try SceneRenderer(device: try device(), outputFormat: .bgra8Unorm_srgb, passes: passes,
+                                         plan: plan))
+            return plan.ends
+        }
+        let log = RecordingPass.Log()
+        let breaker = RecordingPass("a", .transparent, 0, log: log)
+        breaker.encodesOnCommandBuffer = true
+        // The overlay's render pass ends the scene, then its own encoder ends.
+        XCTAssertEqual(try ends([RecordingPass("vessel", .opaque, log: log), breaker,
+                                 RecordingPass("composite", .transparent, 1, log: log),
+                                 RecordingPass("marker", .overlay, log: log)]),
+                       ["resume", "end", "end"])
+        // P4 ends the scene first.
+        XCTAssertEqual(try ends([RecordingPass("vessel", .opaque, log: log), breaker,
+                                 RecordingPass("composite", .transparent, 1, log: log), NoopPost(),
+                                 RecordingPass("marker", .overlay, log: log)]),
+                       ["resume", "end", "end"])
     }
 }
