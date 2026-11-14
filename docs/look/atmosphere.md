@@ -85,7 +85,8 @@ left alone):
   `FrameUniforms.exposure.x` and clamps at 6e4, as R1's contract has it, and
   needs no scale of A2's. Half float would not hold it: toward a low Sun A1's
   aerosol (g 0.8) scatters forward far past half float's 65,504 (which a
-  write turns into +∞). In red that is about 1.5e5 cd/m² along the froxels
+  write clips, as the M3 Pro's does, or on some GPUs turns into +∞). In red
+  that is about 1.5e5 cd/m² along the froxels
   toward the dawn pad's Sun at 7°, and 9e4 over the ground at the silhouette
   from low orbit with the Sun 5-9° above the limb. Every froxel is finite. A
   fixed storage scale in half float (kcd/m²) would also fit, but it puts
