@@ -35,8 +35,12 @@ final class SnapshotToolTests: XCTestCase {
             throw XCTSkip("no timestamp counters on this GPU")
         }
         // The overhead is measured where the scene's encoders end, before post.
-        XCTAssertEqual(timed.timings.map(\.pass), ["Stars", "Planets", "Vessels", "Plumes", "Far points", "HDR resolve",
-                                                   FrameProfile.splitOverhead, "Post", "Orbit line", "Markers"])
+        // C2's clouds draw through R6's slots, which break the scene: their
+        // half-resolution pass and composite run, and the overhead is
+        // measured at the break.
+        XCTAssertEqual(timed.timings.map(\.pass), ["Clouds", "Stars", "Planets", "Vessels", FrameProfile.splitOverhead,
+                                                   "Half-resolution transparents", "Plumes", "Far points",
+                                                   "Transparent composite", "HDR resolve", "Post", "Orbit line", "Markers"])
         // Each render pass's vertex and fragment time less what splitting
         // costs (an empty encoder's time): small passes may read 0.
         for t in timed.timings { XCTAssertGreaterThanOrEqual(t.seconds, 0, t.pass) }

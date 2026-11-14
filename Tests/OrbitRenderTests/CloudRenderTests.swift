@@ -509,3 +509,91 @@ final class CloudMapTests: XCTestCase {
         XCTAssertEqual(Int(v[2]), MemoryLayout<CloudResolveUniforms>.stride)
     }
 }
+
+/// Apollo 8's skies (ORBITSIM_CLOUD_SHOTS=<dir>): orbitsnap has no Apollo 8
+/// scenario, so this builds AS-506's stack on LC-39A at AS-503's launch,
+/// 1968-12-21 12:51:00 UTC, and a capsule in a 185 km orbit in daylight an
+/// hour later (the terminator is Apollo 11's, c2-scenes.json),
+/// and renders them as orbitsnap does (auto exposure, settled), with
+/// Apollo 8's ERA5 field when it is fetched.
+@MainActor
+final class CloudApollo8Shots: XCTestCase {
+    struct Shot {
+        var name: String
+        var build: (SolarSystem) throws -> Simulation
+        var advance: [String] = []
+        var missionClockZero: Epoch?
+        var camera: SnapshotSpec.CameraSpec
+        var warp = 1.0
+    }
+
+    static let launch = Epoch(utcYear: 1968, month: 12, day: 21, hour: 12, minute: 51)
+
+    static func pad(_ system: SolarSystem) -> Simulation {
+        let sim = Simulation(system: system, time: launch)
+        let v = VesselLibrary.apollo11OnPad(in: sim, program: SaturnIU.as506())
+        v.mainThrottle = 1
+        sim.paused = true
+        return sim
+    }
+
+    /// A capsule in a 185 km orbit at 32.5° an hour after launch, its
+    /// ascending node towards the Sun (RA about 270° at the December
+    /// solstice), `latitudeArgument` degrees along from it.
+    static func orbit(latitudeArgument: Double) -> (SolarSystem) -> Simulation {
+        { system in
+            let sim = Simulation(system: system, time: Epoch(utcYear: 1968, month: 12, day: 21, hour: 13, minute: 51))
+            let capsule = VesselLibrary.capsule()
+            sim.add(capsule)
+            sim.placeInCircularOrbit(capsule, around: system.earth, altitude: 185_000, inclination: 32.5,
+                                     ascendingNode: 270, argumentOfLatitude: latitudeArgument)
+            sim.paused = true
+            return sim
+        }
+    }
+
+    func testApollo8Shots() throws {
+        guard let dir = ProcessInfo.processInfo.environment["ORBITSIM_CLOUD_SHOTS"] else {
+            throw XCTSkip("set ORBITSIM_CLOUD_SHOTS=<dir> to render Apollo 8's skies")
+        }
+        let out = URL(fileURLWithPath: dir, isDirectory: true)
+        try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
+        let s = try SnapshotRenderer(device: try XCTUnwrap(RenderDevice.shared))
+        let shots: [Shot] = [
+            Shot(name: "a8-pad-dawn", build: Self.pad, camera: .init(yaw: -100, pitch: 8, distance: 300, fov: 60)),
+            Shot(name: "a8-pad-cirrus", build: Self.pad, camera: .init(yaw: -100, pitch: -35, distance: 120, fov: 70)),
+            Shot(name: "a8-ascent-60s", build: Self.pad, advance: ["met:60"], missionClockZero: Self.launch,
+                 camera: .init(yaw: 149, pitch: -20, distance: 400, fov: 60)),
+            Shot(name: "a8-ascent-120s", build: Self.pad, advance: ["met:120"], missionClockZero: Self.launch,
+                 camera: .init(yaw: 149, pitch: -25, distance: 400, fov: 60)),
+            Shot(name: "a8-leo-day", build: Self.orbit(latitudeArgument: 10), camera: .init(yaw: -34, pitch: 25, distance: 60, fov: 60)),
+        ]
+        let width = 1280, height = 800
+        let viewport = RenderScene.Viewport(width: Double(width), height: Double(height), pointScale: 2)
+        var written: [String] = []
+        for shot in shots {
+            let sim = try shot.build(s.system)
+            try ScenarioScript(shot.advance).run(on: sim, missionClockZero: shot.missionClockZero)
+            sim.paused = true
+            var camera = OrbitCamera()
+            try shot.camera.apply(to: &camera, sim: sim)
+            let extractor = SceneExtractor()
+            let scene = extractor.extract(sim: sim, camera: camera, viewport: viewport, realTime: 0,
+                                          options: SceneExtractor.Options(showOrbit: false))
+            let r = try s.renderer(userTextures: false)
+            let target = try XCTUnwrap(OffscreenTarget(device: s.device, width: width, height: height))
+            // As orbitsnap: snap the exposure, then let it settle.
+            r.post?.control.reset()
+            var adapting = scene
+            adapting.clock.realDt = 0.5
+            for i in 0..<24 { _ = r.renderAndWait(i <= 2 ? scene : adapting, into: target) }
+            _ = r.renderAndWait(scene, into: target)
+            let url = out.appendingPathComponent(shot.name + ".png")
+            try ImageFiles.writePNG(target.bytes(), width: width, height: height, order: .bgra, to: url)
+            let clouds = r.graph.passes.compactMap { $0 as? CloudPass }.first
+            print("APOLLO8 \(shot.name): \(sim.time) mission \(clouds?.lastFrame.mission ?? "none") drawn \(clouds?.lastFrame.drawn ?? false)")
+            written.append(url.path)
+        }
+        XCTAssertEqual(written.count, shots.count)
+    }
+}

@@ -1,0 +1,174 @@
+# Clouds (M1.6 track C2)
+
+How the renderer draws the clouds from C1's weather, what it was checked
+against, what it costs, and what other tracks read from it. Design:
+docs/m16/design-earth-moon.md, clouds; plan: docs/m16/plan.md, C2.
+
+## What is where
+
+- **OrbitScene/Clouds** (pure Swift, Linux-tested):
+  - `CloudNoise`: tileable Perlin, Worley, Perlin-Worley and curl noise, the
+    reference the GPU's volumes mirror;
+  - `CloudScattering`: Henyey-Greenstein, Draine, Jendersie and d'Eon's
+    approximate Mie, and the march's lighting (`CloudLighting`);
+  - `CloudSlab`: that lighting marched through a flat homogeneous slab,
+    and the far regime's LUT baked from it;
+  - `CloudCoverage`: the coverage thresholds, so the drawn cover is ERA5's;
+  - `CloudFrame`: the per-frame geometry in Double (figure coordinates,
+    shells, noise origin, reprojection, the shadow map's frame, regimes,
+    wind advection, the reprojection rule);
+  - `CloudWeatherMap`: what the GPU assembles C1's weather from, and its
+    mirror.
+- **OrbitRender**: `Passes/CloudPass.swift` (P0, and R6's first
+  half-resolution effect), `Shaders/CloudShaders.swift` (module `Cloud`, and
+  the `.cloudShadow` header for other tracks), `Clouds/CloudNoise.swift` (the
+  volumes and tables on the GPU).
+- **Settings**: `CloudSettings` (`RenderSettings.cloud`).
+- **Specs**: `docs/look/shots/c2.json` (the cloud slab, look-dev goldens),
+  `c2-scenes.json` (the contact sheet).
+
+## The frame
+
+In P0, on the command buffer:
+1. **Noise volumes**, once: 128³ shape (Perlin-Worley, three Worley fBm
+   octaves), 32³ detail (Worley fBm), 128² curl, mipmapped.
+2. **The weather map**, 1440 × 721 like ERA5: the two snapshots around the
+   time, the climatology beyond the field's span, the pad's observed sky
+   (TM X-64796), then the layer model's heights (C1's `CloudWeather` and
+   `CloudLayerModel`, line for line). Assembled again only when a weight
+   moves by 1/500.
+3. **The cloud shadow map**, 256² along the Sun around the camera's ground
+   point (100 km on the ground, growing to 1,000 km from orbit), snapped to
+   texels from a body-fixed anchor. Each texel holds the optical depth along
+   the Sun above 0, 2, 6 and 10 km, the cirrus included.
+4. **The march** of the low and mid layers at R6's half resolution in the
+   near field and far away, a quarter of it in the orbit regime (20 km to
+   3,000 km). It marches one texel in four a frame and reprojects the rest,
+   or every texel when reprojection is off.
+5. **The resolve**: each texel marched this frame, or last frame's at the
+   same body-fixed point, clamped to its marched neighbours. A marched texel
+   averages with its history. This is `.cloudLayer` and `.cloudDepth`.
+
+In P3, R6's half-resolution encoder: **the slot copy** adds the far layers
+and the cirrus per texel of R6's targets, orders them by distance, cuts the
+clouds at the scene's depth, and writes R6's clouds layer and its front.
+
+## The regimes
+
+- **Near and orbit** are one march. Clear-air steps are uniform across the
+  shell in orbit, and grow with the distance in the near field. A ray above
+  every layer jumps to the highest top on the curved Earth, and a ray below
+  every layer going down stops. On meeting cloud it finds the edge by
+  bisection. Through the cloud's first two optical depths it steps 0.4; after
+  that the steps grow with the distance, up to 2. The detail erodes the
+  shapes out to 15-60 km. A light march of 4 samples over 1.5 km looks
+  towards the Sun.
+- **Far** is a surface layer: per pixel, each layer's cover times the
+  slab LUT at its in-cloud optical depth (the layer model's, times
+  `farDensity` 0.45: the march's clouds are not uniformly dense), with the
+  same phase, Sun and sky.
+- **Hand-over:** by the pixel's footprint on the low layer (1.5-6 km), so
+  from orbit the limb is far while nadir is marched; and by the camera's
+  height (3,000-6,000 km). Above 6,000 km nothing is marched.
+- **Cirrus** is a 2D layer at 10 km: fibres of the Worley fBm stretched
+  eight times along the 250 hPa wind, warped by the curl, lit as a thin slab
+  in closed form from above or below with ice's phase (g 0.75), averaging
+  out by footprint.
+- **Large-scale structure:** two octaves (400 km and 100 km) of the shape
+  volume on the sphere move partial cover up and down, by 4c(1 − c) of
+  `coverageModulation`. They are applied alike in the march and the far
+  layer, so ERA5's 28 km grid does not show.
+
+## Lighting
+
+Per unit extinction and irradiance, at each sample:
+- **The Sun's light scattered once**, with Jendersie and d'Eon's
+  approximate Mie for 20 µm drops (g 0.879), through the light march's
+  optical depth. The air's transmittance comes from A1's table at the
+  sample's height and fades over the Sun's disc as it sets.
+- **Multiple scattering** from the two-stream slab C1 checks clouds against
+  (Bohren 1987): the diffuse streams of the sample's column, of optical depth
+  σ times the layer's thickness. The sample's depth in the column is the
+  lesser of its height fraction and the light march's (made vertical). The
+  Sun feeds the column's top flux, less the direct beam.
+- **The sky's light**, entering the same column diffusely from A1's sky
+  irradiance at the sample's height.
+
+The design's octaves (Wrenninge 2013) were tried first and dropped. Their
+light comes out of the cloud's top optical depth only, so with Hillaire's
+a = b = c = 0.5 a deck of τ 90 had a plane albedo of 0.09 against 0.18 for
+τ 3. The two-stream slab gives 0.87 and 0.18.
+
+## Checks
+
+| Check | Result |
+|---|---|
+| Worley against a brute-force search | 1e-5 |
+| Curl's divergence against its gradients | under 1e-3 |
+| HG, Draine, approximate Mie normalised; Mie g at 20 µm | 1e-3; 0.879 (water clouds 0.86-0.88) |
+| Streams' top flux = C1's slab reflectance; R(10, 0.85) | exact; 0.430 |
+| March's single scattering against its closed form | 1 % |
+| Slab plane albedo against two-stream, Sun at 60° | within 15 % from τ 10 to 90, 0.04 below |
+| Drawn cover against the cover | within 0.03 |
+| Weather mirror against `CloudWeather.sample` | 1e-6 |
+| GPU noise volumes against `CloudNoise` | one 8-bit step |
+| GPU weather map against the mirror | half-float steps |
+| GPU march on a slab against `CloudSlab.march` | 1-2 % per texel |
+| GPU march against the far LUT, slab from LEO | 1.6 % mean, worst texel 4.3 % |
+| Shadow map under a slab of τ 20 | 5 % |
+
+## Cost
+
+M3 Pro, 3024 × 1964, GPU lock held. One queue, clouds on and off on
+alternate frames; difference of the medians (`CloudCostTests`,
+`ORBITSIM_CLOUD_COST=1`). The P0 pass alone, steady (reprojecting) and
+fresh (every texel marched, as at 10× warp):
+
+| Shot | Steady | Fresh |
+|---|---|---|
+| Pad (AS-506) | 2.3 ms | 4.9 ms |
+| Ascent, 60 s | 1.9 ms | 3.9 ms |
+| LEO | 1.9 ms | 3.4 ms |
+| Earth from 22,000 km | under 0.1 ms | under 0.1 ms |
+
+With every default pass (`ORBITSIM_CLOUD_COST_FULL=1`), the clouds add
+4.6, 4.4, 3.5 and 2.8 ms respectively. Of that, 2.0-2.4 ms is R6's slots on
+R1's HDR plan, which they cost with any effect, even a tiny test slab
+(`ORBITSIM_CLOUD_COST_R6=1`). The clouds' own share is about 2.1 ms on the
+pad (budget 3.0) and 1.2 ms in LEO (budget 2.0).
+
+## For other tracks
+
+- **The cloud shadow** (E2's ground, R2/R4's vessels, P2's plumes): add
+  `.cloudShadow` to a module's headers and call
+  `orbit_cloudSunTransmittance(p, atmosphere, texture 24, sampler 14)` at a
+  camera-relative point. It reads `AtmosphereUniforms.cloudShadowMatrix`
+  (camera-relative world to the map's u, v and the height above the ground)
+  and `cloudLayer` (w is 1 when the clouds draw). Off the map it is 1; from
+  orbit the far layer's own cover darkens the ground beyond it.
+- **Plumes and particles**: R6's composite orders the clouds layer against
+  theirs by front. `.cloudLayer` (premultiplied radiance, pre-exposed, and
+  1 − T) and `.cloudDepth` (log2 of the linear depth of the front, the
+  opacity-weighted mean and the entry) hold the march's clouds at the march
+  target's resolution, for a pass that wants the transmittance in front of a
+  point: (1 − a) raised to the fraction of the way from the entry to twice
+  the mean depth.
+- **A2:** the stand-in for AtmosphereContext is A1's transmittance and sky
+  irradiance tables (OrbitCore's `AtmosphereLUT`, coarser quadrature),
+  uploaded by the cloud pass. Once A2 binds its transmittance at slot 25 the
+  clouds can read it there. The sky irradiance at every height is a table
+  A2 may want to share. Aerial perspective over the clouds is A2's to add
+  (the froxels, or the limb march); until then the clouds have none.
+
+## Open
+
+- **Near field:** the pad's distant clouds at the horizon want more steps
+  or a seen-from-below surface layer, the detail needs tuning up close, and
+  the inside-cloud views are untested. The plan cuts this first, and it
+  merges after the far and orbit regimes.
+- **Water paths** (decision 29): not added. The far layer's optical depth
+  is the layer model's. ERA5's total column liquid and ice water would vary
+  the brightness of thin and thick decks; adding them is two OSCLOUD1
+  planes, a change to C1's tool and a 10-minute re-fetch.
+- **Apollo 8 scenario:** orbitsnap has none (Scenarios.swift is F0's and
+  GI's), so Apollo 8's skies are rendered from a test harness.
