@@ -189,7 +189,7 @@ struct CloudWeatherParams {
     float4 overridePlace[2];   // x: latitude, y: longitude (rad), z: radius (m), w: weight in time
     float4 overrideSky[2];     // x: low, y: mid, z: high, w: 1 convective
     float4 layerModel;    // x: default low base, y: mid base, z: low depth, w: cumulonimbus top (m)
-    float4 structure;     // x: how much the large-scale structure moves partial cover, y: its scale (periods per radian)
+    float4 structure;     // unused (the large-scale structure is per sample: cloud_structure)
 };
 
 inline float cloud_smoothstep(float a, float b, float x) {
@@ -254,15 +254,6 @@ kernel void cloud_weather(texture2d<uint, access::read> first [[texture(0)]],
         mid += wo * (s.y - mid);
         high += wo * (s.z - high);
         if (wo >= 0.5) { convective = s.w > 0.5; }
-    }
-    // The large-scale structure: the shape volume's Perlin-Worley on the
-    // sphere (400 km to a period), moving partial low and mid cover up and
-    // down about its value, 4c(1 - c) of the strength.
-    if (p.structure.x > 0.0) {
-        float3 dir = float3(cos(lat) * cos(lon), cos(lat) * sin(lon), sin(lat));
-        float g = shape.sample(wrap, dir * p.structure.y, level(0.0)).r - 0.5;
-        low = clamp(low + g * p.structure.x * 4.0 * low * (1.0 - low), 0.0, 1.0);
-        mid = clamp(mid + g * p.structure.x * 4.0 * mid * (1.0 - mid), 0.0, 1.0);
     }
     float lowBase = p.layerModel.x;
     if (base >= 0.0 && base < p.layerModel.y) { lowBase = max(base, 0.0); }
@@ -338,6 +329,20 @@ struct CloudTextures {
     texture2d<float> weatherB;
 };
 
+// The large-scale structure at figure point pf: the shape volume's
+// Perlin-Worley on the sphere in two octaves (400 km and 100 km to a
+// period) moving partial cover up and down about its value, 4c(1 - c) of
+// the strength (u.footprint.w), so ERA5's 28 km grid does not show. The
+// march and the far layer apply it alike.
+inline float2 cloud_structure(float3 pf, float2 cover, thread const CloudTextures &t, sampler wrap,
+                              constant CloudUniforms &u) {
+    if (u.footprint.w <= 0.0 || u.lookDev.x > 0.5) { return cover; }
+    float3 dir = normalize(pf);
+    float g = 0.6 * t.shape.sample(wrap, dir * (u.radii.x / 400000.0), level(0.0)).r
+            + 0.4 * t.shape.sample(wrap, dir * (u.radii.x / 100000.0), level(0.0)).r - 0.5;
+    return clamp(cover + g * u.footprint.w * 4.0 * cover * (1.0 - cover), 0.0, 1.0);
+}
+
 // The weather where a sample is: the covers and the low layer's base (a),
 // its top, and the large-scale structure (the shape volume's Perlin-Worley
 // over 400 km of the sphere); only what the sample needs is fetched.
@@ -348,7 +353,7 @@ struct CloudWeatherSample {
     float lowest;      // the lowest layer base with any cover here (m), 1e9 for none
 };
 
-inline CloudWeatherSample cloud_weatherAt(float3 pf, thread const CloudTextures &t, sampler weather,
+inline CloudWeatherSample cloud_weatherAt(float3 pf, thread const CloudTextures &t, sampler wrap, sampler weather,
                                           constant CloudUniforms &u) {
     CloudWeatherSample w;
     if (u.lookDev.x > 0.5) {
@@ -360,6 +365,7 @@ inline CloudWeatherSample cloud_weatherAt(float3 pf, thread const CloudTextures 
     }
     float2 uv = cloud_weatherUV(pf, u);
     w.a = t.weatherA.sample(weather, uv, level(0.0));
+    if (w.a.x > 0.002 || w.a.y > 0.002) { w.a.xy = cloud_structure(pf, w.a.xy, t, wrap, u); }
     bool low = w.a.x > 0.002, mid = w.a.y > 0.002;
     w.lowTop = low ? max(t.weatherB.sample(weather, uv, level(0.0)).x, w.a.w + 100.0) : 0.0;
     w.topmost = max(low ? w.lowTop : 0.0, mid ? u.layers.y : 0.0);
@@ -445,7 +451,7 @@ inline CloudSample cloud_sample(float3 q, float detailAmount, bool cheap, thread
     float3 pf = cloud_figure(q, u);
     float h = cloud_height(pf, u);
     if (h < 0.0 || h > u.radii.z) { return CloudSample{0.0, 0.0, 0.0, -1.0}; }
-    return cloud_density(q, h, cloud_weatherAt(pf, t, weather, u), detailAmount, cheap, t, wrap, u);
+    return cloud_density(q, h, cloud_weatherAt(pf, t, wrap, weather, u), detailAmount, cheap, t, wrap, u);
 }
 
 // ------------------------------------------------- the air (stand-in) ---
@@ -566,7 +572,8 @@ struct CloudResult {
 // model, the light from the slab LUT.
 inline CloudResult cloud_farLayer(float3 of, float3 df, float3 d, float c, float href, int layer,
                                   thread const CloudTextures &t, texture3d<float> lut, texture2d<float> trans,
-                                  texture2d<float> irr, sampler linear, sampler weather, constant CloudUniforms &u) {
+                                  texture2d<float> irr, sampler wrap, sampler linear, sampler weather,
+                                  constant CloudUniforms &u) {
     CloudResult r = {float4(0.0), 1e30, 1e30, 1e30};
     float2 hit = cloud_shell(of, df, c);
     float th = hit.x >= 0.0 ? hit.x : hit.y;
@@ -584,6 +591,7 @@ inline CloudResult cloud_farLayer(float3 of, float3 df, float3 d, float c, float
         float2 uv = cloud_weatherUV(pf, u);
         wa = t.weatherA.sample(weather, uv, level(0.0));
         wb = t.weatherB.sample(weather, uv, level(0.0));
+        wa.xy = cloud_structure(pf, wa.xy, t, wrap, u);
     }
     float cover, thickness, beta;
     if (layer == 0) {
@@ -710,10 +718,9 @@ inline CloudResult cloud_march(float3 d, float t0, float t1, bool near, float ji
     float phase = cloud_mie(cosTheta, u);
     float lightDistance = u.march.z;
     float tm = t0 + jitter * (near ? base * 0.05 : base);
-    // In cloud; refining (fine steps after backing off at first contact).
-    bool inCloud = false, refining = false;
-    float fine = base;
-    // The last sample known to be in clear air: first contact backs off to it.
+    bool inCloud = false;
+    // The last sample known to be in clear air: first contact finds the
+    // cloud's edge between it and itself by bisection.
     float clear = t0;
     // The weather, fetched again once the ray has gone 4 km (its grid is 28 km).
     CloudWeatherSample w;
@@ -727,7 +734,7 @@ inline CloudResult cloud_march(float3 d, float t0, float t1, bool near, float ji
         float3 up = normalize(float3(pf.x, pf.y, pf.z * u.cameraFigure.w));
         float muUp = -dot(d, up);
         if (abs(tm - fetchedAt) > 4000.0) {
-            w = cloud_weatherAt(pf, t, weather, u);
+            w = cloud_weatherAt(pf, t, wrap, weather, u);
             fetchedAt = tm;
         }
         // Below every layer going down: nothing more to meet.
@@ -735,7 +742,7 @@ inline CloudResult cloud_march(float3 d, float t0, float t1, bool near, float ji
         // Outside every layer here: straight to the nearest boundary the
         // ray reaches (above them going down, below them going up), on the
         // curved Earth, at most 20 km at a time (the weather changes).
-        if (!inCloud && !refining && (h > w.topmost + 50.0 || h < w.lowest - 50.0)) {
+        if (!inCloud && (h > w.topmost + 50.0 || h < w.lowest - 50.0)) {
             float R = u.radii.x, skip = 20000.0;
             float target = h > w.topmost ? w.topmost + 25.0 : w.lowest - 25.0;
             // h(s) = h + k s + s² / 2R along the ray, k its own upward
@@ -756,32 +763,32 @@ inline CloudResult cloud_march(float3 d, float t0, float t1, bool near, float ji
         CloudSample c = h < 0.0 || h > u.radii.z ? CloudSample{0.0, 0.0, 0.0, -1.0}
                                                  : cloud_density(q, h, w, detail, false, t, wrap, u);
         if (c.sigma <= 0.0) {
-            if (inCloud) { inCloud = false; refining = false; }
+            inCloud = false;
             clear = tm;
-            tm += refining ? fine : empty;
+            tm += empty;
             continue;
         }
         // Steps of 0.4 optical depth through the cloud's first two (its
         // visible face, where the light changes fastest), then coarser
         // with the distance, up to 2 beyond 80 km.
         float maxTau = T > 0.135 ? 0.4 : min(0.4 * (1.0 + tm / 20000.0), 2.0);
-        if (!inCloud && !refining) {
-            fine = clamp(0.4 / c.sigma, 1.0, empty);
-            if (tm - clear > fine) {
-                refining = true;
-                tm = clear + fine;
-                continue;
-            }
-        }
         float dt = clamp(maxTau / c.sigma, 1.0, empty);
         if (!inCloud) {
-            // The first step in cloud: its light at the step's middle (the
-            // midpoint rule, as the slab LUT's bake), so long steps far away
-            // are not lit as their brighter front.
-            r.entry = min(r.entry, tm);
+            // First contact: the edge between the last clear sample and
+            // this one, by bisection (to a sixteenth), then the first
+            // step's light at its middle (the midpoint rule, as the slab
+            // LUT's bake).
+            float a = clear, b = tm;
+            for (int k = 0; k < 4; k++) {
+                float m = 0.5 * (a + b);
+                float3 qm = d * m;
+                float hm = cloud_height(cloud_figure(qm, u), u);
+                bool cloudy = hm >= 0.0 && hm <= u.radii.z && cloud_density(qm, hm, w, detail, false, t, wrap, u).sigma > 0.0;
+                if (cloudy) { b = m; } else { a = m; }
+            }
+            r.entry = min(r.entry, b);
             inCloud = true;
-            refining = false;
-            tm += 0.5 * dt;
+            tm = b + 0.5 * clamp(0.4 / c.sigma, 1.0, empty);
             continue;
         }
         float mu0 = dot(u.sun.xyz, up);
@@ -948,6 +955,22 @@ kernel void cloud_resolve(texture2d<float, access::read> fresh [[texture(10)]],
     } else if (marched) {
         mc = fresh.read(gid);
         md = freshDepth.read(gid);
+        // Reprojecting, a marched texel averages with its history (the
+        // march's jitter), unless the two disagree (disocclusion).
+        if (r.checker.z > 0.5 && r.checker.w > 0.5) {
+            float2 px = (float2(gid) + 0.5) * r.target.zw;
+            float3 w = (frame.viewToWorld * float4(orbit_viewRay(px, frame), 0.0)).xyz;
+            float z = cloud_decodeDepth(md.y);
+            float4 clip = z < 1e12 ? r.reprojection * float4(w * z, 1.0) : r.reprojection * float4(w, 0.0);
+            if (clip.w > 0.0) {
+                float2 ndc = clip.xy / clip.w;
+                float2 uv = float2(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
+                if (all(uv >= 0.0) && all(uv <= 1.0)) {
+                    float4 h = history.sample(linear, uv, level(0.0));
+                    if (abs(h.a - mc.a) < 0.25) { mc = mix(h, mc, 0.5); }
+                }
+            }
+        }
     } else {
         // This frame's marched texels: this 2x2 block's and the three
         // blocks towards this texel.
@@ -1014,7 +1037,7 @@ kernel void cloud_shadow(texture2d<float, access::write> out [[texture(0)]],
     float mu0 = max(dot(s, up), 0.02);
     // The heights the layers here span, with a margin: the ray towards
     // the Sun from where it crosses their top down to their bottom.
-    CloudWeatherSample w = cloud_weatherAt(pf0, t, weather, u);
+    CloudWeatherSample w = cloud_weatherAt(pf0, t, wrap, weather, u);
     float4 tauAbove = float4(0.0);
     float hBase = cloud_height(pf0, u);
     if (w.topmost > 0.0) {
@@ -1107,9 +1130,9 @@ fragment EffectCloudOut cloud_slot_fragment(CloudSlotOut in [[stage_in]],
     CloudTextures t = {shape, detail, curl, weatherA, weatherB};
     if (ray.valid && ray.wFar > 0.0) {
         CloudResult farMid = cloud_farLayer(ray.of, ray.df, ray.d, u.shellMid.x, u.shellMid.w, 1, t, slab, trans, irr,
-                                            linear, weather, u);
+                                            wrap, linear, weather, u);
         CloudResult farLow = cloud_farLayer(ray.of, ray.df, ray.d, u.shell.w, u.shellMid.z, 0, t, slab, trans, irr,
-                                            linear, weather, u);
+                                            wrap, linear, weather, u);
         CloudResult far = cloud_over(farMid, farLow);
         float wf = ray.wFar;
         CloudResult m = result;

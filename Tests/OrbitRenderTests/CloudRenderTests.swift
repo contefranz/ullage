@@ -135,6 +135,35 @@ final class CloudRenderTests: XCTestCase {
         }
     }
 
+    func testDebugSeam() throws {
+        guard ProcessInfo.processInfo.environment["C2_SEAM"] != nil else { throw XCTSkip("debug") }
+        var shot = SnapshotSpec.Shot(name: "seam", scenario: "as506-parking-orbit", advance: ["wait:900"],
+                                     camera: SnapshotSpec.CameraSpec(yaw: 180, pitch: 12, distance: 70, fov: 70))
+        shot.showOrbit = false
+        let f = try render(shot)
+        let frame = try XCTUnwrap(f.clouds?.lastFrame.frame)
+        let cam = f.scene.camera
+        let weather = CloudWeather.mission("apollo11")
+        let c = try XCTUnwrap(f.capture.values(.halfResClouds))
+        for x in stride(from: 290, through: 330, by: 4) {
+            let px = Double(x) + 0.5, py = 300.5
+            let tanY = tan(cam.fovY / 2)
+            let vr = Vec3((2 * px / cam.viewport.width - 1) * tanY * cam.aspect, (1 - 2 * py / cam.viewport.height) * tanY, -1)
+            let d = frame.icrfToBody * (cam.worldToView.transposed * vr).normalized
+            let o = frame.cameraBody
+            let r = frame.radius + 2_000
+            let b = o.dot(d), cc = o.lengthSquared - r * r
+            let disc = b * b - cc
+            guard disc > 0 else { continue }
+            let p = o + d * (-b - disc.squareRoot())
+            let g = Ellipsoid.wgs84.geodetic(p)
+            let w = weather.sample(latitude: g.latitude, longitude: g.longitude, at: f.scene.clock.simTime)
+            let t = c.texels[(Int(py) / 2) * c.width + x / 2]
+            print(String(format: "SEAM x %d lat %.3f lon %.3f low %.2f mid %.2f high %.2f | alpha %.3f", x,
+                         g.latitude * 180 / .pi, g.longitude * 180 / .pi, w.low, w.mid, w.high, t[3]))
+        }
+    }
+
     /// The far layer and the march at single texels of the slab against
     /// CloudSlab.march on the CPU with A1's air: the far surface layer is
     /// the LUT of that march, the march the march itself.
@@ -234,13 +263,23 @@ final class CloudCostTests: XCTestCase {
             for warp in [1.0, 10.0] {
                 // One renderer, one queue: the clouds on and off on alternate
                 // frames (separate queues' command buffers overlap on the GPU).
-                let clouds = CloudPass()
-                let a = try SceneRenderer(device: s.device, outputFormat: .bgra8Unorm_srgb, passes: [clouds],
+                // ORBITSIM_CLOUD_COST_FULL: every default pass, so the
+                // difference holds the slot copy and R6's slots too.
+                let full = ProcessInfo.processInfo.environment["ORBITSIM_CLOUD_COST_FULL"] != nil
+                let passes = full ? SceneRenderer.defaultPasses(loadsUserTextures: false) : [CloudPass()]
+                let clouds = try XCTUnwrap(passes.compactMap { $0 as? CloudPass }.first)
+                let a = try SceneRenderer(device: s.device, outputFormat: .bgra8Unorm_srgb, passes: passes,
                                           plan: HDRTargetPlan(outputFormat: .bgra8Unorm_srgb, sampleCount: 4))
+                a.setStars(s.stars)
                 var on = a.settings, off = a.settings
                 off.cloud.enabled = false
                 if let json = ProcessInfo.processInfo.environment["ORBITSIM_CLOUD_SETTINGS"] {
                     on.cloud = try JSONDecoder().decode(CloudSettings.self, from: Data(json.utf8))
+                }
+                // ORBITSIM_CLOUD_COST_R6: R6's slots alone (a small test slab, no clouds), for their share.
+                if ProcessInfo.processInfo.environment["ORBITSIM_CLOUD_COST_R6"] != nil {
+                    on.cloud.enabled = false
+                    on.transparency.testEmitters = [EffectTestEmitter(.slab, position: [0, 0, 30], size: 2)]
                 }
                 if let skip = ProcessInfo.processInfo.environment["ORBITSIM_CLOUD_SKIP"] {
                     on.cloud.skip = skip.split(separator: ",").map(String.init)

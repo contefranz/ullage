@@ -44,8 +44,6 @@ public final class CloudPass: RenderPass, HalfResEffect {
     /// far away, where the Earth is small and the surface layer cheap.
     public static func marchScale(altitude: Double) -> Int { altitude >= 20_000 && altitude < 3_000_000 ? 4 : 2 }
 
-    /// The large-scale structure's period on the sphere, m.
-    public static let structurePeriod = 400_000.0
     /// The Earth's least radius on screen for clouds, pixels.
     static let minimumRadius = 4.0
 
@@ -212,14 +210,12 @@ public final class CloudPass: RenderPass, HalfResEffect {
         // P0: the frame uniforms alone (the shared ones are uploaded after it).
         f.bindFrameUniforms(enc)
         enc.setSamplerState(f.states.linearClamp, index: Binding.linearClampSampler)
-        // The weather map again only when it has changed: another mission,
-        // snapshots or structure, or a weight moved by 1/500.
-        let key = WeatherKey(mission: mission, params: params,
-                             structure: settings.lookDev == nil ? settings.coverageModulation : 0)
+        // The weather map again only when it has changed: another mission
+        // or snapshots, or a weight moved by 1/500.
+        let key = WeatherKey(mission: mission, params: params)
         if !settings.skip.contains("weather"), lastWeather.map({ !$0.close(to: key) }) ?? true {
             lastWeather = key
-            encodeWeather(enc, weather: weather, params: params, map: weatherMap, pipeline: p.weather, shape: noise.shape,
-                          wrap: samplers.wrap, structure: settings.lookDev == nil ? settings.coverageModulation : 0)
+            encodeWeather(enc, weather: weather, params: params, map: weatherMap, pipeline: p.weather)
         }
 
         // The uniforms.
@@ -358,8 +354,7 @@ public final class CloudPass: RenderPass, HalfResEffect {
     }
 
     private func encodeWeather(_ enc: MTLComputeCommandEncoder, weather: CloudWeather, params: CloudWeatherMap.Parameters,
-                               map: (a: MTLTexture, b: MTLTexture), pipeline: MTLComputePipelineState,
-                               shape: MTLTexture, wrap: MTLSamplerState, structure: Double) {
+                               map: (a: MTLTexture, b: MTLTexture), pipeline: MTLComputePipelineState) {
         var textures: (MTLTexture, MTLTexture)?
         if let s = params.snapshots, let field = weather.field {
             var keep: [Int: MTLTexture] = [:]
@@ -384,15 +379,12 @@ public final class CloudPass: RenderPass, HalfResEffect {
         }
         p.layerModel = SIMD4(Float(CloudLayerModel.defaultLowBase), Float(CloudLayerModel.midBase),
                              Float(CloudLayerModel.lowDepth), Float(CloudLayerModel.cumulonimbusTop))
-        p.structure = SIMD4(Float(structure), Float(CloudFrame.earthRadius / Self.structurePeriod), 0, 0)
         var climate = params.climatology.map { SIMD4<Float>(Float($0.low), Float($0.mid), Float($0.high), 0) }
         enc.setComputePipelineState(pipeline)
         enc.setTexture(textures?.0 ?? placeholder, index: 0)
         enc.setTexture(textures?.1 ?? placeholder, index: 1)
         enc.setTexture(map.a, index: 2)
         enc.setTexture(map.b, index: 3)
-        enc.setTexture(shape, index: 4)
-        enc.setSamplerState(wrap, index: 0)
         climate.withUnsafeMutableBytes { b in
             enc.setBytes(b.baseAddress!, length: b.count, index: 0)
         }
@@ -579,20 +571,18 @@ struct WeatherKey {
     var mission: String?
     var snapshots: (Int, Int)?
     var weights: [Double]
-    var structure: Double
 
-    init(mission: String?, params: CloudWeatherMap.Parameters, structure: Double) {
+    init(mission: String?, params: CloudWeatherMap.Parameters) {
         self.mission = mission
         snapshots = params.snapshots.map { ($0.first, $0.second) }
         weights = [params.snapshots?.weight ?? 0, params.fieldWeight] + params.overrides.map(\.timeWeight)
             + [params.climatology.first?.low ?? 0, params.climatology.last?.high ?? 0]
-        self.structure = structure
     }
 
     /// The same map within 1/500 of every weight.
     func close(to k: WeatherKey) -> Bool {
         mission == k.mission && snapshots?.0 == k.snapshots?.0 && snapshots?.1 == k.snapshots?.1
-            && structure == k.structure && weights.count == k.weights.count
+            && weights.count == k.weights.count
             && zip(weights, k.weights).allSatisfy { abs($0 - $1) < 0.002 }
     }
 }
