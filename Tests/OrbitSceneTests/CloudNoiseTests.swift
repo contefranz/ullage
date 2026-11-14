@@ -149,3 +149,29 @@ final class CloudNoiseTests: XCTestCase {
         XCTAssertEqual(CloudNoise.snorm8(1), 127)
     }
 }
+
+/// Track C2's coverage thresholds: the drawn fraction of a layer is ERA5's
+/// cover.
+final class CloudCoverageTests: XCTestCase {
+    func testDrawnCoverIsTheCover() {
+        let table = CloudCoverage.standard
+        XCTAssertEqual(table.count, 33)
+        XCTAssertEqual(table.first, 1)
+        XCTAssertEqual(table.last, 0)
+        XCTAssertTrue(zip(table, table.dropFirst()).allSatisfy { $0 >= $1 }, "falls as the cover grows")
+        // Texels off the table's lattice.
+        var values: [Double] = []
+        for z in stride(from: 3, to: CloudNoise.shapeSize, by: 11) {
+            for y in stride(from: 5, to: CloudNoise.shapeSize, by: 11) {
+                for x in stride(from: 1, to: CloudNoise.shapeSize, by: 11) {
+                    values.append(Double(CloudCoverage.shapeValue(CloudNoise.shapeTexel(x, y, z))))
+                }
+            }
+        }
+        for c in [0.1, 0.3, 0.5, 0.7, 0.9] {
+            let theta = CloudCoverage.threshold(c)
+            let drawn = Double(values.filter { $0 > theta }.count) / Double(values.count)
+            XCTAssertEqual(drawn, c, accuracy: 0.03, "cover \(c)")
+        }
+    }
+}

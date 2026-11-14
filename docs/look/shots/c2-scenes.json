@@ -1,0 +1,12 @@
+{
+  "shots": [
+    {"name": "c2-pad", "scenario": "as506-pad", "showOrbit": false,
+     "camera": {"yaw": -60, "pitch": 12, "distance": 300, "fov": 60}},
+    {"name": "c2-ascent-60s", "scenario": "as506-pad", "advance": ["met:60"], "showOrbit": false,
+     "camera": {"yaw": 149, "pitch": -25, "distance": 400, "fov": 60}},
+    {"name": "c2-parking-orbit", "scenario": "as506-parking-orbit", "showOrbit": false,
+     "camera": {"yaw": -34.4, "pitch": 30, "distance": 70, "fov": 60}},
+    {"name": "c2-earth", "scenario": "as506-parking-orbit", "showOrbit": false,
+     "camera": {"target": "body:399", "frame": "inertial", "yaw": 223.5, "pitch": 22.9, "distance": 22000000}}
+  ]
+}

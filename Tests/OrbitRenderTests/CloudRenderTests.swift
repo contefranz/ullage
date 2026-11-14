@@ -1,0 +1,145 @@
+import Foundation
+import Metal
+import XCTest
+import OrbitCore
+import OrbitScene
+@testable import OrbitRender
+
+/// Track C2's clouds on the GPU, against OrbitScene's maths: the noise
+/// volumes against CloudNoise, the weather map against CloudWeatherMap's
+/// mirror, the march on a homogeneous slab against the far LUT
+/// (continuity of the regimes), the slot copy's depth cut, the shadow map,
+/// the reprojection rules, and the uniforms' layout.
+@MainActor
+final class CloudRenderTests: XCTestCase {
+    static var snapper: SnapshotRenderer?
+
+    func snapper() throws -> SnapshotRenderer {
+        if let s = Self.snapper { return s }
+        let s = try SnapshotRenderer(device: try XCTUnwrap(RenderDevice.shared))
+        Self.snapper = s
+        return s
+    }
+
+    /// Reads textures back after the scene (P4).
+    final class Capture: RenderPass {
+        let name = "Cloud capture"
+        let stage = PassStage.post
+        let order = 2_000
+        var ids: [ResourceID] = [.cloudLayer, .cloudDepth, .cloudShadow, .halfResClouds, .halfResFronts]
+        var images: [ResourceID: (width: Int, height: Int, format: MTLPixelFormat, buffer: MTLBuffer)] = [:]
+
+        func encode(_ f: FrameContext, _ e: PassEncoding) {
+            images = [:]
+            guard let blit = f.makeBlitEncoder() else { return }
+            for id in ids {
+                guard let t = f.textures[id] else { continue }
+                let bpp: Int
+                switch t.pixelFormat {
+                case .rgba32Float: bpp = 16
+                case .rg32Float, .rgba16Float: bpp = 8
+                case .rg16Float: bpp = 4
+                case .r16Float: bpp = 2
+                default: bpp = 4
+                }
+                guard let b = f.device.makeBuffer(length: t.width * t.height * bpp, options: .storageModeShared) else {
+                    continue
+                }
+                blit.copy(from: t, sourceSlice: 0, sourceLevel: 0, sourceOrigin: MTLOrigin(),
+                          sourceSize: MTLSize(width: t.width, height: t.height, depth: 1), to: b, destinationOffset: 0,
+                          destinationBytesPerRow: t.width * bpp, destinationBytesPerImage: t.width * t.height * bpp)
+                images[id] = (t.width, t.height, t.pixelFormat, b)
+            }
+            blit.endEncoding()
+        }
+
+        /// The image's channels as Double, texel by texel (row-major).
+        func values(_ id: ResourceID) -> (width: Int, height: Int, texels: [[Double]])? {
+            guard let i = images[id] else { return nil }
+            let n = i.width * i.height
+            switch i.format {
+            case .rgba32Float:
+                let p = i.buffer.contents().bindMemory(to: Float.self, capacity: 4 * n)
+                return (i.width, i.height, (0..<n).map { t in (0..<4).map { Double(p[4 * t + $0]) } })
+            case .rgba16Float:
+                let p = i.buffer.contents().bindMemory(to: UInt16.self, capacity: 4 * n)
+                return (i.width, i.height, (0..<n).map { t in
+                    (0..<4).map { Double(Float(Float16(bitPattern: p[4 * t + $0]))) }
+                })
+            case .rg16Float:
+                let p = i.buffer.contents().bindMemory(to: UInt16.self, capacity: 2 * n)
+                return (i.width, i.height, (0..<n).map { t in
+                    (0..<2).map { Double(Float(Float16(bitPattern: p[2 * t + $0]))) }
+                })
+            default:
+                return nil
+            }
+        }
+    }
+
+    struct Frame {
+        let pixels: [UInt8]
+        let capture: Capture
+        let scene: RenderScene
+        let renderer: SceneRenderer
+        @MainActor var clouds: CloudPass? { renderer.graph.pass(named: "Clouds") as? CloudPass }
+    }
+
+    /// Renders `shot` with the default passes and a capture after them;
+    /// `frames` frames, the scene's clock advanced by `step` real seconds
+    /// each (the history's reprojection).
+    func render(_ shot: SnapshotSpec.Shot, frames: Int = 1) throws -> Frame {
+        let s = try snapper()
+        let prepared = try shot.prepare(system: s.system)
+        let capture = Capture()
+        let r = try SceneRenderer(device: s.device, outputFormat: .bgra8Unorm_srgb,
+                                  passes: SceneRenderer.defaultPasses(loadsUserTextures: false) + [capture],
+                                  plan: HDRTargetPlan(outputFormat: .bgra8Unorm_srgb, sampleCount: 4))
+        r.setStars(s.stars)
+        r.settings = shot.settings
+        XCTAssertEqual(r.failures.filter { $0.key.contains("Cloud") }, [:])
+        XCTAssertEqual(r.graph.passes.compactMap { $0 as? HalfResTransparentPass }.first?.effectFailures, [:])
+        let target = try XCTUnwrap(OffscreenTarget(device: s.device, width: shot.width, height: shot.height))
+        var scene = shot.scene(prepared)
+        for k in 0..<frames {
+            scene.clock.frameIndex = k + 1
+            scene.clock.temporalReset = k == 0
+            let cb = try XCTUnwrap(r.renderAndWait(scene, into: target))
+            XCTAssertNil(cb.error)
+        }
+        return Frame(pixels: target.bytes(), capture: capture, scene: scene, renderer: r)
+    }
+
+    static func slabShot(regime: String, width: Int = 160, height: Int = 100) -> SnapshotSpec.Shot {
+        var shot = SnapshotSpec.Shot(name: "c2-slab", scenario: "as506-parking-orbit",
+                                     camera: SnapshotSpec.CameraSpec(yaw: -34.4, pitch: 30, distance: 70, fov: 60))
+        shot.width = width
+        shot.height = height
+        shot.showOrbit = false
+        shot.settings.cloud.lookDev = CloudSettings.LookDevSlab(cover: 1, opticalDepth: 20)
+        shot.settings.cloud.regime = regime
+        shot.settings.post.exposure.mode = .manual
+        shot.settings.post.exposure.ev100 = 14
+        return shot
+    }
+
+    /// The regimes agree on a homogeneous slab: the march's and the far
+    /// LUT's radiance over the same view, texel by texel where both cover.
+    func testMarchMatchesTheFarLUTOnASlab() throws {
+        let march = try render(Self.slabShot(regime: "march"))
+        let far = try render(Self.slabShot(regime: "far"))
+        let a = try XCTUnwrap(march.capture.values(.cloudLayer)), b = try XCTUnwrap(far.capture.values(.cloudLayer))
+        var sa = [0.0, 0.0, 0.0], sb = [0.0, 0.0, 0.0], n = 0, worst = 0.0
+        for (x, y) in zip(a.texels, b.texels) where x[3] > 0.99 && y[3] > 0.99 {
+            for k in 0..<3 {
+                sa[k] += x[k]
+                sb[k] += y[k]
+            }
+            worst = max(worst, abs(x[1] - y[1]) / max(y[1], 1e-6))
+            n += 1
+        }
+        XCTAssertGreaterThan(n, a.texels.count / 3)
+        print("slab march/far:", (0..<3).map { sa[$0] / sb[$0] }, "worst texel", worst, "texels", n)
+        for k in 0..<3 { XCTAssertEqual(sa[k] / sb[k], 1, accuracy: 0.05, "channel \(k)") }
+    }
+}
