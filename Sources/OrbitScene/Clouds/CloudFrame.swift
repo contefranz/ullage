@@ -11,6 +11,8 @@ import OrbitCore
 /// The clouds' frame for one scene: the Earth's body axes, centred on the
 /// camera.
 public struct CloudFrame: Equatable {
+    /// WGS-84's equatorial radius, m.
+    public static let earthRadius = 6_378_137.0
     /// The Earth's equatorial radius, m: the figure's sphere.
     public let radius: Double
     /// a / b: body z times this is the figure's z, where the ellipsoid is a

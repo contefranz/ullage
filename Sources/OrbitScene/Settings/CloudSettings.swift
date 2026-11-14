@@ -15,9 +15,9 @@ public struct CloudSettings: Codable, Equatable {
     public var lookDev: LookDevSlab?
     /// Force a regime, for look-dev: "auto", "march" or "far".
     public var regime = "auto"
-    /// The march's steps and its light march's samples and reach (m).
-    public var steps = 96
-    public var lightSamples = 6
+    /// The march's steps through clear air, and its light march's reach (m;
+    /// its samples are CloudLighting's).
+    public var steps = 64
     public var lightDistance = 1_500.0
     /// The near field's reach, m.
     public var nearReach = 150_000.0
@@ -39,6 +39,8 @@ public struct CloudSettings: Codable, Equatable {
     /// The pixel footprint on the layer (m) over which the march hands
     /// over to the far surface layer.
     public var farFootprint = [1_500.0, 6_000.0]
+    /// Profiling: stages left out ("weather", "shadow", "march", "resolve").
+    public var skip: [String] = []
 
     /// A uniform slab for the look-dev goldens.
     public struct LookDevSlab: Codable, Equatable {
@@ -54,8 +56,8 @@ public struct CloudSettings: Codable, Equatable {
     public init() {}
 
     private enum CodingKeys: String, CodingKey {
-        case enabled, weather, lookDev, regime, steps, lightSamples, lightDistance, nearReach, detail, reprojection
-        case shadowTexels, densityScale, farDensity, coverageModulation, farFootprint
+        case enabled, weather, lookDev, regime, steps, lightDistance, nearReach, detail, reprojection
+        case shadowTexels, densityScale, farDensity, coverageModulation, farFootprint, skip
     }
 
     public init(from decoder: Decoder) throws {
@@ -66,7 +68,6 @@ public struct CloudSettings: Codable, Equatable {
         lookDev = try c.decodeIfPresent(LookDevSlab.self, forKey: .lookDev)
         regime = try c.decodeIfPresent(String.self, forKey: .regime) ?? d.regime
         steps = try c.decodeIfPresent(Int.self, forKey: .steps) ?? d.steps
-        lightSamples = try c.decodeIfPresent(Int.self, forKey: .lightSamples) ?? d.lightSamples
         lightDistance = try c.decodeIfPresent(Double.self, forKey: .lightDistance) ?? d.lightDistance
         nearReach = try c.decodeIfPresent(Double.self, forKey: .nearReach) ?? d.nearReach
         detail = try c.decodeIfPresent(Double.self, forKey: .detail) ?? d.detail
@@ -76,5 +77,6 @@ public struct CloudSettings: Codable, Equatable {
         farDensity = try c.decodeIfPresent(Double.self, forKey: .farDensity) ?? d.farDensity
         coverageModulation = try c.decodeIfPresent(Double.self, forKey: .coverageModulation) ?? d.coverageModulation
         farFootprint = try c.decodeIfPresent([Double].self, forKey: .farFootprint) ?? d.farFootprint
+        skip = try c.decodeIfPresent([String].self, forKey: .skip) ?? []
     }
 }

@@ -143,3 +143,81 @@ final class CloudRenderTests: XCTestCase {
         for k in 0..<3 { XCTAssertEqual(sa[k] / sb[k], 1, accuracy: 0.05, "channel \(k)") }
     }
 }
+
+/// Track C2's GPU cost (ORBITSIM_CLOUD_COST=1, holding the GPU lock): the
+/// cloud pass alone against empty frames at 3024×1964, back to back and
+/// interleaved, three in flight, the difference of the medians of
+/// gpuEndTime − gpuStartTime; in the steady state (reprojecting) and fresh
+/// (every texel marched, as at 10× warp).
+@MainActor
+final class CloudCostTests: XCTestCase {
+    func testCostReport() throws {
+        guard ProcessInfo.processInfo.environment["ORBITSIM_CLOUD_COST"] != nil else {
+            throw XCTSkip("set ORBITSIM_CLOUD_COST=1 to measure")
+        }
+        let lock = GPULock { print("waiting for the GPU lock") }
+        defer { _ = lock }
+        let s = try SnapshotRenderer(device: try XCTUnwrap(RenderDevice.shared))
+        let shots: [(String, String, SnapshotSpec.CameraSpec, [String])] = [
+            ("pad", "as506-pad", SnapshotSpec.CameraSpec(yaw: -60, pitch: 12, distance: 300, fov: 60), []),
+            ("ascent-60s", "as506-pad", SnapshotSpec.CameraSpec(yaw: 149, pitch: -25, distance: 400, fov: 60), ["met:60"]),
+            ("leo", "as506-parking-orbit", SnapshotSpec.CameraSpec(yaw: -34.4, pitch: 30, distance: 70, fov: 60), []),
+            ("earth", "as506-parking-orbit",
+             SnapshotSpec.CameraSpec(target: "body:399", frame: "inertial", yaw: 223.5, pitch: 22.9, distance: 22_000_000), []),
+        ]
+        let filter = ProcessInfo.processInfo.environment["ORBITSIM_CLOUD_COST_SHOTS"].map { $0.split(separator: ",").map(String.init) }
+        for (name, scenario, camera, advance) in shots where filter?.contains(name) ?? true {
+            var shot = SnapshotSpec.Shot(name: name, scenario: scenario, advance: advance, camera: camera)
+            shot.width = 3024
+            shot.height = 1964
+            shot.showOrbit = false
+            let prepared = try shot.prepare(system: s.system)
+            let base = shot.scene(prepared)
+            for warp in [1.0, 10.0] {
+                // One renderer, one queue: the clouds on and off on alternate
+                // frames (separate queues' command buffers overlap on the GPU).
+                let clouds = CloudPass()
+                let a = try SceneRenderer(device: s.device, outputFormat: .bgra8Unorm_srgb, passes: [clouds],
+                                          plan: HDRTargetPlan(outputFormat: .bgra8Unorm_srgb, sampleCount: 4))
+                var on = a.settings, off = a.settings
+                off.cloud.enabled = false
+                if let json = ProcessInfo.processInfo.environment["ORBITSIM_CLOUD_SETTINGS"] {
+                    on.cloud = try JSONDecoder().decode(CloudSettings.self, from: Data(json.utf8))
+                }
+                if let skip = ProcessInfo.processInfo.environment["ORBITSIM_CLOUD_SKIP"] {
+                    on.cloud.skip = skip.split(separator: ",").map(String.init)
+                }
+                let target = try XCTUnwrap(OffscreenTarget(device: s.device, width: shot.width, height: shot.height))
+                final class Times: @unchecked Sendable {
+                    let lock = NSLock()
+                    var a: [Double] = [], b: [Double] = []
+                }
+                let times = Times()
+                var last: MTLCommandBuffer?
+                var reprojected = false
+                for k in 0..<240 {
+                    var scene = base
+                    scene.clock.frameIndex = k / 2 + 1
+                    scene.clock.temporalReset = k == 0
+                    scene.clock.warp = warp
+                    let measure = k >= 40, isOn = k % 2 == 0
+                    a.settings = isOn ? on : off
+                    last = a.render(scene, to: target.texture) { cb in
+                        guard measure else { return }
+                        times.lock.withLock {
+                            if isOn { times.a.append(cb.gpuEndTime - cb.gpuStartTime) } else { times.b.append(cb.gpuEndTime - cb.gpuStartTime) }
+                        }
+                    }
+                    if isOn { reprojected = clouds.lastFrame.reprojected }
+                }
+                last?.waitUntilCompleted()
+                Thread.sleep(forTimeInterval: 0.2)
+                func median(_ x: [Double]) -> Double { x.sorted()[x.count / 2] }
+                let cost = (median(times.a) - median(times.b)) * 1_000
+                print(String(format: "clouds %@ %@: %.2f ms (frame %.2f, empty %.2f; reprojected %@)", name,
+                             warp >= 10 ? "fresh" : "steady", cost, median(times.a) * 1_000, median(times.b) * 1_000,
+                             "\(reprojected)"))
+            }
+        }
+    }
+}

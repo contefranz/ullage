@@ -38,6 +38,8 @@ public final class CloudPass: RenderPass, HalfResEffect {
     public static let shellTop = 13_000.0, lowReference = 2_000.0, midReference = 4_500.0, cirrusHeight = 10_000.0
     /// The shadow map's channels: the optical depth above these heights (m).
     public static let shadowLevels: [Float] = [0, 2_000, 6_000, 10_000]
+    /// The large-scale structure's period on the sphere, m.
+    public static let structurePeriod = 400_000.0
     /// The Earth's least radius on screen for clouds, pixels.
     static let minimumRadius = 4.0
 
@@ -85,6 +87,13 @@ public final class CloudPass: RenderPass, HalfResEffect {
         func compute(_ name: String) throws -> MTLComputePipelineState {
             guard let f = library.makeFunction(name: name) else { throw ShaderLibrary.Failure.missingFunction(name) }
             return try s.device.makeComputePipelineState(function: f)
+        }
+        if ProcessInfo.processInfo.environment["ORBITSIM_CLOUD_COST"] != nil {
+            for n in ["cloud_march_kernel", "cloud_resolve", "cloud_weather", "cloud_shadow"] {
+                let p = try compute(n)
+                print("pipeline \(n): max threads \(p.maxTotalThreadsPerThreadgroup), width \(p.threadExecutionWidth), " +
+                      "static threadgroup memory \(p.staticThreadgroupMemoryLength)")
+            }
         }
         pipelines = (try compute("cloud_march_kernel"), try compute("cloud_resolve"), try compute("cloud_weather"),
                      try compute("cloud_shadow"), try compute("cloud_noise_shape"), try compute("cloud_noise_detail"),
@@ -185,7 +194,10 @@ public final class CloudPass: RenderPass, HalfResEffect {
         // P0: the frame uniforms alone (the shared ones are uploaded after it).
         f.bindFrameUniforms(enc)
         enc.setSamplerState(f.states.linearClamp, index: Binding.linearClampSampler)
-        encodeWeather(enc, weather: weather, params: params, map: weatherMap, pipeline: p.weather)
+        if !settings.skip.contains("weather") {
+            encodeWeather(enc, weather: weather, params: params, map: weatherMap, pipeline: p.weather, shape: noise.shape,
+                          wrap: samplers.wrap, structure: settings.lookDev == nil ? settings.coverageModulation : 0)
+        }
 
         // The uniforms.
         let size = EffectSlots.targetSize(width: f.size.width, height: f.size.height, scale: 2)
@@ -196,9 +208,9 @@ public final class CloudPass: RenderPass, HalfResEffect {
 
         // The shadow map.
         let shadowN = settings.shadowTexels
-        if shadowN > 0, frame.altitude < 2_000_000, encodeShadow(enc, f, frame: frame, u: &u, texels: shadowN,
-                                                                 pipeline: p.shadow, noise: noise, map: weatherMap,
-                                                                 samplers: samplers) {
+        if shadowN > 0, !settings.skip.contains("shadow"), frame.altitude < 2_000_000,
+           encodeShadow(enc, f, frame: frame, u: &u, texels: shadowN, pipeline: p.shadow, noise: noise, map: weatherMap,
+                        samplers: samplers) {
             f.slotTextures[Binding.cloudShadow] = shadowTexture
             if let t = shadowTexture { f.textures[.cloudShadow] = t }
         }
@@ -208,13 +220,15 @@ public final class CloudPass: RenderPass, HalfResEffect {
                                                               height: marchSize.height, mipmapped: false)
         colorD.usage = [.shaderRead, .shaderWrite]
         colorD.storageMode = .private
-        let depthD = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba32Float, width: marchSize.width,
+        // Depths as log2 of the linear depth, half floats (cloud_encodeDepth).
+        let depthD = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba16Float, width: marchSize.width,
                                                               height: marchSize.height, mipmapped: false)
         depthD.usage = [.shaderRead, .shaderWrite]
         depthD.storageMode = .private
         guard let hc = f.history.pair(Self.historyColor, descriptor: colorD),
               let hd = f.history.pair(Self.historyDepth, descriptor: depthD),
-              let freshColor = f.pool.texture(colorD), let freshDepth = f.pool.texture(depthD) else {
+              let freshColor = f.pool.texture(colorD), let freshDepth = f.pool.texture(depthD),
+              let outColor = f.pool.texture(colorD), let outDepth = f.pool.texture(depthD) else {
             enc.endEncoding()
             return
         }
@@ -238,27 +252,33 @@ public final class CloudPass: RenderPass, HalfResEffect {
         enc.setBytes(&slots, length: MemoryLayout<EffectSlotUniforms>.stride, index: 1)
         let threads = reprojects ? MTLSize(width: (marchSize.width + 1) / 2, height: (marchSize.height + 1) / 2, depth: 1)
                                  : MTLSize(width: marchSize.width, height: marchSize.height, depth: 1)
-        enc.dispatchThreads(threads, threadsPerThreadgroup: MTLSize(width: 8, height: 8, depth: 1))
+        if !settings.skip.contains("march") {
+            enc.dispatchThreads(threads, threadsPerThreadgroup: MTLSize(width: 8, height: 8, depth: 1))
+        }
 
         var r = CloudResolveUniforms()
         r.reprojection = reprojection
         r.target = SIMD4(Float(marchSize.width), Float(marchSize.height), 2, 2)
         r.checker = SIMD4(checker.x, checker.y, reprojects ? 1 : 0, historyValid ? 1 : 0)
         enc.setComputePipelineState(p.resolve)
-        enc.setTexture(freshColor, index: 0)
-        enc.setTexture(freshDepth, index: 1)
-        enc.setTexture(hc.previous, index: 2)
-        enc.setTexture(hd.previous, index: 3)
-        enc.setTexture(hc.current, index: 4)
-        enc.setTexture(hd.current, index: 5)
-        enc.setBytes(&r, length: MemoryLayout<CloudResolveUniforms>.stride, index: 0)
-        enc.dispatchThreads(MTLSize(width: marchSize.width, height: marchSize.height, depth: 1),
-                            threadsPerThreadgroup: MTLSize(width: 8, height: 8, depth: 1))
+        enc.setTexture(outColor, index: 0)
+        enc.setTexture(outDepth, index: 1)
+        enc.setTexture(freshColor, index: 10)
+        enc.setTexture(freshDepth, index: 11)
+        enc.setTexture(hc.previous, index: 12)
+        enc.setTexture(hd.previous, index: 13)
+        enc.setTexture(hc.current, index: 14)
+        enc.setTexture(hd.current, index: 15)
+        enc.setBytes(&r, length: MemoryLayout<CloudResolveUniforms>.stride, index: 1)
+        if !settings.skip.contains("resolve") {
+            enc.dispatchThreads(MTLSize(width: marchSize.width, height: marchSize.height, depth: 1),
+                                threadsPerThreadgroup: MTLSize(width: 8, height: 8, depth: 1))
+        }
         enc.endEncoding()
 
-        resolved = (hc.current, hd.current)
-        f.textures[.cloudLayer] = hc.current
-        f.textures[.cloudDepth] = hd.current
+        resolved = (outColor, outDepth)
+        f.textures[.cloudLayer] = outColor
+        f.textures[.cloudDepth] = outDepth
         previous = frame
         lastFrame = Report(drawn: true, reprojected: reprojects, motionPixels: motion, mission: mission,
                            regimes: regimes)
@@ -297,7 +317,8 @@ public final class CloudPass: RenderPass, HalfResEffect {
     }
 
     private func encodeWeather(_ enc: MTLComputeCommandEncoder, weather: CloudWeather, params: CloudWeatherMap.Parameters,
-                               map: (a: MTLTexture, b: MTLTexture), pipeline: MTLComputePipelineState) {
+                               map: (a: MTLTexture, b: MTLTexture), pipeline: MTLComputePipelineState,
+                               shape: MTLTexture, wrap: MTLSamplerState, structure: Double) {
         var textures: (MTLTexture, MTLTexture)?
         if let s = params.snapshots, let field = weather.field {
             var keep: [Int: MTLTexture] = [:]
@@ -322,12 +343,15 @@ public final class CloudPass: RenderPass, HalfResEffect {
         }
         p.layerModel = SIMD4(Float(CloudLayerModel.defaultLowBase), Float(CloudLayerModel.midBase),
                              Float(CloudLayerModel.lowDepth), Float(CloudLayerModel.cumulonimbusTop))
+        p.structure = SIMD4(Float(structure), Float(CloudFrame.earthRadius / Self.structurePeriod), 0, 0)
         var climate = params.climatology.map { SIMD4<Float>(Float($0.low), Float($0.mid), Float($0.high), 0) }
         enc.setComputePipelineState(pipeline)
         enc.setTexture(textures?.0 ?? placeholder, index: 0)
         enc.setTexture(textures?.1 ?? placeholder, index: 1)
         enc.setTexture(map.a, index: 2)
         enc.setTexture(map.b, index: 3)
+        enc.setTexture(shape, index: 4)
+        enc.setSamplerState(wrap, index: 0)
         climate.withUnsafeMutableBytes { b in
             enc.setBytes(b.baseAddress!, length: b.count, index: 0)
         }
@@ -453,7 +477,7 @@ public final class CloudPass: RenderPass, HalfResEffect {
                              Float(s.densityScale))
         u.layers = SIMD4(Float(CloudLayerModel.midBase), Float(CloudLayerModel.midTop), Float(CloudLayerModel.highBase),
                          Float(CloudLayerModel.highTop))
-        u.march = SIMD4(Float(max(s.steps, 8)), Float(max(s.lightSamples, 1)), Float(s.lightDistance), Float(s.nearReach))
+        u.march = SIMD4(Float(max(s.steps, 8)), 0, Float(s.lightDistance), Float(s.nearReach))
         let lighting = CloudLighting(), mie = lighting.mie
         u.mie = SIMD4(Float(mie.gHG), Float(mie.gDraine), Float(mie.alpha), Float(mie.weightDraine))
         u.lighting = SIMD4(Float(lighting.backscatter), Float(lighting.minimumSunCosine), Float(s.detail),
@@ -552,6 +576,7 @@ struct CloudWeatherParams {
     var overridePlace = (SIMD4<Float>.zero, SIMD4<Float>.zero)
     var overrideSky = (SIMD4<Float>.zero, SIMD4<Float>.zero)
     var layerModel = SIMD4<Float>.zero
+    var structure = SIMD4<Float>.zero
 }
 
 /// Swift mirror of CloudShaders' CloudResolveUniforms.

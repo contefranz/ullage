@@ -88,7 +88,7 @@ public struct CloudLighting: Equatable {
     public var asymmetry = CloudLayerModel.waterAsymmetry
     /// The light march: `lightSamples` samples over `lightDistance` (m)
     /// towards the Sun, the segments growing quadratically from the sample.
-    public var lightSamples = 6
+    public var lightSamples = 4
     public var lightDistance = 1_500.0
     /// The least cosine of the Sun's zenith the diffuse streams are fed
     /// with: a cloud lit by a low Sun takes it on its sides as well as its
