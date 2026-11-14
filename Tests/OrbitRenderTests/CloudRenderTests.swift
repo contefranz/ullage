@@ -120,6 +120,9 @@ final class CloudRenderTests: XCTestCase {
         shot.settings.cloud.regime = regime
         shot.settings.post.exposure.mode = .manual
         shot.settings.post.exposure.ev100 = 14
+        // The slab alone: no air between it and the camera (A2's aerial
+        // perspective is the same for the march and the far layer).
+        shot.settings.atmosphere.enabled = false
         return shot
     }
 
@@ -175,7 +178,7 @@ final class CloudRenderTests: XCTestCase {
             let c = try XCTUnwrap(f.capture.values(.halfResClouds))
             let cam = f.scene.camera
             let slab = CloudSlab(thickness: 1_500)
-            let air = CloudTables.air
+            let air = try XCTUnwrap(AtmosphereTables.shared.tables(wait: true))
             var ratios: [Double] = []
             for (x, y) in [(c.width / 2, c.height / 2), (c.width / 4, 3 * c.height / 4), (3 * c.width / 4, c.height / 2)] {
                 let t = c.texels[y * c.width + x]
@@ -485,7 +488,7 @@ final class CloudMapTests: XCTestCase {
     /// The cloud uniforms' Swift mirrors have MSL's sizes.
     func testStructLayoutsMatchMSL() throws {
         let device = try XCTUnwrap(RenderDevice.shared)
-        let module = ShaderModule(name: "CloudSizes", headers: [.effectSlots], source: cloudShaderSource + """
+        let module = ShaderModule(name: "CloudSizes", headers: [.effectSlots, .atmosphereCommon], source: cloudShaderSource + """
             kernel void cloud_sizes(device uint *out [[buffer(0)]]) {
                 out[0] = sizeof(CloudUniforms);
                 out[1] = sizeof(CloudWeatherParams);

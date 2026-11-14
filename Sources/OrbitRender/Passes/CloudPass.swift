@@ -54,6 +54,9 @@ public final class CloudPass: RenderPass, HalfResEffect {
     private var slotPipeline: MTLRenderPipelineState?
     private(set) var noise: CloudNoiseVolumes?
     private var tables: CloudTables?
+    private var air: CloudAir?
+    /// This frame's air tables (A2's, or A2's uploaded here).
+    private var frameAir: CloudAir.Tables?
     private var samplers: (wrap: MTLSamplerState, weather: MTLSamplerState)?
     private(set) var weatherMap: (a: MTLTexture, b: MTLTexture)?
     private var snapshots: [Int: MTLTexture] = [:]
@@ -114,6 +117,8 @@ public final class CloudPass: RenderPass, HalfResEffect {
                      try compute("cloud_noise_curl"))
         noise = CloudNoiseVolumes(device: s.device)
         tables = CloudTables(device: s.device)
+        air = CloudAir(device: s.device)
+        air?.request(AtmosphereSettings())
         let w = MTLSamplerDescriptor()
         w.minFilter = .linear
         w.magFilter = .linear
@@ -191,8 +196,10 @@ public final class CloudPass: RenderPass, HalfResEffect {
     public func encode(_ f: FrameContext, _ e: PassEncoding) {
         resolved = nil
         lastFrame = Report()
+        frameAir = nil
         guard case .commandBuffer(let cb) = e, let earth = earth(f), let p = pipelines, let noise, let tables,
-              let samplers, let weatherMap else { return }
+              let samplers, let weatherMap, let airTables = air?.tables(f) else { return }
+        frameAir = airTables
         noise.generate(on: cb, pipelines: (p.shape, p.detail, p.curl))
         let settings = f.settings.cloud
         let frame = CloudFrame(earth: earth)
@@ -227,7 +234,7 @@ public final class CloudPass: RenderPass, HalfResEffect {
         let size = EffectSlots.targetSize(width: f.size.width, height: f.size.height, scale: scale)
         let marchSize = RenderSize(width: size.width, height: size.height)
         var u = uniforms(f, frame: frame, settings: settings, sample: sample, regimes: regimes, size: marchSize,
-                         scale: scale, hasField: params.snapshots != nil, airTop: tables.airTop)
+                         scale: scale, hasField: params.snapshots != nil, airTop: airTables.top)
 
         // The shadow map.
         let shadowN = settings.shadowTexels
@@ -271,7 +278,7 @@ public final class CloudPass: RenderPass, HalfResEffect {
         enc.setComputePipelineState(p.march)
         enc.setTexture(freshColor, index: 0)
         enc.setTexture(freshDepth, index: 1)
-        bindField(enc, noise: noise, tables: tables, map: weatherMap, samplers: samplers)
+        bindField(enc, noise: noise, tables: tables, air: airTables, map: weatherMap, samplers: samplers)
         enc.setBytes(&u, length: MemoryLayout<CloudUniforms>.stride, index: 0)
         enc.setBytes(&slots, length: MemoryLayout<EffectSlotUniforms>.stride, index: 1)
         let threads = reprojects ? MTLSize(width: (marchSize.width + 1) / 2, height: (marchSize.height + 1) / 2, depth: 1)
@@ -311,7 +318,8 @@ public final class CloudPass: RenderPass, HalfResEffect {
     // MARK: The slot
 
     public func encodeHalfRes(_ f: FrameContext, _ slots: HalfResSlots, _ enc: MTLRenderCommandEncoder) {
-        guard let resolved, let slotPipeline, let noise, let tables, let weatherMap, let samplers else { return }
+        guard let resolved, let slotPipeline, let noise, let tables, let frameAir, let weatherMap, let samplers
+        else { return }
         var scale = SIMD4<Float>(resolved.color.width == slots.size.width && resolved.color.height == slots.size.height
                                  ? 1 : 0, 0, 0, 0)
         var u = uniformsForSlot
@@ -327,8 +335,8 @@ public final class CloudPass: RenderPass, HalfResEffect {
         enc.setFragmentTexture(weatherMap.a, index: 5)
         enc.setFragmentTexture(weatherMap.b, index: 6)
         enc.setFragmentTexture(tables.slab, index: 7)
-        enc.setFragmentTexture(tables.transmittance, index: 8)
-        enc.setFragmentTexture(tables.irradiance, index: 9)
+        enc.setFragmentTexture(frameAir.transmittance, index: 8)
+        enc.setFragmentTexture(frameAir.irradiance, index: 9)
         enc.setFragmentSamplerState(samplers.wrap, index: 0)
         enc.setFragmentSamplerState(samplers.weather, index: 1)
         enc.setFragmentSamplerState(f.states.linearClamp, index: Binding.linearClampSampler)
@@ -417,15 +425,16 @@ public final class CloudPass: RenderPass, HalfResEffect {
     }
 
     private func bindField(_ enc: MTLComputeCommandEncoder, noise: CloudNoiseVolumes, tables: CloudTables,
-                           map: (a: MTLTexture, b: MTLTexture), samplers: (wrap: MTLSamplerState, weather: MTLSamplerState)) {
+                           air: CloudAir.Tables, map: (a: MTLTexture, b: MTLTexture),
+                           samplers: (wrap: MTLSamplerState, weather: MTLSamplerState)) {
         enc.setTexture(noise.shape, index: 2)
         enc.setTexture(noise.detail, index: 3)
         enc.setTexture(noise.curl, index: 4)
         enc.setTexture(map.a, index: 5)
         enc.setTexture(map.b, index: 6)
         enc.setTexture(tables.slab, index: 7)
-        enc.setTexture(tables.transmittance, index: 8)
-        enc.setTexture(tables.irradiance, index: 9)
+        enc.setTexture(air.transmittance, index: 8)
+        enc.setTexture(air.irradiance, index: 9)
         enc.setSamplerState(samplers.wrap, index: 0)
         enc.setSamplerState(samplers.weather, index: 1)
     }
@@ -530,10 +539,12 @@ public final class CloudPass: RenderPass, HalfResEffect {
         u.target = SIMD4(Float(size.width), Float(size.height), Float(scale), Float(scale))
         u.lut = SIMD4(Float(CloudSlabLUT.depths), Float(CloudSlabLUT.cosines), Float(CloudSlabLUT.minDepth),
                       Float(log(CloudSlabLUT.maxDepth / CloudSlabLUT.minDepth)))
-        // The low layer's base where the camera is: under it, far clouds
-        // seen from below may be the surface layer.
-        let lowBase = s.lookDev?.base ?? CloudLayerModel.layers(sample)[0].base
-        u.lut2 = SIMD4(Float(CloudSlabLUT.minCosine), hasField ? 1 : 0, Float(lowBase), 0)
+        // The low layer's base and top where the camera is: under it, or over
+        // it looking down, far clouds may be the surface layer.
+        let low = CloudLayerModel.layers(sample)[0]
+        let lowBase = s.lookDev?.base ?? low.base
+        let lowTop = s.lookDev.map { $0.base + $0.thickness } ?? low.top
+        u.lut2 = SIMD4(Float(CloudSlabLUT.minCosine), hasField ? 1 : 0, Float(lowBase), Float(lowTop))
         u.shadowLevels = SIMD4(Self.shadowLevels[0], Self.shadowLevels[1], Self.shadowLevels[2], Self.shadowLevels[3])
         let table = CloudCoverage.standard
         func entry(_ i: Int) -> SIMD4<Float> {

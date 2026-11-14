@@ -150,6 +150,8 @@ final class AtmospherePassTests: XCTestCase {
         s.post.bloom = 0
         s.post.sunGlare = false
         s.post.dither = false
+        // The air alone: C2's clouds would draw over the sky the tests read.
+        s.cloud.enabled = false
         return s
     }
 
