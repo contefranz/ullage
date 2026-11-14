@@ -66,7 +66,9 @@ public enum CloudCoverage {
     /// (CloudShaders' cloud_profileLow and cloud_profileMid).
     public static func profile(layer: Int, _ h: Double) -> Double {
         func ramp(_ x: Double) -> Double { min(max(x, 0), 1) }
-        return layer == 0 ? ramp(h / 0.08) * ramp((1 - h) / 0.6) : ramp(h / 0.2) * ramp((1 - h) / 0.45)
+        func smooth(_ a: Double, _ b: Double, _ x: Double) -> Double { let t = ramp((x - a) / (b - a)); return t * t * (3 - 2 * t) }
+        // The mid layer's lens: peaked at 0.35, rounded off both ways.
+        return layer == 0 ? ramp(h / 0.08) * ramp((1 - h) / 0.6) : smooth(0, 0.35, h) * (1 - smooth(0.35, 0.9, h))
     }
 
     /// The march's density in [0, 1] at a texel of shape value v, height
