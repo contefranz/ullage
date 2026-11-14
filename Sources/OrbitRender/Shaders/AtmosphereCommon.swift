@@ -6,8 +6,10 @@
 // the vessel's, clouds', plumes' and particles' when they adopt it). Track
 // A2 owns this file; docs/look/atmosphere.md is its contract.
 //
-// Units: the tables are per unit solar irradiance; the sky-view LUT and the
-// froxels hold cd/m² (not pre-exposed). Figure coordinates: the planet's
+// Units: the tables are per unit solar irradiance; the sky-view LUT, the
+// froxels and the haze from space hold cd/m² (not pre-exposed) in
+// rgba32Float, since toward a low Sun they pass half float's 65,504.
+// Figure coordinates: the planet's
 // body axes with z stretched by a/b, where its ellipsoid is the sphere of
 // radius `AtmosphereUniforms.radii.x` (A1's ground) and the top is `radii.y`.
 let atmosphereCommonSource = #"""

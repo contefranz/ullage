@@ -79,6 +79,20 @@ left alone):
   (`.atmosphereIrradiance`, `.atmosphereProfile`) for a pass to bind at its
   own index (the planet module: 1 and 2). The haze from space is
   `.spaceGroundScatter` / `.spaceGroundTransmittance`.
+- **Storage: P0's light is rgba32Float, in cd/m², not pre-exposed.** The
+  sky-view LUT, the froxels and the haze from space (`.spaceGroundScatter`)
+  hold luminance as it is, so a reader multiplies by
+  `FrameUniforms.exposure.x` and clamps at 6e4, as R1's contract has it, and
+  needs no scale of A2's. Half float would not hold it: toward a low Sun A1's
+  aerosol (g 0.8) scatters forward far past half float's 65,504 (which a
+  write turns into +∞). In red that is about 1.5e5 cd/m² along the froxels
+  toward the dawn pad's Sun at 7°, and 9e4 over the ground at the silhouette
+  from low orbit with the Sun 5-9° above the limb. Every froxel is finite. A
+  fixed storage scale in half float (kcd/m²) would also fit, but it puts
+  A2's unit into every reader. Pre-exposing ties the froxels to one frame's
+  exposure. rgba32Float costs 512 KB for the froxels and 6 MB for the haze at
+  3024 × 1964 (a quarter of the resolution); see the cost below. The haze's
+  transmittance (0-1) stays rgba16Float.
 - **The header** (`ShaderHeader.atmosphereCommon`): A1's table lookups
   (`atmo_transmittanceToTop`, `atmo_transmittanceToSun`, `atmo_sunTable`),
   the medium, the phase functions, `atmo_march` and `atmo_step`,
@@ -123,8 +137,17 @@ the limb from orbit within 1.5 %; the ground from orbit within 3 % (the
 quarter-resolution haze) and from the pad within 4 %; froxels within 2 %;
 the light behind the air transmitted per channel within 2 %; the Sun's disc
 at EV 27 within 3 %; the uniforms R2 reads; the probe face equal to the view
-within 1 %; no NaN from the pad to lunar orbit. Half float's subnormals are
-0.0024 cd/m² at EV 15, which bounds what a test can read in the dark.
+within 1 %; no NaN from the pad to lunar orbit. Two tests cover the haze
+past half float's range:
+- From low orbit, with the Sun 6-8° above the limb, the ground along the
+  silhouette is the march's within 3 %, bilinear between P0's texels as the
+  planet samples them. It is neither black nor clipped, and the haze there
+  passes 65,504 cd/m².
+- At the dawn pad, every froxel is finite, and the columns toward the Sun
+  are the march's within 2 %, past 65,504 cd/m².
+
+Half float's subnormals are 0.0024 cd/m² at EV 15 in the scene buffer,
+which bounds what a test can read in the dark.
 
 Look-dev goldens: `docs/look/shots/a2-look.json` (dawn toward and away from
 the Sun, the daylit limb, the sunset limb, the whole Earth). Scenes with the

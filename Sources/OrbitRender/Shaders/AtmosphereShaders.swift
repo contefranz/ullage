@@ -62,7 +62,8 @@ kernel void atmosphere_skyView(texture2d<float, access::write> out [[texture(0)]
 // Each froxel marches its pixel's ray from the camera to its slice's
 // distance far·((i + 1)/n)^k on its own (in parallel: a column marched
 // slice by slice is too few threads to fill the GPU): in-scattered
-// luminance (cd/m²) in rgb and the transmittance's mean in a.
+// luminance (cd/m²) in rgb and the transmittance's mean in a. The volume is
+// rgba32Float: toward a low Sun the light passes 1e5 cd/m².
 kernel void atmosphere_froxels(texture3d<float, access::write> out [[texture(0)]],
                                constant AtmospherePassUniforms &p [[buffer(0)]],
                                constant AtmosphereView &view [[buffer(1)]],
@@ -92,7 +93,8 @@ kernel void atmosphere_froxels(texture3d<float, access::write> out [[texture(0)]
 // too much when the Earth fills the frame): in-scattered luminance (cd/m²)
 // and the transmittance, to where the ray meets the ground, or for a ray
 // that misses it to its closest approach to the planet, so the values run on
-// smoothly across the silhouette.
+// smoothly across the silhouette. The haze is rgba32Float: at the silhouette
+// under a Sun a few degrees above the limb it passes 65,504 cd/m².
 kernel void atmosphere_spaceGround(texture2d<float, access::write> scatter [[texture(0)]],
                                    texture2d<float, access::write> transmitted [[texture(2)]],
                                    constant AtmospherePassUniforms &p [[buffer(0)]],
