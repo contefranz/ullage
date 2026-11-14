@@ -7,8 +7,9 @@ import OrbitCore
 /// darkening, and the sky against external references (the CIE standard
 /// clear sky, the Earth's shadow over an observer).
 final class AtmosphereSkyTests: XCTestCase {
-    /// A1's tables at the standard resolution (about 0.3 s in Release).
-    static let lut = AtmosphereLUT()
+    /// A1's tables at the standard resolution, the renderer's (0.33 s in
+    /// Release, 25 s in Debug, once per process).
+    static var lut: AtmosphereLUT { AtmosphereTables.shared.tables(wait: true)! }
     static let system = try! SolarSystem.bundled()
 
     var lut: AtmosphereLUT { Self.lut }

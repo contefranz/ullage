@@ -140,7 +140,7 @@ final class AtmospherePassTests: XCTestCase {
     func device() throws -> MTLDevice { try XCTUnwrap(RenderDevice.shared, "no Metal device") }
 
     var lut: AtmosphereLUT {
-        AtmosphereTableStore.shared.tables(AtmosphereTableStore.Key(AtmosphereSettings()), wait: true)!
+        AtmosphereTables.shared.tables(wait: true)!
     }
 
     func settings(ev100: Double = 15) -> RenderSettings {
@@ -352,6 +352,24 @@ final class AtmospherePassTests: XCTestCase {
             }
         }
         XCTAssertGreaterThan(checked, 40)
+    }
+
+    /// The Sun's disc itself, seen through a solar filter (EV 27): R1's
+    /// disc luminance at its centre times the transmittance along that ray,
+    /// per channel, about A1's (0.37, 0.18, 0.052) at 7°.
+    func testTheSunsDiscIsTransmitted() throws {
+        let r = try renderer(ev100: 27)
+        let scene = self.scene(.apollo8DawnPad, width: 64, height: 64, fovY: 1.2) { $0.sun.direction }
+        let frame = try XCTUnwrap(AtmosphereFrame(scene: scene, tables: lut))
+        let light = try self.light(r, scene)
+        let d = direction(scene, x: 32, y: 32)
+        XCTAssertGreaterThan(d.dot(scene.sun.direction), cos(0.05 * Double.pi / 180), "pixel 32,32 is the disc's centre")
+        let t = lut.transmittanceToTop(radius: frame.cameraRadius, cosZenith: frame.figureDirection(d).dot(frame.up))
+        let centre = Photometry.sunColor.scaled(by: Photometry.solarLuminance * Photometry.solarCentreOverMean)
+        let sky = try XCTUnwrap(sky(frame, scene, d, steps: 64)).radiance
+        let want = Spectrum3(centre.r * t.r, centre.g * t.g, centre.b * t.b) + sky
+        assertClose(rgb(light, 32 * 64 + 32), want, 0.03, "the disc's centre")
+        XCTAssertEqual(t.g, frame.sunTransmittance.g, accuracy: 0.1 * t.g)
     }
 
     // MARK: From orbit

@@ -94,11 +94,14 @@ Checks in `Tests/OrbitSceneTests/PhotometryTests.swift`: the 1948 candela
 - **Dither**: ±1 step of the 8-bit output (within about 20 %), triangular,
   from a 64² blue noise moving each frame.
 
-## The transition (until A2, E2, R2 and P2)
+## The transition (until R2 and P2)
 
-Today's planet, vessel and plume shaders compute light relative to a white
+Today's vessel and plume shaders compute light relative to a white
 Lambert surface facing the Sun; they multiply it by P · E⊙/π. Their ambient
-floors (0.015 for the planets, 0.02 for the vessels) instead stay as they
-were on screen, a night floor relative to the exposure, so that the night
-side is dark under any exposure. The Sun is drawn by the star pass, not the
+floors (0.02 for the vessels) instead stay as they were on screen, a night
+floor relative to the exposure, so that the night side is dark under any
+exposure. The planets are photometric since A2 (docs/look/atmosphere.md):
+Lambert grounds under the Sun's colour, the Earth's lit and hazed through the
+air, its sky drawn by the atmosphere's composite; their night floor (0.015)
+stays relative to the exposure. The Sun is drawn by the star pass, not the
 planet pass. The orbit line and markers draw after tone mapping.

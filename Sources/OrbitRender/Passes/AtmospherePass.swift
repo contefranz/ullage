@@ -27,74 +27,6 @@ extension ResourceID {
     public static let spaceGroundTransmittance = ResourceID("spaceGroundTransmittance")
 }
 
-/// A1's tables (`AtmosphereLUT`), built once per process for each optics on
-/// a background queue: about 0.2 s in Release on the Mac.
-final class AtmosphereTableStore: @unchecked Sendable {
-    static let shared = AtmosphereTableStore()
-
-    struct Key: Hashable {
-        var aerosolOpticalDepth: Double
-        var groundAlbedo: Double
-
-        init(_ s: AtmosphereSettings) {
-            aerosolOpticalDepth = s.aerosolOpticalDepth
-            groundAlbedo = s.groundAlbedo
-        }
-    }
-
-    private final class Entry {
-        let done = DispatchSemaphore(value: 0)
-        var tables: AtmosphereLUT?
-        var seconds = 0.0
-    }
-
-    private let lock = NSLock()
-    private var entries: [Key: Entry] = [:]
-
-    /// Starts building the tables for `key` if nobody has.
-    func request(_ key: Key) {
-        lock.lock()
-        defer { lock.unlock() }
-        guard entries[key] == nil else { return }
-        let entry = Entry()
-        entries[key] = entry
-        DispatchQueue.global(qos: .userInitiated).async {
-            let start = Date()
-            let optics = OpticalAtmosphere(aerosol: OpticalAtmosphere.Aerosol(opticalDepth550: key.aerosolOpticalDepth))
-            let tables = AtmosphereLUT(optics: optics, groundAlbedo: Spectrum3(repeating: key.groundAlbedo))
-            self.lock.lock()
-            entry.tables = tables
-            entry.seconds = Date().timeIntervalSince(start)
-            self.lock.unlock()
-            entry.done.signal()
-        }
-    }
-
-    /// The tables for `key`, waiting for them when `wait` is set; nil while
-    /// they are being built.
-    func tables(_ key: Key, wait: Bool) -> AtmosphereLUT? {
-        request(key)
-        lock.lock()
-        let entry = entries[key]!
-        let tables = entry.tables
-        lock.unlock()
-        if let tables { return tables }
-        guard wait else { return nil }
-        entry.done.wait()
-        entry.done.signal()
-        lock.lock()
-        defer { lock.unlock() }
-        return entry.tables
-    }
-
-    /// How long the build took, s (0 until it is done).
-    func buildSeconds(_ key: Key) -> Double {
-        lock.lock()
-        defer { lock.unlock() }
-        return entries[key]?.seconds ?? 0
-    }
-}
-
 /// The atmosphere's LUTs and aerial-perspective froxels (P0).
 ///
 /// - Once, and when the optics change: A1's transmittance (texture slot
@@ -135,7 +67,7 @@ public final class AtmosphereLUTPass: RenderPass {
     }
 
     private struct Tables {
-        let key: AtmosphereTableStore.Key
+        let key: AtmosphereTables.Key
         let lut: AtmosphereLUT
         let transmittance: MTLTexture
         let multipleScattering: MTLTexture
@@ -166,7 +98,7 @@ public final class AtmosphereLUTPass: RenderPass {
         spaceGroundPipeline = try s.device.makeComputePipelineState(function: ground)
         device = s.device
         // Start A1's tables now, so they are ready by the first frame.
-        AtmosphereTableStore.shared.request(AtmosphereTableStore.Key(AtmosphereSettings()))
+        AtmosphereTables.shared.request(AtmosphereTables.Key(AtmosphereSettings()))
     }
 
     public func isActive(in f: FrameContext) -> Bool {
@@ -175,14 +107,14 @@ public final class AtmosphereLUTPass: RenderPass {
 
     /// The tables' build time, s, for the settings given (0 until built).
     public static func tableBuildSeconds(_ s: AtmosphereSettings = AtmosphereSettings()) -> Double {
-        AtmosphereTableStore.shared.buildSeconds(AtmosphereTableStore.Key(s))
+        AtmosphereTables.shared.buildSeconds(AtmosphereTables.Key(s))
     }
 
     public func encode(_ f: FrameContext, _ e: PassEncoding) {
         Self.handoff = nil
         let settings = f.settings.atmosphere
         guard let device, let skyViewPipeline, let froxelPipeline, let spaceGroundPipeline,
-              let t = uploadedTables(AtmosphereTableStore.Key(settings), wait: settings.waitForTables, device: device),
+              let t = uploadedTables(AtmosphereTables.Key(settings), wait: settings.waitForTables, device: device),
               let frame = AtmosphereFrame(scene: f.scene, tables: t.lut, froxelSlices: settings.froxelSlices,
                                           froxelExponent: settings.froxelExponent) else { return }
         Self.fill(&f.atmosphere, frame: frame, tables: t.lut)
@@ -284,9 +216,9 @@ public final class AtmosphereLUTPass: RenderPass {
 
     // MARK: Textures
 
-    private func uploadedTables(_ key: AtmosphereTableStore.Key, wait: Bool, device: MTLDevice) -> Tables? {
+    private func uploadedTables(_ key: AtmosphereTables.Key, wait: Bool, device: MTLDevice) -> Tables? {
         if let tables, tables.key == key { return tables }
-        guard let lut = AtmosphereTableStore.shared.tables(key, wait: wait),
+        guard let lut = AtmosphereTables.shared.tables(key, wait: wait),
               let transmittance = Self.upload(lut.transmittance, device: device),
               let multiple = Self.upload(lut.multipleScattering, device: device),
               let irradiance = Self.upload(lut.irradiance, device: device),
