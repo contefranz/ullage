@@ -5,15 +5,19 @@ import OrbitCore
 import OrbitScene
 @testable import OrbitRender
 
-/// What a break of the scene costs on the HDR plan (R6's effect slots
-/// drawing a small slab), against the same frame without it: with the
-/// scene re-expanded after the break, and with its samples kept. Whole
-/// frames' GPU times in one renderer, the three cases alternating frame by
-/// frame (two renderers' queues overlap on the GPU), then the profile's
-/// line for the pass that breaks the scene. A performance run, at the
-/// display's size unless ORBITSIM_TIMINGS_SIZE=WxH: ORBITSIM_TIMINGS=1
-/// scripts/test.sh fast --no-parallel --filter HDRBreakCostTests. It holds
-/// the GPU lock.
+/// What a break of the scene costs on the HDR plan, against the same frame
+/// without one, in five cases: no effect; R6's effect slots drawing a small
+/// slab, with the scene re-expanded after the break and with its samples
+/// kept; and a pass that breaks the scene and draws nothing, both ways.
+/// Whole frames' GPU times in one renderer, the five cases alternating
+/// frame by frame (two renderers' queues overlap on the GPU), each round in
+/// another order; then the profile's line for the pass that breaks the
+/// scene. A performance run, which holds the GPU lock:
+///
+///     ORBITSIM_TIMINGS=1 scripts/test.sh fast --no-parallel --filter HDRBreakCostTests
+///
+/// 300 rounds at 3024×1964 unless ORBITSIM_TIMINGS_ROUNDS=N or
+/// ORBITSIM_TIMINGS_SIZE=WxH say otherwise.
 @MainActor
 final class HDRBreakCostTests: XCTestCase {
     enum Case: String, CaseIterable {
@@ -68,7 +72,7 @@ final class HDRBreakCostTests: XCTestCase {
         let cases = Case.allCases
         for _ in 0..<15 { for c in cases { _ = try frame(c) } }
         var times: [Case: [Double]] = [:]
-        let rounds = Int(env["ORBITSIM_TIMINGS_ROUNDS"] ?? "") ?? 120
+        let rounds = Int(env["ORBITSIM_TIMINGS_ROUNDS"] ?? "") ?? 300
         for k in 0..<rounds {
             // Each round in another order, so no case always follows another.
             for j in 0..<cases.count {

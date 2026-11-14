@@ -535,11 +535,13 @@ extension FrameGraphTests {
         let scene = SceneExtractor().extract(sim: sim, camera: camera,
                                              viewport: RenderScene.Viewport(width: 320, height: 200), realTime: 0)
         let stars = try StarCatalog.bundled()
+        var plan: HDRTargetPlan?
         func image(_ extra: [RenderPass], timing: Bool = false) throws -> [UInt8] {
             let device = try device()
+            let p = HDRTargetPlan(outputFormat: .bgra8Unorm_srgb, sampleCount: 4)
+            plan = p
             let r = try SceneRenderer(device: device, outputFormat: .bgra8Unorm_srgb,
-                                      passes: SceneRenderer.defaultPasses(loadsUserTextures: false) + extra,
-                                      plan: HDRTargetPlan(outputFormat: .bgra8Unorm_srgb, sampleCount: 4))
+                                      passes: SceneRenderer.defaultPasses(loadsUserTextures: false) + extra, plan: p)
             r.setStars(stars)
             r.profiling = timing
             r.profileInterval = 1
@@ -554,6 +556,8 @@ extension FrameGraphTests {
             if stage == .transparent {
                 let steps = zip(broken, plain).map { abs(Int($0) - Int($1)) }
                 XCTAssertLessThanOrEqual(steps.max() ?? 2, 1, "a break in \(stage) at \(order)")
+                XCTAssertEqual(plan?.breakStores, [.multisampleResolve], "re-expanded: no sample stored")
+                XCTAssertEqual(plan?.expansions.drawn, 1)
             } else {
                 XCTAssertEqual(broken, plain, "a break in \(stage) at \(order)")
             }

@@ -202,6 +202,9 @@ extension HDRLookTests {
         let s = BreakScene()
         let new = try renderBreak(s, resolves: true)
         XCTAssertEqual(s.breaker.encoded, 1)
+        XCTAssertEqual(new.plan.breakStores, [.multisampleResolve], "no sample stored")
+        XCTAssertEqual(new.plan.expansions.drawn, 1)
+        XCTAssertEqual(kept.plan.breakStores, [.storeAndMultisampleResolve])
 
         var edges = 0, edgesInFront = 0, edgesBehind = 0, interior = 0
         var hidden: Float = 0
@@ -248,8 +251,10 @@ extension HDRLookTests {
 }
 
 extension HDRLookTests {
-    /// A frame that breaks nothing is untouched: the same light and bytes
-    /// with the re-expansion on or off, no stored samples, no re-expansion.
+    /// A frame that breaks nothing sets its stores up front, as before this
+    /// change: nothing is stored, decided at a break or re-expanded, and
+    /// the re-expansion's switch changes nothing (it is never read there).
+    /// That such a frame matches main's to the bit is the look-dev goldens'.
     func testFramesWithoutABreakAreUntouched() throws {
         let on = try renderBreak(BreakScene(), resolves: true, breaking: false)
         let off = try renderBreak(BreakScene(), resolves: false, breaking: false)
@@ -258,6 +263,7 @@ extension HDRLookTests {
         XCTAssertEqual(on.depth, off.depth)
         XCTAssertNil(on.plan.stored.color)
         XCTAssertEqual(on.plan.expansions.drawn, 0)
+        XCTAssertEqual(on.plan.breakStores, [])
     }
 
     /// Two breaks in P3: the scene is resolved and re-expanded twice, and
