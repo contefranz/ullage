@@ -265,6 +265,52 @@ final class ShadowPassTests: XCTestCase {
         XCTAssertLessThan(mean, 0.002)
     }
 
+    /// The grain stays on the casters: when the detail map's window steps
+    /// (the centre of mass, which the camera orbits, drifting on the
+    /// vessel), every receiver on the vessel keeps its filtered value, the
+    /// penumbrae's noise included. Before the fix the filter's rotation was
+    /// keyed to the window's texel index and re-rolled at every step.
+    func testDetailWindowStepKeepsTheGrain() throws {
+        let (r, pass) = try shadowRenderer()
+        let probe = try Probe(device: r.device)
+        // The shadow cubes close up: a detail map on the plate.
+        func scene(comShift: Vec3) -> RenderScene {
+            var s = ShadowLookDevTests.scene(distance: 9)
+            s.vessels[0].position = s.vessels[0].position + comShift
+            s.vessels[0].structureOrigin = s.vessels[0].structureOrigin - comShift
+            return s
+        }
+        let base = scene(comShift: .zero)
+        try draw(base, r)
+        XCTAssertEqual(pass.maps.map(\.level), [.detail, .cluster])
+        let detail = pass.maps[0]
+        // The plate's top (its construction origin) under the sheet's and the
+        // floating cube's shadows, where the penumbrae are.
+        let top = base.vessels[0].position + base.vessels[0].structureOrigin
+        var points: [Vec3] = []
+        for i in 0..<60 {
+            for j in 0..<40 {
+                points.append(top + Vec3(-1.5 + Double(i) * 0.1, -2 + Double(j) * 0.1, 0.001))
+            }
+        }
+        let normals = Array(repeating: Vec3.unitZ, count: points.count)
+        let before = try probe.run(points, normals: normals, pass: pass)
+        XCTAssertEqual(Set(before.map(\.1)), [0], "all in the detail map")
+        let partial = before.filter { $0.0 > 0.05 && $0.0 < 0.95 }.count
+        XCTAssertGreaterThan(partial, 40, "receivers in penumbrae, where the noise shows")
+
+        // One block of the window's grid along the map's right.
+        let block = detail.texel * Double(ShadowFitting.noisePeriod)
+        try draw(scene(comShift: detail.basis.r0 * block), r)
+        let moved = pass.maps[0]
+        XCTAssertEqual(moved.level, .detail)
+        XCTAssertEqual(moved.basis.r0.dot(moved.centre - detail.centre) / detail.texel,
+                       Double(ShadowFitting.noisePeriod), accuracy: 1e-3, "the window stepped one block")
+        let after = try probe.run(points, normals: normals, pass: pass)
+        let worst = zip(before, after).map { abs($0.0 - $1.0) }.max()!
+        XCTAssertLessThan(worst, 1e-3, "a receiver's filtered value is the same after the step")
+    }
+
     /// A small vessel's shadow far behind it, where the Sun's disc is much
     /// wider than the vessel seen from there (the plate seen from the ground
     /// under a vessel in orbit): next to nothing, not a black spot.

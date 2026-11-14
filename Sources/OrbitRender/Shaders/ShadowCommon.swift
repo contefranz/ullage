@@ -68,8 +68,12 @@ let shadowCommonSource = #"""
 // - then Vogel taps (`orbit_shadowVogel`) over a disc the penumbra's half
 //   width across, tan(alpha) * delta-d for the blockers' mean depth, each a
 //   hardware 2x2 compare.
-// The taps turn per map texel (fixed to the casters, so the grain never
-// crawls), and each compares with the receiver's own plane at the tap
+// The taps turn per map texel, by a noise that repeats every 32 texels
+// (ORBIT_SHADOW_NOISE_PERIOD): cluster and site maps are centred on their
+// casters' anchors and the detail map's window steps by whole 32-texel
+// blocks of its cluster's grid, so a texel keeps its noise as the window
+// moves and the grain stays on the casters (ShadowFitting.noisePeriod).
+// Each tap compares with the receiver's own plane at the tap
 // (receiver-plane depth bias), so a slope does not shadow itself. While a
 // coarser map also holds the receiver, a penumbra wider than
 // ORBIT_SHADOW_MAX_FILTER texels, or a search wider than
@@ -80,6 +84,7 @@ let shadowCommonSource = #"""
 #define ORBIT_SHADOW_MAX_SEARCH 96.0            // texels (ShadowFitting.maxSearchRadius)
 #define ORBIT_SHADOW_BAND 0.1                   // ShadowFitting.blendBand
 #define ORBIT_SHADOW_SEARCH_TAPS 16
+#define ORBIT_SHADOW_NOISE_PERIOD 32.0          // texels (ShadowFitting.noisePeriod)
 #define ORBIT_SHADOW_MAX_SLOPE 8.0              // the incidence's tangent, at most
 #define ORBIT_SHADOW_DEPTH_ULP (1.0 / 65535.0)  // depth16Unorm
 
@@ -118,9 +123,11 @@ inline float2 orbit_shadowSearch(int k, int n, float radius, float rotation) {
     return r * float2(cos(a), sin(a));
 }
 
-// Interleaved gradient noise (Jimenez 2014) of a map texel, 0...1.
+// Interleaved gradient noise (Jimenez 2014) of a map texel's place in its
+// 32-texel block, 0...1 (ShadowFitting.noise).
 inline float orbit_shadowNoise(float2 texel) {
-    return fract(52.9829189 * fract(dot(floor(texel), float2(0.06711056, 0.00583715))));
+    float2 t = fmod(floor(texel), ORBIT_SHADOW_NOISE_PERIOD);
+    return fract(52.9829189 * fract(dot(t, float2(0.06711056, 0.00583715))));
 }
 
 // The Sun's visible share at p from map i alone; -1 when a coarser map

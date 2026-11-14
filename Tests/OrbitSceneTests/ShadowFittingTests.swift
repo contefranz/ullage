@@ -348,35 +348,62 @@ final class ShadowFittingTests: XCTestCase {
             }
         }
         // The centre of mass drifting on the vessel moves the detail map's
-        // window by whole texels only, so its casters keep their texels'
-        // phases; a drift that does not carry it over a rounding boundary
-        // moves it not at all across the light.
+        // window by whole blocks of `noisePeriod` texels only, so its casters
+        // keep their texels' phases and every texel its place in the filter's
+        // noise (the grain stays on the casters); a drift that does not carry
+        // it over a rounding boundary moves it not at all across the light.
+        let block = detail.texel * Double(ShadowFitting.noisePeriod)
         let offset = Self.com - Self.anchor
-        let phase = (detail.basis.r0.dot(offset) / detail.texel, detail.basis.r1.dot(offset) / detail.texel)
+        let phase = (detail.basis.r0.dot(offset) / block, detail.basis.r1.dot(offset) / block)
         let room = min(0.5 - abs(phase.0 - phase.0.rounded()), 0.5 - abs(phase.1 - phase.1.rounded()))
-        var still = 0
+        var still = 0, stepped = 0
         for i in 0..<200 {
-            let drift = random.unit() * (Double(i % 20) * 0.3 * detail.texel)
+            let drift = random.unit() * (Double(i % 20) * 0.3 * block)
             let moved = ShadowFitting.plan(padView(camera: .zero, comShift: drift), settings: ShadowSettings())[0]
             XCTAssertEqual(moved.halfWidth, detail.halfWidth)
             let step = moved.centre - detail.centre
             for axis in [detail.basis.r0, detail.basis.r1] {
-                let k = axis.dot(step) / detail.texel
-                XCTAssertEqual(k, k.rounded(), accuracy: 1e-6)
+                let k = axis.dot(step) / block
+                XCTAssertEqual(k, k.rounded(), accuracy: 1e-6, "whole blocks")
             }
             for p in onVessel {
                 let a = texels(detail, p), b = texels(moved, p)
-                XCTAssertEqual(a.0 - b.0, (a.0 - b.0).rounded(), accuracy: 1e-6)
-                XCTAssertEqual(a.1 - b.1, (a.1 - b.1).rounded(), accuracy: 1e-6)
+                for (u, v) in [(a.0, b.0), (a.1, b.1)] {
+                    XCTAssertEqual(u - v, (u - v).rounded(), accuracy: 1e-6)
+                    let k = Int((u - v).rounded())
+                    XCTAssertEqual(k % ShadowFitting.noisePeriod, 0, "a block, so the noise is the same")
+                }
+                XCTAssertEqual(ShadowFitting.noise(s: Int(a.0.rounded(.down)), t: Int(a.1.rounded(.down))),
+                               ShadowFitting.noise(s: Int((b.0 + 1e-7).rounded(.down)), t: Int((b.1 + 1e-7).rounded(.down))),
+                               accuracy: 1e-12)
             }
-            let across = max(abs(detail.basis.r0.dot(drift)), abs(detail.basis.r1.dot(drift))) / detail.texel
+            let across = max(abs(detail.basis.r0.dot(drift)), abs(detail.basis.r1.dot(drift))) / block
             if across < room {
                 still += 1
                 XCTAssertEqual(detail.basis.r0.dot(step), 0, accuracy: 1e-9)
                 XCTAssertEqual(detail.basis.r1.dot(step), 0, accuracy: 1e-9)
+            } else if step.length > 0 {
+                stepped += 1
             }
         }
         XCTAssertGreaterThan(still, 0)
+        XCTAssertGreaterThan(stepped, 0, "the window does step")
+    }
+
+    /// The filter's noise repeats every `noisePeriod` texels and is not
+    /// flat within a block.
+    func testNoiseRepeatsEveryBlock() {
+        let p = ShadowFitting.noisePeriod
+        var values = Set<Double>()
+        for s in -70..<70 {
+            for t in [-33, 0, 5, 31, 64] {
+                XCTAssertEqual(ShadowFitting.noise(s: s, t: t), ShadowFitting.noise(s: s + p, t: t - 3 * p), accuracy: 1e-12)
+                let n = ShadowFitting.noise(s: s, t: t)
+                XCTAssert((0..<1).contains(n))
+                values.insert((n * 1e6).rounded())
+            }
+        }
+        XCTAssertGreaterThan(values.count, 90, "of 32 × 3 distinct texels in a block")
     }
 
     // MARK: Plan

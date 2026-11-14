@@ -17,9 +17,10 @@ import OrbitCore
 ///   2·d·tan(fovY/2) for the camera d from the target, at least 2 m, up in
 ///   steps of √2 (`detailRadius`), so it changes only when the camera has
 ///   moved by a step. Its centre is the point the camera orbits, snapped to
-///   its own texels on the grid of the target's cluster map, which the
-///   target's structure carries: the window slides by whole texels and the
-///   casters fall on the same texels.
+///   blocks of `noisePeriod` of its own texels on the grid of the target's
+///   cluster map, which the target's structure carries: the window steps by
+///   whole blocks, so the casters fall on the same texels and each texel
+///   keeps its place in ShadowCommon's noise, which repeats every block.
 /// - **A map per cluster** (`clusters`): vessels whose spheres come within
 ///   `ShadowSettings.clusterLink` of each other. The footprint is 2R across
 ///   for the cluster's radius R about its primary's anchor (the camera
@@ -74,6 +75,22 @@ public enum ShadowFitting {
     /// The widest blocker search ShadowCommon makes while a coarser map
     /// also holds the receiver (texels).
     public static let maxSearchRadius = 4 * maxFilterRadius
+    /// ShadowCommon's filter turns its taps by a noise of the map texel that
+    /// repeats every this many texels (ORBIT_SHADOW_NOISE_PERIOD), and the
+    /// detail map's window steps in blocks of as many: a texel keeps its
+    /// noise as the window moves, so the grain stays on the casters' grid.
+    /// Cluster and site maps are centred on their anchors and never step.
+    public static let noisePeriod = 32
+
+    /// ShadowCommon's rotation of the filter at map texel (`s`, `t`) of a
+    /// map, 0...1: interleaved gradient noise (Jimenez 2014) of the texel's
+    /// place in its `noisePeriod` block.
+    public static func noise(s: Int, t: Int) -> Double {
+        let p = noisePeriod, x = Double(((s % p) + p) % p), y = Double(((t % p) + p) % p)
+        func fract(_ v: Double) -> Double { v - v.rounded(.down) }
+        return fract(52.9829189 * fract(0.06711056 * x + 0.00583715 * y))
+    }
+
     /// The share of a map's half width, inside its usable edge, over which
     /// its receivers blend into the next map that holds them (ShadowCommon's
     /// ORBIT_SHADOW_BAND), so no seam shows.
@@ -290,7 +307,8 @@ public enum ShadowFitting {
            let r = detailRadius(distance: target.point.length, fovY: view.fovY, clusterRadius: cluster.halfWidth) {
             // On the cluster map's grid, which the target's structure carries.
             let basis = basisOf(cluster)
-            let centre = snapped(target.point, to: cluster.centre, basis: basis, texel: 2 * r / size)
+            let centre = snapped(target.point, to: cluster.centre, basis: basis,
+                                 texel: 2 * r / size * Double(noisePeriod))
             maps.append(fit(.detail, centre: centre, halfWidth: r, basis: basis))
         }
         for c in candidates where maps.count < limit {
