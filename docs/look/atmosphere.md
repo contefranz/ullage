@@ -155,17 +155,27 @@ user's BMNG texture, contact sheet only: `docs/look/shots/a2.json`.
 
 ## Cost (M3 Pro, 3024 × 1964, orbitsnap --timings 60, GPU lock)
 
-| View | P0 LUTs | P2 composite | Planets |
-|---|---|---|---|
-| Pad at dawn | 0.25 ms | 0.21 ms | 0.30 ms |
-| Ascent at 150 s | 0.25 ms | 0.19 ms | 0.28 ms |
-| LEO, the limb | 0.31 ms | 0.88 ms | 0.34 ms |
-| LEO, nadir | 0.54 ms | 0.29 ms | 0.50 ms |
-| LEO, sunset | 0.28 ms | 0.91 ms | 0.33 ms |
+| View | P0 LUTs | P2 composite | Planets | Frame |
+|---|---|---|---|---|
+| Pad at dawn | 0.25 ms | 0.24 ms | 0.33 ms | 2.82 ms |
+| Ascent at 150 s | 0.24 ms | 0.19 ms | 0.29 ms | 2.38 ms |
+| LEO, the limb | 0.33 ms | 0.89 ms | 0.36 ms | 3.42 ms |
+| LEO, nadir | 0.54 ms | 0.30 ms | 0.54 ms | 3.10 ms |
+| LEO, sunset | 0.30 ms | 0.92 ms | 0.34 ms | 3.46 ms |
 
 The plan's A2 budget is 0.3 + 0.4 ms at the pad and 1.0 + 0.4 ms in LEO; the
 composite carries the limb march, so in LEO the two together (0.8-1.2 ms)
 are the measure.
+
+How to read the table:
+- **Render passes:** the composite and planet figures are less an empty
+  encoder's time. Since R6's frame-graph change, a split frame charges each
+  scene encoder its own stores, so the profile gives every render pass about
+  0.34-0.37 ms more. The Plumes pass reads that much with nothing to draw.
+- **Frame:** the unsplit frame's whole GPU time.
+- **Float storage:** P0's light in rgba32Float costs the LUTs nothing
+  measurable. From LEO, the planets' reading of the haze costs about 0.04 ms
+  more.
 
 ## Not done, and limits
 
