@@ -47,6 +47,10 @@ public final class FrameContext {
     /// Each render pass in an encoder of its own (while the GPU profiler
     /// times them); the image is the same.
     public let splitsEncoders: Bool
+    /// A render-stage pass encodes on the command buffer this frame
+    /// (`RenderPass.encodesOnCommandBuffer`), so the scene's encoder ends
+    /// and resumes: the target plan keeps its targets between encoders.
+    public internal(set) var breaksScene = false
     /// The profile the frame's encoders are timed into, when profiling.
     let profile: FrameProfile?
     /// The pass encoding now, for the profiler's labels.
