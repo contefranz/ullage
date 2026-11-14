@@ -20,6 +20,7 @@ final class RecordingPass: RenderPass {
     var reads: Set<ResourceID> = []
     var writes: Set<ResourceID> = []
     var isEnabled = true
+    var encodesOnCommandBuffer = false
     var failsSetUp = false
     var setUps = 0
     let log: Log
@@ -233,5 +234,156 @@ extension FrameGraphTests {
         try render(r2)
         XCTAssertEqual(log2.entries, ["vessel:render", "debug:cb"])
         XCTAssertTrue(resolved, "the depth resolved for it")
+    }
+}
+
+extension FrameGraphTests {
+    /// A render-stage pass on the command buffer ends the scene's encoder;
+    /// the passes after it draw in the resumed scene, the overlay too.
+    func testPassOnTheCommandBufferBreaksTheScene() throws {
+        let log = RecordingPass.Log()
+        let halfRes = RecordingPass("halfRes", .transparent, 1, log: log)
+        halfRes.encodesOnCommandBuffer = true
+        var broken = false
+        halfRes.onEncode = { f in broken = f.breaksScene }
+        let r = try renderer([RecordingPass("vessel", .opaque, log: log), RecordingPass("plume", .transparent, 0, log: log),
+                              halfRes, RecordingPass("composite", .transparent, 2, log: log),
+                              RecordingPass("marker", .overlay, log: log)])
+        try render(r)
+        XCTAssertEqual(log.entries, ["vessel:render", "plume:render", "halfRes:cb", "composite:render", "marker:render"])
+        XCTAssertTrue(broken, "the plan was told")
+        XCTAssertEqual(log.encoders["plume"], log.encoders["vessel"])
+        XCTAssertNotEqual(log.encoders["composite"], log.encoders["vessel"], "the scene resumed in a new encoder")
+        XCTAssertEqual(log.encoders["marker"], log.encoders["composite"])
+    }
+
+    /// Breaking the scene keeps the image: the direct plan stores the MSAA
+    /// samples and resolves again where the scene resumes. Also while timing.
+    func testBreakingTheSceneKeepsThePixels() throws {
+        final class Gap: RenderPass {
+            let name = "Gap"
+            let stage = PassStage.transparent
+            let order = 15
+            var encodesOnCommandBuffer: Bool { true }
+            var encoded = 0
+            func encode(_ f: FrameContext, _ e: PassEncoding) {
+                guard case .commandBuffer = e else { return XCTFail("a pass on the command buffer") }
+                encoded += 1
+            }
+        }
+        let scenario = try XCTUnwrap(Scenario.named("as506-pad"))
+        let sim = scenario.build(SceneRendererTests.system)
+        var camera = OrbitCamera()
+        let v = try XCTUnwrap(sim.focus)
+        camera.target = .vessel(v.id)
+        camera.distance = max(v.boundingRadius * 3, 30)
+        camera.update(sim: sim)
+        let scene = SceneExtractor().extract(sim: sim, camera: camera,
+                                             viewport: RenderScene.Viewport(width: 320, height: 200), realTime: 0)
+        let stars = try StarCatalog.bundled()
+        func image(_ extra: [RenderPass], timing: Bool = false) throws -> [UInt8] {
+            let device = try device()
+            let r = try SceneRenderer(device: device, outputFormat: .bgra8Unorm_srgb,
+                                      passes: SceneRenderer.defaultPasses(loadsUserTextures: false) + extra,
+                                      plan: DirectTargetPlan(colorFormat: .bgra8Unorm_srgb, sampleCount: 4))
+            r.setStars(stars)
+            r.profiling = timing
+            r.profileInterval = 1
+            let target = try XCTUnwrap(OffscreenTarget(device: device, width: 320, height: 200))
+            r.renderAndWait(scene, into: target)
+            return target.bytes()
+        }
+        let gap = Gap()
+        let plain = try image([])
+        XCTAssertEqual(try image([gap]), plain)
+        XCTAssertEqual(try image([gap], timing: true), plain)
+        XCTAssertEqual(gap.encoded, 2)
+    }
+
+    /// A plan that opens a render pass of its own for P3: a pass on the
+    /// command buffer at the start of P3 costs no continuation, and the
+    /// stage's render pass opens for the first pass that draws in it.
+    func testStageOpensItsOwnPassAfterABreak() throws {
+        final class StagedPlan: SceneTargetPlan {
+            var continuations = 0
+            var depth: MTLTexture?
+            func formats(for stage: PassStage) -> SceneFormats {
+                SceneFormats(color: .bgra8Unorm_srgb, depth: .depth32Float, sampleCount: 1, output: .bgra8Unorm_srgb)
+            }
+            var provides: Set<ResourceID> { [.sceneColor, .sceneDepth, .output] }
+            func resize(_ size: RenderSize, device: MTLDevice) {
+                let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .depth32Float, width: size.width,
+                                                                 height: size.height, mipmapped: false)
+                d.usage = .renderTarget
+                d.storageMode = .private
+                depth = device.makeTexture(descriptor: d)
+            }
+            func renderPass(for stage: PassStage, _ f: FrameContext) -> MTLRenderPassDescriptor? {
+                guard stage == .opaque || stage == .transparent else { return nil }
+                let pass = MTLRenderPassDescriptor()
+                pass.colorAttachments[0].texture = f.output
+                pass.colorAttachments[0].loadAction = stage == .opaque ? .clear : .load
+                pass.colorAttachments[0].storeAction = .store
+                pass.depthAttachment.texture = depth
+                pass.depthAttachment.loadAction = stage == .opaque ? .clear : .load
+                pass.depthAttachment.clearDepth = 0
+                pass.depthAttachment.storeAction = .store
+                return pass
+            }
+            func continuation(_ f: FrameContext) -> MTLRenderPassDescriptor? {
+                continuations += 1
+                return nil
+            }
+        }
+        let log = RecordingPass.Log()
+        let halfRes = RecordingPass("halfRes", .transparent, 0, log: log)
+        halfRes.encodesOnCommandBuffer = true
+        let plan = StagedPlan()
+        let device = try device()
+        let r = try SceneRenderer(device: device, outputFormat: .bgra8Unorm_srgb,
+                                  passes: [RecordingPass("vessel", .opaque, log: log), halfRes,
+                                           RecordingPass("plume", .transparent, 1, log: log)], plan: plan)
+        try render(r)
+        XCTAssertEqual(log.entries, ["vessel:render", "halfRes:cb", "plume:render"])
+        XCTAssertEqual(plan.continuations, 0)
+        XCTAssertNotEqual(log.encoders["plume"], log.encoders["vessel"])
+    }
+}
+
+extension FrameGraphTests {
+    /// While timing, the scene's resume after a break is measured whole,
+    /// under the pass that broke the scene: the plain frame loads and
+    /// stores the targets there too. The pass after it draws in a
+    /// continuation, which loses the split overhead as usual.
+    func testTimingChargesTheBreakToItsPass() throws {
+        let log = RecordingPass.Log()
+        let halfRes = RecordingPass("halfRes", .transparent, 1, log: log)
+        halfRes.encodesOnCommandBuffer = true
+        let composite = RecordingPass("composite", .transparent, 2, log: log)
+        var profile: FrameProfile?
+        composite.onEncode = { f in profile = f.profile }
+        let r = try renderer([RecordingPass("vessel", .opaque, log: log), RecordingPass("plume", .transparent, 0, log: log),
+                              halfRes, composite, RecordingPass("marker", .overlay, log: log)])
+        guard r.profiler.isSupported else { throw XCTSkip("no timestamp counters on this GPU") }
+        r.profiling = true
+        r.profileInterval = 1
+        try render(r)
+        let p = try XCTUnwrap(profile, "a timed frame")
+        XCTAssertEqual(zip(p.labels, p.kinds).map { "\($0) \($1)" },
+                       ["vessel render", "plume sceneContinuation", "\(FrameProfile.splitOverhead) sceneContinuation",
+                        "halfRes render", "composite sceneContinuation", "marker sceneContinuation"])
+        XCTAssertEqual(log.entries, ["vessel:render", "plume:render", "halfRes:cb", "composite:render", "marker:render"])
+
+        // Its timings: the resume's load and store stay with the pass that
+        // broke the scene, and the continuations lose the overhead.
+        let stamps: [UInt64] = [1, 11, 20, 120,       // vessel: 10 + 100
+                                120, 125, 130, 210,   // plume: 5 + 80, less 50
+                                210, 211, 220, 269,   // the overhead: 1 + 49
+                                300, 301, 310, 359,   // the resume: 1 + 49, kept
+                                360, 370, 380, 480,   // composite: 10 + 100, less 50
+                                480, 481, 490, 560]   // marker: 1 + 70, less 50
+        let t = FrameProfile.timings(labels: p.labels, kinds: p.kinds, stamps: stamps, secondsPerTick: 1)
+        XCTAssertEqual(t.map(\.pass), ["vessel", "plume", FrameProfile.splitOverhead, "halfRes", "composite", "marker"])
+        XCTAssertEqual(t.map(\.seconds), [110, 35, 50, 50, 60, 21])
     }
 }

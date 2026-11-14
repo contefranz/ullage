@@ -20,9 +20,11 @@ public protocol SceneTargetPlan: AnyObject {
     /// in the encoder the previous render stage opened. Called once per
     /// stage and frame, in order; `f.wanted` says what later passes read.
     func renderPass(for stage: PassStage, _ f: FrameContext) -> MTLRenderPassDescriptor?
-    /// For split encoding (`FrameContext.splitsEncoders`, the GPU timings):
-    /// a render pass that goes on drawing the scene where the last encoder
-    /// stopped, with the same attachments and formats.
+    /// A render pass that goes on drawing the scene where the last encoder
+    /// stopped, with the same attachments and formats: for split encoding
+    /// (`FrameContext.splitsEncoders`, the GPU timings), and to resume the
+    /// scene after a render-stage pass on the command buffer
+    /// (`FrameContext.breaksScene`), timed or not.
     func continuation(_ f: FrameContext) -> MTLRenderPassDescriptor?
 }
 
@@ -33,8 +35,9 @@ public protocol SceneTargetPlan: AnyObject {
 /// When a later pass reads `.sceneColor` or `.sceneDepth` (a debug view),
 /// the scene resolves into frame textures instead (depth with the nearest
 /// sample, `.max` in reversed-Z), and that pass writes the output. When the
-/// encoders are split for timing, the samples are stored between them in
-/// private textures, so the image is the same.
+/// encoders are split for timing, or a render-stage pass encodes on the
+/// command buffer (`FrameContext.breaksScene`), the samples are stored
+/// between encoders in private textures, so the image is the same.
 @MainActor
 public final class DirectTargetPlan: SceneTargetPlan {
     public let colorFormat: MTLPixelFormat
@@ -91,7 +94,7 @@ public final class DirectTargetPlan: SceneTargetPlan {
 
     public func renderPass(for stage: PassStage, _ f: FrameContext) -> MTLRenderPassDescriptor? {
         guard stage == .opaque else { return nil }
-        let split = f.splitsEncoders
+        let split = f.splitsEncoders || f.breaksScene
         if split {
             unsplitFrames = 0
             if stored.depth == nil {
