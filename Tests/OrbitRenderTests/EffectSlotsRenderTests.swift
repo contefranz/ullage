@@ -105,15 +105,20 @@ final class EffectSlotsRenderTests: XCTestCase {
         let renderer: SceneRenderer
     }
 
-    /// Renders `shot` with the default passes and a capture after them.
-    func render(_ shot: SnapshotSpec.Shot, configure: ((SceneRenderer) -> Void)? = nil) throws -> Frame {
+    /// Renders `shot` with the default passes and a capture after them, on
+    /// the direct plan (whose output the LDR maths can check) or, with
+    /// `shipping`, the HDR plan the renderer ships.
+    func render(_ shot: SnapshotSpec.Shot, shipping: Bool = false,
+                configure: ((SceneRenderer) -> Void)? = nil) throws -> Frame {
         let s = try snapper()
         let prepared = try shot.prepare(system: s.system)
         let scene = shot.scene(prepared)
         let capture = Capture()
+        let plan: SceneTargetPlan = shipping ? HDRTargetPlan(outputFormat: .bgra8Unorm_srgb, sampleCount: 4)
+                                             : DirectTargetPlan(colorFormat: .bgra8Unorm_srgb, sampleCount: 4)
         let r = try SceneRenderer(device: s.device, outputFormat: .bgra8Unorm_srgb,
                                   passes: SceneRenderer.defaultPasses(loadsUserTextures: false) + [capture],
-                                  plan: DirectTargetPlan(colorFormat: .bgra8Unorm_srgb, sampleCount: 4))
+                                  plan: plan)
         r.setStars(s.stars)
         r.settings = shot.settings
         configure?(r)
@@ -289,6 +294,92 @@ final class EffectSlotsRenderTests: XCTestCase {
             XCTAssertLessThan(fronts.texels[i][1], fronts.texels[i][0], "texel \(i): the glow in front of the deck")
         }
         XCTAssertGreaterThan(thin, 20, "thin, bright texels before the deck")
+    }
+
+    /// Two bright cones in one place, at a manual EV -2 on the shipping plan:
+    /// each is held below 6e4, but over each other they pass it in the
+    /// volumes layer (this GPU's half-float blend saturates at 65504; another
+    /// may overflow to +inf). The frame stays bright where one cone alone is
+    /// bright: no hole.
+    func testOverlappingBrightVolumesSaturate() throws {
+        func shot(_ cones: Int) -> SnapshotSpec.Shot {
+            var s = Self.shot(Array(repeating: EffectTestEmitter(.cone, position: [0, 0, 32], size: 64), count: cones))
+            s.camera = SnapshotSpec.CameraSpec(yaw: 30, pitch: 10, distance: 120, fov: 40)
+            s.settings.post.exposure.mode = .manual
+            s.settings.post.exposure.ev100 = -2
+            return s
+        }
+        let one = try render(shot(1), shipping: true), two = try render(shot(2), shipping: true)
+        let volumes = try XCTUnwrap(two.capture.values(.halfResTransparent))
+        let past = volumes.texels.filter { $0[0] > EffectSlots.maxRadiance }.count
+        XCTAssertGreaterThan(past, 20, "the two cones' sum passes 6e4")
+        func luma(_ p: [UInt8], _ i: Int) -> Int { (Int(p[i]) + 2 * Int(p[i + 1]) + Int(p[i + 2])) / 4 }
+        var bright = 0
+        for i in stride(from: 0, to: one.pixels.count, by: 4) where luma(one.pixels, i) > 200 {
+            bright += 1
+            XCTAssertGreaterThanOrEqual(luma(two.pixels, i), luma(one.pixels, i) - 8, "pixel \(i / 4): no hole")
+        }
+        XCTAssertGreaterThan(bright, 200)
+    }
+
+    /// An effect writes +inf, NaN and an ordinary colour into the volumes
+    /// layer, a third of the frame each. The composite saturates +inf (white),
+    /// takes NaN for no light (the black scene shows), and composites the
+    /// rest as it is: an overflow is never a hole.
+    func testTheCompositeTakesNonFiniteLayersAsR1Does() throws {
+        final class Injector: HalfResEffect {
+            let name = "Injector"
+            var pipeline: MTLRenderPipelineState?
+            func setUpHalfRes(_ s: HalfResSetup) throws {
+                let library = try s.shaders.library(ShaderModule(name: "EffectInjector", headers: [.effectSlots], source: """
+                    struct InjectorOut { float4 position [[position]]; };
+                    vertex InjectorOut injector_vertex(uint vid [[vertex_id]]) {
+                        float2 p = float2(float((vid << 1) & 2), float(vid & 2));
+                        InjectorOut o;
+                        o.position = float4(p * 2.0 - 1.0, 0.0, 1.0);
+                        return o;
+                    }
+                    fragment EffectVolumeOut injector_fragment(InjectorOut in [[stage_in]],
+                                                               constant EffectSlotUniforms &e [[buffer(ORBIT_EFFECT_BUFFER_SLOTS)]]) {
+                        float third = e.target.x / 3.0;
+                        float inf = as_type<float>(0x7f800000u), nan = as_type<float>(0x7fc00000u);
+                        EffectVolumeOut o;
+                        o.color = in.position.x < third ? float4(inf, inf, inf, 0.5)
+                                : (in.position.x < 2.0 * third ? float4(nan, nan, nan, 0.5) : float4(0.5, 0.25, 0.1, 0.5));
+                        o.front = float4(orbit_frontCode(10.0));
+                        return o;
+                    }
+                    """))
+                pipeline = try s.pipeline(library, vertex: "injector_vertex", fragment: "injector_fragment", layer: .volumes)
+            }
+            func halfResLayers(in f: FrameContext) -> HalfResLayers { .volumes }
+            func encodeHalfRes(_ f: FrameContext, _ slots: HalfResSlots, _ enc: MTLRenderCommandEncoder) {
+                guard let pipeline else { return }
+                enc.setRenderPipelineState(pipeline)
+                enc.setDepthStencilState(slots.noDepth)
+                enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
+            }
+        }
+        let device = try XCTUnwrap(RenderDevice.shared)
+        let slots = HalfResTransparentPass(effects: [Injector()])
+        let capture = Capture()
+        let r = try SceneRenderer(device: device, outputFormat: .bgra8Unorm_srgb,
+                                  passes: [slots, TransparentCompositePass(slots: slots), capture],
+                                  plan: DirectTargetPlan(colorFormat: .bgra8Unorm_srgb, sampleCount: 4))
+        XCTAssertEqual(r.failures, [:])
+        XCTAssertEqual(slots.effectFailures, [:])
+        let target = try XCTUnwrap(OffscreenTarget(device: device, width: 96, height: 32))
+        r.renderAndWait(FrameGraphTests.emptyScene(width: 96, height: 32), into: target)
+        let volumes = try XCTUnwrap(capture.values(.halfResTransparent))
+        XCTAssertTrue(volumes.texels[0][0].isInfinite, "the layer holds +inf")
+        XCTAssertTrue(volumes.texels[volumes.width / 2][0].isNaN, "and NaN")
+        let p = target.bytes()
+        func pixel(_ x: Int) -> [Int] { (0..<3).map { Int(p[4 * (16 * 96 + x) + 2 - $0]) } }   // RGB
+        XCTAssertEqual(pixel(8), [255, 255, 255], "+inf saturates")
+        XCTAssertEqual(pixel(48), [0, 0, 0], "NaN is no light")
+        let finite = pixel(88)
+        XCTAssertEqual(Double(finite[0]), EffectSlotsRenderTests.srgb(0.5), accuracy: 1.5)
+        XCTAssertEqual(Double(finite[1]), EffectSlotsRenderTests.srgb(0.25), accuracy: 1.5)
     }
 
     // MARK: OIT
