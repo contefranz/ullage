@@ -96,29 +96,18 @@ public enum LegacyLighting {
     /// (a visual choice: the ablator's surface follows the heating in seconds).
     public static let thermalLag = 6.0
 
-    /// The heat shield's glow, linear RGB, for a heat flux `q` (W/m²): the
-    /// radiative-equilibrium temperature of an ablator of emissivity 0.85,
-    /// coloured as a blackbody and brightening from the Draper point (about
-    /// 800 K). `SceneExtractor` lags the flux (`thermalLag`) in simulation
-    /// time, so it neither flickers at warp nor freezes when paused.
-    public static func glowColor(heatFlux q: Double) -> RenderScene.RGB {
-        let stefanBoltzmann = 5.670374419e-8, emissivity = 0.85
-        let temperature = pow(max(q, 0) / (emissivity * stefanBoltzmann), 0.25)
-        guard temperature > 800 else { return .black }
-        let brightness = Float(pow(min((temperature - 800) / 1_200, 1.25), 1.5))
-        let c = blackbody(temperature)
-        return RenderScene.RGB(c.r * brightness, c.g * brightness, c.b * brightness)
-    }
+    /// The ablator's emissivity.
+    public static let heatShieldEmissivity = 0.85
 
-    /// Linear RGB of a blackbody at `kelvin` (Tanner Helland's fit to the
-    /// Planckian locus in sRGB, 1,000-40,000 K), red normalised to 1 below
-    /// 6,600 K.
-    public static func blackbody(_ kelvin: Double) -> RenderScene.RGB {
-        let t = max(10, min(400, kelvin / 100))
-        let r = t <= 66 ? 255 : 329.698727446 * pow(t - 60, -0.1332047592)
-        let g = t <= 66 ? 99.4708025861 * log(t) - 161.1195681661 : 288.1221695283 * pow(t - 60, -0.0755148492)
-        let b = t >= 66 ? 255 : (t <= 19 ? 0 : 138.5177312231 * log(t - 10) - 305.0447927307)
-        func linear(_ c: Double) -> Float { Float(pow(max(0, min(255, c)) / 255, 2.2)) }
-        return RenderScene.RGB(linear(r), linear(g), linear(b))
+    /// The heat shield's glow for a heat flux `q` (W/m²): its luminance,
+    /// cd/m² in linear Rec. 709, at the radiative-equilibrium temperature of
+    /// an ablator of emissivity 0.85, a grey body (`Photometry.glow`; it
+    /// replaces M1.5's Tanner Helland fit). It shows from about 800 K, the
+    /// Draper point, as the exposure lets it. `SceneExtractor` lags the flux
+    /// (`thermalLag`) in simulation time, so it neither flickers at warp nor
+    /// freezes when paused.
+    public static func glowLuminance(heatFlux q: Double) -> RenderScene.RGB {
+        let c = Photometry.glow(heatFlux: q, emissivity: heatShieldEmissivity).luminance
+        return RenderScene.RGB(Float(c.r), Float(c.g), Float(c.b))
     }
 }

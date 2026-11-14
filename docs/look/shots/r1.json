@@ -1,0 +1,11 @@
+{
+  "goldens": "lookdev",
+  "shots": [
+    {"name": "r1-star-field", "scenario": "llo", "showOrbit": false,
+     "camera": {"target": "body:399", "frame": "inertial", "yaw": 60, "pitch": 25, "distance": 2000000000, "fov": 40},
+     "settings": {"post": {"exposure": {"mode": "manual", "ev100": 0}}}},
+    {"name": "r1-sun", "scenario": "as506-parking-orbit", "showOrbit": false, "reference": "EV 27, as through a solar filter",
+     "camera": {"target": "body:10", "frame": "inertial", "yaw": 30, "pitch": 10, "distance": 149597870700, "fov": 1.5},
+     "settings": {"post": {"exposure": {"mode": "manual", "ev100": 27}}}}
+  ]
+}

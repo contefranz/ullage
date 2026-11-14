@@ -5,14 +5,13 @@ import OrbitCore
 import OrbitScene
 
 /// The focus vessel's orbit line, then the parachutes' risers, as lines
-/// tested against the opaque depth. It runs first in P3, where the M1.5
-/// renderer drew them (before the plumes); R1 moves the orbit line to P5
-/// when overlays draw after tone mapping, and R2 makes the risers quads.
+/// tested against the scene's depth, drawn after tone mapping in display
+/// colours (P5, before the markers). R2 makes the risers quads in the scene.
 @MainActor
 public final class OrbitLinePass: RenderPass {
     public let name = "Orbit line"
-    public let stage = PassStage.transparent
-    public let order = 0
+    public let stage = PassStage.overlay
+    public let order = -10
 
     private var pipeline: MTLRenderPipelineState?
     static let orbitColor = SIMD4<Float>(0.3, 1.0, 0.45, 0.8)
