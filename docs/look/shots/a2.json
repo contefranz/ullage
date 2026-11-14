@@ -18,7 +18,7 @@
      "camera": {"yaw": 107.6, "pitch": 12.5, "distance": 120, "fov": 12}},
     {"name": "a2-orbit-night", "scenario": "as506-parking-orbit", "advance": ["wait:2400"], "userTextures": true,
      "camera": {"yaw": 150, "pitch": 30, "distance": 70}},
-    {"name": "a2-whole-earth", "scenario": "as506-parking-orbit", "userTextures": true, "showOrbit": false,
+    {"name": "a2-earth-from-afar", "scenario": "as506-parking-orbit", "userTextures": true, "showOrbit": false,
      "camera": {"target": "body:399", "frame": "inertial", "yaw": 223.5, "pitch": 22.9, "distance": 22000000}},
     {"name": "a2-entry", "scenario": "apollo7-cm-ei", "advance": ["wait:330"], "userTextures": true,
      "camera": {"yaw": 126, "pitch": 8, "distance": 40, "fov": 60}},
