@@ -26,12 +26,14 @@ public protocol SceneTargetPlan: AnyObject {
     /// scene after a render-stage pass on the command buffer
     /// (`FrameContext.breaksScene`), timed or not.
     func continuation(_ f: FrameContext) -> MTLRenderPassDescriptor?
-    /// Sets the store actions the plan left `.unknown` on a scene encoder,
-    /// just before the graph ends it. `resumes`: a later encoder loads the
-    /// scene's targets (a break with passes drawing in the scene after it,
-    /// or timing's split); false where the scene ends (before a stage on the
-    /// command buffer, at the frame's end, or a break nothing draws after).
-    /// A plan that sets its store actions up front does nothing.
+    /// Sets the store actions the plan left `.unknown` on an encoder it
+    /// opened, just before the graph ends it, once for every render pass the
+    /// plan hands out, in order. `resumes`: the next encoder is the plan's
+    /// continuation of this one and loads its targets (a break with passes
+    /// drawing in the scene after it, or timing's split); false where the
+    /// scene ends (before a stage on the command buffer, at the frame's end,
+    /// at a break nothing draws after, or where a stage opens a render pass of
+    /// its own). A plan that sets its store actions up front does nothing.
     func endScene(_ encoder: MTLRenderCommandEncoder, resumes: Bool, _ f: FrameContext)
 }
 
