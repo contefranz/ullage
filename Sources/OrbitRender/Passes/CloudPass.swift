@@ -57,12 +57,17 @@ public final class CloudPass: RenderPass, HalfResEffect {
     private var samplers: (wrap: MTLSamplerState, weather: MTLSamplerState)?
     private(set) var weatherMap: (a: MTLTexture, b: MTLTexture)?
     private var snapshots: [Int: MTLTexture] = [:]
+    /// The mission `snapshots` hold, and textures of another's to refill.
+    private var snapshotsMission: String?
+    private var spareSnapshots: [MTLTexture] = []
     private var placeholder: MTLTexture?
     private var weathers: [String: CloudWeather] = [:]
     private var lastWeather: WeatherKey?
     private(set) var shadowTexture: MTLTexture?
     /// The weather to draw instead of the settings' (the tests' fields).
     var weatherOverride: CloudWeather?
+    /// The override's name, as the mission's (another name: another field).
+    var weatherOverrideName = "override"
 
     private var previous: CloudFrame?
     private var advection = CloudAdvection(tile: FrameContext.noiseTile)
@@ -215,7 +220,7 @@ public final class CloudPass: RenderPass, HalfResEffect {
         let key = WeatherKey(mission: mission, params: params)
         if !settings.skip.contains("weather"), lastWeather.map({ !$0.close(to: key) }) ?? true {
             lastWeather = key
-            encodeWeather(enc, weather: weather, params: params, map: weatherMap, pipeline: p.weather)
+            encodeWeather(enc, weather: weather, mission: mission, params: params, map: weatherMap, pipeline: p.weather)
         }
 
         // The uniforms.
@@ -339,7 +344,7 @@ public final class CloudPass: RenderPass, HalfResEffect {
 
     /// The weather for the settings and the epoch, and the mission it is.
     private func weatherFor(_ s: CloudSettings, epoch: Epoch) -> (CloudWeather, String?) {
-        if let weatherOverride { return (weatherOverride, "override") }
+        if let weatherOverride { return (weatherOverride, weatherOverrideName) }
         let name: String?
         switch s.weather {
         case "auto": name = CloudWeatherMap.mission(at: epoch)
@@ -353,17 +358,33 @@ public final class CloudPass: RenderPass, HalfResEffect {
         return (w, name)
     }
 
-    private func encodeWeather(_ enc: MTLComputeCommandEncoder, weather: CloudWeather, params: CloudWeatherMap.Parameters,
-                               map: (a: MTLTexture, b: MTLTexture), pipeline: MTLComputePipelineState) {
+    private func encodeWeather(_ enc: MTLComputeCommandEncoder, weather: CloudWeather, mission: String?,
+                               params: CloudWeatherMap.Parameters, map: (a: MTLTexture, b: MTLTexture),
+                               pipeline: MTLComputePipelineState) {
         var textures: (MTLTexture, MTLTexture)?
+        // Snapshot i of another mission is another sky: its textures are
+        // refilled, never read as this mission's.
+        if mission != snapshotsMission {
+            spareSnapshots += snapshots.values
+            snapshots = [:]
+            snapshotsMission = mission
+        }
         if let s = params.snapshots, let field = weather.field {
+            // The two snapshots' textures: kept if loaded, else filled from
+            // one no longer needed (each taken once), or new.
+            let wanted = [s.first, s.second]
+            var free = snapshots.filter { !wanted.contains($0.key) }.map(\.value) + spareSnapshots
             var keep: [Int: MTLTexture] = [:]
-            for i in [s.first, s.second] {
-                if let t = snapshots[i] ?? texture(for: field, snapshot: i, reuse: snapshots, keeping: [s.first, s.second]) {
+            for i in wanted where keep[i] == nil {
+                if let t = snapshots[i] {
+                    keep[i] = t
+                } else if let t = free.popLast() ?? newSnapshotTexture() {
+                    fill(t, field: field, snapshot: i)
                     keep[i] = t
                 }
             }
             snapshots = keep
+            spareSnapshots = free
             if let a = keep[s.first], let b = keep[s.second] { textures = (a, b) }
         }
         var p = CloudWeatherParams()
@@ -393,27 +414,23 @@ public final class CloudPass: RenderPass, HalfResEffect {
                             threadsPerThreadgroup: MTLSize(width: 16, height: 16, depth: 1))
     }
 
-    /// Snapshot `i`'s planes in a texture: one no longer needed, refilled,
-    /// or a new one.
-    private func texture(for field: CloudField, snapshot i: Int, reuse: [Int: MTLTexture], keeping: [Int]) -> MTLTexture? {
-        let t: MTLTexture
-        if let (_, old) = reuse.first(where: { !keeping.contains($0.key) }) {
-            t = old
-        } else {
-            let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Uint, width: CloudWeatherMap.columns,
-                                                             height: CloudWeatherMap.rows, mipmapped: false)
-            d.usage = .shaderRead
-            d.storageMode = .shared
-            guard let n = placeholder?.device.makeTexture(descriptor: d) else { return nil }
-            t = n
-        }
+    /// A texture for one snapshot's planes.
+    private func newSnapshotTexture() -> MTLTexture? {
+        let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Uint, width: CloudWeatherMap.columns,
+                                                         height: CloudWeatherMap.rows, mipmapped: false)
+        d.usage = .shaderRead
+        d.storageMode = .shared
+        return placeholder?.device.makeTexture(descriptor: d)
+    }
+
+    /// Snapshot `i`'s planes into `t`.
+    private func fill(_ t: MTLTexture, field: CloudField, snapshot i: Int) {
         let bytes = CloudWeatherMap.interleaved(field, snapshot: i)
         bytes.withUnsafeBytes { b in
             t.replace(region: MTLRegionMake2D(0, 0, CloudWeatherMap.columns, CloudWeatherMap.rows), mipmapLevel: 0,
                       withBytes: b.baseAddress!, bytesPerRow: 4 * CloudWeatherMap.columns)
         }
         t.label = "Cloud snapshot \(i)"
-        return t
     }
 
     private func bindField(_ enc: MTLComputeCommandEncoder, noise: CloudNoiseVolumes, tables: CloudTables,

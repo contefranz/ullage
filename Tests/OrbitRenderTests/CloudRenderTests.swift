@@ -444,6 +444,59 @@ final class CloudMapTests: XCTestCase {
         }
     }
 
+    /// A pseudo-random field of three hourly snapshots around the parking
+    /// orbit's epoch.
+    static func syntheticField(seed: UInt32) throws -> CloudField {
+        let epoch = VesselLibrary.apollo11Insertion
+        let t0 = Int64(((epoch.julianDateUTC - 2_440_587.5) * 86_400).rounded()) - 1_800
+        let planes = ["lcc", "mcc", "hcc", "cbh"].map { name in
+            CloudField.Plane(name: name, columns: CloudWeatherMap.columns, rows: CloudWeatherMap.rows, offset: 0,
+                             scale: name == "cbh" ? 60 : 1 / 254)
+        }
+        var state = seed
+        func next() -> UInt32 {
+            state = state &* 1_664_525 &+ 1_013_904_223
+            return state >> 8
+        }
+        let times = [t0, t0 + 3_600, t0 + 7_200]
+        let snapshots = times.map { _ in
+            planes.map { p in (0..<p.count).map { _ in UInt8(next() % (p.name == "cbh" ? 120 : 255)) } }
+        }
+        return try CloudField(data: CloudField.encode(planes: planes, utcSeconds: times, note: "test",
+                                                      snapshots: snapshots))
+    }
+
+    /// A pass that drew one mission's field and then another's, whose
+    /// snapshots have the same indices, assembles the second's weather map
+    /// as a fresh pass does (it once kept the first's snapshot textures).
+    func testWeatherMapAfterAnotherMission() throws {
+        let a = CloudWeather(field: try Self.syntheticField(seed: 777))
+        let b = CloudWeather(field: try Self.syntheticField(seed: 4_242))
+        var shot = CloudRenderTests.slabShot(regime: "far", width: 64, height: 40)
+        shot.settings.cloud.lookDev = nil
+        let s = try SnapshotRenderer(device: try XCTUnwrap(RenderDevice.shared))
+        let prepared = try shot.prepare(system: s.system)
+        func map(_ steps: [(String, CloudWeather)]) throws -> [UInt16] {
+            let clouds = CloudPass()
+            let r = try SceneRenderer(device: s.device, outputFormat: .bgra8Unorm_srgb, passes: [clouds],
+                                      plan: HDRTargetPlan(outputFormat: .bgra8Unorm_srgb, sampleCount: 4))
+            r.settings = shot.settings
+            let target = try XCTUnwrap(OffscreenTarget(device: s.device, width: shot.width, height: shot.height))
+            for (name, weather) in steps {
+                clouds.weatherOverride = weather
+                clouds.weatherOverrideName = name
+                _ = r.renderAndWait(shot.scene(prepared), into: target)
+            }
+            let m = try XCTUnwrap(clouds.weatherMap)
+            let buffer = try Self.readBack(m.a, bytesPerTexel: 8, device: s.device)
+            let n = 4 * CloudWeatherMap.columns * CloudWeatherMap.rows
+            return Array(UnsafeBufferPointer(start: buffer.contents().bindMemory(to: UInt16.self, capacity: n), count: n))
+        }
+        let fresh = try map([("b", b)])
+        XCTAssertNotEqual(try map([("a", a)]), fresh, "the two fields differ")
+        XCTAssertEqual(try map([("a", a), ("b", b)]), fresh)
+    }
+
     /// The shadow map under the homogeneous slab: above the ground the
     /// slab's whole optical depth along the Sun, above 2 km a third of it,
     /// above 6 km none.
