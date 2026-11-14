@@ -29,16 +29,20 @@ public struct AtmosphereSettings: Codable, Equatable {
     public var froxelSlices = 32
     /// Slice distribution: slice i ends at far × ((i + 1) / slices)^exponent.
     public var froxelExponent = 2.0
-    /// Steps of the march from space per pixel: rays that pass the limb, and
-    /// rays that meet the ground.
+    /// Steps of each froxel's march from the camera to its slice.
+    public var froxelSteps = 12
+    /// Steps of the march from space per pixel past the limb (the composite).
     public var limbSteps = 24
-    public var groundSteps = 10
+    /// Steps of the march from space to the ground, which is done at a
+    /// resolution reduced by `spaceGroundDivisor` in each axis.
+    public var groundSteps = 12
+    public var spaceGroundDivisor = 4
 
     public init() {}
 
     private enum CodingKeys: String, CodingKey {
         case enabled, waitForTables, aerosolOpticalDepth, groundAlbedo, skyViewWidth, skyViewHeight, skyViewSteps
-        case froxelSize, froxelSlices, froxelExponent, limbSteps, groundSteps
+        case froxelSize, froxelSlices, froxelExponent, froxelSteps, limbSteps, groundSteps, spaceGroundDivisor
     }
 
     public init(from decoder: Decoder) throws {
@@ -54,7 +58,9 @@ public struct AtmosphereSettings: Codable, Equatable {
         froxelSize = try c.decodeIfPresent(Int.self, forKey: .froxelSize) ?? d.froxelSize
         froxelSlices = try c.decodeIfPresent(Int.self, forKey: .froxelSlices) ?? d.froxelSlices
         froxelExponent = try c.decodeIfPresent(Double.self, forKey: .froxelExponent) ?? d.froxelExponent
+        froxelSteps = try c.decodeIfPresent(Int.self, forKey: .froxelSteps) ?? d.froxelSteps
         limbSteps = try c.decodeIfPresent(Int.self, forKey: .limbSteps) ?? d.limbSteps
         groundSteps = try c.decodeIfPresent(Int.self, forKey: .groundSteps) ?? d.groundSteps
+        spaceGroundDivisor = try c.decodeIfPresent(Int.self, forKey: .spaceGroundDivisor) ?? d.spaceGroundDivisor
     }
 }

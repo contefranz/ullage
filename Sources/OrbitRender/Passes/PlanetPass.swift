@@ -5,15 +5,20 @@ import simd
 import OrbitCore
 import OrbitScene
 
-/// The bodies, farthest first, ray-traced on a full-screen triangle each,
-/// with today's sky and haze (P1). Small ones are left to the far points,
-/// and the Sun to R1's star pass.
+/// The bodies, farthest first, ray-traced on a full-screen triangle each
+/// (P1), in photometric units: Lambert grounds under the Sun, the Earth's
+/// lit and hazed through A2's atmosphere when it is drawn (its sky is A2's
+/// composite, P2). Small ones are left to the far points, and the Sun to
+/// R1's star pass.
 /// Track E2 owns this pass and the planet module.
 @MainActor
 public final class PlanetPass: RenderPass {
     public let name = "Planets"
     public let stage = PassStage.opaque
     public let order = 10
+    public var reads: Set<ResourceID> { [.atmosphereIrradiance, .atmosphereProfile] }
+    // (A2's `.spaceGroundScatter` and `.spaceGroundTransmittance` are used
+    // when P0 wrote them this frame, as `.skyView` is through its slot.)
 
     private var pipeline: MTLRenderPipelineState?
     private var textures: [Int: MTLTexture] = [:]
@@ -76,6 +81,14 @@ public final class PlanetPass: RenderPass {
         enc.setRenderPipelineState(pipeline)
         enc.setDepthStencilState(f.states.depthWrite)
         enc.setFragmentSamplerState(f.states.equirectSampler, index: 0)
+        enc.setFragmentTexture(f.textures[.atmosphereIrradiance] ?? fallbackTexture, index: 1)
+        enc.setFragmentTexture(f.textures[.atmosphereProfile] ?? fallbackTexture, index: 2)
+        let air = f.atmosphere.radii.w > 0.5 && f.textures[.atmosphereProfile] != nil
+        let groundSteps = Float(f.settings.atmosphere.groundSteps)
+        // From space, A2's haze over the ground at a reduced resolution.
+        let haze = f.textures[.spaceGroundScatter].flatMap { s in f.textures[.spaceGroundTransmittance].map { (s, $0) } }
+        enc.setFragmentTexture(haze?.0 ?? fallbackTexture, index: 3)
+        enc.setFragmentTexture(haze?.1 ?? fallbackTexture, index: 4)
         for body in f.scene.bodies where !body.isSun && !f.drawsPoint(body) {
             let rel = body.position
             let style = Self.style(for: body.id)
@@ -98,7 +111,7 @@ public final class PlanetPass: RenderPass {
                 params: SIMD4(Float(altitude), Float(tanY) * aspect, Float(tanY), near),
                 sunDir: SIMD4(body.toSun, body.isSun ? 1 : 0),
                 baseColor: SIMD4(style.color.x, style.color.y, style.color.z, texture == nil ? 0 : 1),
-                atmosphere: SIMD4(style.sky.x, style.sky.y, style.sky.z, style.scaleHeight),
+                atmosphere: SIMD4(air && body.id == AtmosphereFrame.planetID ? 1 : 0, groundSteps, haze == nil ? 0 : 1, 0),
                 options: SIMD4(texture == nil ? 1 : 0, 0.015, 0, 0),
                 origin: SIMD4(origin, Float(c)),
                 figure: SIMD4(Float(stretch), 0, 0, 0))
@@ -110,14 +123,14 @@ public final class PlanetPass: RenderPass {
 
     struct BodyStyle {
         var color: SIMD3<Float>
-        var sky: SIMD3<Float> = .zero
-        var scaleHeight: Float = 0
     }
 
     static func style(for id: Int) -> BodyStyle {
         switch id {
         case 10: return BodyStyle(color: SIMD3(1.0, 0.95, 0.85))
-        case 399: return BodyStyle(color: SIMD3(0.05, 0.16, 0.45), sky: SIMD3(0.30, 0.55, 1.0), scaleHeight: 9_000)
+        // Untextured, the Earth is an ocean: the open sea's albedo, about
+        // 0.06 (its blue is the air's, A2's).
+        case 399: return BodyStyle(color: SIMD3(0.04, 0.06, 0.08))
         case 301: return BodyStyle(color: SIMD3(0.35, 0.34, 0.32))
         case 499: return BodyStyle(color: SIMD3(0.7, 0.35, 0.2))
         case 299: return BodyStyle(color: SIMD3(0.9, 0.85, 0.7))

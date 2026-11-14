@@ -8,12 +8,13 @@ import OrbitScene
 final class SceneRendererTests: XCTestCase {
     static let system = try! SolarSystem.bundled()
 
-    /// Today's passes and R1's are set up and active, every track's stub is off.
+    /// Today's passes, R1's and A2's are set up and active, every track's stub is off.
     func testDefaultPasses() throws {
         let r = try SceneRenderer(device: try XCTUnwrap(RenderDevice.shared), loadsUserTextures: false)
         XCTAssertEqual(r.failures, [:])
-        XCTAssertEqual(r.graph.active.map(\.name), ["Exposure", "Stars", "Planets", "Vessels", "Plumes", "Far points",
-                                                    "HDR resolve", "Post", "Debug view", "Orbit line", "Markers"])
+        XCTAssertEqual(r.graph.active.map(\.name), ["Exposure", "Atmosphere LUTs", "Stars", "Planets", "Vessels",
+                                                    "Atmosphere composite", "Plumes", "Far points", "HDR resolve", "Post",
+                                                    "Debug view", "Orbit line", "Markers"])
         XCTAssertEqual(Set(r.graph.passes.map(\.name)).count, r.graph.passes.count, "pass names are unique")
         for stage in PassStage.allCases {
             XCTAssertTrue(r.graph.passes.contains { $0.stage == stage }, "a pass in every slot, \(stage)")
@@ -47,7 +48,8 @@ final class SceneRendererTests: XCTestCase {
             return (Int(pixels[i]), Int(pixels[i + 1]), Int(pixels[i + 2]))
         }
         let sky = pixel(20, 10), ground = pixel(20, 190), vehicle = pixel(160, 100)
-        XCTAssertGreaterThan(sky.b, sky.r + 40, "blue sky at the top: \(sky)")
+        // A2's sky over AOD 0.1 of aerosol, through AgX: blue, if paler than M1.5's.
+        XCTAssertGreaterThan(sky.b, sky.r + 20, "blue sky at the top: \(sky)")
         XCTAssertLessThan(ground.b + ground.g + ground.r, sky.b + sky.g + sky.r, "darker ground below: \(ground)")
         XCTAssertGreaterThan(vehicle.r + vehicle.g + vehicle.b, 300, "the white stack in the middle: \(vehicle)")
         XCTAssertEqual(try image(), pixels, "deterministic")

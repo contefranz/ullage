@@ -107,27 +107,24 @@ public enum AtmosphereMarch {
     }
 
     /// The froxels' value at slice `slice` of `slices` along a ray (the
-    /// atmosphere module's `atmosphere_froxels`): every slice in
-    /// `subSteps` uniform steps within the air.
+    /// atmosphere module's `atmosphere_froxels`): the march from the camera
+    /// to the slice's distance, within the air.
     public static func froxel(_ lut: AtmosphereLUT, origin o: Vec3, direction d: Vec3, slices: FroxelSlices,
-                              slice: Int, subSteps: Int, sun: Vec3, cosView nu: Double) -> Result {
-        var m = Result()
+                              slice: Int, steps: Int, sun: Vec3, cosView nu: Double) -> Result {
         guard let seg = airSegment(origin: o, direction: d, bottomRadius: lut.bottomRadius,
-                                   topRadius: lut.topRadius) else { return m }
-        let rp = OpticalAtmosphere.rayleighPhase(cosTheta: nu), mp = lut.optics.aerosolPhase(cosTheta: nu)
-        var previous = 0.0
-        for i in 0...slice {
-            let di = slices.distance(slice: i)
-            let ta = max(previous, seg.t0), tb = min(di, seg.t1)
-            if tb > ta {
-                for j in 0..<subSteps {
-                    let a0 = ta + (tb - ta) * Double(j) / Double(subSteps)
-                    let a1 = ta + (tb - ta) * Double(j + 1) / Double(subSteps)
-                    step(&m, lut, o, d, a0, a1, sun, rp, mp)
-                }
-            }
-            previous = di
-        }
-        return m
+                                   topRadius: lut.topRadius) else { return Result() }
+        return march(lut, origin: o, direction: d, from: seg.t0, to: min(slices.distance(slice: slice), seg.t1),
+                     steps: steps, sun: sun, cosView: nu)
+    }
+
+    /// The haze over the ground seen from space (`atmosphere_spaceGround`):
+    /// the march to where the ray meets the ground, or, if it misses it, to
+    /// its closest approach to the planet.
+    public static func spaceGround(_ lut: AtmosphereLUT, origin o: Vec3, direction d: Vec3, steps: Int, sun: Vec3,
+                                   cosView nu: Double) -> Result {
+        guard let seg = airSegment(origin: o, direction: d, bottomRadius: lut.bottomRadius,
+                                   topRadius: lut.topRadius) else { return Result() }
+        let end = seg.ground ? seg.t1 : min(seg.t1, max(-o.dot(d), seg.t0))
+        return march(lut, origin: o, direction: d, from: seg.t0, to: end, steps: steps, sun: sun, cosView: nu)
     }
 }
