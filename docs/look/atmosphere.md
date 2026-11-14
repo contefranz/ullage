@@ -58,7 +58,7 @@ left alone):
 | `groundAlbedo` | the multiple scattering's ground albedo |
 | `sunTransmitted` | rgb the Sun's colour at the camera through the air, unitless: A1's transmittance per channel times R1's 5772 K colour at unit luminance; w the Sun's illuminance above the air (lux, `RenderScene.Sun.illuminance`) |
 | `skyIrradiance` | rgb the sky's light (without the direct Sun) on a horizontal surface facing up at the camera, lux; 0 above the air |
-| `aerialPerspective` | x the froxels' slices (0: none), y the last slice's distance (m), z the slice exponent k |
+| `aerialPerspective` | x the froxels' slices (0: none, as above 2,000 km), y the last slice's distance (m), z the slice exponent k |
 
 - **The Sun's light on a surface** is `sunTransmitted.rgb * sunTransmitted.w`
   lux per channel. With no air in the way that is exactly

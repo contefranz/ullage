@@ -94,11 +94,14 @@ public struct FroxelSlices: Equatable {
         return (w, min(max(s + 1, 0), 1))
     }
 
+    /// The longest the froxels reach, m; a camera higher than this has none.
+    public static let maximumFar = 2_000_000.0
+
     /// The far distance that keeps everything the camera can see through
     /// air in the froxels: its horizon's distance plus that of a cloud top
     /// of 12 km beyond it (`AtmosphereFrame.cloudTop`), within 32 and 2,000 km.
     public static func far(cameraAltitude h: Double, bottomRadius rb: Double) -> Double {
         func horizon(_ h: Double) -> Double { max(0, h * (2 * rb + h)).squareRoot() }
-        return min(max(horizon(h) + horizon(AtmosphereFrame.cloudTop), 32_000), 2_000_000)
+        return min(max(horizon(h) + horizon(AtmosphereFrame.cloudTop), 32_000), maximumFar)
     }
 }

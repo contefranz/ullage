@@ -153,7 +153,8 @@ public final class AtmosphereLUTPass: RenderPass {
             f.textures[.spaceGroundScatter] = ground.scatter
             f.textures[.spaceGroundTransmittance] = ground.transmittance
         }
-        if let volume = target3D(settings, device: device) {
+        // Froxels reach 2,000 km at most: beyond, nothing near the camera is in the air.
+        if frame.cameraAltitude < FroxelSlices.maximumFar, let volume = target3D(settings, device: device) {
             enc.setComputePipelineState(froxelPipeline)
             enc.setTexture(volume, index: 0)
             Self.dispatch(enc, froxelPipeline, width: volume.width, height: volume.height, depth: volume.depth)
