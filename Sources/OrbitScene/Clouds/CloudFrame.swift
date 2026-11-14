@@ -90,10 +90,11 @@ public struct CloudFrame: Equatable {
 
     /// The cloud shadow map's frame: an orthographic view along the Sun,
     /// `extent` m across in `texels` texels, centred on the camera's ground
-    /// point snapped to whole texels from a body-fixed anchor near it (the
-    /// nearest point of an 8 km lattice), so that it does not swim as the
-    /// camera moves. As the Sun turns about the Earth the grid turns about
-    /// that anchor, a few metres a frame at the map's edge.
+    /// point snapped to whole texels of a lattice through the Earth's centre
+    /// in the map's plane, so that it does not swim as the camera moves (an
+    /// anchor near the camera jumped by 8 km at a time, a fraction of a
+    /// texel each time). As the Sun turns about the Earth the lattice turns
+    /// with it, under a texel a minute at the ground.
     public struct ShadowMap: Equatable {
         /// Its centre, body axes from the Earth's centre (m).
         public let center: Vec3
@@ -124,21 +125,15 @@ public struct CloudFrame: Equatable {
         min(max(100_000 + 4 * altitude, 100_000), 1_000_000)
     }
 
-    /// The lattice the shadow map's anchor is snapped to, m.
-    public static let shadowAnchorLattice = 8_192.0
-
     public func shadowMap(texels: Int, extent: Double? = nil) -> ShadowMap {
         let extent = extent ?? Self.shadowExtent(altitude: altitude)
         let s = sunBody
         // Axes across the Sun: from the pole unless the Sun is near it.
         let ref = abs(s.z) < 0.9 ? Vec3(0, 0, 1) : Vec3(1, 0, 0)
         let u = ref.cross(s).normalized, v = s.cross(u)
-        let ground = cameraBody.normalized * radius
-        let l = Self.shadowAnchorLattice
-        let anchor = Vec3((ground.x / l).rounded() * l, (ground.y / l).rounded() * l, (ground.z / l).rounded() * l)
-        let d = ground - anchor, texel = extent / Double(texels)
-        let center = anchor + u * ((d.dot(u) / texel).rounded() * texel) + v * ((d.dot(v) / texel).rounded() * texel)
-            + s * d.dot(s)
+        let ground = cameraBody.normalized * radius, texel = extent / Double(texels)
+        let center = u * ((ground.dot(u) / texel).rounded() * texel) + v * ((ground.dot(v) / texel).rounded() * texel)
+            + s * ground.dot(s)
         return ShadowMap(center: center, u: u, v: v, sun: s, extent: extent, texels: texels)
     }
 
@@ -185,6 +180,91 @@ public struct CloudAdvection: Equatable {
             let step = axes.east * (w.east * dt) + axes.north * (w.north * dt)
             offsets[i] = CloudFrame.wrap(offsets[i] - step, tile: tile)
         }
+    }
+}
+
+/// The cirrus's streak frame (docs/look/clouds.md, cirrus): a body-fixed
+/// anchor on the ground with axes along the high wind there, across it and
+/// up, and the wind's drift. The fibres are the shape volume at (x·along /
+/// 8, x·across, x·up) from the anchor, so they stay put as the camera moves
+/// and turns (a frame at the camera turned with it: fibres far away swam),
+/// and the camera's noise coordinate wraps by whole periods (a body-axis
+/// wrap of a stretched coordinate jumped by a fraction of one).
+public struct CirrusFrame: Equatable {
+    public let anchor: Vec3
+    public let along: Vec3
+    public let across: Vec3
+    public let up: Vec3
+    /// The wind's drift, noise-space metres (along already divided by 8).
+    public private(set) var drift = Vec3(0, 0, 0)
+
+    /// The fibres' stretch along the wind.
+    public static let stretch = 8.0
+
+    /// A frame at the camera's ground point, its fibres along `streak` (a
+    /// horizontal direction there; east when the wind is calm).
+    public init(_ frame: CloudFrame, streak: Vec3) {
+        let up = frame.cameraBody.normalized
+        var a = streak - up * streak.dot(up)
+        if a.length < 1e-6 { a = frame.eastNorth.east }
+        a = a.normalized
+        anchor = up * frame.radius
+        along = a
+        across = up.cross(a).normalized
+        self.up = up
+    }
+
+    /// The camera's noise coordinate (noise-space m), wrapped to [0, period).
+    public func origin(camera: Vec3, period: Double) -> Vec3 {
+        let r = camera - anchor
+        return CloudFrame.wrap(Vec3(r.dot(along) / Self.stretch, r.dot(across), r.dot(up)) + drift, tile: period)
+    }
+
+    /// Moves the fibres with the wind (east, north; m/s) for `dt` s.
+    public mutating func advance(_ frame: CloudFrame, wind: LayerWind?, dt: Double, period: Double) {
+        guard let wind, dt.isFinite, dt != 0 else { return }
+        let axes = frame.eastNorth
+        let step = axes.east * (wind.east * dt) + axes.north * (wind.north * dt)
+        drift = CloudFrame.wrap(drift - Vec3(step.dot(along) / Self.stretch, step.dot(across), step.dot(up)), tile: period)
+    }
+
+    /// The camera has gone `reach` m from the anchor, or the wind there has
+    /// turned more than `turn` from the frame's: time for a new one.
+    public func stale(_ frame: CloudFrame, streak: Vec3) -> Bool {
+        if (frame.cameraBody.normalized * frame.radius - anchor).length > Self.reach { return true }
+        let up = frame.cameraBody.normalized
+        let a = streak - up * streak.dot(up)
+        guard a.length > 1e-6 else { return false }
+        return a.normalized.dot(along) < cos(Self.turn)
+    }
+
+    public static let reach = 1_000_000.0
+    public static let turn = 30.0 * .pi / 180
+}
+
+/// The cirrus's current frame and the one it replaced, fading out over
+/// `fadeTime` s of wall clock (the two drawn and mixed meanwhile).
+public struct CirrusFrames: Equatable {
+    public private(set) var current: CirrusFrame?
+    public private(set) var previous: CirrusFrame?
+    /// The previous frame's weight, 1 to 0.
+    public private(set) var fade = 0.0
+    public static let fadeTime = 2.0
+
+    public init() {}
+
+    public mutating func update(_ frame: CloudFrame, streak: Vec3, wind: LayerWind?, dt: Double, realDt: Double,
+                                period: Double) {
+        fade = max(fade - realDt / Self.fadeTime, 0)
+        if fade <= 0 { previous = nil }
+        if let c = current, !c.stale(frame, streak: streak) {
+            current?.advance(frame, wind: wind, dt: dt, period: period)
+            previous?.advance(frame, wind: wind, dt: dt, period: period)
+            return
+        }
+        previous = current
+        fade = previous == nil ? 0 : 1
+        current = CirrusFrame(frame, streak: streak)
     }
 }
 

@@ -29,17 +29,38 @@ inline float4 effect_gatherOrder(float4 g) {
     return float4(g.w, g.z, g.x, g.y);
 }
 
+// A layer's channel as the composite takes it (EffectSlots.layerChannel):
+// each item is held below 6e4, but a layer sums them in rgba16Float, which
+// can reach +inf. As in R1's post, light past half's range saturates (here
+// at ORBIT_EFFECT_MAX_RADIANCE), and NaN and -inf are no light, so an
+// overflowing layer shows saturated, not a hole.
+inline float effect_layerChannel(float x) {
+    uint b = as_type<uint>(x);
+    if ((b & 0x7f800000u) == 0x7f800000u) { return (b & 0x807fffffu) == 0u ? ORBIT_EFFECT_MAX_RADIANCE : 0.0; }
+    return clamp(x, 0.0, ORBIT_EFFECT_MAX_RADIANCE);
+}
+
+// Premultiplied colour, its coverage within 0...1.
+inline float4 effect_layer(float4 c) {
+    return float4(effect_layerChannel(c.r), effect_layerChannel(c.g), effect_layerChannel(c.b),
+                  min(effect_layerChannel(c.a), 1.0));
+}
+
+// The OIT pair resolved; a revealage that is not a number reveals everything.
 inline float4 effect_resolveOIT(float4 accumulation, float revealage) {
-    float coverage = 1.0 - clamp(revealage, 0.0, 1.0);
-    return float4(accumulation.rgb * (coverage / clamp(accumulation.a, 1e-5, 5e4)), coverage);
+    float reveal = orbit_isNotFinite(revealage) ? 1.0 : clamp(revealage, 0.0, 1.0);
+    float coverage = 1.0 - reveal;
+    float4 a = float4(effect_layerChannel(accumulation.r), effect_layerChannel(accumulation.g),
+                      effect_layerChannel(accumulation.b), effect_layerChannel(accumulation.a));
+    return effect_layer(float4(a.rgb * (coverage / clamp(a.a, 1e-5, 5e4)), coverage));
 }
 
 // The drawn layers (`used`: 1 clouds, 2 volumes, 4 OIT) at texel t.
 inline EffectLayers effect_readLayers(uint2 t, uint used, texture2d<float> clouds, texture2d<float> volumes,
                                       texture2d<float> accumulation, texture2d<float> revealage) {
     EffectLayers l;
-    l.color[0] = (used & 1u) != 0u ? clouds.read(t) : float4(0.0);
-    l.color[1] = (used & 2u) != 0u ? volumes.read(t) : float4(0.0);
+    l.color[0] = (used & 1u) != 0u ? effect_layer(clouds.read(t)) : float4(0.0);
+    l.color[1] = (used & 2u) != 0u ? effect_layer(volumes.read(t)) : float4(0.0);
     l.color[2] = (used & 4u) != 0u ? effect_resolveOIT(accumulation.read(t), revealage.read(t).r) : float4(0.0);
     return l;
 }
@@ -51,8 +72,8 @@ inline EffectLayers effect_sampleLayers(float2 uv, uint used, sampler s, texture
                                         texture2d<float> volumes, texture2d<float> accumulation,
                                         texture2d<float> revealage) {
     EffectLayers l;
-    l.color[0] = (used & 1u) != 0u ? clouds.sample(s, uv) : float4(0.0);
-    l.color[1] = (used & 2u) != 0u ? volumes.sample(s, uv) : float4(0.0);
+    l.color[0] = (used & 1u) != 0u ? effect_layer(clouds.sample(s, uv)) : float4(0.0);
+    l.color[1] = (used & 2u) != 0u ? effect_layer(volumes.sample(s, uv)) : float4(0.0);
     l.color[2] = (used & 4u) != 0u ? effect_resolveOIT(accumulation.sample(s, uv), revealage.sample(s, uv).r)
                                    : float4(0.0);
     return l;
@@ -151,7 +172,7 @@ fragment float4 effect_composite_fragment(EffectFullscreenOut in [[stage_in]],
     }
     float4 c = effect_compositeLayers(l);
     if (orbit_isNotFinite(c.rgb) || orbit_isNotFinite(c.a)) { return float4(0.0); }
-    return float4(c.rgb, clamp(c.a, 0.0, 1.0));
+    return float4(orbit_effectRadiance(c.rgb), clamp(c.a, 0.0, 1.0));
 }
 
 // ----------------------------------------------------- slot debug views ---

@@ -30,10 +30,9 @@ public struct CloudSettings: Codable, Equatable {
     public var shadowTexels = 256
     /// Scales every layer's extinction.
     public var densityScale = 1.0
-    /// The far layer's in-cloud optical depth over the layer model's: the
-    /// march's clouds are not uniformly dense (their edges, their profile),
-    /// so the surface layer that matches them is thinner.
-    public var farDensity = 0.45
+    /// Scales the far layer's optical depth, C1's in-cloud one (the march's
+    /// extinction averages C1's where there is cloud, so 1 matches it).
+    public var farDensity = 1.0
     /// How much the large-scale structure moves partial cover up and down.
     public var coverageModulation = 0.8
     /// The pixel footprint on the layer (m) over which the march hands

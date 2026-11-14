@@ -29,6 +29,17 @@ struct CloudUniforms {
     float4 noiseMid;          // xyz: mid layer's, w: mid shape period (m)
     float4 noiseHigh;         // xyz: cirrus's, w: detail period (m)
     float4 windHigh;          // xyz: unit body axis of the cirrus's streaks, w: curl period (m)
+    // The cirrus's streak frames (CirrusFrame), current and fading out: axes
+    // along the wind, across and up (body), the camera's noise coordinate
+    // (noise-space m); cirrusAlong.w the fading frame's weight.
+    float4 cirrusAlong;
+    float4 cirrusAcross;
+    float4 cirrusUp;
+    float4 cirrusOrigin;
+    float4 cirrusAlong2;
+    float4 cirrusAcross2;
+    float4 cirrusUp2;
+    float4 cirrusOrigin2;
     float4 extinction;        // x: low, y: mid, z: cirrus in-cloud extinction (1/m), w: density scale
     float4 layers;            // x: mid base, y: mid top, z: cirrus base, w: cirrus top (m)
     float4 march;             // x: steps, y: unused, z: light distance (m), w: near reach (m)
@@ -48,6 +59,12 @@ struct CloudUniforms {
     float4 shadowV;           // xyz: v axis
     float4 shadowLevels;      // the altitudes (m) the map's channels hold the optical depth above
     float4 coverage[9];       // the coverage thresholds θ(c) at c = 0, 1/32 ... 1, four to an entry
+    // CloudCoverage's statistics over the same covers: the march's density
+    // scale for the low and mid layers, the cirrus's thresholds and scale.
+    float4 densityLow[9];
+    float4 densityMid[9];
+    float4 cirrusTheta[9];
+    float4 cirrusScale[9];
 };
 
 inline float cloud_remap(float x, float a, float b, float c, float d) {
@@ -290,14 +307,18 @@ inline float2 cloud_weatherUV(float3 pf, constant CloudUniforms &u) {
     return float2(uu, vv);
 }
 
-// The coverage threshold θ(c): the shape value above which a fraction c of
-// the sky is cloud (CloudCoverage), linear between its 33 entries.
-inline float cloud_threshold(float cover, constant CloudUniforms &u) {
+// A table over the cover c = 0, 1/32 ... 1 (CloudCoverage), four entries to
+// a float4, linear between its 33 entries.
+inline float cloud_table(constant float4 *t, float cover) {
     float x = clamp(cover, 0.0, 1.0) * 32.0;
     int i = min(int(x), 31);
-    float a = u.coverage[i / 4][i % 4], b = u.coverage[(i + 1) / 4][(i + 1) % 4];
+    float a = t[i / 4][i % 4], b = t[(i + 1) / 4][(i + 1) % 4];
     return mix(a, b, x - float(i));
 }
+
+// The coverage threshold θ(c): the shape value above which a fraction c of
+// the sky is cloud.
+inline float cloud_threshold(float cover, constant CloudUniforms &u) { return cloud_table(u.coverage, cover); }
 
 inline float cloud_profileLow(float h) {
     return clamp(cloud_remap(h, 0.0, 0.08, 0.0, 1.0), 0.0, 1.0) * clamp(cloud_remap(h, 0.4, 1.0, 1.0, 0.0), 0.0, 1.0);
@@ -378,6 +399,15 @@ inline CloudWeatherSample cloud_weatherAt(float3 pf, thread const CloudTextures 
     return w;
 }
 
+// The curl (m, along and across) at camera-relative point q in a streak
+// frame's tangent plane: continuous as its origin wraps (by whole curl
+// periods: the shape period, and eight of it along).
+inline float2 cloud_tangentCurl(float3 q, float3 a, float3 b, float3 o, thread const CloudTextures &t, sampler wrap,
+                                constant CloudUniforms &u) {
+    float2 m = float2(o.x * 8.0 + dot(q, a), o.y + dot(q, b));
+    return t.curl.sample(wrap, m / u.windHigh.w, level(0.0)).xy;
+}
+
 // The cloud at camera-relative body point q (figure point pf, height h)
 // with the weather there. `detailAmount` fades the erosion with distance;
 // `cheap` leaves it and the curl out and reads the shape's coarser mip (the
@@ -403,12 +433,17 @@ inline CloudSample cloud_density(float3 q, float h, CloudWeatherSample w, float 
         float4 shape = t.shape.sample(wrap, (u.noiseLow.xyz + q) / u.noiseLow.w, level(cheap ? 2.0 : 0.0));
         float d = cloud_baseDensity(shape, wa.x, cloud_profileLow(h01), u);
         if (d > 0.0 && !cheap && detailAmount > 0.0) {
-            float2 c = t.curl.sample(wrap, (u.noiseLow.xy + q.xy) / u.windHigh.w, level(0.0)).xy;
-            float3 pd = (u.noiseLow.xyz + q + float3(c, 0.0) * 300.0 * (1.0 - h01)) / u.noiseHigh.w;
+            // The curl in the tangent plane (the cirrus frame's), warping
+            // the detail sideways, not up.
+            float2 c = cloud_tangentCurl(q, u.cirrusAlong.xyz, u.cirrusAcross.xyz, u.cirrusOrigin.xyz, t, wrap, u);
+            float3 warp = (u.cirrusAlong.xyz * c.x + u.cirrusAcross.xyz * c.y) * 300.0 * (1.0 - h01);
+            float3 pd = (u.noiseLow.xyz + q + warp) / u.noiseHigh.w;
             float3 dv = t.detail.sample(wrap, pd, level(0.0)).rgb;
             d = cloud_erode(d, dv.r * 0.625 + dv.g * 0.25 + dv.b * 0.125, detailAmount, h01);
         }
-        s.sigma = d * u.extinction.x * u.extinction.w;
+        // In cloud the extinction averages C1's (CloudCoverage's scale: the
+        // thresholded shape alone averages 0.1-0.2 of it).
+        s.sigma = d * cloud_table(u.densityLow, wa.x) * u.extinction.x * u.extinction.w;
         s.column = s.sigma * (lowTop - lowBase);
         s.h01 = h01;
         s.layer = 0.0;
@@ -420,7 +455,7 @@ inline CloudSample cloud_density(float3 q, float h, CloudWeatherSample w, float 
             float3 dv = t.detail.sample(wrap, (u.noiseMid.xyz + q) / (2.0 * u.noiseHigh.w), level(0.0)).rgb;
             d = cloud_erode(d, dv.r * 0.625 + dv.g * 0.25 + dv.b * 0.125, detailAmount, h01);
         }
-        s.sigma = d * u.extinction.y * u.extinction.w;
+        s.sigma = d * cloud_table(u.densityMid, wa.y) * u.extinction.y * u.extinction.w;
         s.column = s.sigma * (u.layers.y - u.layers.x);
         s.h01 = h01;
         s.layer = 1.0;
@@ -440,12 +475,14 @@ inline float cloud_lightDensity(float3 q, float h, CloudWeatherSample w, thread 
     if (wa.x > 0.002 && h >= wa.w && h <= w.lowTop) {
         float h01 = (h - wa.w) / (w.lowTop - wa.w);
         float4 shape = t.shape.sample(wrap, (u.noiseLow.xyz + q) / u.noiseLow.w, level(2.0));
-        return cloud_baseDensity(shape, wa.x, cloud_profileLow(h01), u) * u.extinction.x * u.extinction.w;
+        return cloud_baseDensity(shape, wa.x, cloud_profileLow(h01), u) * cloud_table(u.densityLow, wa.x)
+             * u.extinction.x * u.extinction.w;
     }
     if (wa.y > 0.002 && h >= u.layers.x && h <= u.layers.y) {
         float h01 = (h - u.layers.x) / (u.layers.y - u.layers.x);
         float4 shape = t.shape.sample(wrap, (u.noiseMid.xyz + q) / u.noiseMid.w, level(2.0));
-        return cloud_baseDensity(shape, wa.y, cloud_profileMid(h01), u) * u.extinction.y * u.extinction.w;
+        return cloud_baseDensity(shape, wa.y, cloud_profileMid(h01), u) * cloud_table(u.densityMid, wa.y)
+             * u.extinction.y * u.extinction.w;
     }
     return 0.0;
 }
@@ -613,6 +650,8 @@ inline CloudResult cloud_farLayer(float3 of, float3 df, float3 d, float c, float
         beta = u.extinction.y;
     }
     if (cover <= 0.002) { return r; }
+    // C1's in-cloud optical depth, the march's own (its extinction averages
+    // C1's where there is cloud), times farDensity.
     float tau = u.lookDev.x > 0.5 ? u.lookDev.z : beta * u.extinction.w * thickness * u.regime.w;
     float4 v = cloud_slabLUT(lut, linear, 2 * layer + (below ? 1 : 0), tau, mu0, mu, u);
     // The air above the layer's top, where its light comes from.
@@ -632,18 +671,34 @@ inline CloudResult cloud_farLayer(float3 of, float3 df, float3 d, float c, float
 // its shell, cover `cover`: fibres of the Worley fBm stretched eight times
 // along the high wind, warped by the curl, cut at the cover's threshold;
 // where the footprint `far` is large, the fibres' mean density.
+// The cirrus's fibre value at q in one streak frame: the Worley fBm of 8
+// and 16 cells, stretched eight times along the wind and warped 2 km by the
+// curl in the tangent plane.
+inline float cloud_cirrusFibres(float3 q, float3 a, float3 b, float3 n, float3 o, float lod,
+                                thread const CloudTextures &t, sampler wrap, constant CloudUniforms &u) {
+    float2 c = cloud_tangentCurl(q, a, b, o, t, wrap, u) * 2000.0;
+    float3 pn = (o + float3((dot(q, a) + c.x) * 0.125, dot(q, b) + c.y, dot(q, n))) / u.noiseLow.w;
+    float4 s = t.shape.sample(wrap, pn, level(lod));
+    return s.b * 0.7 + s.a * 0.3;
+}
+
 inline float cloud_cirrusDepth(float3 q, float cover, float footprint, float far, thread const CloudTextures &t,
                                sampler wrap, constant CloudUniforms &u) {
-    float3 a = u.windHigh.xyz;
-    float3 p = u.noiseHigh.xyz + q;
-    float along = dot(p, a);
-    float3 across = p - a * along;
-    float2 c = t.curl.sample(wrap, p.xy / u.windHigh.w, level(0.0)).xy;
-    float3 pn = (across + a * (along * 0.125) + float3(c, 0.0) * 2000.0) / u.noiseLow.w;
     float lod = clamp(log2(max(footprint / 128.0, 1.0)), 0.0, 6.0);
-    float4 s = t.shape.sample(wrap, pn, level(lod));
-    float d01 = clamp(cloud_remap(s.b * 0.7 + s.a * 0.3, cloud_threshold(cover, u), 1.0, 0.0, 1.0), 0.0, 1.0);
-    d01 = mix(d01, 0.5, far);
+    float v = cloud_cirrusFibres(q, u.cirrusAlong.xyz, u.cirrusAcross.xyz, u.cirrusUp.xyz, u.cirrusOrigin.xyz, lod,
+                                 t, wrap, u);
+    if (u.cirrusAlong.w > 0.0) {
+        float v2 = cloud_cirrusFibres(q, u.cirrusAlong2.xyz, u.cirrusAcross2.xyz, u.cirrusUp2.xyz, u.cirrusOrigin2.xyz,
+                                      lod, t, wrap, u);
+        v = mix(v, v2, u.cirrusAlong.w);
+    }
+    // The cirrus's own thresholds (CloudCoverage: the quantiles of its value,
+    // not the shape's), and its scale, so its in-cloud optical depth averages
+    // C1's; far away the fibres average to that.
+    float d01 = clamp(cloud_remap(v, cloud_table(u.cirrusTheta, cover), 1.0, 0.0, 1.0), 0.0, 1.0)
+              * cloud_table(u.cirrusScale, cover);
+    d01 = mix(d01, 1.0, far);
+    // Through the deck's depth (layers.w − layers.z: CloudPass.cirrusThickness).
     return u.extinction.z * (u.layers.w - u.layers.z) * d01 * u.extinction.w;
 }
 
@@ -679,10 +734,16 @@ inline CloudResult cloud_cirrus(float3 of, float3 df, float3 d, float pixelAngle
         float k = 1.0 / m - 1.0 / mu0c;
         single = abs(k) < 1e-3 ? tau / m * exp(-tau / m) : (exp(-tau / mu0c) - exp(-tau / m)) / (m * k);
     }
+    // Beyond the once-scattered Sun, the light of the slab's diffuse streams
+    // scattered towards the eye along the view, as the march takes it (at
+    // mid-depth): the streams' outgoing flux already holds the first order,
+    // which counted it twice (more light out than in at τ 0.2, μ0 0.12).
     float b = (1.0 - u.lighting.w) * 0.5;
-    float2 st = cloud_streams(mu > 0.0 ? 0.0 : tau, tau, b);
-    float diffuse = mu > 0.0 ? mu0c * st.y / CLOUD_PI : mu0c * max(st.x - exp(-tau / mu0c), 0.0) / CLOUD_PI;
-    float skyD = mu > 0.0 ? st.y / CLOUD_PI : st.x / CLOUD_PI;
+    float2 st = cloud_streams(0.5 * tau, tau, b);
+    float emit = 1.0 - exp(-tau / m);
+    float2 sunSt = float2(max(st.x - exp(-0.5 * tau / mu0c), 0.0), st.y);
+    float diffuse = mu0c * cloud_streamRadiance(sunSt, mu) * emit;
+    float skyD = cloud_streamRadiance(st, mu) * emit;
     float h = u.shellMid.y;
     float3 sun = u.sunLight.rgb * cloud_sunTransmittance(h, mu0, trans, linear, u);
     float3 sky = u.sunLight.rgb * cloud_skyIrradiance(h, mu0, irr, linear, u);
@@ -998,6 +1059,8 @@ kernel void cloud_resolve(texture2d<float, access::read> fresh [[texture(10)]],
                 float2 uv = float2(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
                 if (all(uv >= 0.0) && all(uv <= 1.0)) {
                     float4 h = history.sample(linear, uv, level(0.0));
+                    // Last frame's radiance at this frame's pre-exposure.
+                    h.rgb *= frame.exposure.z;
                     if (abs(h.a - mc.a) < 0.25) { mc = mix(h, mc, 0.5); }
                 }
             }
@@ -1031,6 +1094,7 @@ kernel void cloud_resolve(texture2d<float, access::read> fresh [[texture(10)]],
                 float2 uv = float2(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
                 if (all(uv >= 0.0) && all(uv <= 1.0)) {
                     float4 h = history.sample(linear, uv, level(0.0));
+                    h.rgb *= frame.exposure.z;
                     float4 margin = (hi - lo) * 0.1;
                     mc = clamp(h, lo - margin, hi + margin);
                     float4 hd = historyDepth.read(min(uint2(uv * r.target.xy), size - 1u));
@@ -1066,36 +1130,55 @@ kernel void cloud_shadow(texture2d<float, access::write> out [[texture(0)]],
     float3 pf0 = cloud_figure(base, u);
     float3 up = normalize(float3(pf0.x, pf0.y, pf0.z * u.cameraFigure.w));
     float mu0 = max(dot(s, up), 0.02);
-    // The heights the layers here span, with a margin: the ray towards
-    // the Sun from where it crosses their top down to their bottom.
-    CloudWeatherSample w = cloud_weatherAt(pf0, t, wrap, weather, u);
+    float R = u.radii.x, hBase = cloud_height(pf0, u);
+    // Along the Sun from the map's plane the height is h(t) = hBase + μ0 t
+    // + t²/2R on the curved Earth; t at height h:
+    #define CLOUD_RAY_AT(h) (R * (-mu0 + sqrt(max(mu0 * mu0 + 2.0 * ((h) - hBase) / R, 0.0))))
     float4 tauAbove = float4(0.0);
-    float hBase = cloud_height(pf0, u);
-    if (w.topmost > 0.0) {
-        float hTop = min(w.topmost + 300.0, u.radii.z), hBottom = max(w.lowest - 300.0, 0.0);
-        // Along the Sun from the map's plane: height h - hBase at (h - hBase)/μ0 (flat within the margin).
-        float tTop = (hTop - hBase) / mu0, tBottom = (hBottom - hBase) / mu0;
+    // The weather where the ray crosses the low and the mid layers (not at
+    // the plane's point, kilometres off at a low Sun), for the heights the
+    // layers span there.
+    CloudWeatherSample wl = cloud_weatherAt(cloud_figure(base + s * CLOUD_RAY_AT(1500.0), u), t, wrap, weather, u);
+    CloudWeatherSample wm = cloud_weatherAt(cloud_figure(base + s * CLOUD_RAY_AT(4500.0), u), t, wrap, weather, u);
+    float topmost = max(wl.topmost, wm.topmost), lowest = min(wl.lowest, wm.lowest);
+    if (topmost > 0.0) {
+        float hTop = min(topmost + 300.0, u.radii.z), hBottom = max(lowest - 300.0, 0.0);
+        // (The rising root: t may be negative, where the map's plane is above
+        // the layer; the ray is the texel's whole line along the Sun.)
+        float tTop = CLOUD_RAY_AT(hTop), tBottom = CLOUD_RAY_AT(hBottom);
         int steps = int(u.shadow.w);
         float dt = (tTop - tBottom) / float(steps);
+        float fetchedAt = -1e30;
+        CloudWeatherSample w = wl;
         for (int i = 0; i < steps; i++) {
             float tm = tBottom + (float(i) + 0.5) * dt;
             float3 q = base + s * tm;
             float3 pf = cloud_figure(q, u);
             float h = cloud_height(pf, u);
+            // The weather where the sample is, again every 4 km.
+            if (abs(tm - fetchedAt) > 4000.0) {
+                w = cloud_weatherAt(pf, t, wrap, weather, u);
+                fetchedAt = tm;
+            }
             float add = cloud_density(q, h, w, 0.0, true, t, wrap, u).sigma * dt;
             for (int k = 0; k < 4; k++) {
                 if (h >= u.shadowLevels[k]) { tauAbove[k] += add; }
             }
         }
     }
-    // The cirrus, above every level but the top one, along the Sun.
-    if (u.lookDev.x < 0.5 && w.a.z > 0.002) {
-        float3 qc = base + s * ((u.shellMid.y - hBase) / mu0);
-        float tc = cloud_cirrusDepth(qc, w.a.z, 0.0, 0.0, t, wrap, u) / mu0;
-        for (int k = 0; k < 4; k++) {
-            if (u.shadowLevels[k] < u.shellMid.y) { tauAbove[k] += tc; }
+    // The cirrus, above every level but the top one, where the ray crosses
+    // its shell.
+    if (u.lookDev.x < 0.5) {
+        float3 qc = base + s * CLOUD_RAY_AT(u.shellMid.y);
+        float cover = t.weatherA.sample(weather, cloud_weatherUV(cloud_figure(qc, u), u), level(0.0)).z;
+        if (cover > 0.002) {
+            float tc = cloud_cirrusDepth(qc, cover, 0.0, 0.0, t, wrap, u) / mu0;
+            for (int k = 0; k < 4; k++) {
+                if (u.shadowLevels[k] < u.shellMid.y) { tauAbove[k] += tc; }
+            }
         }
     }
+    #undef CLOUD_RAY_AT
     out.write(tauAbove, gid);
 }
 
@@ -1214,12 +1297,12 @@ fragment EffectCloudOut cloud_slot_fragment(CloudSlotOut in [[stage_in]],
         result.front = wf >= 1.0 ? far.front : min(m.front, far.front);
         // The mean of the two by their shares of the opacity (a texel the
         // march found clear has no mean of its own: switching to the far
-        // layer's at a weight cut the far layer's share there, an arc).
+        // layer's at a weight cut the far layer's share there, an edge).
         float am = m.color.a * (1.0 - wf), af = far.color.a * wf;
         result.mean = am + af > 0.0 ? (am * min(m.mean, 1e12) + af * min(far.mean, 1e12)) / (am + af) : 1e30;
         result.entry = wf >= 1.0 ? far.entry : min(m.entry, far.entry);
     }
-    CloudResult cirrus = cloud_cirrus(ray.of, ray.df, ray.d, u.footprint.x * e.scale.x / u.target.z, t, trans, irr, wrap,
+    CloudResult cirrus = cloud_cirrus(ray.of, ray.df, ray.d, u.footprint.x * e.scale.x * 0.5, t, trans, irr, wrap,
                                       linear, weather, u);
     if (fromSpace) {
         cloud_hazeFromSpace(cirrus, screen, u.shellMid.y, spaceScatter, spaceTransmittance, linear, exposure);

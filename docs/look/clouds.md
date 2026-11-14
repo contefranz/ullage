@@ -13,10 +13,12 @@ docs/m16/design-earth-moon.md, clouds; plan: docs/m16/plan.md, C2.
     approximate Mie, and the march's lighting (`CloudLighting`);
   - `CloudSlab`: that lighting marched through a flat homogeneous slab,
     and the far regime's LUT baked from it;
-  - `CloudCoverage`: the coverage thresholds, so the drawn cover is ERA5's;
+  - `CloudCoverage`: the coverage thresholds, so the drawn cover is ERA5's,
+    and the statistics that tie the march and the cirrus to C1's layer model
+    (`CloudCoverageTables.swift`, baked from the shape volume);
   - `CloudFrame`: the per-frame geometry in Double (figure coordinates,
     shells, noise origin, reprojection, the shadow map's frame, regimes,
-    wind advection, the reprojection rule);
+    wind advection, the cirrus's streak frame, the reprojection rule);
   - `CloudWeatherMap`: what the GPU assembles C1's weather from, and its
     mirror.
 - **OrbitRender**: `Passes/CloudPass.swift` (P0, and R6's first
@@ -43,15 +45,17 @@ In P0, on the command buffer:
    moves by 1/500.
 3. **The cloud shadow map**, 256² along the Sun around the camera's ground
    point (100 km on the ground, growing to 1,000 km from orbit), snapped to
-   texels from a body-fixed anchor. Each texel holds the optical depth along
-   the Sun above 0, 2, 6 and 10 km, the cirrus included.
+   whole texels of a lattice through the Earth's centre. Each texel holds
+   the optical depth along its line towards the Sun above 0, 2, 6 and 10 km,
+   the cirrus included, marched on the curved Earth with the weather where
+   the line crosses the layers (refetched every 4 km).
 4. **The march** of the low and mid layers at R6's half resolution in the
-   near field and far away, a quarter of it in the orbit regime (20 km to
-   3,000 km). It marches one texel in four a frame and reprojects the rest,
-   or every texel when reprojection is off.
+   near field, a quarter of it from 20 km up. It marches one texel in four a
+   frame and reprojects the rest, or every texel when reprojection is off.
 5. **The resolve**: each texel marched this frame, or last frame's at the
-   same body-fixed point, clamped to its marched neighbours. A marched texel
-   averages with its history. This is `.cloudLayer` and `.cloudDepth`.
+   same body-fixed point (rescaled to this frame's pre-exposure), clamped to
+   its marched neighbours. A marched texel averages with its history. This
+   is `.cloudLayer` and `.cloudDepth`.
 
 In P3, R6's half-resolution encoder: **the slot copy** adds the far layers
 and the cirrus per texel of R6's targets, hazes each part at its own mean
@@ -69,28 +73,46 @@ front.
   that the steps grow with the distance, up to 2. The detail erodes the
   shapes out to 15-60 km. A light march of 4 samples over 1.5 km looks
   towards the Sun.
-- **Far** is a surface layer: per pixel, each layer's cover times the
-  slab LUT at its in-cloud optical depth (the layer model's, times
-  `farDensity` 0.45: the march's clouds are not uniformly dense), with the
-  same phase, Sun and sky. The LUT holds each slab seen from above and from
-  below, so the far layer serves the pad's horizon as well as orbit.
+- **Density:** the thresholded shape alone averages 0.1-0.2 of C1's
+  in-cloud extinction, so the march scales it by `CloudCoverage`'s
+  `densityScale` (5-11 by cover): in cloud its extinction averages C1's β,
+  peaks at 3-4 times that.
+- **Far** is a surface layer: per pixel, each layer's cover times the slab
+  LUT at C1's in-cloud optical depth (`farDensity` 1), with the same phase,
+  Sun and sky. With the march's extinction at C1's in cloud the two agree on
+  a broken deck: the march lights each sample through its column at that
+  density, which reflects as C1's slab does (an independent-pixel average
+  over the march's actual column depths came out 1.5-1.7 times too dark).
+  The LUT holds each slab seen from above and from below, so the far layer
+  serves the pad's horizon as well as orbit.
 - **Hand-over:** by the pixel's footprint on the low layer (1.5-6 km), so
   from orbit the limb is far while nadir is marched; and by the camera's
   height (3,000-6,000 km). Above 6,000 km nothing is marched. Inside the
   shell the footprint rule holds where the camera is clear of the layers
   the ray meets: under the low base, over the mid top, or between the low
   top and the mid base looking down (ramped over 50-300 m). Inside a layer
-  the march does everything out to `nearReach` (150 km). The two parts'
-  mean distances blend by their shares of the opacity.
-- **Cirrus** is a 2D layer at 10 km: fibres of the Worley fBm stretched
-  eight times along the 250 hPa wind, warped by the curl, lit as a thin slab
-  in closed form from above or below with ice's phase (g 0.75), averaging
-  out by footprint.
+  the march does everything out to `nearReach` (150 km). The footprint is
+  R6's half-resolution texel's whatever the march's scale, so a change of
+  scale does not move it. The two parts' mean distances blend by their
+  shares of the opacity.
+- **Cirrus** is a 2D layer at 10 km, 1.8 km deep (lidar climatologies'
+  mean deck; the 8-12 km band made it twice too thick): fibres of the Worley
+  fBm with their own coverage thresholds and scale (its in-cloud extinction
+  averages C1's, so its optical depth averages 0.37),
+  stretched eight times along the 250 hPa wind in a streak frame anchored on
+  the ground (body-fixed: re-anchored after 1,000 km or a 30° turn of the
+  wind, the old frame fading over 2 s), warped by the curl in that frame's
+  tangent plane. Lit as a thin slab: the Sun scattered once in closed form,
+  and the slab's diffuse streams scattered towards the eye as the march
+  does, with ice's phase (g 0.75); averaging out by footprint.
 - **Profiles:** the low layer rises fast from its base and tapers above 0.4
   of its depth (flat bases, domed tops). The mid layer's profile peaks at
   0.35 and rounds off both ways, so a patch of altocumulus is a lens as
   thick as its density is over the cover's threshold; a plateau cut every
   patch at the same two heights, boxes when seen edge-on from afar.
+- **Wind:** each layer's noise drifts with its wind; the drift starts over
+  only with a scene (the extractor's first frame or a jump in time), not on
+  a warp change or a camera cut.
 - **Large-scale structure:** two octaves (400 km and 100 km) of the shape
   volume on the sphere move partial cover up and down, by 4c(1 − c) of
   `coverageModulation`. They are applied alike in the march and the far
@@ -135,6 +157,17 @@ a = b = c = 0.5 a deck of τ 90 had a plane albedo of 0.09 against 0.18 for
 | GPU march against the far LUT, slab from LEO | 1.6 % mean, worst texel 4.3 % |
 | Shadow map under a slab of τ 20 | 5 % |
 | A slab seen from below: single scattering against its closed form; a thick deck's base against two-stream's transmitted light (T/π and T/R of its top) | 1e-9; within 25 % |
+| The march's in-cloud extinction against C1's β, low and mid, cover 0.1-0.9 (an independent sample) | within 8 % (15 % at 0.1) |
+| Cirrus: drawn cover against the cover; in-cloud optical depth against C1's | within 0.04; 8 % (15 % at 0.1) |
+| GPU: a broken low deck marched against the far layer from LEO, cover 0.3 and 0.7 | radiance within 25 %, opacity within 30 % (oblique views see more cloud than the cover) |
+| GPU: 4/10 cirrus from orbit, fibres drawn | 0.4 of the view within 0.15 |
+| GPU: the hand-over at a far weight of 0.16, the march's gaps | the far layer's share shows in over 75 % (none before) |
+| GPU: the shadow map at Apollo 8's dawn, a full deck but a clear pad | over 95 % of the lines crossing it 60-400 km out shaded |
+| GPU: the weather map after another mission | the same as a fresh pass's |
+| GPU: the wind's drift through a warp change | goes on (1 m) |
+| GPU: the hand-over's pixel angle across the march's scale changes | the same |
+| GPU: the resolve after a 2 EV jump | within 2 % of a steady exposure |
+| The cirrus's noise coordinate as the camera moves 400 km; the shadow map's lattice across 20 km | whole periods; whole texels |
 
 ## Cost
 

@@ -35,14 +35,25 @@ public final class CloudPass: RenderPass, HalfResEffect {
     public static let shapePeriod = 16_384.0, midPeriod = 32_768.0, detailPeriod = 2_048.0, curlPeriod = 8_192.0
     /// The shell the clouds live in, m above the ground, and the reference
     /// heights of the far layers and the cirrus.
+    /// A cirrus deck's depth within the 8-12 km band, m: lidar climatologies
+    /// give about 1.8 km at mid-latitudes (the band's 4 km made the 2D layer
+    /// twice too thick).
+    public static let cirrusThickness = 1_800.0
     public static let shellTop = 13_000.0, lowReference = 2_000.0, midReference = 4_500.0, cirrusHeight = 10_000.0
     /// The shadow map's channels: the optical depth above these heights (m).
     public static let shadowLevels: [Float] = [0, 2_000, 6_000, 10_000]
-    /// Frame pixels per march texel: 4 in the orbit regime (20 km to
-    /// 3,000 km), where the march covers most of the screen with clouds a
-    /// few pixels across; 2 (R6's half resolution) in the near field, and
-    /// far away, where the Earth is small and the surface layer cheap.
-    public static func marchScale(altitude: Double) -> Int { altitude >= 20_000 && altitude < 3_000_000 ? 4 : 2 }
+    /// Frame pixels per march texel: 2 (R6's half resolution) in the near
+    /// field, 4 from 20 km up, where the march's clouds are a few pixels
+    /// across. (Back to 2 above 3,000 km, the march switched on again over
+    /// most of the Earth's disc as the far layer had taken it.)
+    public static func marchScale(altitude: Double) -> Int { altitude >= 20_000 ? 4 : 2 }
+
+    /// The angle of the pixel footprint the hand-over to the far layer is
+    /// judged by: R6's half-resolution texel whatever the march's scale, so
+    /// the hand-over does not move when the scale changes.
+    public static func handOverPixelAngle(fovY: Double, viewportHeight: Double) -> Double {
+        2 * tan(fovY / 2) / max(viewportHeight, 1) * 2
+    }
 
     /// The Earth's least radius on screen for clouds, pixels.
     static let minimumRadius = 4.0
@@ -73,7 +84,10 @@ public final class CloudPass: RenderPass, HalfResEffect {
     var weatherOverrideName = "override"
 
     private var previous: CloudFrame?
-    private var advection = CloudAdvection(tile: FrameContext.noiseTile)
+    private(set) var advection = CloudAdvection(tile: FrameContext.noiseTile)
+    private(set) var cirrus = CirrusFrames()
+    /// The last frame's epoch, to tell a jump in time from a frame's step.
+    private var lastEpoch: Epoch?
     /// This frame's resolved clouds and uniforms, for the slots' copy; nil
     /// when nothing drew.
     private var resolved: (color: MTLTexture, depth: MTLTexture)?
@@ -93,6 +107,8 @@ public final class CloudPass: RenderPass, HalfResEffect {
         public var epoch: Epoch?
         public var sunLight = SIMD4<Float>.zero
         public var scale = 2
+        /// The pixel angle the hand-over to the far layer uses.
+        public var footprintAngle = 0.0
 
         public static func == (a: Report, b: Report) -> Bool {
             a.drawn == b.drawn && a.reprojected == b.reprojected && a.motionPixels == b.motionPixels
@@ -208,16 +224,26 @@ public final class CloudPass: RenderPass, HalfResEffect {
         noise.generate(on: cb, pipelines: (p.shape, p.detail, p.curl))
         let settings = f.settings.cloud
         let frame = CloudFrame(earth: earth)
-        if f.scene.clock.temporalReset || previous == nil { advection = CloudAdvection(tile: FrameContext.noiseTile) }
+        // The wind's drift starts over with a scene (the extractor's first
+        // frame, or a jump in time: another scenario), never on a warp
+        // change, a camera cut or a fast turn (temporal resets), which would
+        // move every cloud back by its whole drift.
+        let clock = f.scene.clock
+        let jump = lastEpoch.map { abs(clock.simTime - $0 - clock.simDt) > 60 } ?? true
+        if clock.frameIndex <= 1 || jump {
+            advection = CloudAdvection(tile: FrameContext.noiseTile)
+            cirrus = CirrusFrames()
+        }
+        lastEpoch = clock.simTime
 
         // The weather.
         let (weather, mission) = weatherFor(settings, epoch: f.scene.clock.simTime)
         let params = CloudWeatherMap.parameters(weather, at: f.scene.clock.simTime)
         let sample = weather.sample(latitude: frame.latitude, longitude: frame.longitude, at: f.scene.clock.simTime)
-        if !f.scene.clock.paused {
-            advection.advance(frame, winds: [sample.lowWind ?? sample.surfaceWind, sample.midWind, sample.highWind],
-                              dt: f.scene.clock.simDt)
-        }
+        let dt = f.scene.clock.paused ? 0 : f.scene.clock.simDt
+        advection.advance(frame, winds: [sample.lowWind ?? sample.surfaceWind, sample.midWind, sample.highWind], dt: dt)
+        cirrus.update(frame, streak: Self.streak(frame, wind: sample.highWind), wind: sample.highWind, dt: dt,
+                      realDt: f.scene.clock.realDt, period: Self.shapePeriod)
         guard let enc = f.makeComputeEncoder() else { return }
         // P0: the frame uniforms alone (the shared ones are uploaded after it).
         f.bindFrameUniforms(enc)
@@ -227,7 +253,7 @@ public final class CloudPass: RenderPass, HalfResEffect {
         let key = WeatherKey(mission: mission, params: params)
         if !settings.skip.contains("weather"), lastWeather.map({ !$0.close(to: key) }) ?? true {
             lastWeather = key
-            encodeWeather(enc, weather: weather, mission: mission, params: params, map: weatherMap, pipeline: p.weather)
+            encodeWeather(enc, f, weather: weather, mission: mission, params: params, map: weatherMap, pipeline: p.weather)
         }
 
         // The uniforms.
@@ -317,7 +343,7 @@ public final class CloudPass: RenderPass, HalfResEffect {
         previous = frame
         lastFrame = Report(drawn: true, reprojected: reprojects, motionPixels: motion, mission: mission,
                            regimes: regimes, frame: frame, epoch: f.scene.clock.simTime, sunLight: u.sunLight,
-                           scale: scale)
+                           scale: scale, footprintAngle: Double(u.footprint.x))
     }
 
     // MARK: The slot
@@ -371,7 +397,7 @@ public final class CloudPass: RenderPass, HalfResEffect {
         return (w, name)
     }
 
-    private func encodeWeather(_ enc: MTLComputeCommandEncoder, weather: CloudWeather, mission: String?,
+    private func encodeWeather(_ enc: MTLComputeCommandEncoder, _ f: FrameContext, weather: CloudWeather, mission: String?,
                                params: CloudWeatherMap.Parameters, map: (a: MTLTexture, b: MTLTexture),
                                pipeline: MTLComputePipelineState) {
         var textures: (MTLTexture, MTLTexture)?
@@ -413,15 +439,16 @@ public final class CloudPass: RenderPass, HalfResEffect {
         }
         p.layerModel = SIMD4(Float(CloudLayerModel.defaultLowBase), Float(CloudLayerModel.midBase),
                              Float(CloudLayerModel.lowDepth), Float(CloudLayerModel.cumulonimbusTop))
-        var climate = params.climatology.map { SIMD4<Float>(Float($0.low), Float($0.mid), Float($0.high), 0) }
+        let climate = params.climatology.map { SIMD4<Float>(Float($0.low), Float($0.mid), Float($0.high), 0) }
         enc.setComputePipelineState(pipeline)
         enc.setTexture(textures?.0 ?? placeholder, index: 0)
         enc.setTexture(textures?.1 ?? placeholder, index: 1)
         enc.setTexture(map.a, index: 2)
         enc.setTexture(map.b, index: 3)
-        climate.withUnsafeMutableBytes { b in
-            enc.setBytes(b.baseAddress!, length: b.count, index: 0)
-        }
+        // 721 rows, 11.5 KB: through the frame's arena (setBytes takes 4 KB at
+        // most; Metal's API validation stops on more).
+        guard let rows = f.arena.push(climate) else { return }
+        enc.setBuffer(rows.buffer, offset: rows.offset, index: 0)
         enc.setBytes(&p, length: MemoryLayout<CloudWeatherParams>.stride, index: 1)
         enc.dispatchThreads(MTLSize(width: map.a.width, height: map.a.height, depth: 1),
                             threadsPerThreadgroup: MTLSize(width: 16, height: 16, depth: 1))
@@ -530,17 +557,24 @@ public final class CloudPass: RenderPass, HalfResEffect {
         u.noiseLow = SIMD4(origin(0), Float(Self.shapePeriod))
         u.noiseMid = SIMD4(origin(1), Float(Self.midPeriod))
         u.noiseHigh = SIMD4(origin(2), Float(Self.detailPeriod))
-        let axes = frame.eastNorth
-        var streak = axes.east
-        if let w = sample.highWind, (w.east * w.east + w.north * w.north) > 1 {
-            streak = (axes.east * w.east + axes.north * w.north).normalized
+        // The cirrus's streak frames (CirrusFrame): axes, and the camera's
+        // noise coordinate in each; w the previous frame's weight.
+        func set(_ c: CirrusFrame?, _ a: inout SIMD4<Float>, _ b: inout SIMD4<Float>, _ n: inout SIMD4<Float>,
+                 _ o: inout SIMD4<Float>, weight: Double) {
+            guard let c else { return }
+            a = SIMD4(c.along, Float(weight))
+            b = SIMD4(c.across, 0)
+            n = SIMD4(c.up, 0)
+            o = SIMD4(c.origin(camera: frame.cameraBody, period: Self.shapePeriod), 0)
         }
-        u.windHigh = SIMD4(streak, Float(Self.curlPeriod))
+        set(cirrus.current, &u.cirrusAlong, &u.cirrusAcross, &u.cirrusUp, &u.cirrusOrigin, weight: cirrus.fade)
+        set(cirrus.previous, &u.cirrusAlong2, &u.cirrusAcross2, &u.cirrusUp2, &u.cirrusOrigin2, weight: 0)
+        u.windHigh = SIMD4(u.cirrusAlong.x, u.cirrusAlong.y, u.cirrusAlong.z, Float(Self.curlPeriod))
         let layers = CloudLayerModel.layers(CloudSample(low: 1, mid: 1, high: 1))
         u.extinction = SIMD4(Float(layers[0].extinction), Float(layers[1].extinction), Float(layers[2].extinction),
                              Float(s.densityScale))
         u.layers = SIMD4(Float(CloudLayerModel.midBase), Float(CloudLayerModel.midTop), Float(CloudLayerModel.highBase),
-                         Float(CloudLayerModel.highTop))
+                         Float(CloudLayerModel.highBase + Self.cirrusThickness))
         u.march = SIMD4(Float(max(s.steps, 8)), 0, Float(s.lightDistance), Float(s.nearReach))
         let lighting = CloudLighting(), mie = lighting.mie
         u.mie = SIMD4(Float(mie.gHG), Float(mie.gDraine), Float(mie.alpha), Float(mie.weightDraine))
@@ -549,7 +583,7 @@ public final class CloudPass: RenderPass, HalfResEffect {
         let forcedFar = s.regime == "far" ? 1.0 : 0.0
         u.regime = SIMD4(Float(regimes.near), Float(regimes.orbit), Float(max(regimes.far, forcedFar)), Float(s.farDensity))
         let cam = f.scene.camera
-        let pixelAngle = 2 * tan(cam.fovY / 2) / max(cam.viewport.height, 1) * Double(scale)
+        let pixelAngle = Self.handOverPixelAngle(fovY: cam.fovY, viewportHeight: cam.viewport.height)
         u.footprint = SIMD4(Float(pixelAngle), Float(s.farFootprint.first ?? 1_500),
                             Float(s.farFootprint.count > 1 ? s.farFootprint[1] : 6_000), Float(s.coverageModulation))
         if let l = s.lookDev {
@@ -568,12 +602,26 @@ public final class CloudPass: RenderPass, HalfResEffect {
         let lowTop = s.lookDev.map { $0.base + $0.thickness } ?? low.top
         u.lut2 = SIMD4(Float(CloudSlabLUT.minCosine), hasField ? 1 : 0, Float(lowBase), Float(lowTop))
         u.shadowLevels = SIMD4(Self.shadowLevels[0], Self.shadowLevels[1], Self.shadowLevels[2], Self.shadowLevels[3])
-        let table = CloudCoverage.standard
-        func entry(_ i: Int) -> SIMD4<Float> {
-            SIMD4((0..<4).map { k in Float(table[min(4 * i + k, table.count - 1)]) })
-        }
-        u.coverage = (entry(0), entry(1), entry(2), entry(3), entry(4), entry(5), entry(6), entry(7), entry(8))
+        let st = CloudCoverage.standardStatistics
+        u.coverage = Self.table(CloudCoverage.standard)
+        u.densityLow = Self.table(st.densityScale[0])
+        u.densityMid = Self.table(st.densityScale[1])
+        u.cirrusTheta = Self.table(st.cirrusThreshold)
+        u.cirrusScale = Self.table(st.cirrusScale)
         return u
+    }
+
+    /// The cirrus's streak at the camera: along the high wind, east when calm.
+    static func streak(_ frame: CloudFrame, wind: LayerWind?) -> Vec3 {
+        let axes = frame.eastNorth
+        guard let w = wind, (w.east * w.east + w.north * w.north) > 1 else { return axes.east }
+        return (axes.east * w.east + axes.north * w.north).normalized
+    }
+
+    /// A 33-entry table over the cover, four entries to a float4 (CloudShaders' cloud_table).
+    static func table(_ t: [Double]) -> CloudTable9 {
+        func entry(_ i: Int) -> SIMD4<Float> { SIMD4((0..<4).map { k in Float(t[min(4 * i + k, t.count - 1)]) }) }
+        return (entry(0), entry(1), entry(2), entry(3), entry(4), entry(5), entry(6), entry(7), entry(8))
     }
 
     /// This frame's camera-relative world to last frame's clip space for
@@ -639,6 +687,14 @@ struct CloudUniforms {
     var noiseMid = SIMD4<Float>.zero
     var noiseHigh = SIMD4<Float>.zero
     var windHigh = SIMD4<Float>.zero
+    var cirrusAlong = SIMD4<Float>.zero
+    var cirrusAcross = SIMD4<Float>.zero
+    var cirrusUp = SIMD4<Float>.zero
+    var cirrusOrigin = SIMD4<Float>.zero
+    var cirrusAlong2 = SIMD4<Float>.zero
+    var cirrusAcross2 = SIMD4<Float>.zero
+    var cirrusUp2 = SIMD4<Float>.zero
+    var cirrusOrigin2 = SIMD4<Float>.zero
     var extinction = SIMD4<Float>.zero
     var layers = SIMD4<Float>.zero
     var march = SIMD4<Float>.zero
@@ -657,9 +713,18 @@ struct CloudUniforms {
     var shadowU = SIMD4<Float>.zero
     var shadowV = SIMD4<Float>.zero
     var shadowLevels = SIMD4<Float>.zero
-    var coverage = (SIMD4<Float>.zero, SIMD4<Float>.zero, SIMD4<Float>.zero, SIMD4<Float>.zero, SIMD4<Float>.zero,
-                    SIMD4<Float>.zero, SIMD4<Float>.zero, SIMD4<Float>.zero, SIMD4<Float>.zero)
+    var coverage = CloudUniforms.emptyTable
+    var densityLow = CloudUniforms.emptyTable
+    var densityMid = CloudUniforms.emptyTable
+    var cirrusTheta = CloudUniforms.emptyTable
+    var cirrusScale = CloudUniforms.emptyTable
+
+    static let emptyTable: CloudTable9 = (.zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero)
 }
+
+/// A 33-entry table over the cover in nine float4s.
+typealias CloudTable9 = (SIMD4<Float>, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>,
+                         SIMD4<Float>, SIMD4<Float>, SIMD4<Float>)
 
 /// Swift mirror of CloudShaders' CloudWeatherParams.
 struct CloudWeatherParams {

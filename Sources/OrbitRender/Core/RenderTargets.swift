@@ -26,17 +26,33 @@ public protocol SceneTargetPlan: AnyObject {
     /// scene after a render-stage pass on the command buffer
     /// (`FrameContext.breaksScene`), timed or not.
     func continuation(_ f: FrameContext) -> MTLRenderPassDescriptor?
-    /// Sets the store actions the plan left `.unknown` on a scene encoder,
-    /// just before the graph ends it. `resumes`: a later encoder loads the
-    /// scene's targets (a break with passes drawing in the scene after it,
-    /// or timing's split); false where the scene ends (before a stage on the
-    /// command buffer, at the frame's end, or a break nothing draws after).
-    /// A plan that sets its store actions up front does nothing.
+    /// Sets the store actions the plan left `.unknown` on an encoder it
+    /// opened, just before the graph ends it, once for every render pass the
+    /// plan hands out, in order. `resumes`: the next encoder is the plan's
+    /// continuation of this one and loads its targets (a break with passes
+    /// drawing in the scene after it, or timing's split); false where the
+    /// scene ends (before a stage on the command buffer, at the frame's end,
+    /// at a break nothing draws after, or where a stage opens a render pass of
+    /// its own). A plan that sets its store actions up front does nothing.
+    /// A plan may also draw here, before the targets are stored or resolved
+    /// (R1 weights its samples before a break resolves them).
     func endScene(_ encoder: MTLRenderCommandEncoder, resumes: Bool, _ f: FrameContext)
+    /// Called on every render encoder the graph opens, on one of the plan's
+    /// render passes (`renderPass(for:)`, `continuation`), after the shared
+    /// bindings and before any pass draws: a plan that restores its targets
+    /// by drawing rather than by a load action does so here (R1 re-expands
+    /// its resolved scene after a break).
+    func beginScene(_ encoder: MTLRenderCommandEncoder, on pass: MTLRenderPassDescriptor, _ f: FrameContext)
+    /// Builds what the plan draws itself, once, before the passes set up.
+    /// A plan that throws runs without it; the graph lists the error under
+    /// `FrameGraph.planName`.
+    func setUp(_ s: PassSetup) throws
 }
 
 extension SceneTargetPlan {
     public func endScene(_ encoder: MTLRenderCommandEncoder, resumes: Bool, _ f: FrameContext) {}
+    public func beginScene(_ encoder: MTLRenderCommandEncoder, on pass: MTLRenderPassDescriptor, _ f: FrameContext) {}
+    public func setUp(_ s: PassSetup) throws {}
 }
 
 /// The M1.5 structure, kept until R1's HDR targets: one 4× MSAA LDR pass
