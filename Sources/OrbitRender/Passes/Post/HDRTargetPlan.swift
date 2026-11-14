@@ -11,9 +11,12 @@ import Metal
 ///
 /// When the encoders are split for timing, or a render-stage pass encodes on
 /// the command buffer (`FrameContext.breaksScene`), the samples are stored
-/// between encoders in private textures, so the image is the same. A pass
-/// that breaks the scene finds `sceneDepth` resolved as far as the scene has
-/// gone; `hdrColor` is final only in P4 (the resolve's weighting is last).
+/// between encoders in private textures, so the image is the same. Their
+/// store actions are then set as each scene encoder ends (`endScene`): one
+/// the scene resumes after keeps the samples; the scene's end resolves the
+/// colour and the depth (P5 reads it) and stores no samples. A pass that
+/// breaks the scene finds `sceneDepth` resolved as far as the scene has gone;
+/// `hdrColor` is final only in P4 (the resolve's weighting is last).
 @MainActor
 public final class HDRTargetPlan: SceneTargetPlan {
     public static let colorFormat = MTLPixelFormat.rgba16Float
@@ -29,6 +32,12 @@ public final class HDRTargetPlan: SceneTargetPlan {
     private var unsplitFrames = 0
     /// The render pass last opened (the scene's or the overlay's), for the continuations.
     private var current: MTLRenderPassDescriptor?
+    /// Whether `current` leaves its MSAA store actions to `endScene` (the
+    /// scene's, on a broken or timed frame).
+    private var currentDefers = false
+    /// Whether each render pass handed out this frame defers its stores, in
+    /// order: the graph opens and ends them in that order (`endScene`).
+    private var handedOut: [Bool] = []
 
     public init(outputFormat: MTLPixelFormat, sampleCount: Int) {
         self.outputFormat = outputFormat
@@ -97,14 +106,16 @@ public final class HDRTargetPlan: SceneTargetPlan {
         let z = pass.depthAttachment!
         z.loadAction = .clear
         z.clearDepth = 0
+        currentDefers = split && multisampled
+        handedOut = [currentDefers]
         if multisampled {
             c.texture = split ? stored.color : memoryless.color
             c.resolveTexture = hdr
-            c.storeAction = split ? .storeAndMultisampleResolve : .multisampleResolve
+            c.storeAction = split ? .unknown : .multisampleResolve
             z.texture = split ? stored.depth : memoryless.depth
             z.resolveTexture = depth
             z.depthResolveFilter = .max
-            z.storeAction = split ? .storeAndMultisampleResolve : .multisampleResolve
+            z.storeAction = split ? .unknown : .multisampleResolve
         } else {
             c.texture = hdr
             c.storeAction = .store
@@ -132,6 +143,8 @@ public final class HDRTargetPlan: SceneTargetPlan {
         // The depth is this pass's attachment: not a texture it may sample too.
         f.slotTextures[Binding.sceneDepth] = nil
         current = pass
+        currentDefers = false
+        handedOut.append(false)
         return pass
     }
 
@@ -139,6 +152,19 @@ public final class HDRTargetPlan: SceneTargetPlan {
         guard let pass = current?.copy() as? MTLRenderPassDescriptor else { return nil }
         pass.colorAttachments[0].loadAction = .load
         pass.depthAttachment.loadAction = .load
+        handedOut.append(currentDefers)
         return pass
+    }
+
+    /// A scene encoder the scene resumes after keeps the samples (and
+    /// resolves: Metal wants a resolve wherever a resolve texture is
+    /// attached). The scene's end resolves the colour and the depth, which
+    /// P5's overlays read, and stores no samples. The overlay's encoders set
+    /// their stores up front.
+    public func endScene(_ encoder: MTLRenderCommandEncoder, resumes: Bool, _ f: FrameContext) {
+        guard !handedOut.isEmpty, handedOut.removeFirst() else { return }
+        let action: MTLStoreAction = resumes ? .storeAndMultisampleResolve : .multisampleResolve
+        encoder.setColorStoreAction(action, index: 0)
+        encoder.setDepthStoreAction(action)
     }
 }

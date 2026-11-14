@@ -16,7 +16,10 @@ public final class DebugViewPass: RenderPass {
 
     public init() {}
 
-    public func isActive(in f: FrameContext) -> Bool { f.settings.debug.view != .none }
+    /// The views it draws; the effect slots draw theirs (`EffectDebugViewPass`).
+    static let views: Set<DebugView> = [.depth, .normals, .luminance]
+
+    public func isActive(in f: FrameContext) -> Bool { Self.views.contains(f.settings.debug.view) }
 
     public func setUp(_ s: PassSetup) throws {
         pipeline = try PipelineBuilder.make(try s.shaders.library(.debug), vertex: "debug_vertex",
