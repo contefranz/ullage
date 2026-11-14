@@ -15,9 +15,9 @@ public struct ShadowSettings: Codable, Equatable {
     /// Draw the detail map about the camera target, finer than its
     /// cluster's (`ShadowFitting.detailRadius`).
     public var detailMap = true
-    /// Taps of the PCSS blocker search and of its filter, each (16 at
-    /// Medium, 32 at High). 9 or fewer is a fixed 3×3 PCF with no blocker
-    /// search (Low).
+    /// Taps of the PCSS filter (16 at Medium, 32 at High); the blocker
+    /// search before it always takes 16 (ORBIT_SHADOW_SEARCH_TAPS). 9 or
+    /// fewer is a fixed 3×3 PCF with no blocker search (Low).
     public var filterSamples = 16
     /// Vessels whose bounding spheres come closer than this (m) share a map.
     public var clusterLink = 300.0
