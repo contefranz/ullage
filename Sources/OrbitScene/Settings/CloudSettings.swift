@@ -17,7 +17,7 @@ public struct CloudSettings: Codable, Equatable {
     public var regime = "auto"
     /// The march's steps through clear air, and its light march's reach (m;
     /// its samples are CloudLighting's).
-    public var steps = 64
+    public var steps = 48
     public var lightDistance = 1_500.0
     /// The near field's reach, m.
     public var nearReach = 150_000.0
@@ -27,7 +27,7 @@ public struct CloudSettings: Codable, Equatable {
     /// a frame; off at 10× warp or more and under fast motion anyway.
     public var reprojection = true
     /// The cloud shadow map's side, texels (0: none).
-    public var shadowTexels = 512
+    public var shadowTexels = 256
     /// Scales every layer's extinction.
     public var densityScale = 1.0
     /// The far layer's in-cloud optical depth over the layer model's: the

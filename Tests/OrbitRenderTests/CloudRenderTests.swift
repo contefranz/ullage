@@ -123,6 +123,49 @@ final class CloudRenderTests: XCTestCase {
         return shot
     }
 
+    /// The far layer and the march at single texels of the slab against
+    /// CloudSlab.march on the CPU with A1's air: the far surface layer is
+    /// the LUT of that march, the march the march itself.
+    func testSlabTexelsAgainstTheSwiftMarch() throws {
+        for regime in ["far", "march"] {
+            let f = try render(Self.slabShot(regime: regime))
+            let report = try XCTUnwrap(f.clouds?.lastFrame)
+            let frame = try XCTUnwrap(report.frame)
+            let c = try XCTUnwrap(f.capture.values(.cloudLayer))
+            let cam = f.scene.camera
+            let slab = CloudSlab(thickness: 1_500)
+            let air = CloudTables.air
+            var ratios: [Double] = []
+            for (x, y) in [(c.width / 2, c.height / 2), (c.width / 4, 3 * c.height / 4), (3 * c.width / 4, c.height / 2)] {
+                let t = c.texels[y * c.width + x]
+                guard t[3] > 0.99 else { continue }
+                // The texel's ray, body axes.
+                let px = (Double(x) + 0.5) * Double(report.scale), py = (Double(y) + 0.5) * Double(report.scale)
+                let tanY = tan(cam.fovY / 2)
+                let vr = Vec3((2 * px / cam.viewport.width - 1) * tanY * cam.aspect, (1 - 2 * py / cam.viewport.height) * tanY, -1)
+                let w = (cam.worldToView.transposed * vr).normalized
+                let d = frame.icrfToBody * w
+                // The slab's top, 2,500 m, on the figure's sphere.
+                let o = frame.cameraFigure, df = Vec3(d.x, d.y, d.z * frame.stretch)
+                let r = frame.radius + 2_500
+                let b = o.dot(df), a = df.dot(df), cc = o.lengthSquared - r * r
+                let hit = (-b - (b * b - a * cc).squareRoot()) / a
+                let pf = o + df * hit
+                let up = Vec3(pf.x, pf.y, pf.z * frame.stretch).normalized
+                let mu = -d.dot(up), mu0 = frame.sunBody.dot(up), cosTheta = d.dot(frame.sunBody)
+                let m = slab.march(opticalDepth: 20, mu0: mu0, mu: mu)
+                let sun = air.transmittanceToSun(radius: air.bottomRadius + 2_500, cosSun: mu0)
+                let sky = air.skyIrradiance(radius: air.bottomRadius + 2_500, cosSun: mu0)
+                let g = Double(report.sunLight.y)
+                let expected = g * (sun.g * (m.single * slab.lighting.mie.phase(cosTheta) + m.sunDiffuse) + sky.g * m.sky)
+                ratios.append(t[1] / expected)
+                print("\(regime) texel (\(x), \(y)): μ \(mu) μ0 \(mu0) cosθ \(cosTheta): GPU \(t[1]) Swift \(expected)")
+            }
+            XCTAssertFalse(ratios.isEmpty)
+            for q in ratios { XCTAssertEqual(q, 1, accuracy: regime == "far" ? 0.02 : 0.04, regime) }
+        }
+    }
+
     /// The regimes agree on a homogeneous slab: the march's and the far
     /// LUT's radiance over the same view, texel by texel where both cover.
     func testMarchMatchesTheFarLUTOnASlab() throws {
@@ -140,7 +183,8 @@ final class CloudRenderTests: XCTestCase {
         }
         XCTAssertGreaterThan(n, a.texels.count / 3)
         print("slab march/far:", (0..<3).map { sa[$0] / sb[$0] }, "worst texel", worst, "texels", n)
-        for k in 0..<3 { XCTAssertEqual(sa[k] / sb[k], 1, accuracy: 0.05, "channel \(k)") }
+        for k in 0..<3 { XCTAssertEqual(sa[k] / sb[k], 1, accuracy: 0.03, "channel \(k)") }
+        XCTAssertLessThan(worst, 0.08, "the worst texel")
     }
 }
 

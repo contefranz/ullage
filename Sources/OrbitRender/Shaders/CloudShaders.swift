@@ -705,6 +705,8 @@ inline CloudResult cloud_march(float3 d, float t0, float t1, bool near, float ji
     // In cloud; refining (fine steps after backing off at first contact).
     bool inCloud = false, refining = false;
     float fine = base;
+    // The last sample known to be in clear air: first contact backs off to it.
+    float clear = t0;
     // The weather, fetched again once the ray has gone 4 km (its grid is 28 km).
     CloudWeatherSample w;
     float fetchedAt = -1e30;
@@ -738,6 +740,7 @@ inline CloudResult cloud_march(float3 d, float t0, float t1, bool near, float ji
                 float hit = r0 > 0.0 ? r0 : (r1 > 0.0 ? r1 : skip);
                 skip = min(skip, hit);
             }
+            clear = tm;
             tm += max(empty, skip);
             continue;
         }
@@ -746,24 +749,33 @@ inline CloudResult cloud_march(float3 d, float t0, float t1, bool near, float ji
                                                  : cloud_density(q, h, w, detail, false, t, wrap, u);
         if (c.sigma <= 0.0) {
             if (inCloud) { inCloud = false; refining = false; }
+            clear = tm;
             tm += refining ? fine : empty;
             continue;
         }
-        // Far away, coarser steps in cloud: up to 0.4 optical depth near, more beyond 20 km.
-        float maxTau = 0.4 * (1.0 + tm / 20000.0);
+        // Steps of 0.4 optical depth through the cloud's first two (its
+        // visible face, where the light changes fastest), then coarser
+        // with the distance, up to 2 beyond 80 km.
+        float maxTau = T > 0.135 ? 0.4 : min(0.4 * (1.0 + tm / 20000.0), 2.0);
         if (!inCloud && !refining) {
-            fine = clamp(maxTau / c.sigma, 1.0, empty);
-            float back = min(0.5 * empty, tm - t0);
-            if (back > fine) {
+            fine = clamp(0.4 / c.sigma, 1.0, empty);
+            if (tm - clear > fine) {
                 refining = true;
-                tm -= back;
+                tm = clear + fine;
                 continue;
             }
         }
-        inCloud = true;
-        refining = false;
         float dt = clamp(maxTau / c.sigma, 1.0, empty);
-        r.entry = min(r.entry, tm);
+        if (!inCloud) {
+            // The first step in cloud: its light at the step's middle (the
+            // midpoint rule, as the slab LUT's bake), so long steps far away
+            // are not lit as their brighter front.
+            r.entry = min(r.entry, tm);
+            inCloud = true;
+            refining = false;
+            tm += 0.5 * dt;
+            continue;
+        }
         float mu0 = dot(u.sun.xyz, up);
         // The light march towards the Sun, with this sample's weather;
         // fewer samples far away.
@@ -901,7 +913,7 @@ kernel void cloud_march_kernel(texture2d<float, access::write> outColor [[textur
 struct CloudResolveUniforms {
     float4x4 reprojection;   // camera-relative world now -> last frame's clip
     float4 target;           // xy: size, zw: frame pixels per texel
-    float4 checker;          // xy: this frame's texel, z: 1 reprojecting, w: 1 history valid
+    float4 checker;          // xy: this frame's texel, z: 1 reprojecting, w: 1 history valid, -1 no march this frame
 };
 
 // Every texel: the march's clouds, marched this frame or last frame's at
@@ -936,7 +948,11 @@ kernel void cloud_resolve(texture2d<float, access::write> outColor [[texture(0)]
     if (gid.x >= size.x || gid.y >= size.y) { return; }
     bool marched = r.checker.z < 0.5 || all((gid & 1u) == uint2(r.checker.xy));
     float4 mc, md;
-    if (marched) {
+    if (r.checker.w < -0.5) {
+        // No march this frame (the far layer takes every texel).
+        mc = float4(0.0);
+        md = float4(CLOUD_NO_DEPTH);
+    } else if (marched) {
         mc = fresh.read(gid);
         md = freshDepth.read(gid);
     } else {
@@ -1087,11 +1103,16 @@ fragment EffectCloudOut cloud_slot_fragment(CloudSlotOut in [[stage_in]],
         c = clouds.read(t);
         z = depths.read(t);
     } else {
+        // A coarser target, filtered: the colour bilinear, the depths the
+        // nearest of the four texels around (an empty one has none).
         float2 uv = in.position.xy * e.target.zw;
         c = clouds.sample(linear, uv);
-        uint2 t = min(uint2(uv * float2(depths.get_width(), depths.get_height())),
-                      uint2(depths.get_width(), depths.get_height()) - 1u);
-        z = depths.read(t);
+        float4 fronts = depths.gather(linear, uv, int2(0), component::x);
+        float4 means = depths.gather(linear, uv, int2(0), component::y);
+        float4 entries = depths.gather(linear, uv, int2(0), component::z);
+        z = float4(min(min(fronts.x, fronts.y), min(fronts.z, fronts.w)),
+                   min(min(means.x, means.y), min(means.z, means.w)),
+                   min(min(entries.x, entries.y), min(entries.z, entries.w)), 0.0);
     }
     if (c.a <= 0.0 && max(c.r, max(c.g, c.b)) <= 0.0) { discard_fragment(); }
     z = float4(cloud_decodeDepth(z.x), cloud_decodeDepth(z.y), cloud_decodeDepth(z.z), 0.0);

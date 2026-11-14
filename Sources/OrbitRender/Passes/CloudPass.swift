@@ -38,6 +38,12 @@ public final class CloudPass: RenderPass, HalfResEffect {
     public static let shellTop = 13_000.0, lowReference = 2_000.0, midReference = 4_500.0, cirrusHeight = 10_000.0
     /// The shadow map's channels: the optical depth above these heights (m).
     public static let shadowLevels: [Float] = [0, 2_000, 6_000, 10_000]
+    /// Frame pixels per march texel: 4 in the orbit regime (20 km to
+    /// 3,000 km), where the march covers most of the screen with clouds a
+    /// few pixels across; 2 (R6's half resolution) in the near field, and
+    /// far away, where the Earth is small and the surface layer cheap.
+    public static func marchScale(altitude: Double) -> Int { altitude >= 20_000 && altitude < 3_000_000 ? 4 : 2 }
+
     /// The large-scale structure's period on the sphere, m.
     public static let structurePeriod = 400_000.0
     /// The Earth's least radius on screen for clouds, pixels.
@@ -55,7 +61,7 @@ public final class CloudPass: RenderPass, HalfResEffect {
     private var snapshots: [Int: MTLTexture] = [:]
     private var placeholder: MTLTexture?
     private var weathers: [String: CloudWeather] = [:]
-    private var lastWeatherKey: String?
+    private var lastWeather: WeatherKey?
     private var shadowTexture: MTLTexture?
 
     private var previous: CloudFrame?
@@ -71,6 +77,11 @@ public final class CloudPass: RenderPass, HalfResEffect {
         public var motionPixels = 0.0
         public var mission: String?
         public var regimes = (near: 0.0, orbit: 0.0, far: 0.0)
+        /// The frame's geometry, the Sun's light (pre-exposed lux) and the
+        /// march target's scale, for the tests' references.
+        public var frame: CloudFrame?
+        public var sunLight = SIMD4<Float>.zero
+        public var scale = 2
 
         public static func == (a: Report, b: Report) -> Bool {
             a.drawn == b.drawn && a.reprojected == b.reprojected && a.motionPixels == b.motionPixels
@@ -194,17 +205,26 @@ public final class CloudPass: RenderPass, HalfResEffect {
         // P0: the frame uniforms alone (the shared ones are uploaded after it).
         f.bindFrameUniforms(enc)
         enc.setSamplerState(f.states.linearClamp, index: Binding.linearClampSampler)
-        if !settings.skip.contains("weather") {
+        // The weather map again only when it has changed: another mission,
+        // snapshots or structure, or a weight moved by 1/500.
+        let key = WeatherKey(mission: mission, params: params,
+                             structure: settings.lookDev == nil ? settings.coverageModulation : 0)
+        if !settings.skip.contains("weather"), lastWeather.map({ !$0.close(to: key) }) ?? true {
+            lastWeather = key
             encodeWeather(enc, weather: weather, params: params, map: weatherMap, pipeline: p.weather, shape: noise.shape,
                           wrap: samplers.wrap, structure: settings.lookDev == nil ? settings.coverageModulation : 0)
         }
 
         // The uniforms.
-        let size = EffectSlots.targetSize(width: f.size.width, height: f.size.height, scale: 2)
-        let marchSize = RenderSize(width: size.width, height: size.height)
+        // The march target: R6's half resolution in the near field, half
+        // that again above it (the orbit and far regimes), where the clouds
+        // are smaller on the screen than the near field's.
         let regimes = CloudFrame.regimes(altitude: frame.altitude)
+        let scale = Self.marchScale(altitude: frame.altitude)
+        let size = EffectSlots.targetSize(width: f.size.width, height: f.size.height, scale: scale)
+        let marchSize = RenderSize(width: size.width, height: size.height)
         var u = uniforms(f, frame: frame, settings: settings, sample: sample, regimes: regimes, size: marchSize,
-                         hasField: params.snapshots != nil, airTop: tables.airTop)
+                         scale: scale, hasField: params.snapshots != nil, airTop: tables.airTop)
 
         // The shadow map.
         let shadowN = settings.shadowTexels
@@ -235,14 +255,16 @@ public final class CloudPass: RenderPass, HalfResEffect {
         let reprojection = reprojectionMatrix(f, frame: frame)
         let motion = motionPixels(f, frame: frame, reprojection: reprojection)
         let historyValid = hc.valid && hd.valid && previous != nil && !f.scene.clock.temporalReset
-        let reprojects = settings.reprojection && historyValid
+        // Far away the surface layer takes every texel: no march, nothing to reproject.
+        let marches = regimes.far < 0.999 || settings.regime == "march"
+        let reprojects = marches && settings.reprojection && historyValid
             && CloudReprojection.allowed(warp: f.scene.clock.warp, temporalReset: f.scene.clock.temporalReset,
                                          motionPixels: motion)
         let k = f.scene.clock.frameIndex & 3
         let checker: SIMD2<Float> = [SIMD2(0, 0), SIMD2(1, 1), SIMD2(1, 0), SIMD2(0, 1)][k]
         u.checker = SIMD4(checker.x, checker.y, reprojects ? 1 : 0, Float(f.scene.clock.frameIndex % 64))
 
-        var slots = EffectSlotUniforms(size: f.size, scale: 2, layers: .clouds, settings: f.settings.transparency,
+        var slots = EffectSlotUniforms(size: f.size, scale: scale, layers: .clouds, settings: f.settings.transparency,
                                        reference: 1)
         enc.setComputePipelineState(p.march)
         enc.setTexture(freshColor, index: 0)
@@ -252,14 +274,14 @@ public final class CloudPass: RenderPass, HalfResEffect {
         enc.setBytes(&slots, length: MemoryLayout<EffectSlotUniforms>.stride, index: 1)
         let threads = reprojects ? MTLSize(width: (marchSize.width + 1) / 2, height: (marchSize.height + 1) / 2, depth: 1)
                                  : MTLSize(width: marchSize.width, height: marchSize.height, depth: 1)
-        if !settings.skip.contains("march") {
+        if marches, !settings.skip.contains("march") {
             enc.dispatchThreads(threads, threadsPerThreadgroup: MTLSize(width: 8, height: 8, depth: 1))
         }
 
         var r = CloudResolveUniforms()
         r.reprojection = reprojection
-        r.target = SIMD4(Float(marchSize.width), Float(marchSize.height), 2, 2)
-        r.checker = SIMD4(checker.x, checker.y, reprojects ? 1 : 0, historyValid ? 1 : 0)
+        r.target = SIMD4(Float(marchSize.width), Float(marchSize.height), Float(scale), Float(scale))
+        r.checker = SIMD4(checker.x, checker.y, reprojects ? 1 : 0, marches ? (historyValid ? 1 : 0) : -1)
         enc.setComputePipelineState(p.resolve)
         enc.setTexture(outColor, index: 0)
         enc.setTexture(outDepth, index: 1)
@@ -281,7 +303,7 @@ public final class CloudPass: RenderPass, HalfResEffect {
         f.textures[.cloudDepth] = outDepth
         previous = frame
         lastFrame = Report(drawn: true, reprojected: reprojects, motionPixels: motion, mission: mission,
-                           regimes: regimes)
+                           regimes: regimes, frame: frame, sunLight: u.sunLight, scale: scale)
     }
 
     // MARK: The slot
@@ -412,7 +434,7 @@ public final class CloudPass: RenderPass, HalfResEffect {
         guard let shadowTexture, frame.sunBody.dot(frame.cameraBody.normalized) > -0.2 else { return false }
         let shadowMap = frame.shadowMap(texels: texels)
         let center = shadowMap.center - frame.cameraBody
-        u.shadow = SIMD4(Float(shadowMap.extent), Float(texels), 1, 32)
+        u.shadow = SIMD4(Float(shadowMap.extent), Float(texels), 1, 24)
         u.shadowCenter = SIMD4(center, 0)
         u.shadowU = SIMD4(shadowMap.u, 0)
         u.shadowV = SIMD4(shadowMap.v, 0)
@@ -444,8 +466,8 @@ public final class CloudPass: RenderPass, HalfResEffect {
     // MARK: Uniforms
 
     private func uniforms(_ f: FrameContext, frame: CloudFrame, settings s: CloudSettings, sample: CloudSample,
-                          regimes: (near: Double, orbit: Double, far: Double), size: RenderSize, hasField: Bool,
-                          airTop: Double) -> CloudUniforms {
+                          regimes: (near: Double, orbit: Double, far: Double), size: RenderSize, scale: Int,
+                          hasField: Bool, airTop: Double) -> CloudUniforms {
         var u = CloudUniforms()
         let b = frame.icrfToBody
         u.worldToBody = simd_float4x4(rotation: b)
@@ -485,7 +507,7 @@ public final class CloudPass: RenderPass, HalfResEffect {
         let forcedFar = s.regime == "far" ? 1.0 : 0.0
         u.regime = SIMD4(Float(regimes.near), Float(regimes.orbit), Float(max(regimes.far, forcedFar)), Float(s.farDensity))
         let cam = f.scene.camera
-        let pixelAngle = 2 * tan(cam.fovY / 2) / max(cam.viewport.height, 1) * 2
+        let pixelAngle = 2 * tan(cam.fovY / 2) / max(cam.viewport.height, 1) * Double(scale)
         u.footprint = SIMD4(Float(pixelAngle), Float(s.farFootprint.first ?? 1_500),
                             Float(s.farFootprint.count > 1 ? s.farFootprint[1] : 6_000), Float(s.coverageModulation))
         if let l = s.lookDev {
@@ -493,7 +515,7 @@ public final class CloudPass: RenderPass, HalfResEffect {
         } else {
             u.lookDev = SIMD4(0, 0, 0, s.regime == "far" ? 1 : (s.regime == "march" ? 2 : 0))
         }
-        u.target = SIMD4(Float(size.width), Float(size.height), 2, 2)
+        u.target = SIMD4(Float(size.width), Float(size.height), Float(scale), Float(scale))
         u.lut = SIMD4(Float(CloudSlabLUT.depths), Float(CloudSlabLUT.cosines), Float(CloudSlabLUT.minDepth),
                       Float(log(CloudSlabLUT.maxDepth / CloudSlabLUT.minDepth)))
         u.lut2 = SIMD4(Float(CloudSlabLUT.minCosine), hasField ? 1 : 0, 0, 0)
@@ -530,6 +552,29 @@ public final class CloudPass: RenderPass, HalfResEffect {
         let a = SIMD2<Float>(now.x, now.y) / now.w, b = SIMD2<Float>(then.x, then.y) / then.w
         let d = (a - b) * SIMD2<Float>(Float(cam.viewport.width), Float(cam.viewport.height)) * 0.5
         return Double(simd_length(d))
+    }
+}
+
+/// What the weather map was last assembled from.
+struct WeatherKey {
+    var mission: String?
+    var snapshots: (Int, Int)?
+    var weights: [Double]
+    var structure: Double
+
+    init(mission: String?, params: CloudWeatherMap.Parameters, structure: Double) {
+        self.mission = mission
+        snapshots = params.snapshots.map { ($0.first, $0.second) }
+        weights = [params.snapshots?.weight ?? 0, params.fieldWeight] + params.overrides.map(\.timeWeight)
+            + [params.climatology.first?.low ?? 0, params.climatology.last?.high ?? 0]
+        self.structure = structure
+    }
+
+    /// The same map within 1/500 of every weight.
+    func close(to k: WeatherKey) -> Bool {
+        mission == k.mission && snapshots?.0 == k.snapshots?.0 && snapshots?.1 == k.snapshots?.1
+            && structure == k.structure && weights.count == k.weights.count
+            && zip(weights, k.weights).allSatisfy { abs($0 - $1) < 0.002 }
     }
 }
 
