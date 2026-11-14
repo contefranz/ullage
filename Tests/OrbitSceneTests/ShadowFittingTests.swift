@@ -243,8 +243,10 @@ final class ShadowFittingTests: XCTestCase {
             XCTAssertEqual(siteMap.centre, site.centre)
             XCTAssert(cluster.casters.contains(0) && cluster.casters.contains(1) && !cluster.casters.contains(2))
             XCTAssert(siteMap.casters.contains(3) && !siteMap.casters.contains(2))
-            let edge = ShadowFitting.usableEdge(resolution: cluster.resolution)
+            XCTAssertEqual(cluster.resolution, 4096)
+            XCTAssertEqual(siteMap.resolution, 2048, "ShadowSettings.siteMapSize")
             for (map, members) in [(cluster, [a, b]), (siteMap, [site])] {
+                let edge = ShadowFitting.usableEdge(resolution: map.resolution)
                 for m in members {
                     for _ in 0..<64 {
                         let c = map.clip(m.centre + random.unit() * m.radius)
@@ -453,6 +455,29 @@ final class ShadowFittingTests: XCTestCase {
         XCTAssertEqual(ShadowFitting.mapIndex(for: site.centre + site.basis.r0 * (away * 0.9 * edge * site.halfWidth),
                                               in: all), 2)
         XCTAssertNil(ShadowFitting.mapIndex(for: site.centre + site.basis.r0 * (1.1 * site.halfWidth), in: all))
+    }
+
+    /// The detail map is `detailMapSize` across (half the cluster maps' at
+    /// High) and only drawn while its texels are the finer.
+    func testDetailMapSizeAndFineness() {
+        let view = padView(camera: .zero)
+        let maps = ShadowFitting.plan(view, settings: ShadowSettings())
+        XCTAssertEqual(maps[0].level, .detail)
+        XCTAssertEqual(maps[0].resolution, 2048)
+        XCTAssertEqual(maps[1].resolution, 4096)
+        XCTAssertLessThan(maps[0].texel, maps[1].texel)
+        var s = ShadowSettings()
+        s.detailMapSize = 8192
+        XCTAssertEqual(ShadowFitting.plan(view, settings: s)[0].resolution, 4096, "never more than the layer")
+        // From farther off the detail map would be no finer than the
+        // cluster's at half its texels: none.
+        var far = view
+        far.target = .init(caster: 0, point: view.casters[0].centre + Vec3(0, 0, 1) - Vec3(0, 0, 0))
+        far.fovY = 120 * Self.degree
+        XCTAssertEqual(ShadowFitting.plan(far, settings: ShadowSettings()).first?.level, .cluster)
+        s = ShadowSettings()
+        s.detailMapSize = 64
+        XCTAssertEqual(ShadowFitting.plan(view, settings: s).first?.level, .cluster, "too small for the noise's blocks")
     }
 
     /// The matrix is `clip`, and the composed mesh matrix is `clip` of the

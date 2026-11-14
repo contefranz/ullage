@@ -275,7 +275,7 @@ final class ShadowPassTests: XCTestCase {
         let probe = try Probe(device: r.device)
         // The shadow cubes close up: a detail map on the plate.
         func scene(comShift: Vec3) -> RenderScene {
-            var s = ShadowLookDevTests.scene(distance: 9)
+            var s = ShadowLookDevTests.scene(distance: 6)
             s.vessels[0].position = s.vessels[0].position + comShift
             s.vessels[0].structureOrigin = s.vessels[0].structureOrigin - comShift
             return s
@@ -351,18 +351,41 @@ final class ShadowPassTests: XCTestCase {
 
     // MARK: Cost
 
-    /// The shadow pass's own GPU time, s: frames that draw nothing but
-    /// four copies of it (each its own maps) and empty frames, interleaved
-    /// back to back so both see the GPU at one clock; the difference of
-    /// their medians over four.
-    func shadowCost(_ scene: RenderScene, settings: ShadowSettings = ShadowSettings(), frames: Int = 300,
-                    copies: Int = 4) throws -> Double {
-        let device = try device()
+    /// The median GPU time of each renderer's frames of `scene` into
+    /// `target`, s: blocks of frames from one renderer at a time, back to
+    /// back so the GPU's clock stays up, alternating between them so both
+    /// see the same conditions. One renderer at a time, because each has a
+    /// command queue of its own and two queues' frames would overlap on the
+    /// GPU and share each other's time. The first round warms up.
+    func medianFrameTimes(_ renderers: [SceneRenderer], _ scene: RenderScene, into target: OffscreenTarget,
+                          rounds: Int = 7, block: Int = 24) -> [Double] {
         final class Times: @unchecked Sendable {
             let lock = NSLock()
-            var values: [[Double]] = [[], []]
-            func add(_ t: Double, _ k: Int) { lock.withLock { values[k].append(t) } }
+            var values: [Double] = []
+            func add(_ t: Double) { lock.withLock { values.append(t) } }
         }
+        let times = renderers.map { _ in Times() }
+        for round in 0..<rounds {
+            for (k, r) in renderers.enumerated() {
+                for _ in 0..<block {
+                    r.render(scene, to: target.texture) { cb in
+                        if round > 0 { times[k].add(cb.gpuEndTime - cb.gpuStartTime) }
+                    }
+                }
+                r.renderAndWait(scene, into: target)
+            }
+        }
+        return times.map { t in
+            let v = t.values.sorted()
+            return v[v.count / 2]
+        }
+    }
+
+    /// The shadow pass's own GPU time, s: frames that draw nothing but
+    /// `copies` of it (each with its own maps) against empty frames, the
+    /// difference of their medians over the copies.
+    func shadowCost(_ scene: RenderScene, settings: ShadowSettings = ShadowSettings(), copies: Int = 4) throws -> Double {
+        let device = try device()
         let renderers = try [(0..<copies).map { _ in ShadowPass() } as [RenderPass], []].map { passes in
             let r = try SceneRenderer(device: device, outputFormat: .bgra8Unorm_srgb, passes: passes,
                                       plan: DirectTargetPlan(colorFormat: .bgra8Unorm_srgb, sampleCount: 1))
@@ -370,48 +393,15 @@ final class ShadowPassTests: XCTestCase {
             return r
         }
         let target = try XCTUnwrap(OffscreenTarget(device: device, width: 16, height: 16))
-        let times = Times()
-        for i in 0..<frames {
-            for (k, r) in renderers.enumerated() {
-                r.render(scene, to: target.texture) { cb in if i >= 30 { times.add(cb.gpuEndTime - cb.gpuStartTime, k) } }
-            }
-        }
-        for r in renderers { r.renderAndWait(scene, into: target) }
-        func median(_ v: [Double]) -> Double { v.sorted()[v.count / 2] }
-        return (median(times.values[0]) - median(times.values[1])) / Double(copies)
+        let t = medianFrameTimes(renderers, scene, into: target)
+        return (t[0] - t[1]) / Double(copies)
     }
 
-    /// The sun-shadow view's own GPU time at the scene's viewport, s: whole
-    /// frames (the default passes) with it against the same frames with
-    /// F0's normals view, interleaved, medians. An upper bound on the
-    /// receivers' cost: every pixel evaluates `orbit_sunShadow`, after
-    /// reconstructing its normal from depth.
-    func receiverCost(_ scene: RenderScene, frames: Int = 120) throws -> Double {
-        let device = try device()
-        final class Times: @unchecked Sendable {
-            let lock = NSLock()
-            var values: [[Double]] = [[], []]
-            func add(_ t: Double, _ k: Int) { lock.withLock { values[k].append(t) } }
-        }
-        let renderers = try [DebugView.sunShadow, .normals].map { view in
-            let r = try SceneRenderer(device: device, loadsUserTextures: false)
-            r.settings.debug.view = view
-            return r
-        }
-        let w = Int(scene.camera.viewport.width), h = Int(scene.camera.viewport.height)
-        let target = try XCTUnwrap(OffscreenTarget(device: device, width: w, height: h))
-        let times = Times()
-        for i in 0..<frames {
-            for (k, r) in renderers.enumerated() {
-                r.render(scene, to: target.texture) { cb in if i >= 20 { times.add(cb.gpuEndTime - cb.gpuStartTime, k) } }
-            }
-        }
-        for r in renderers { r.renderAndWait(scene, into: target) }
-        func median(_ v: [Double]) -> Double { v.sorted()[v.count / 2] }
-        return median(times.values[0]) - median(times.values[1])
-    }
-
-    func padScene(distance: Double = 170, yaw: Double? = nil, pitch: Double? = nil,
+    /// A scenario's focus vessel seen from `distance` (m; OrbitCamera keeps
+    /// the camera 1.2 bounding radii out, 66 m for the Saturn V) with a
+    /// vertical field of view `fovY` (rad, the external camera's 50° by
+    /// default), at 3024×1964.
+    func padScene(distance: Double = 170, yaw: Double? = nil, pitch: Double? = nil, fovY: Double? = nil,
                   scenario name: String = "as506-pad", advance: [String] = []) throws -> RenderScene {
         let scenario = try XCTUnwrap(Scenario.named(name))
         let sim = scenario.build(Self.system)
@@ -422,36 +412,114 @@ final class ShadowPassTests: XCTestCase {
         camera.distance = distance
         if let yaw { camera.yaw = yaw * Double.pi / 180 }
         if let pitch { camera.pitch = pitch * Double.pi / 180 }
+        if let fovY { camera.fovY = fovY }
         camera.update(sim: sim)
         return SceneExtractor().extract(sim: sim, camera: camera, viewport: RenderScene.Viewport(width: 3024, height: 1964),
                                         realTime: 0)
     }
 
+    /// The shadow pass's GPU time per scene, with the GPU lock
+    /// (ORBITSIM_SHADOW_COST=1; `scripts/test.sh fast --no-parallel --filter
+    /// ShadowPassTests/testCostReport`), at High (up to 4 maps) and Medium (2),
+    /// and without the detail map where there is one. The pass's time does
+    /// not depend on the filter's taps; the receivers' does
+    /// (`testReceiverProbeCost`). The detail map shows only with a long lens
+    /// or a small vessel, since OrbitCamera keeps the camera 1.2 bounding
+    /// radii out: the 250 mm cases (12.6°) have one.
     func testCostReport() throws {
         guard ProcessInfo.processInfo.environment["ORBITSIM_SHADOW_COST"] == "1" else { throw XCTSkip("cost report") }
         let lock = GPULock()
         defer { withExtendedLifetime(lock) {} }
-        let scenes = [("pad 170 m", try padScene()), ("pad 40 m", try padScene(distance: 40)),
-                      ("pad 15 m", try padScene(distance: 15)),
+        let lens = OrbitCamera.hasselblad250mm
+        let scenes = [("pad 170 m", try padScene()),
+                      ("pad 70 m, 250 mm", try padScene(distance: 70, pitch: 40, fovY: lens)),
                       ("liftoff 8 s", try padScene(distance: 160, advance: ["met:8"])),
                       ("LEO 70 m", try padScene(distance: 70, scenario: "as506-parking-orbit")),
-                      ("LEO 12 m", try padScene(distance: 12, scenario: "as506-parking-orbit"))]
+                      ("LEO 25 m, 250 mm", try padScene(distance: 25, fovY: lens, scenario: "as506-parking-orbit"))]
         for (name, scene) in scenes {
-            var s = ShadowSettings()
             let (r, pass) = try shadowRenderer()
             try draw(scene, r)
-            let maps = pass.maps.map { $0.level == .detail ? "detail" : String(format: "%.0f m", 2 * $0.halfWidth) }
-            print(String(format: "COST %@ %@: %.3f ms (1 copy %.3f, 2 copies %.3f)", name, "\(maps)",
-                         try shadowCost(scene, settings: s) * 1e3, try shadowCost(scene, settings: s, copies: 1) * 1e3,
-                         try shadowCost(scene, settings: s, copies: 2) * 1e3))
-            s.maxMaps = 2
-            print(String(format: "COST %@ Medium (2 maps): %.3f ms", name, try shadowCost(scene, settings: s) * 1e3))
-            print(String(format: "COST %@ receivers (sun-shadow view, full frame): %.3f ms", name,
-                         try receiverCost(scene) * 1e3))
+            let maps = pass.maps.map { $0.level == .detail ? String(format: "detail %.0f m", 2 * $0.halfWidth)
+                                                           : String(format: "%.0f m", 2 * $0.halfWidth) }
+            var medium = ShadowSettings(), noDetail = ShadowSettings()
+            medium.maxMaps = 2
+            noDetail.detailMap = false
+            let detail = pass.maps.first?.level == .detail
+                ? String(format: ", %.3f ms without its detail map", try shadowCost(scene, settings: noDetail, copies: 1) * 1e3)
+                : ""
+            print(String(format: "COST %@ %@: pass High %.3f ms, Medium %.3f ms%@ (4 copies a frame: %.3f ms each)", name,
+                         maps.joined(separator: " + "), try shadowCost(scene, copies: 1) * 1e3,
+                         try shadowCost(scene, settings: medium, copies: 1) * 1e3, detail, try shadowCost(scene) * 1e3))
         }
     }
 
-    // MARK: Pad (diagnostic)
+    /// The receivers' cost alone: `orbit_sunShadow` at 6 million points on
+    /// the pad's ground (3000 × 2000 over 600 m × 400 m about the site,
+    /// facing up, nearly all inside a map), one compute dispatch, the median
+    /// of 9 back to back, at 16 and 32 filter taps, less the same dispatch
+    /// with no maps (with the GPU lock; ORBITSIM_SHADOW_COST=1).
+    func testReceiverProbeCost() throws {
+        guard ProcessInfo.processInfo.environment["ORBITSIM_SHADOW_COST"] == "1" else { throw XCTSkip("cost report") }
+        let lock = GPULock()
+        defer { withExtendedLifetime(lock) {} }
+        let scene = try padScene()
+        let (r, pass) = try shadowRenderer()
+        try draw(scene, r)
+        let site = try XCTUnwrap(scene.sites.first)
+        let (nx, ny) = (3000, 2000)
+        var points = [SIMD4<Float>](), normals = [SIMD4<Float>]()
+        points.reserveCapacity(nx * ny)
+        let up = site.orientation * Vec3.unitZ
+        let n = SIMD4<Float>(Float(up.x), Float(up.y), Float(up.z), 0)
+        for j in 0..<ny {
+            for i in 0..<nx {
+                let p = site.origin + site.orientation * Vec3(Double(i) * 0.2 - 300, Double(j) * 0.2 - 200,
+                                                              LC39A.hardstandHeight + 0.02)
+                points.append(SIMD4(Float(p.x), Float(p.y), Float(p.z), 1))
+            }
+        }
+        normals = Array(repeating: n, count: points.count)
+        let probe = try Probe(device: r.device)
+        let device = r.device
+        let pb = try XCTUnwrap(device.makeBuffer(bytes: points, length: 16 * points.count, options: .storageModeShared))
+        let nb = try XCTUnwrap(device.makeBuffer(bytes: normals, length: 16 * normals.count, options: .storageModeShared))
+        let out = try XCTUnwrap(device.makeBuffer(length: 8 * points.count, options: .storageModePrivate))
+        let atlas = try XCTUnwrap(pass.lastAtlas)
+        func time(_ lighting: LightingUniforms) throws -> Double {
+        var lighting = lighting
+        var times: [Double] = []
+        for _ in 0..<9 {
+            let cb = try XCTUnwrap(probe.queue.makeCommandBuffer()), enc = try XCTUnwrap(cb.makeComputeCommandEncoder())
+            enc.setComputePipelineState(probe.pipeline)
+            enc.setBuffer(pb, offset: 0, index: 0)
+            enc.setBuffer(nb, offset: 0, index: 1)
+            enc.setBuffer(out, offset: 0, index: 2)
+            enc.setBytes(&lighting, length: MemoryLayout<LightingUniforms>.stride, index: 3)
+            enc.setTexture(atlas, index: 0)
+            enc.setSamplerState(probe.sampler, index: 0)
+            enc.dispatchThreads(MTLSize(width: points.count, height: 1, depth: 1),
+                                threadsPerThreadgroup: MTLSize(width: 64, height: 1, depth: 1))
+            enc.endEncoding()
+            cb.commit()
+            cb.waitUntilCompleted()
+            times.append(cb.gpuEndTime - cb.gpuStartTime)
+        }
+        return times.sorted()[4]
+        }
+        // No maps: the probe's own reading and writing, which a fragment
+        // function does not pay.
+        var none = pass.lastLighting, taps16 = pass.lastLighting, taps32 = pass.lastLighting
+        none.shadowParams.x = 0
+        taps16.shadowParams.y = 16
+        taps32.shadowParams.y = 32
+        let base = try time(none)
+        let t16 = try time(taps16) - base, t32 = try time(taps32) - base
+        print(String(format: "PROBE %d receivers on the pad's ground, net of the probe's %.3f ms: 16 taps %.3f ms, "
+                     + "32 taps %.3f ms (%.2f and %.2f ns each; a full 3024×1964 screen of receivers %.2f and %.2f ms)",
+                     points.count, base * 1e3, t16 * 1e3, t32 * 1e3, t16 / Double(points.count) * 1e9,
+                     t32 / Double(points.count) * 1e9, t16 / Double(points.count) * 3024 * 1964 * 1e3,
+                     t32 / Double(points.count) * 3024 * 1964 * 1e3))
+    }
 
     // MARK: The pad
 

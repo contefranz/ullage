@@ -49,7 +49,9 @@ let shadowCommonSource = #"""
 //                      -1...1 across its footprint, z 1 at its Sun side to 0
 //                      at its far side (reversed, as the scene's depth).
 //   shadowMaps[i]      x: atlas layer, y: texel (m), z: depth range (m),
-//                      w: 1 in use.
+//                      w: in use, the share of its layer's side the map fills
+//                      from the top left (1, or 0.5 for the detail map at
+//                      2048 in a 4096 layer).
 //   shadowParams       x: maps in use, y: filter taps (9 or fewer: a fixed
 //                      3x3 PCF), z: normal offset (texels), w: slope bias
 //                      (texels per unit tangent of the incidence).
@@ -137,7 +139,8 @@ inline float orbit_shadowFromMap(constant LightingUniforms &l, int i, float3 p, 
                                  depth2d_array<float> atlas, sampler compare) {
     float4 info = l.shadowMaps[i];
     uint layer = uint(info.x + 0.5);
-    float texel = info.y, range = info.z, size = float(atlas.get_width());
+    // The map's own texels per side, in its layer's top-left corner.
+    float texel = info.y, range = info.z, layerSize = float(atlas.get_width()), size = info.w * layerSize;
     float3x3 axes = orbit_shadowAxes(l, i);
     float3 nl = float3(dot(n, axes[0]), dot(n, axes[1]), dot(n, axes[2]));   // the normal in the map's axes
     float cosI = max(nl.z, 1e-3), sinI = sqrt(saturate(1.0 - cosI * cosI));
@@ -157,7 +160,8 @@ inline float orbit_shadowFromMap(constant LightingUniforms &l, int i, float3 p, 
         for (int y = -1; y <= 1; y++) {
             for (int x = -1; x <= 1; x++) {
                 float2 o = float2(x, y);
-                lit += atlas.sample_compare(compare, (st + o) / size, layer, saturate(z + dot(slope, o)));
+                lit += atlas.sample_compare(compare, clamp(st + o, 0.5, size - 0.5) / layerSize, layer,
+                                            saturate(z + dot(slope, o)));
             }
         }
         return lit / 9.0;
@@ -186,7 +190,8 @@ inline float orbit_shadowFromMap(constant LightingUniforms &l, int i, float3 p, 
     float lit = 0.0;
     for (int k = 0; k < taps; k++) {
         float2 o = orbit_shadowVogel(k, taps, rotation) * radius;
-        lit += atlas.sample_compare(compare, (st + o) / size, layer, saturate(z + dot(slope, o)));
+        lit += atlas.sample_compare(compare, clamp(st + o, 0.5, size - 0.5) / layerSize, layer,
+                                    saturate(z + dot(slope, o)));
     }
     return lit / float(taps);
 }
@@ -197,12 +202,11 @@ inline float2 orbit_sunShadowAndMap(float3 p, float3 n, constant LightingUniform
                                     depth2d_array<float> atlas, sampler compare) {
     int count = min(int(l.shadowParams.x + 0.5), ORBIT_MAX_SHADOW_MAPS);
     if (count <= 0) { return float2(1.0, -1.0); }
-    float edge = orbit_shadowEdge(float(atlas.get_width()));
     bool holds[ORBIT_MAX_SHADOW_MAPS], any = false;
     float band[ORBIT_MAX_SHADOW_MAPS];
     for (int i = 0; i < count; i++) {
         float3 c = orbit_shadowClip(l, i, p);
-        float e = max(abs(c.x), abs(c.y)) / edge;
+        float e = max(abs(c.x), abs(c.y)) / orbit_shadowEdge(l.shadowMaps[i].w * float(atlas.get_width()));
         holds[i] = e < 1.0;
         any = any || holds[i];
         band[i] = saturate((e - (1.0 - ORBIT_SHADOW_BAND)) / ORBIT_SHADOW_BAND);

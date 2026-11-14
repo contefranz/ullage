@@ -13,7 +13,8 @@ import OrbitScene
 ///   clear: about 0.06 ms a 4096² layer on an M3 Pro. (One layered pass
 ///   over the array's slices loses the fast clear: 0.5-0.6 ms for two.)
 /// - **Its memory**: 32 MB a 4096² layer; the atlas grows to the most
-///   layers a frame has used and keeps them.
+///   layers a frame has used and keeps them. The detail map, 2048² at High,
+///   fills a corner of its layer (`shadowMaps[i].w`, its share of the side).
 /// - **Casters**: the vessels' meshes with their gimballed nozzles, as
 ///   positions alone, welded (`CasterMesh`), and the sites' elements as the
 ///   countdown moves them (`SiteMeshes`). Open shapes are drawn two-sided;
@@ -105,12 +106,29 @@ public final class ShadowPass: RenderPass {
         let plan = ShadowFitting.plan(view, settings: settings)
         guard !plan.isEmpty, let atlas = atlas(layers: plan.count, size: size, device: f.device) else { return }
 
-        // A render pass per layer: only the layers in use are cleared and
-        // stored, each with the GPU's fast clear.
+        // A render pass per map: only the layers in use are cleared and
+        // stored, each with the GPU's fast clear. A smaller map (the detail
+        // and site maps, 2048² at High) is drawn into a target of its own
+        // size and copied into its layer's top-left corner: a render pass
+        // costs by its target's size, about 0.2-0.3 ms at 4096² with casters
+        // in it against 0.06 ms at 2048², whatever the viewport.
         for (layer, map) in plan.enumerated() {
+            let side = min(map.resolution, size)
+            var scratch: MTLTexture?
+            if side < size {
+                let sd = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .depth16Unorm, width: side, height: side,
+                                                                  mipmapped: false)
+                sd.usage = .renderTarget
+                sd.storageMode = .private
+                scratch = f.pool.texture(sd)
+            }
             let d = MTLRenderPassDescriptor()
-            d.depthAttachment.texture = atlas
-            d.depthAttachment.slice = layer
+            if let scratch {
+                d.depthAttachment.texture = scratch
+            } else {
+                d.depthAttachment.texture = atlas
+                d.depthAttachment.slice = layer
+            }
             d.depthAttachment.loadAction = .clear
             d.depthAttachment.clearDepth = 0
             d.depthAttachment.storeAction = .store
@@ -123,13 +141,21 @@ public final class ShadowPass: RenderPass {
             enc.setVertexBytes(&one, length: MemoryLayout<UInt32>.size, index: 2)
             for j in map.casters { draws[j].draw(into: enc, map: map) }
             enc.endEncoding()
+            if let scratch, let blit = f.makeBlitEncoder() {
+                blit.copy(from: scratch, sourceSlice: 0, sourceLevel: 0, sourceOrigin: MTLOrigin(x: 0, y: 0, z: 0),
+                          sourceSize: MTLSize(width: side, height: side, depth: 1), to: atlas, destinationSlice: layer,
+                          destinationLevel: 0, destinationOrigin: MTLOrigin(x: 0, y: 0, z: 0))
+                blit.endEncoding()
+            }
         }
 
         var matrices = [simd_float4x4](repeating: matrix_identity_float4x4, count: LightingUniforms.maxShadowMaps)
         var infos = [SIMD4<Float>](repeating: .zero, count: LightingUniforms.maxShadowMaps)
         for (i, map) in plan.enumerated() {
             matrices[i] = simd_float4x4(rowMajor: map.matrix)
-            infos[i] = SIMD4(Float(i), Float(map.texel), Float(map.depthRange), 1)
+            // w: the share of its layer's side the map fills, from the top left.
+            infos[i] = SIMD4(Float(i), Float(map.texel), Float(map.depthRange),
+                             Float(min(map.resolution, size)) / Float(size))
         }
         f.lighting.shadowMatrices = (matrices[0], matrices[1], matrices[2], matrices[3])
         f.lighting.shadowMaps = (infos[0], infos[1], infos[2], infos[3])

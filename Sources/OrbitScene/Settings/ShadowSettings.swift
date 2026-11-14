@@ -15,6 +15,15 @@ public struct ShadowSettings: Codable, Equatable {
     /// Draw the detail map about the camera target, finer than its
     /// cluster's (`ShadowFitting.detailRadius`).
     public var detailMap = true
+    /// Texels per side of the detail map, drawn in a corner of its layer
+    /// (the plan's "4096 + 2048"; 1024 at Low). Its footprint is a few
+    /// metres, so half the cluster maps' texels are fine enough, and a
+    /// full 4096² would cost 0.4-0.6 ms of fill on the pad.
+    public var detailMapSize = 2048
+    /// Texels per side of a site's map, in a corner of its layer. LC-39A's
+    /// covers 558 m, mostly the pad's broad surfaces; near the vehicle its
+    /// cluster map, at `mapSize`, takes over.
+    public var siteMapSize = 2048
     /// Taps of the PCSS filter (16 at Medium, 32 at High); the blocker
     /// search before it always takes 16 (ORBIT_SHADOW_SEARCH_TAPS). 9 or
     /// fewer is a fixed 3×3 PCF with no blocker search (Low).
@@ -34,7 +43,8 @@ public struct ShadowSettings: Codable, Equatable {
     public init() {}
 
     private enum CodingKeys: String, CodingKey {
-        case enabled, mapSize, maxMaps, detailMap, filterSamples, clusterLink, minimumPixels, normalOffset, slopeBias
+        case enabled, mapSize, maxMaps, detailMap, detailMapSize, siteMapSize, filterSamples, clusterLink, minimumPixels
+        case normalOffset, slopeBias
     }
 
     public init(from decoder: Decoder) throws {
@@ -44,6 +54,8 @@ public struct ShadowSettings: Codable, Equatable {
         mapSize = try c.decodeIfPresent(Int.self, forKey: .mapSize) ?? d.mapSize
         maxMaps = try c.decodeIfPresent(Int.self, forKey: .maxMaps) ?? d.maxMaps
         detailMap = try c.decodeIfPresent(Bool.self, forKey: .detailMap) ?? d.detailMap
+        detailMapSize = try c.decodeIfPresent(Int.self, forKey: .detailMapSize) ?? d.detailMapSize
+        siteMapSize = try c.decodeIfPresent(Int.self, forKey: .siteMapSize) ?? d.siteMapSize
         filterSamples = try c.decodeIfPresent(Int.self, forKey: .filterSamples) ?? d.filterSamples
         clusterLink = try c.decodeIfPresent(Double.self, forKey: .clusterLink) ?? d.clusterLink
         minimumPixels = try c.decodeIfPresent(Double.self, forKey: .minimumPixels) ?? d.minimumPixels

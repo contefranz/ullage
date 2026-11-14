@@ -70,7 +70,7 @@ final class ShadowLookDevTests: XCTestCase {
         low.filterSamples = 9
         return [Shot(name: "r4-lookdev-cubes", distance: 34, settings: ShadowSettings()),
                 Shot(name: "r4-lookdev-cubes-low", distance: 34, settings: low),
-                Shot(name: "r4-lookdev-cubes-close", distance: 9, settings: ShadowSettings())]
+                Shot(name: "r4-lookdev-cubes-close", distance: 6, settings: ShadowSettings())]
     }()
 
     func testShadowCubeGoldens() throws {

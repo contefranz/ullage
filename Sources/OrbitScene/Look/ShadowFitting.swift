@@ -13,7 +13,8 @@ import OrbitCore
 ///
 /// **Maps** (`ShadowMapFit`), each an orthographic view along the Sun, at
 /// most `maximumMaps`, in the order receivers try them:
-/// - **The detail map** about the camera target: half width
+/// - **The detail map** about the camera target, `ShadowSettings.detailMapSize`
+///   texels across (2048 at High, half the cluster maps'): half width
 ///   2·d·tan(fovY/2) for the camera d from the target, at least 2 m, up in
 ///   steps of √2 (`detailRadius`), so it changes only when the camera has
 ///   moved by a step. Its centre is the point the camera orbits, snapped to
@@ -28,7 +29,9 @@ import OrbitCore
 ///   (`quantizedUp`) and widened to leave room for the filter: 117 m for
 ///   the Saturn V, 2.9 cm texels at 4096². It is centred on the anchor
 ///   itself, so the vessel's own shadows never move on its texels.
-/// - **A map per site**, its footprint its bounding sphere's.
+/// - **A map per site**, its footprint its bounding sphere's,
+///   `ShadowSettings.siteMapSize` texels across (2048 at High: LC-39A's is
+///   558 m, 27 cm texels; near the vehicle its cluster map takes over).
 /// - Clusters and sites get a map only when more than
 ///   `ShadowSettings.minimumPixels` across on screen, the camera target's
 ///   first, then the rest by their size on screen.
@@ -161,7 +164,9 @@ public enum ShadowFitting {
     /// The detail map's half width (m) for the camera `distance` (m) from
     /// its target and its vertical field of view `fovY` (rad): 2·d·tan(fovY/2),
     /// at least `minimumDetailRadius`, up in steps of √2; nil when that is
-    /// not below the cluster map's half width, which is then as fine.
+    /// not below `clusterRadius`: the cluster map's half width times the
+    /// detail map's texels per side over the cluster map's, below which the
+    /// detail map's texels are the finer.
     public static func detailRadius(distance: Double, fovY: Double, clusterRadius: Double) -> Double? {
         let r = quantizedUp(max(2 * distance * tan(fovY / 2), minimumDetailRadius), stepsPerOctave: 2)
         return r < clusterRadius ? r : nil
@@ -262,6 +267,7 @@ public enum ShadowFitting {
             var halfWidth: Double
             var pixels: Double
             var isTarget: Bool
+            var resolution: Int
         }
         var candidates: [Candidate] = []
         let vessels = casters.indices.filter { if case .vessel = casters[$0].kind { true } else { false } }
@@ -273,21 +279,24 @@ public enum ShadowFitting {
             candidates.append(Candidate(centre: centre, halfWidth: quantizedUp(radius * widen),
                                         pixels: pixelSize(centre: centre, radius: radius,
                                                           pixelsPerRadian: view.pixelsPerRadian),
-                                        isTarget: isTarget))
+                                        isTarget: isTarget, resolution: s.mapSize))
         }
         for c in casters {
             guard case .site = c.kind else { continue }
-            candidates.append(Candidate(centre: c.centre, halfWidth: quantizedUp(c.radius * widen),
+            let resolution = min(s.siteMapSize, s.mapSize)
+            candidates.append(Candidate(centre: c.centre,
+                                        halfWidth: quantizedUp(c.radius * (1 + 2 * (maxFilterRadius + 2) / Double(resolution))),
                                         pixels: pixelSize(centre: c.centre, radius: c.radius,
                                                           pixelsPerRadian: view.pixelsPerRadian),
-                                        isTarget: false))
+                                        isTarget: false, resolution: resolution))
         }
         candidates = candidates.filter { $0.pixels > s.minimumPixels }
             .sorted { ($0.isTarget ? 1 : 0, $0.pixels) > ($1.isTarget ? 1 : 0, $1.pixels) }
 
         let limit = min(s.maxMaps, maximumMaps)
         var maps: [ShadowMapFit] = []
-        func fit(_ level: ShadowMapFit.Level, centre: Vec3, halfWidth: Double, basis: Mat3) -> ShadowMapFit {
+        func fit(_ level: ShadowMapFit.Level, centre: Vec3, halfWidth: Double, basis: Mat3,
+                 resolution: Int) -> ShadowMapFit {
             var drawn: [Int] = [], near = 0.0, far = 0.0
             for (j, c) in casters.enumerated() {
                 let d = c.centre - centre
@@ -300,19 +309,23 @@ public enum ShadowFitting {
             }
             return ShadowMapFit(level: level, casters: drawn, centre: centre, basis: basis, halfWidth: halfWidth,
                                 near: quantizedUp(max(near, 1)), far: quantizedUp(max(far, 1)),
-                                resolution: s.mapSize)
+                                resolution: resolution)
         }
+        let detailSize = min(s.detailMapSize, s.mapSize)
         let basisOf = { (c: Candidate) in lightBasis(toSun: view.sun - c.centre) }
         if s.detailMap, limit >= 2, let target = view.target, let cluster = candidates.first, cluster.isTarget,
-           let r = detailRadius(distance: target.point.length, fovY: view.fovY, clusterRadius: cluster.halfWidth) {
+           detailSize >= 4 * noisePeriod,
+           // Finer than the cluster map: its texels smaller than the cluster's.
+           let r = detailRadius(distance: target.point.length, fovY: view.fovY,
+                                clusterRadius: cluster.halfWidth * Double(detailSize) / size) {
             // On the cluster map's grid, which the target's structure carries.
             let basis = basisOf(cluster)
             let centre = snapped(target.point, to: cluster.centre, basis: basis,
-                                 texel: 2 * r / size * Double(noisePeriod))
-            maps.append(fit(.detail, centre: centre, halfWidth: r, basis: basis))
+                                 texel: 2 * r / Double(detailSize) * Double(noisePeriod))
+            maps.append(fit(.detail, centre: centre, halfWidth: r, basis: basis, resolution: detailSize))
         }
         for c in candidates where maps.count < limit {
-            maps.append(fit(.cluster, centre: c.centre, halfWidth: c.halfWidth, basis: basisOf(c)))
+            maps.append(fit(.cluster, centre: c.centre, halfWidth: c.halfWidth, basis: basisOf(c), resolution: c.resolution))
         }
         return maps
     }
