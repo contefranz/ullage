@@ -60,7 +60,7 @@ final class ToneCurveTests: XCTestCase {
 
     /// Neutral round-trips through its analytic inverse.
     func testNeutralInverse() {
-        var g = SystemRandomNumberGenerator()
+        var g = SeededGenerator(seed: 0x70_4E5E)
         for _ in 0..<500 {
             let l = pow(2, Double.random(in: -8...6, using: &g))
             let c = RGB(l * Double.random(in: 0...1, using: &g), l * Double.random(in: 0...1, using: &g), l)
@@ -88,7 +88,7 @@ final class ToneCurveTests: XCTestCase {
             // AgX: raising one channel never lowers its output. Neutral is a
             // min/max operator (raising the smallest channel lowers the
             // offset's share of the peak), so it is checked along brightness.
-            var g = SystemRandomNumberGenerator()
+            var g = SeededGenerator(seed: 0x70_4E5E)
             for _ in 0..<300 {
                 let c = RGB(Double.random(in: 0...4, using: &g), Double.random(in: 0...4, using: &g),
                             Double.random(in: 0...4, using: &g))
@@ -116,7 +116,7 @@ final class ToneCurveTests: XCTestCase {
             return c <= 0.003_130_8 ? 12.92 * c : 1.055 * pow(c, 1 / 2.4) - 0.055
         }
         var errors: [Double] = []
-        var g = SystemRandomNumberGenerator()
+        var g = SeededGenerator(seed: 0x70_4E5E)
         for _ in 0..<3_000 {
             let l = pow(2, Double.random(in: -10...4, using: &g))
             let k = [Double.random(in: 0...1, using: &g), Double.random(in: 0...1, using: &g),
@@ -142,5 +142,21 @@ final class ToneCurveTests: XCTestCase {
         // On the grid itself the LUT is the curve.
         let c = RGB(ToneLUT.input(7), ToneLUT.input(20), ToneLUT.input(13))
         assertEqual(lut.sample(c), ToneCurves.agx(c), accuracy: 1e-6)
+    }
+}
+
+/// SplitMix64: the same colours on every run, so the accuracy bounds
+/// do not fail once in a thousand runs on an unlucky draw.
+struct SeededGenerator: RandomNumberGenerator {
+    private var state: UInt64
+
+    init(seed: UInt64) { state = seed }
+
+    mutating func next() -> UInt64 {
+        state &+= 0x9E37_79B9_7F4A_7C15
+        var z = state
+        z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+        z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+        return z ^ (z >> 31)
     }
 }

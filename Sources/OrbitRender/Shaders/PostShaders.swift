@@ -70,11 +70,12 @@ static float3 post_clean(float3 c) {
 // The Sun's veiling glare along a view ray (view axes), per lux of its
 // illuminance at 1 rad: 1/θ², θ no smaller than `minAngle` (the disc's
 // diameter). The tone map adds it, and the meter counts it. θ² comes from
-// its series in 1 - cos θ, without acos: 2(1 - c)(1 + (1 - c)/3), within
-// 1 % to 20° and 8 % at 90°, where the veil is faint.
+// the first three terms of its series in k = 1 - cos θ, without acos:
+// acos(1 - k)² = 2k (1 + k/6 + 2k²/45 + ...), within 0.05 % to 45°, 2 % at
+// 90° and 8 % at 120°, where the veil is faint.
 static float post_glare(float3 ray, float3 sunView, float minAngle) {
     float k = 1.0 - clamp(dot(normalize(ray), sunView), -1.0, 1.0);
-    float theta2 = 2.0 * k * (1.0 + k / 3.0);
+    float theta2 = 2.0 * k * (1.0 + k * (1.0 / 6.0 + k * (2.0 / 45.0)));
     return 1.0 / max(theta2, minAngle * minAngle);
 }
 
@@ -382,6 +383,15 @@ kernel void post_decode_scene(texture2d<float> hdr [[texture(0)]],
                               uint2 gid [[thread_position_in_grid]]) {
     if (gid.x >= dst.get_width() || gid.y >= dst.get_height()) { return; }
     dst.write(float4(post_decode(hdr.read(gid)), 1.0), gid);
+}
+
+// The glare's 1/θ² alone on a list of view rays, for the tests; params:
+// xyz the Sun (view axes), w the smallest angle.
+kernel void post_glare_probe(device const float4 *rays [[buffer(0)]],
+                             constant float4 &params [[buffer(1)]],
+                             device float *out [[buffer(2)]],
+                             uint i [[thread_position_in_grid]]) {
+    out[i] = post_glare(rays[i].xyz, params.xyz, params.w);
 }
 
 // The tone curve alone on a list of colours, for the tests.

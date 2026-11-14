@@ -20,8 +20,9 @@ estimate).
   - **never call `orbit_encodeHDR`**: the resolve weights every sample
     itself, so a pass that weights its own light has it weighted twice;
   - in P3, keep the order below `HDRResolvePass.sceneOrder` (1,000,000).
-  `HDRRuleTests` checks the encoding and the order. (ShaderCommon's comment on
-  `orbit_encodeHDR` and design-renderer-core.md §3 predate this.)
+  `HDRRuleTests` checks the encoding and the order, and ShaderCommon's
+  comment on `orbit_encodeHDR` states the rule (design-renderer-core.md §3
+  predates it).
 - **The Sun** (`FrameUniforms.sunIlluminance`): rgb is its illuminance
   above any air in lux, coloured; w its total.
 
