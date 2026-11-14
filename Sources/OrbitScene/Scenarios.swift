@@ -32,7 +32,7 @@ public struct Scenario: Identifiable {
 
     public static let all: [Scenario] = [pad39A, saturnVPad, apollo8Pad, earthOrbitReturn, apollo11ParkingOrbit, apollo13,
                                   sICEngine1Out,
-                                  apollo7Deorbit, apollo7EntryInterface, lowEarthOrbit, lunarOrbit]
+                                  apollo7Deorbit, apollo7EntryInterface, lowEarthOrbit, lunarOrbit, apollo8DawnPad]
 
     /// Launch Complex 39A, Kennedy Space Center, where Apollo 11 stood:
     /// geodetic, on the WGS-84 Earth, with the pad's elevation.
@@ -230,6 +230,27 @@ public struct Scenario: Identifiable {
         sim.paused = true
         return sim
     }
+
+    /// The Saturn V on LC-39A at Apollo 8's range zero, 21 December 1968,
+    /// 12:51:00 UTC (07:51 EST; FER-503 Table 2-2), the Sun about 7° up in
+    /// the east-southeast: a look at the dawn light through the atmosphere
+    /// (M1.6 track A2, shot 1). The stack is AS-506's, standing as Apollo
+    /// 11's did, until AS-503's is built; it has no flight program and
+    /// stays on the pad.
+    public static let apollo8DawnPad = Scenario(
+        id: "apollo8-dawn-pad",
+        name: "Saturn V on LC-39A at Apollo 8's dawn",
+        summary: "The Saturn V on LC-39A at Apollo 8's range zero, 21 December 1968, 12:51:00 UTC, the Sun about 7° up: the dawn light through the air. AS-506's stack stands in for AS-503's; it has no flight program and stays on the pad.",
+        build: { system in
+            let sim = Simulation(system: system, time: Epoch(utcYear: 1968, month: 12, day: 21, hour: 12, minute: 51))
+            let v = VesselLibrary.saturnV(name: "Apollo 8")
+            sim.add(v)
+            // Position I east (the pad azimuth, 90°), as `apollo11OnPad` stands it.
+            sim.placeLanded(v, on: system.earth, latitude: lc39A.latitude, longitude: lc39A.longitude,
+                            azimuth: 270, elevation: lc39A.elevation)
+            sim.paused = true
+            return sim
+        })
 
     public static let lowEarthOrbit = Scenario(
         id: "leo",

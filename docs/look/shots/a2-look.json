@@ -1,0 +1,23 @@
+{
+  "goldens": "lookdev",
+  "shots": [
+    {"name": "a2-dawn-sun", "scenario": "apollo8-dawn-pad", "showOrbit": false,
+     "reference": "AS-503 launch-morning photographs, 21 Dec 1968",
+     "camera": {"yaw": -60, "pitch": 1, "distance": 6000, "fov": 60},
+     "settings": {"post": {"exposure": {"mode": "manual", "ev100": 14}, "bloom": 0, "sunGlare": false}}},
+    {"name": "a2-dawn-antisun", "scenario": "apollo8-dawn-pad", "showOrbit": false,
+     "camera": {"yaw": 120, "pitch": 1, "distance": 6000, "fov": 60},
+     "settings": {"post": {"exposure": {"mode": "manual", "ev100": 13.5}, "bloom": 0, "sunGlare": false}}},
+    {"name": "a2-limb-day", "scenario": "as506-parking-orbit", "showOrbit": false,
+     "reference": "sunlit Earth at EV 15.5 (Apollo's f/11, 1/250 s, ISO 64)",
+     "camera": {"yaw": -34.4, "pitch": 16, "distance": 1500000, "fov": 60},
+     "settings": {"post": {"exposure": {"mode": "manual", "ev100": 15}, "bloom": 0, "sunGlare": false}}},
+    {"name": "a2-limb-sunset", "scenario": "as506-parking-orbit", "showOrbit": false, "advance": ["wait:1900"],
+     "reference": "Apollo 7 and 9 terminator frames",
+     "camera": {"yaw": 100, "pitch": 14, "distance": 400000, "fov": 50},
+     "settings": {"post": {"exposure": {"mode": "manual", "ev100": 10}, "bloom": 0, "sunGlare": false}}},
+    {"name": "a2-whole-earth", "scenario": "as506-parking-orbit", "showOrbit": false,
+     "camera": {"target": "body:399", "frame": "inertial", "yaw": 150, "pitch": 10, "distance": 15000000, "fov": 60},
+     "settings": {"post": {"exposure": {"mode": "manual", "ev100": 15}, "bloom": 0, "sunGlare": false}}}
+  ]
+}
