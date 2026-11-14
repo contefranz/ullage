@@ -320,8 +320,11 @@ public final class CloudPass: RenderPass, HalfResEffect {
     public func encodeHalfRes(_ f: FrameContext, _ slots: HalfResSlots, _ enc: MTLRenderCommandEncoder) {
         guard let resolved, let slotPipeline, let noise, let tables, let frameAir, let weatherMap, let samplers
         else { return }
+        // A2's haze over the ground from space, for the clouds beyond its
+        // froxels' reach (y: 1 when bound).
+        let space = f.textures[.spaceGroundScatter].flatMap { s in f.textures[.spaceGroundTransmittance].map { (s, $0) } }
         var scale = SIMD4<Float>(resolved.color.width == slots.size.width && resolved.color.height == slots.size.height
-                                 ? 1 : 0, 0, 0, 0)
+                                 ? 1 : 0, space == nil ? 0 : 1, 0, 0)
         var u = uniformsForSlot
         enc.setRenderPipelineState(slotPipeline)
         enc.setDepthStencilState(slots.noDepth)
@@ -337,6 +340,8 @@ public final class CloudPass: RenderPass, HalfResEffect {
         enc.setFragmentTexture(tables.slab, index: 7)
         enc.setFragmentTexture(frameAir.transmittance, index: 8)
         enc.setFragmentTexture(frameAir.irradiance, index: 9)
+        enc.setFragmentTexture(space?.0 ?? frameAir.irradiance, index: 10)
+        enc.setFragmentTexture(space?.1 ?? frameAir.irradiance, index: 11)
         enc.setFragmentSamplerState(samplers.wrap, index: 0)
         enc.setFragmentSamplerState(samplers.weather, index: 1)
         enc.setFragmentSamplerState(f.states.linearClamp, index: Binding.linearClampSampler)

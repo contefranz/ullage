@@ -287,6 +287,11 @@ final class CloudCostTests: XCTestCase {
                 if let skip = ProcessInfo.processInfo.environment["ORBITSIM_CLOUD_SKIP"] {
                     on.cloud.skip = skip.split(separator: ",").map(String.init)
                 }
+                // ORBITSIM_CLOUD_COST_NO_AIR: A2's atmosphere off in both frames.
+                if ProcessInfo.processInfo.environment["ORBITSIM_CLOUD_COST_NO_AIR"] != nil {
+                    on.atmosphere.enabled = false
+                    off.atmosphere.enabled = false
+                }
                 let target = try XCTUnwrap(OffscreenTarget(device: s.device, width: shot.width, height: shot.height))
                 final class Times: @unchecked Sendable {
                     let lock = NSLock()

@@ -22,11 +22,14 @@ docs/m16/design-earth-moon.md, clouds; plan: docs/m16/plan.md, C2.
 - **OrbitRender**: `Passes/CloudPass.swift` (P0, and R6's first
   half-resolution effect), `Shaders/CloudShaders.swift` (module `Cloud`, and
   the `.cloudShadow` header for other tracks), `Clouds/CloudNoise.swift` (the
-  volumes and tables on the GPU).
+  volumes and the slab LUT on the GPU, and `CloudAir`: A1's tables as A2
+  shares them).
 - **Settings**: `CloudSettings` (`RenderSettings.cloud`).
 - **Specs**: `docs/look/shots/c2.json` (the cloud slab, look-dev goldens),
   `c2-scenes.json` (the contact sheet: Apollo 8's pad and ascent on
-  `apollo8-pad`, AS-506's pad, ascent, orbit and terminator, the climb).
+  `apollo8-pad`, AS-506's pad, ascent, orbit and terminator, the climb),
+  `c2-near.json` (the ascent under, inside, on top of and over a uniform
+  deck).
 
 ## The frame
 
@@ -51,8 +54,10 @@ In P0, on the command buffer:
    averages with its history. This is `.cloudLayer` and `.cloudDepth`.
 
 In P3, R6's half-resolution encoder: **the slot copy** adds the far layers
-and the cirrus per texel of R6's targets, orders them by distance, cuts the
-clouds at the scene's depth, and writes R6's clouds layer and its front.
+and the cirrus per texel of R6's targets, hazes each part at its own mean
+distance through A2's aerial-perspective froxels, orders them by distance,
+cuts the clouds at the scene's depth, and writes R6's clouds layer and its
+front.
 
 ## The regimes
 
@@ -67,14 +72,25 @@ clouds at the scene's depth, and writes R6's clouds layer and its front.
 - **Far** is a surface layer: per pixel, each layer's cover times the
   slab LUT at its in-cloud optical depth (the layer model's, times
   `farDensity` 0.45: the march's clouds are not uniformly dense), with the
-  same phase, Sun and sky.
+  same phase, Sun and sky. The LUT holds each slab seen from above and from
+  below, so the far layer serves the pad's horizon as well as orbit.
 - **Hand-over:** by the pixel's footprint on the low layer (1.5-6 km), so
   from orbit the limb is far while nadir is marched; and by the camera's
-  height (3,000-6,000 km). Above 6,000 km nothing is marched.
+  height (3,000-6,000 km). Above 6,000 km nothing is marched. Inside the
+  shell the footprint rule holds where the camera is clear of the layers
+  the ray meets: under the low base, over the mid top, or between the low
+  top and the mid base looking down (ramped over 50-300 m). Inside a layer
+  the march does everything out to `nearReach` (150 km). The two parts'
+  mean distances blend by their shares of the opacity.
 - **Cirrus** is a 2D layer at 10 km: fibres of the Worley fBm stretched
   eight times along the 250 hPa wind, warped by the curl, lit as a thin slab
   in closed form from above or below with ice's phase (g 0.75), averaging
   out by footprint.
+- **Profiles:** the low layer rises fast from its base and tapers above 0.4
+  of its depth (flat bases, domed tops). The mid layer's profile peaks at
+  0.35 and rounds off both ways, so a patch of altocumulus is a lens as
+  thick as its density is over the cover's threshold; a plateau cut every
+  patch at the same two heights, boxes when seen edge-on from afar.
 - **Large-scale structure:** two octaves (400 km and 100 km) of the shape
   volume on the sphere move partial cover up and down, by 4c(1 − c) of
   `coverageModulation`. They are applied alike in the march and the far
@@ -85,7 +101,8 @@ clouds at the scene's depth, and writes R6's clouds layer and its front.
 Per unit extinction and irradiance, at each sample:
 - **The Sun's light scattered once**, with Jendersie and d'Eon's
   approximate Mie for 20 µm drops (g 0.879), through the light march's
-  optical depth. The air's transmittance comes from A1's table at the
+  optical depth. The air's transmittance comes from A1's table (as A2
+  binds it, `CloudAir`) at the
   sample's height and fades over the Sun's disc as it sets.
 - **Multiple scattering** from the two-stream slab C1 checks clouds against
   (Bohren 1987): the diffuse streams of the sample's column, of optical depth
@@ -117,6 +134,7 @@ a = b = c = 0.5 a deck of τ 90 had a plane albedo of 0.09 against 0.18 for
 | GPU march on a slab against `CloudSlab.march` | 1-2 % per texel |
 | GPU march against the far LUT, slab from LEO | 1.6 % mean, worst texel 4.3 % |
 | Shadow map under a slab of τ 20 | 5 % |
+| A slab seen from below: single scattering against its closed form; a thick deck's base against two-stream's transmitted light (T/π and T/R of its top) | 1e-9; within 25 % |
 
 ## Cost
 
@@ -132,11 +150,25 @@ fresh (every texel marched, as at 10× warp):
 | LEO | 1.9 ms | 3.4 ms |
 | Earth from 22,000 km | under 0.1 ms | under 0.1 ms |
 
-With every default pass (`ORBITSIM_CLOUD_COST_FULL=1`), the clouds add
-4.6, 4.4, 3.5 and 2.8 ms respectively. Of that, 2.0-2.4 ms is R6's slots on
-R1's HDR plan, which they cost with any effect, even a tiny test slab
-(`ORBITSIM_CLOUD_COST_R6=1`). The clouds' own share is about 2.1 ms on the
-pad (budget 3.0) and 1.2 ms in LEO (budget 2.0).
+With every default pass (`ORBITSIM_CLOUD_COST_FULL=1`), A2's air included,
+the clouds add the following; R6's slots cost 1.9-2.7 ms of it whenever
+anything draws through them, even a tiny test slab
+(`ORBITSIM_CLOUD_COST_R6=1`), so the clouds' own share is the difference:
+
+| Shot | Clouds added | R6's slots | Clouds' own (budget) |
+|---|---|---|---|
+| Pad | 5.0 ms | 2.2 ms | 2.8 ms (3.0) |
+| Ascent, 60 s | 4.4 ms | 1.9 ms | 2.5 ms |
+| LEO | 4.7 ms | 2.7 ms | 2.0 ms (2.0) |
+| Earth from 22,000 km | 3.2 ms | 1.9 ms | 1.4 ms |
+
+Steady state; fresh frames add 0.6-0.8 ms on the pad and in LEO. Run to run
+the full frame varies by about 0.5 ms. Of the own share, A2's aerial
+perspective is about 0.3-0.5 ms (one froxel lookup per texel). The far
+layer is evaluated only for rays that meet a layer's shell before the
+ground: under the cloud base, the downward rays used to evaluate it over
+the whole ground (1.4 ms on the pad) only for the depth cut to drop it.
+`ORBITSIM_CLOUD_COST_NO_AIR=1` turns A2 off in both frames.
 
 ## For other tracks
 
@@ -153,20 +185,30 @@ pad (budget 3.0) and 1.2 ms in LEO (budget 2.0).
   opacity-weighted mean and the entry) hold the march's clouds at the march
   target's resolution, for a pass that wants the transmittance in front of a
   point: (1 − a) raised to the fraction of the way from the entry to twice
-  the mean depth.
-- **A2:** the stand-in for AtmosphereContext is A1's transmittance and sky
-  irradiance tables (OrbitCore's `AtmosphereLUT`, coarser quadrature),
-  uploaded by the cloud pass. Once A2 binds its transmittance at slot 25 the
-  clouds can read it there. The sky irradiance at every height is a table
-  A2 may want to share. Aerial perspective over the clouds is A2's to add
-  (the froxels, or the limb march); until then the clouds have none.
+  the mean depth. These are not hazed: a pass that reads them applies A2's
+  froxels at its own distance, as the slot copy does.
+- **A2 (AtmosphereContext):** the clouds read A1's transmittance and sky
+  irradiance from A2's LUT pass (`FrameContext.textures` `.atmosphereLUTs`
+  and `.atmosphereIrradiance`, set in P0 before the clouds), and with the
+  atmosphere off from A2's `AtmosphereTables` cache, uploaded once. The slot
+  copy reads A2's froxels (slot 30) and `AtmosphereUniforms` (buffer 28) for
+  the aerial perspective. A2's tests and look-dev goldens draw the air
+  alone (clouds off); C2's slab tests and goldens draw the clouds alone
+  (atmosphere off), whose pixels the adoption left unchanged.
 
 ## Open
 
-- **Near field:** the pad's distant clouds at the horizon want more steps
-  or a seen-from-below surface layer, the detail needs tuning up close, and
-  the inside-cloud views are untested. The plan cuts this first, and it
-  merges after the far and orbit regimes.
+- **Near field** (merges after the far and orbit regimes): done are the
+  horizon from below (the far layer seen from below), the ascent under,
+  inside and over a deck (`c2-near.json`), the aerial perspective, and the
+  views from between the layers. Open:
+  - The cirrus barely shows from the ground (Apollo 8's 4/10 at dawn): its
+    fibres are cut by the coverage table fitted to the shape's
+    Perlin-Worley, not to the Worley octaves they use.
+  - The detail erosion up close wants tuning against photographs.
+  - Above 2,000 km A2 has no froxels: the clouds are unhazed while A2
+    hazes the ground from space (`.spaceGroundScatter`), so the far
+    regime's clouds look dull beside it.
 - **Water paths** (decision 29): not added. The far layer's optical depth
   is the layer model's. ERA5's total column liquid and ice water would vary
   the brightness of thin and thick decks; adding them is two OSCLOUD1
