@@ -38,6 +38,7 @@ struct CloudUniforms {
     float4 footprint;         // x: pixel angle (rad), y: far blend start (m), z: far blend end (m), w: global coverage modulation
     float4 checker;           // xy: this frame's checkerboard texel, z: 1 marching one texel in four, w: frame index
     float4 lookDev;           // x: 1 a uniform homogeneous layer, y: its cover, z: its optical depth, w: 1 force far, 2 force march
+    float4 lookDevSlab;       // x: the slab's base, y: its top (m above the ground)
     float4 target;            // xy: the march target's size, zw: frame pixels per texel
     float4 lut;               // x: LUT depths, y: cosines, z: least depth, w: ln(most / least)
     float4 lut2;              // x: least cosine, y: 1 with a field, z: the low layer's base at the camera (m), w: unused
@@ -357,10 +358,10 @@ inline CloudWeatherSample cloud_weatherAt(float3 pf, thread const CloudTextures 
                                           constant CloudUniforms &u) {
     CloudWeatherSample w;
     if (u.lookDev.x > 0.5) {
-        w.a = float4(u.lookDev.y, 0.0, 0.0, 1000.0);
-        w.lowTop = 2500.0;
-        w.topmost = 2500.0;
-        w.lowest = 1000.0;
+        w.a = float4(u.lookDev.y, 0.0, 0.0, u.lookDevSlab.x);
+        w.lowTop = u.lookDevSlab.y;
+        w.topmost = u.lookDevSlab.y;
+        w.lowest = u.lookDevSlab.x;
         return w;
     }
     float2 uv = cloud_weatherUV(pf, u);
@@ -589,8 +590,8 @@ inline CloudResult cloud_farLayer(float3 of, float3 df, float3 d, float c, float
     float mu0 = dot(u.sun.xyz, up);
     float4 wa, wb;
     if (u.lookDev.x > 0.5) {
-        wa = float4(u.lookDev.y, 0.0, 0.0, 1000.0);
-        wb = float4(2500.0, 0.0, 0.0, 0.0);
+        wa = float4(u.lookDev.y, 0.0, 0.0, u.lookDevSlab.x);
+        wb = float4(u.lookDevSlab.y, 0.0, 0.0, 0.0);
     } else {
         float2 uv = cloud_weatherUV(pf, u);
         wa = t.weatherA.sample(weather, uv, level(0.0));

@@ -523,6 +523,7 @@ public final class CloudPass: RenderPass, HalfResEffect {
                             Float(s.farFootprint.count > 1 ? s.farFootprint[1] : 6_000), Float(s.coverageModulation))
         if let l = s.lookDev {
             u.lookDev = SIMD4(1, Float(l.cover), Float(l.opticalDepth), s.regime == "far" ? 1 : (s.regime == "march" ? 2 : 0))
+            u.lookDevSlab = SIMD4(Float(l.base), Float(l.base + l.thickness), 0, 0)
         } else {
             u.lookDev = SIMD4(0, 0, 0, s.regime == "far" ? 1 : (s.regime == "march" ? 2 : 0))
         }
@@ -531,7 +532,7 @@ public final class CloudPass: RenderPass, HalfResEffect {
                       Float(log(CloudSlabLUT.maxDepth / CloudSlabLUT.minDepth)))
         // The low layer's base where the camera is: under it, far clouds
         // seen from below may be the surface layer.
-        let lowBase = s.lookDev != nil ? 1_000 : CloudLayerModel.layers(sample)[0].base
+        let lowBase = s.lookDev?.base ?? CloudLayerModel.layers(sample)[0].base
         u.lut2 = SIMD4(Float(CloudSlabLUT.minCosine), hasField ? 1 : 0, Float(lowBase), 0)
         u.shadowLevels = SIMD4(Self.shadowLevels[0], Self.shadowLevels[1], Self.shadowLevels[2], Self.shadowLevels[3])
         let table = CloudCoverage.standard
@@ -614,6 +615,7 @@ struct CloudUniforms {
     var footprint = SIMD4<Float>.zero
     var checker = SIMD4<Float>.zero
     var lookDev = SIMD4<Float>.zero
+    var lookDevSlab = SIMD4<Float>.zero
     var target = SIMD4<Float>.zero
     var lut = SIMD4<Float>.zero
     var lut2 = SIMD4<Float>.zero

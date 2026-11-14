@@ -42,14 +42,30 @@ public struct CloudSettings: Codable, Equatable {
     /// Profiling: stages left out ("weather", "shadow", "march", "resolve").
     public var skip: [String] = []
 
-    /// A uniform slab for the look-dev goldens.
+    /// A uniform slab for the look-dev goldens: its cover, optical depth,
+    /// and base and thickness above the ground (m; the far LUT's low layer
+    /// is 1,500 m thick).
     public struct LookDevSlab: Codable, Equatable {
         public var cover = 1.0
         public var opticalDepth = 20.0
+        public var base = 1_000.0
+        public var thickness = 1_500.0
 
-        public init(cover: Double = 1, opticalDepth: Double = 20) {
+        public init(cover: Double = 1, opticalDepth: Double = 20, base: Double = 1_000, thickness: Double = 1_500) {
             self.cover = cover
             self.opticalDepth = opticalDepth
+            self.base = base
+            self.thickness = thickness
+        }
+
+        private enum CodingKeys: String, CodingKey { case cover, opticalDepth, base, thickness }
+
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            cover = try c.decodeIfPresent(Double.self, forKey: .cover) ?? 1
+            opticalDepth = try c.decodeIfPresent(Double.self, forKey: .opticalDepth) ?? 20
+            base = try c.decodeIfPresent(Double.self, forKey: .base) ?? 1_000
+            thickness = try c.decodeIfPresent(Double.self, forKey: .thickness) ?? 1_500
         }
     }
 
