@@ -25,7 +25,8 @@ docs/m16/design-earth-moon.md, clouds; plan: docs/m16/plan.md, C2.
   volumes and tables on the GPU).
 - **Settings**: `CloudSettings` (`RenderSettings.cloud`).
 - **Specs**: `docs/look/shots/c2.json` (the cloud slab, look-dev goldens),
-  `c2-scenes.json` (the contact sheet).
+  `c2-scenes.json` (the contact sheet: Apollo 8's pad and ascent on
+  `apollo8-pad`, AS-506's pad, ascent, orbit and terminator, the climb).
 
 ## The frame
 
@@ -170,5 +171,7 @@ pad (budget 3.0) and 1.2 ms in LEO (budget 2.0).
   is the layer model's. ERA5's total column liquid and ice water would vary
   the brightness of thin and thick decks; adding them is two OSCLOUD1
   planes, a change to C1's tool and a 10-minute re-fetch.
-- **Apollo 8 scenario:** orbitsnap has none (Scenarios.swift is F0's and
-  GI's), so Apollo 8's skies are rendered from a test harness.
+- **Apollo 8:** `apollo8-pad` is a look-development stand-in: AS-506's
+  stack, physics unchanged, dressed as AS-503 on Apollo 8's day. The
+  parking orbit on that day is M2's, so the test harness
+  (`CloudApollo8Shots`) only draws a daylit orbit.
