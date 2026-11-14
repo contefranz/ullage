@@ -34,11 +34,25 @@ public protocol SceneTargetPlan: AnyObject {
     /// scene ends (before a stage on the command buffer, at the frame's end,
     /// at a break nothing draws after, or where a stage opens a render pass of
     /// its own). A plan that sets its store actions up front does nothing.
+    /// A plan may also draw here, before the targets are stored or resolved
+    /// (R1 weights its samples before a break resolves them).
     func endScene(_ encoder: MTLRenderCommandEncoder, resumes: Bool, _ f: FrameContext)
+    /// Called on every render encoder the graph opens, on one of the plan's
+    /// render passes (`renderPass(for:)`, `continuation`), after the shared
+    /// bindings and before any pass draws: a plan that restores its targets
+    /// by drawing rather than by a load action does so here (R1 re-expands
+    /// its resolved scene after a break).
+    func beginScene(_ encoder: MTLRenderCommandEncoder, on pass: MTLRenderPassDescriptor, _ f: FrameContext)
+    /// Builds what the plan draws itself, once, before the passes set up.
+    /// A plan that throws runs without it; the graph lists the error under
+    /// `FrameGraph.planName`.
+    func setUp(_ s: PassSetup) throws
 }
 
 extension SceneTargetPlan {
     public func endScene(_ encoder: MTLRenderCommandEncoder, resumes: Bool, _ f: FrameContext) {}
+    public func beginScene(_ encoder: MTLRenderCommandEncoder, on pass: MTLRenderPassDescriptor, _ f: FrameContext) {}
+    public func setUp(_ s: PassSetup) throws {}
 }
 
 /// The M1.5 structure, kept until R1's HDR targets: one 4× MSAA LDR pass

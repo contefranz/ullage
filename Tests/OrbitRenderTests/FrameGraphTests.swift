@@ -599,3 +599,77 @@ extension FrameGraphTests {
                        ["resume", "end", "end"])
     }
 }
+
+extension FrameGraphTests {
+    /// The plan sets up once, before the passes, and an error of its own is
+    /// listed under `FrameGraph.planName` and disables no pass. It hears
+    /// every encoder the graph opens on one of its render passes, with that
+    /// pass, before anything draws in it: the scene's, the resume after a
+    /// break, and while timing each split and the overhead's.
+    func testThePlanSetsUpAndBeginsEachEncoder() throws {
+        final class Watching: SceneTargetPlan {
+            let inner = DirectTargetPlan(colorFormat: .bgra8Unorm_srgb, sampleCount: 4)
+            let log: RecordingPass.Log
+            var given: [MTLRenderPassDescriptor] = []
+            var fails = false
+            var onSetUp: (() -> Void)?
+            struct Failure: Error {}
+            init(log: RecordingPass.Log) { self.log = log }
+            func formats(for stage: PassStage) -> SceneFormats { inner.formats(for: stage) }
+            var provides: Set<ResourceID> { inner.provides }
+            func resize(_ size: RenderSize, device: MTLDevice) { inner.resize(size, device: device) }
+            func renderPass(for stage: PassStage, _ f: FrameContext) -> MTLRenderPassDescriptor? {
+                let p = inner.renderPass(for: stage, f)
+                if let p { given.append(p) }
+                return p
+            }
+            func continuation(_ f: FrameContext) -> MTLRenderPassDescriptor? {
+                let p = inner.continuation(f)
+                if let p { given.append(p) }
+                return p
+            }
+            func endScene(_ encoder: MTLRenderCommandEncoder, resumes: Bool, _ f: FrameContext) {
+                inner.endScene(encoder, resumes: resumes, f)
+            }
+            func beginScene(_ encoder: MTLRenderCommandEncoder, on pass: MTLRenderPassDescriptor, _ f: FrameContext) {
+                log.entries.append(given.contains { $0 === pass } ? "begin" : "begin on another pass")
+            }
+            func setUp(_ s: PassSetup) throws {
+                log.entries.append("plan set-up")
+                onSetUp?()
+                if fails { throw Failure() }
+            }
+        }
+        func passes(_ log: RecordingPass.Log) -> [RecordingPass] {
+            let halfRes = RecordingPass("halfRes", .transparent, 0, log: log)
+            halfRes.encodesOnCommandBuffer = true
+            return [RecordingPass("vessel", .opaque, log: log), halfRes, RecordingPass("composite", .transparent, 1, log: log)]
+        }
+        let log = RecordingPass.Log()
+        let plan = Watching(log: log)
+        let list = passes(log)
+        plan.onSetUp = { XCTAssertEqual(list.map(\.setUps), [0, 0, 0], "the plan first") }
+        let r = try SceneRenderer(device: try device(), outputFormat: .bgra8Unorm_srgb, passes: list, plan: plan)
+        XCTAssertEqual(r.failures, [:])
+        XCTAssertEqual(log.entries, ["plan set-up"])
+        XCTAssertEqual(list.map(\.setUps), [1, 1, 1])
+        log.entries = []
+        try render(r)
+        XCTAssertEqual(log.entries, ["begin", "vessel:render", "halfRes:cb", "begin", "composite:render"])
+        guard r.profiler.isSupported else { throw XCTSkip("no timestamp counters on this GPU") }
+        r.profiling = true
+        r.profileInterval = 1
+        log.entries = []
+        try render(r)
+        // The vessel's, the overhead's, the resume's, the composite's.
+        XCTAssertEqual(log.entries, ["begin", "vessel:render", "begin", "halfRes:cb", "begin", "begin", "composite:render"])
+
+        let failing = Watching(log: RecordingPass.Log())
+        failing.fails = true
+        let f = try SceneRenderer(device: try device(), outputFormat: .bgra8Unorm_srgb, passes: passes(failing.log),
+                                  plan: failing)
+        XCTAssertEqual(Array(f.failures.keys), [FrameGraph.planName])
+        XCTAssertEqual(f.graph.active.count, 3)
+        try render(f)
+    }
+}
