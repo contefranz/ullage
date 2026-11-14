@@ -1,0 +1,18 @@
+{
+  "goldens": "lookdev",
+  "shots": [
+    {"name": "r6-cone-on-black", "scenario": "leo", "showOrbit": false,
+     "camera": {"yaw": 30, "pitch": 10, "distance": 120, "fov": 40},
+     "settings": {"transparency": {"testBackdrop": true, "testEmitters": [
+       {"kind": "cone", "position": [0, 0, 32], "size": 64}]}},
+     "aovs": ["effectLayers", "effectFront"]},
+    {"name": "r6-slab", "scenario": "leo", "showOrbit": false,
+     "camera": {"yaw": 30, "pitch": 20, "distance": 150, "fov": 40},
+     "settings": {"transparency": {"testBackdrop": true, "testEmitters": [
+       {"kind": "column", "position": [0, 60, -40], "size": 100},
+       {"kind": "slab", "size": 70},
+       {"kind": "sprites", "position": [-30, 20, 25], "size": 20, "count": 12},
+       {"kind": "sparks", "position": [-30, 20, 20], "size": 30, "axis": [0, 0, 1], "count": 30}]}},
+     "aovs": ["effectDepth", "effectLayers", "effectFront"]}
+  ]
+}

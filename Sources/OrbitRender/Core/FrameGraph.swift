@@ -67,6 +67,15 @@ public final class FrameGraph {
         let running = active.filter { $0.isActive(in: f) }
         f.wanted = Set(running.filter { $0.stage > .opaque }.flatMap(\.reads))
         f.breaksScene = running.contains { $0.stage.isRenderStage && $0.encodesOnCommandBuffer }
+        // Whether a pass after `index` draws in the scene before a stage on
+        // the command buffer ends it: then the scene resumes after a break.
+        func drawsLater(than index: Int) -> Bool {
+            for p in running[(index + 1)...] {
+                if !p.stage.isRenderStage { return false }
+                if !p.encodesOnCommandBuffer { return true }
+            }
+            return false
+        }
         let cb = f.commandBuffer
         for p in running where p.stage == .prepare {
             f.currentPass = p.name
@@ -80,8 +89,16 @@ public final class FrameGraph {
         // resumes it.
         var suspended = false
         var breaker = ""
+        // Ends the scene's encoder, the plan setting the store actions it
+        // left open: `resumes` when a later encoder loads the targets.
+        func end(resumes: Bool) {
+            guard let e = encoder else { return }
+            plan.endScene(e, resumes: resumes, f)
+            e.endEncoding()
+            encoder = nil
+        }
         func open(_ descriptor: MTLRenderPassDescriptor, _ label: String, continuation: Bool = false) {
-            encoder?.endEncoding()
+            end(resumes: true)
             f.profile?.attach(descriptor, pass: label, continuation: continuation)
             encoder = cb.makeRenderCommandEncoder(descriptor: descriptor)
             encoder?.label = label
@@ -103,8 +120,7 @@ public final class FrameGraph {
             if !stage.isRenderStage {
                 guard !here.isEmpty else { continue }
                 measureSplitOverhead()
-                encoder?.endEncoding()
-                encoder = nil
+                end(resumes: false)
                 suspended = false
                 for p in here {
                     f.currentPass = p.name
@@ -127,8 +143,7 @@ public final class FrameGraph {
                         suspended = true
                         breaker = p.name
                     }
-                    encoder?.endEncoding()
-                    encoder = nil
+                    end(resumes: drawsLater(than: running.firstIndex { $0 === p } ?? running.count - 1))
                     f.currentPass = p.name
                     p.encode(f, .commandBuffer(cb))
                     continue
@@ -163,7 +178,7 @@ public final class FrameGraph {
             if let pass = fresh { open(pass, "\(stage)") }
         }
         measureSplitOverhead()
-        encoder?.endEncoding()
+        end(resumes: false)
         f.currentPass = nil
     }
 }

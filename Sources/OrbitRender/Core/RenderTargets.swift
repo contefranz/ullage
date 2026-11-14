@@ -26,6 +26,17 @@ public protocol SceneTargetPlan: AnyObject {
     /// scene after a render-stage pass on the command buffer
     /// (`FrameContext.breaksScene`), timed or not.
     func continuation(_ f: FrameContext) -> MTLRenderPassDescriptor?
+    /// Sets the store actions the plan left `.unknown` on a scene encoder,
+    /// just before the graph ends it. `resumes`: a later encoder loads the
+    /// scene's targets (a break with passes drawing in the scene after it,
+    /// or timing's split); false where the scene ends (before a stage on the
+    /// command buffer, at the frame's end, or a break nothing draws after).
+    /// A plan that sets its store actions up front does nothing.
+    func endScene(_ encoder: MTLRenderCommandEncoder, resumes: Bool, _ f: FrameContext)
+}
+
+extension SceneTargetPlan {
+    public func endScene(_ encoder: MTLRenderCommandEncoder, resumes: Bool, _ f: FrameContext) {}
 }
 
 /// The M1.5 structure, kept until R1's HDR targets: one 4× MSAA LDR pass
@@ -37,7 +48,10 @@ public protocol SceneTargetPlan: AnyObject {
 /// sample, `.max` in reversed-Z), and that pass writes the output. When the
 /// encoders are split for timing, or a render-stage pass encodes on the
 /// command buffer (`FrameContext.breaksScene`), the samples are stored
-/// between encoders in private textures, so the image is the same.
+/// between encoders in private textures, so the image is the same. Their
+/// store actions are then set as each encoder ends (`endScene`): a break
+/// keeps the samples for the resume; the scene's end resolves and stores no
+/// samples.
 @MainActor
 public final class DirectTargetPlan: SceneTargetPlan {
     public let colorFormat: MTLPixelFormat
@@ -52,6 +66,10 @@ public final class DirectTargetPlan: SceneTargetPlan {
     private var unsplitFrames = 0
     /// This frame's attachments, kept for the continuations.
     private var current: MTLRenderPassDescriptor?
+    /// This frame's multisampled encoders leave their store actions to
+    /// `endScene`; what the scene resolves for later passes.
+    private var deferred = false
+    private var resolvesDepth = false
 
     public init(colorFormat: MTLPixelFormat, sampleCount: Int) {
         self.colorFormat = colorFormat
@@ -114,10 +132,11 @@ public final class DirectTargetPlan: SceneTargetPlan {
             resolved = t
             f.textures[.sceneColor] = t
         }
+        deferred = split && color != nil
         if let color {
             c.texture = color
             c.resolveTexture = resolved
-            c.storeAction = split ? .storeAndMultisampleResolve : .multisampleResolve
+            c.storeAction = deferred ? .unknown : .multisampleResolve
         } else {
             c.texture = resolved
             c.storeAction = .store
@@ -126,12 +145,14 @@ public final class DirectTargetPlan: SceneTargetPlan {
         z.texture = depth
         z.loadAction = .clear
         z.clearDepth = 0
-        z.storeAction = split ? .store : .dontCare
+        z.storeAction = deferred ? .unknown : split ? .store : .dontCare
+        resolvesDepth = false
         if f.wanted.contains(.sceneDepth), let t = resolveTarget(depthFormat, f) {
             if sampleCount > 1 {
                 z.resolveTexture = t
                 z.depthResolveFilter = .max
-                z.storeAction = split ? .storeAndMultisampleResolve : .multisampleResolve
+                z.storeAction = deferred ? .unknown : .multisampleResolve
+                resolvesDepth = true
             } else {
                 z.texture = t
                 z.storeAction = .store
@@ -148,6 +169,25 @@ public final class DirectTargetPlan: SceneTargetPlan {
         pass.colorAttachments[0].loadAction = .load
         pass.depthAttachment.loadAction = .load
         return pass
+    }
+
+    /// An encoder that resumes keeps the samples and resolves too: Metal
+    /// wants a resolve wherever a resolve texture is attached, and the
+    /// resume's own resolve overwrites it. The scene's end resolves the
+    /// colour, and the depth when a later pass reads it, and stores no
+    /// samples.
+    public func endScene(_ encoder: MTLRenderCommandEncoder, resumes: Bool, _ f: FrameContext) {
+        guard deferred else { return }
+        let color: MTLStoreAction, depth: MTLStoreAction
+        if resumes {
+            color = .storeAndMultisampleResolve
+            depth = resolvesDepth ? .storeAndMultisampleResolve : .store
+        } else {
+            color = .multisampleResolve
+            depth = resolvesDepth ? .multisampleResolve : .dontCare
+        }
+        encoder.setColorStoreAction(color, index: 0)
+        encoder.setDepthStoreAction(depth)
     }
 }
 
