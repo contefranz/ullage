@@ -54,20 +54,24 @@ public final class CloudPass: RenderPass, HalfResEffect {
                             shape: MTLComputePipelineState, detail: MTLComputePipelineState,
                             curl: MTLComputePipelineState)?
     private var slotPipeline: MTLRenderPipelineState?
-    private var noise: CloudNoiseVolumes?
+    private(set) var noise: CloudNoiseVolumes?
     private var tables: CloudTables?
     private var samplers: (wrap: MTLSamplerState, weather: MTLSamplerState)?
-    private var weatherMap: (a: MTLTexture, b: MTLTexture)?
+    private(set) var weatherMap: (a: MTLTexture, b: MTLTexture)?
     private var snapshots: [Int: MTLTexture] = [:]
     private var placeholder: MTLTexture?
     private var weathers: [String: CloudWeather] = [:]
     private var lastWeather: WeatherKey?
-    private var shadowTexture: MTLTexture?
+    private(set) var shadowTexture: MTLTexture?
+    /// The weather to draw instead of the settings' (the tests' fields).
+    var weatherOverride: CloudWeather?
 
     private var previous: CloudFrame?
     private var advection = CloudAdvection(tile: FrameContext.noiseTile)
-    /// This frame's resolved clouds, for the slots' copy; nil when nothing drew.
+    /// This frame's resolved clouds and uniforms, for the slots' copy; nil
+    /// when nothing drew.
     private var resolved: (color: MTLTexture, depth: MTLTexture)?
+    private var uniformsForSlot = CloudUniforms()
     /// What the last frame did, for tests and the timings' report.
     public private(set) var lastFrame = Report()
 
@@ -80,6 +84,7 @@ public final class CloudPass: RenderPass, HalfResEffect {
         /// The frame's geometry, the Sun's light (pre-exposed lux) and the
         /// march target's scale, for the tests' references.
         public var frame: CloudFrame?
+        public var epoch: Epoch?
         public var sunLight = SIMD4<Float>.zero
         public var scale = 2
 
@@ -177,8 +182,10 @@ public final class CloudPass: RenderPass, HalfResEffect {
 
     public func isActive(in f: FrameContext) -> Bool { earth(f) != nil }
 
+    /// Asked before P0 has run (R6 plans its frame first): the same test
+    /// as `isActive`, not this frame's results.
     public func halfResLayers(in f: FrameContext) -> HalfResLayers {
-        resolved != nil && slotPipeline != nil ? .clouds : []
+        slotPipeline != nil && earth(f) != nil ? .clouds : []
     }
 
     // MARK: P0
@@ -247,8 +254,7 @@ public final class CloudPass: RenderPass, HalfResEffect {
         depthD.storageMode = .private
         guard let hc = f.history.pair(Self.historyColor, descriptor: colorD),
               let hd = f.history.pair(Self.historyDepth, descriptor: depthD),
-              let freshColor = f.pool.texture(colorD), let freshDepth = f.pool.texture(depthD),
-              let outColor = f.pool.texture(colorD), let outDepth = f.pool.texture(depthD) else {
+              let freshColor = f.pool.texture(colorD), let freshDepth = f.pool.texture(depthD) else {
             enc.endEncoding()
             return
         }
@@ -283,8 +289,6 @@ public final class CloudPass: RenderPass, HalfResEffect {
         r.target = SIMD4(Float(marchSize.width), Float(marchSize.height), Float(scale), Float(scale))
         r.checker = SIMD4(checker.x, checker.y, reprojects ? 1 : 0, marches ? (historyValid ? 1 : 0) : -1)
         enc.setComputePipelineState(p.resolve)
-        enc.setTexture(outColor, index: 0)
-        enc.setTexture(outDepth, index: 1)
         enc.setTexture(freshColor, index: 10)
         enc.setTexture(freshDepth, index: 11)
         enc.setTexture(hc.previous, index: 12)
@@ -298,25 +302,39 @@ public final class CloudPass: RenderPass, HalfResEffect {
         }
         enc.endEncoding()
 
-        resolved = (outColor, outDepth)
-        f.textures[.cloudLayer] = outColor
-        f.textures[.cloudDepth] = outDepth
+        resolved = (hc.current, hd.current)
+        uniformsForSlot = u
+        f.textures[.cloudLayer] = hc.current
+        f.textures[.cloudDepth] = hd.current
         previous = frame
         lastFrame = Report(drawn: true, reprojected: reprojects, motionPixels: motion, mission: mission,
-                           regimes: regimes, frame: frame, sunLight: u.sunLight, scale: scale)
+                           regimes: regimes, frame: frame, epoch: f.scene.clock.simTime, sunLight: u.sunLight,
+                           scale: scale)
     }
 
     // MARK: The slot
 
     public func encodeHalfRes(_ f: FrameContext, _ slots: HalfResSlots, _ enc: MTLRenderCommandEncoder) {
-        guard let resolved, let slotPipeline else { return }
+        guard let resolved, let slotPipeline, let noise, let tables, let weatherMap, let samplers else { return }
         var scale = SIMD4<Float>(resolved.color.width == slots.size.width && resolved.color.height == slots.size.height
                                  ? 1 : 0, 0, 0, 0)
+        var u = uniformsForSlot
         enc.setRenderPipelineState(slotPipeline)
         enc.setDepthStencilState(slots.noDepth)
-        enc.setFragmentBytes(&scale, length: MemoryLayout<SIMD4<Float>>.stride, index: 0)
+        enc.setFragmentBytes(&u, length: MemoryLayout<CloudUniforms>.stride, index: 0)
+        enc.setFragmentBytes(&scale, length: MemoryLayout<SIMD4<Float>>.stride, index: 1)
         enc.setFragmentTexture(resolved.color, index: 0)
         enc.setFragmentTexture(resolved.depth, index: 1)
+        enc.setFragmentTexture(noise.shape, index: 2)
+        enc.setFragmentTexture(noise.detail, index: 3)
+        enc.setFragmentTexture(noise.curl, index: 4)
+        enc.setFragmentTexture(weatherMap.a, index: 5)
+        enc.setFragmentTexture(weatherMap.b, index: 6)
+        enc.setFragmentTexture(tables.slab, index: 7)
+        enc.setFragmentTexture(tables.transmittance, index: 8)
+        enc.setFragmentTexture(tables.irradiance, index: 9)
+        enc.setFragmentSamplerState(samplers.wrap, index: 0)
+        enc.setFragmentSamplerState(samplers.weather, index: 1)
         enc.setFragmentSamplerState(f.states.linearClamp, index: Binding.linearClampSampler)
         enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
     }
@@ -325,6 +343,7 @@ public final class CloudPass: RenderPass, HalfResEffect {
 
     /// The weather for the settings and the epoch, and the mission it is.
     private func weatherFor(_ s: CloudSettings, epoch: Epoch) -> (CloudWeather, String?) {
+        if let weatherOverride { return (weatherOverride, "override") }
         let name: String?
         switch s.weather {
         case "auto": name = CloudWeatherMap.mission(at: epoch)
@@ -434,7 +453,7 @@ public final class CloudPass: RenderPass, HalfResEffect {
         guard let shadowTexture, frame.sunBody.dot(frame.cameraBody.normalized) > -0.2 else { return false }
         let shadowMap = frame.shadowMap(texels: texels)
         let center = shadowMap.center - frame.cameraBody
-        u.shadow = SIMD4(Float(shadowMap.extent), Float(texels), 1, 24)
+        u.shadow = SIMD4(Float(shadowMap.extent), Float(texels), 1, 32)
         u.shadowCenter = SIMD4(center, 0)
         u.shadowU = SIMD4(shadowMap.u, 0)
         u.shadowV = SIMD4(shadowMap.v, 0)

@@ -1,12 +1,27 @@
 {
   "shots": [
-    {"name": "c2-pad", "scenario": "as506-pad", "showOrbit": false,
+    {"name": "c2-pad", "scenario": "as506-pad", "showOrbit": false, "width": 1280, "height": 800,
+     "reference": "AS-506 at 13:32 UTC: 1/10 Cu, 2/10 Ac, 9/10 Cs (TM X-64796)",
      "camera": {"yaw": -60, "pitch": 12, "distance": 300, "fov": 60}},
-    {"name": "c2-ascent-60s", "scenario": "as506-pad", "advance": ["met:60"], "showOrbit": false,
-     "camera": {"yaw": 149, "pitch": -25, "distance": 400, "fov": 60}},
-    {"name": "c2-parking-orbit", "scenario": "as506-parking-orbit", "showOrbit": false,
+    {"name": "c2-pad-up", "scenario": "as506-pad", "showOrbit": false, "width": 1280, "height": 800,
+     "camera": {"yaw": -60, "pitch": -35, "distance": 120, "fov": 70}},
+    {"name": "c2-ascent-45s", "scenario": "as506-pad", "advance": ["met:45"], "showOrbit": false,
+     "width": 1280, "height": 800, "camera": {"yaw": 149, "pitch": -20, "distance": 400, "fov": 60}},
+    {"name": "c2-ascent-90s", "scenario": "as506-pad", "advance": ["met:90"], "showOrbit": false,
+     "width": 1280, "height": 800, "camera": {"yaw": 149, "pitch": -25, "distance": 400, "fov": 60}},
+    {"name": "c2-leo-day", "scenario": "as506-parking-orbit", "showOrbit": false, "width": 1280, "height": 800,
      "camera": {"yaw": -34.4, "pitch": 30, "distance": 70, "fov": 60}},
-    {"name": "c2-earth", "scenario": "as506-parking-orbit", "showOrbit": false,
+    {"name": "c2-leo-terminator", "scenario": "as506-parking-orbit", "advance": ["wait:1800"], "showOrbit": false,
+     "width": 1280, "height": 800, "camera": {"yaw": 0, "pitch": 15, "distance": 70, "fov": 70}},
+    {"name": "c2-climb-50km", "scenario": "as506-parking-orbit", "showOrbit": false, "width": 1280, "height": 800,
+     "camera": {"target": "body:399", "frame": "inertial", "yaw": 223.5, "pitch": 22.9, "distance": 6428000, "fov": 60}},
+    {"name": "c2-climb-1500km", "scenario": "as506-parking-orbit", "showOrbit": false, "width": 1280, "height": 800,
+     "camera": {"target": "body:399", "frame": "inertial", "yaw": 223.5, "pitch": 22.9, "distance": 7878000, "fov": 60}},
+    {"name": "c2-climb-4500km", "scenario": "as506-parking-orbit", "showOrbit": false, "width": 1280, "height": 800,
+     "camera": {"target": "body:399", "frame": "inertial", "yaw": 223.5, "pitch": 22.9, "distance": 10878000, "fov": 60}},
+    {"name": "c2-climb-8000km", "scenario": "as506-parking-orbit", "showOrbit": false, "width": 1280, "height": 800,
+     "camera": {"target": "body:399", "frame": "inertial", "yaw": 223.5, "pitch": 22.9, "distance": 14378000, "fov": 60}},
+    {"name": "c2-earth", "scenario": "as506-parking-orbit", "showOrbit": false, "width": 1280, "height": 800,
      "camera": {"target": "body:399", "frame": "inertial", "yaw": 223.5, "pitch": 22.9, "distance": 22000000}}
   ]
 }

@@ -123,6 +123,18 @@ final class CloudRenderTests: XCTestCase {
         return shot
     }
 
+    /// The clouds reach the frame on its first render (R6 plans its slots
+    /// before P0 runs), in either regime, over R6's look-dev backdrop.
+    func testCloudsDrawnOnTheFirstFrame() throws {
+        for regime in ["march", "far"] {
+            var shot = Self.slabShot(regime: regime, width: 160, height: 100)
+            shot.settings.transparency.testBackdrop = true
+            let f = try render(shot)
+            let lit = stride(from: 0, to: f.pixels.count, by: 4).filter { f.pixels[$0] > 40 }.count
+            XCTAssertGreaterThan(lit, f.pixels.count / 4 / 3, regime)
+        }
+    }
+
     /// The far layer and the march at single texels of the slab against
     /// CloudSlab.march on the CPU with A1's air: the far surface layer is
     /// the LUT of that march, the march the march itself.
@@ -131,7 +143,7 @@ final class CloudRenderTests: XCTestCase {
             let f = try render(Self.slabShot(regime: regime))
             let report = try XCTUnwrap(f.clouds?.lastFrame)
             let frame = try XCTUnwrap(report.frame)
-            let c = try XCTUnwrap(f.capture.values(.cloudLayer))
+            let c = try XCTUnwrap(f.capture.values(.halfResClouds))
             let cam = f.scene.camera
             let slab = CloudSlab(thickness: 1_500)
             let air = CloudTables.air
@@ -140,7 +152,7 @@ final class CloudRenderTests: XCTestCase {
                 let t = c.texels[y * c.width + x]
                 guard t[3] > 0.99 else { continue }
                 // The texel's ray, body axes.
-                let px = (Double(x) + 0.5) * Double(report.scale), py = (Double(y) + 0.5) * Double(report.scale)
+                let px = (Double(x) + 0.5) * 2, py = (Double(y) + 0.5) * 2
                 let tanY = tan(cam.fovY / 2)
                 let vr = Vec3((2 * px / cam.viewport.width - 1) * tanY * cam.aspect, (1 - 2 * py / cam.viewport.height) * tanY, -1)
                 let w = (cam.worldToView.transposed * vr).normalized
@@ -171,7 +183,9 @@ final class CloudRenderTests: XCTestCase {
     func testMarchMatchesTheFarLUTOnASlab() throws {
         let march = try render(Self.slabShot(regime: "march"))
         let far = try render(Self.slabShot(regime: "far"))
-        let a = try XCTUnwrap(march.capture.values(.cloudLayer)), b = try XCTUnwrap(far.capture.values(.cloudLayer))
+        // R6's clouds layer: what the slot copy draws, the far layer and the
+        // cirrus at R6's resolution over the march.
+        let a = try XCTUnwrap(march.capture.values(.halfResClouds)), b = try XCTUnwrap(far.capture.values(.halfResClouds))
         var sa = [0.0, 0.0, 0.0], sb = [0.0, 0.0, 0.0], n = 0, worst = 0.0
         for (x, y) in zip(a.texels, b.texels) where x[3] > 0.99 && y[3] > 0.99 {
             for k in 0..<3 {
@@ -263,5 +277,196 @@ final class CloudCostTests: XCTestCase {
                              "\(reprojected)"))
             }
         }
+    }
+}
+
+/// Track C2's GPU volumes and maps against their Swift mirrors.
+@MainActor
+final class CloudMapTests: XCTestCase {
+    /// Copies `texture` (any storage) into a shared buffer: slice 0, mip 0,
+    /// every depth plane.
+    static func readBack(_ texture: MTLTexture, bytesPerTexel: Int, device: MTLDevice) throws -> MTLBuffer {
+        let rowBytes = texture.width * bytesPerTexel, image = rowBytes * texture.height
+        let buffer = try XCTUnwrap(device.makeBuffer(length: image * texture.depth, options: .storageModeShared))
+        let queue = try XCTUnwrap(device.makeCommandQueue())
+        let cb = try XCTUnwrap(queue.makeCommandBuffer()), blit = try XCTUnwrap(cb.makeBlitCommandEncoder())
+        blit.copy(from: texture, sourceSlice: 0, sourceLevel: 0, sourceOrigin: MTLOrigin(),
+                  sourceSize: MTLSize(width: texture.width, height: texture.height, depth: texture.depth), to: buffer,
+                  destinationOffset: 0, destinationBytesPerRow: rowBytes, destinationBytesPerImage: image)
+        blit.endEncoding()
+        cb.commit()
+        cb.waitUntilCompleted()
+        return buffer
+    }
+
+    /// Renders the LEO slab shot (or `shot`) with a fresh CloudPass and returns it.
+    func render(_ shot: SnapshotSpec.Shot, configure: ((CloudPass) -> Void)? = nil) throws -> (CloudPass, SnapshotRenderer) {
+        let s = try SnapshotRenderer(device: try XCTUnwrap(RenderDevice.shared))
+        let prepared = try shot.prepare(system: s.system)
+        let clouds = CloudPass()
+        configure?(clouds)
+        let r = try SceneRenderer(device: s.device, outputFormat: .bgra8Unorm_srgb, passes: [clouds],
+                                  plan: HDRTargetPlan(outputFormat: .bgra8Unorm_srgb, sampleCount: 4))
+        r.settings = shot.settings
+        let target = try XCTUnwrap(OffscreenTarget(device: s.device, width: shot.width, height: shot.height))
+        _ = r.renderAndWait(shot.scene(prepared), into: target)
+        return (clouds, s)
+    }
+
+    /// The GPU's noise volumes are CloudNoise's texels, within a step of
+    /// 8 bits and a half (Float against fast math).
+    func testNoiseVolumesAreCloudNoise() throws {
+        let (clouds, s) = try render(CloudRenderTests.slabShot(regime: "far"))
+        let noise = try XCTUnwrap(clouds.noise)
+        let shape = try Self.readBack(noise.shape, bytesPerTexel: 4, device: s.device)
+        let detail = try Self.readBack(noise.detail, bytesPerTexel: 4, device: s.device)
+        let curl = try Self.readBack(noise.curl, bytesPerTexel: 2, device: s.device)
+        let n = CloudNoise.shapeSize, m = CloudNoise.detailSize, c = CloudNoise.curlSize
+        let sp = shape.contents().bindMemory(to: UInt8.self, capacity: 4 * n * n * n)
+        let dp = detail.contents().bindMemory(to: UInt8.self, capacity: 4 * m * m * m)
+        let cp = curl.contents().bindMemory(to: Int8.self, capacity: 2 * c * c)
+        var worst = 0
+        for (x, y, z) in [(0, 0, 0), (127, 3, 64), (17, 99, 5), (64, 64, 127), (101, 12, 88)] {
+            let t = CloudNoise.shapeTexel(x, y, z), at = 4 * ((z * n + y) * n + x)
+            for (k, v) in [t.0, t.1, t.2, t.3].enumerated() {
+                worst = max(worst, abs(Int(sp[at + k]) - Int(CloudNoise.unorm8(v))))
+            }
+        }
+        for (x, y, z) in [(0, 0, 0), (31, 7, 16), (5, 30, 22)] {
+            let t = CloudNoise.detailTexel(x, y, z), at = 4 * ((z * m + y) * m + x)
+            for (k, v) in [t.0, t.1, t.2].enumerated() {
+                worst = max(worst, abs(Int(dp[at + k]) - Int(CloudNoise.unorm8(v))))
+            }
+        }
+        for (x, y) in [(0, 0), (127, 64), (33, 90)] {
+            let t = CloudNoise.curlTexel(x, y), at = 2 * (y * c + x)
+            worst = max(worst, abs(Int(cp[at]) - Int(CloudNoise.snorm8(t.0))), abs(Int(cp[at + 1]) - Int(CloudNoise.snorm8(t.1))))
+        }
+        XCTAssertLessThanOrEqual(worst, 1, "8-bit steps")
+    }
+
+    /// The GPU's weather map is CloudWeatherMap's mirror at the grid points,
+    /// with the pad's override (the large-scale structure off).
+    func testWeatherMapIsTheMirror() throws {
+        // A field of three snapshots around the parking orbit's epoch,
+        // pseudo-random, the cloud base missing in places, and an observed
+        // sky at 0° N 0° E then.
+        let epoch = VesselLibrary.apollo11Insertion
+        let t0 = Int64(((epoch.julianDateUTC - 2_440_587.5) * 86_400).rounded()) - 1_800
+        let planes = ["lcc", "mcc", "hcc", "cbh"].map { name in
+            CloudField.Plane(name: name, columns: CloudWeatherMap.columns, rows: CloudWeatherMap.rows, offset: 0,
+                             scale: name == "cbh" ? 60 : 1 / 254)
+        }
+        var state: UInt32 = 777
+        func next() -> UInt32 {
+            state = state &* 1_664_525 &+ 1_013_904_223
+            return state >> 8
+        }
+        let times = [t0, t0 + 3_600, t0 + 7_200]
+        let snapshots = times.map { _ in
+            planes.map { p in
+                (0..<p.count).map { _ -> UInt8 in
+                    let r = next()
+                    return p.name == "cbh" ? (r % 5 == 0 ? 255 : UInt8(r % 120)) : UInt8(r % 255)
+                }
+            }
+        }
+        let field = try CloudField(data: CloudField.encode(planes: planes, utcSeconds: times, note: "test",
+                                                           snapshots: snapshots))
+        let override = CloudOverride(latitude: 0, longitude: 0, time: epoch,
+                                     observation: CloudObservation(low: 0.3, mid: 0, high: 0.8, convective: true))
+        let weather = CloudWeather(field: field, overrides: [override])
+        var shot = CloudRenderTests.slabShot(regime: "far")
+        shot.settings.cloud.lookDev = nil
+        shot.settings.cloud.coverageModulation = 0
+        let (clouds, s) = try render(shot) { $0.weatherOverride = weather }
+        let report = clouds.lastFrame
+        XCTAssertTrue(report.drawn)
+        let map = try XCTUnwrap(clouds.weatherMap)
+        let a = try Self.readBack(map.a, bytesPerTexel: 8, device: s.device)
+        let b = try Self.readBack(map.b, bytesPerTexel: 4, device: s.device)
+        let ap = a.contents().bindMemory(to: UInt16.self, capacity: 4 * CloudWeatherMap.columns * CloudWeatherMap.rows)
+        let bp = b.contents().bindMemory(to: UInt16.self, capacity: 2 * CloudWeatherMap.columns * CloudWeatherMap.rows)
+        let p = CloudWeatherMap.parameters(weather, at: try XCTUnwrap(report.epoch))
+        XCTAssertNotNil(p.snapshots)
+        let first = p.snapshots.map { CloudWeatherMap.interleaved(field, snapshot: $0.first) }
+        let second = p.snapshots.map { CloudWeatherMap.interleaved(field, snapshot: $0.second) }
+        func half(_ v: UInt16) -> Double { Double(Float(Float16(bitPattern: v))) }
+        for r in [0, 100, 359, 360, 361, 600, 720] {
+            for c in [0, 1, 321, 1000, 1439] {
+                let e = CloudWeatherMap.texel(column: c, row: r, first: first, second: second, parameters: p)
+                let at = r * CloudWeatherMap.columns + c
+                XCTAssertEqual(half(ap[4 * at]), e.low, accuracy: 2e-3)
+                XCTAssertEqual(half(ap[4 * at + 1]), e.mid, accuracy: 2e-3)
+                XCTAssertEqual(half(ap[4 * at + 2]), e.high, accuracy: 2e-3)
+                XCTAssertEqual(half(ap[4 * at + 3]), e.lowBase, accuracy: 2.5, "half floats: 2 m steps to 4 km")
+                XCTAssertEqual(half(bp[2 * at]), e.lowTop, accuracy: 8)
+            }
+        }
+    }
+
+    /// The shadow map under the homogeneous slab: above the ground the
+    /// slab's whole optical depth along the Sun, above 2 km a third of it,
+    /// above 6 km none.
+    func testShadowMapUnderTheSlab() throws {
+        var shot = CloudRenderTests.slabShot(regime: "march")
+        shot.scenario = "as506-pad"
+        shot.camera = SnapshotSpec.CameraSpec(yaw: -60, pitch: 12, distance: 300, fov: 60)
+        let (clouds, s) = try render(shot)
+        let frame = try XCTUnwrap(clouds.lastFrame.frame)
+        let map = try XCTUnwrap(clouds.shadowTexture)
+        let buffer = try Self.readBack(map, bytesPerTexel: 8, device: s.device)
+        let p = buffer.contents().bindMemory(to: UInt16.self, capacity: 4 * map.width * map.height)
+        let at = 4 * ((map.height / 2) * map.width + map.width / 2)
+        func half(_ v: UInt16) -> Double { Double(Float(Float16(bitPattern: v))) }
+        let up = frame.cameraBody.normalized
+        let mu0 = frame.sunBody.dot(up)
+        let full = 20 / mu0
+        XCTAssertEqual(half(p[at]), full, accuracy: 0.05 * full, "above the ground")
+        XCTAssertEqual(half(p[at + 1]), full / 3, accuracy: 0.1 * full / 3, "above 2 km")
+        XCTAssertEqual(half(p[at + 2]), 0, accuracy: 1e-3, "above 6 km")
+    }
+
+    /// The cloud-shadow header compiles in another module and gives 1 with
+    /// no clouds (AtmosphereUniforms' cloud layer off).
+    func testCloudShadowHeader() throws {
+        let device = try XCTUnwrap(RenderDevice.shared)
+        let module = ShaderModule(name: "CloudShadowUse", headers: [.cloudShadow], source: """
+            kernel void cloud_shadow_use(device float *out [[buffer(0)]],
+                                         constant AtmosphereUniforms &a [[buffer(ORBIT_BUFFER_ATMOSPHERE)]],
+                                         texture2d<float> map [[texture(ORBIT_TEXTURE_CLOUD_SHADOW)]],
+                                         sampler s [[sampler(ORBIT_SAMPLER_LINEAR_CLAMP)]]) {
+                out[0] = orbit_cloudSunTransmittance(float3(0.0, 0.0, -100.0), a, map, s);
+            }
+            """)
+        let library = try ShaderLibrary(device: device).library(module)
+        XCTAssertNotNil(library.makeFunction(name: "cloud_shadow_use"))
+    }
+
+    /// The cloud uniforms' Swift mirrors have MSL's sizes.
+    func testStructLayoutsMatchMSL() throws {
+        let device = try XCTUnwrap(RenderDevice.shared)
+        let module = ShaderModule(name: "CloudSizes", headers: [.effectSlots], source: cloudShaderSource + """
+            kernel void cloud_sizes(device uint *out [[buffer(0)]]) {
+                out[0] = sizeof(CloudUniforms);
+                out[1] = sizeof(CloudWeatherParams);
+                out[2] = sizeof(CloudResolveUniforms);
+            }
+            """)
+        let library = try ShaderLibrary(device: device).library(module)
+        let pipeline = try device.makeComputePipelineState(function: try XCTUnwrap(library.makeFunction(name: "cloud_sizes")))
+        let out = try XCTUnwrap(device.makeBuffer(length: 3 * 4, options: .storageModeShared))
+        let queue = try XCTUnwrap(device.makeCommandQueue())
+        let cb = try XCTUnwrap(queue.makeCommandBuffer()), enc = try XCTUnwrap(cb.makeComputeCommandEncoder())
+        enc.setComputePipelineState(pipeline)
+        enc.setBuffer(out, offset: 0, index: 0)
+        enc.dispatchThreads(MTLSize(width: 1, height: 1, depth: 1), threadsPerThreadgroup: MTLSize(width: 1, height: 1, depth: 1))
+        enc.endEncoding()
+        cb.commit()
+        cb.waitUntilCompleted()
+        let v = out.contents().bindMemory(to: UInt32.self, capacity: 3)
+        XCTAssertEqual(Int(v[0]), MemoryLayout<CloudUniforms>.stride)
+        XCTAssertEqual(Int(v[1]), MemoryLayout<CloudWeatherParams>.stride)
+        XCTAssertEqual(Int(v[2]), MemoryLayout<CloudResolveUniforms>.stride)
     }
 }

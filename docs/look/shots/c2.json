@@ -1,0 +1,17 @@
+{
+  "goldens": "lookdev",
+  "shots": [
+    {"name": "c2-slab-march", "scenario": "as506-parking-orbit", "showOrbit": false,
+     "reference": "a homogeneous deck (τ 20), marched",
+     "camera": {"yaw": -34.4, "pitch": 30, "distance": 70, "fov": 60},
+     "settings": {"transparency": {"testBackdrop": true},
+                  "post": {"exposure": {"mode": "manual", "ev100": 14}},
+                  "cloud": {"lookDev": {"cover": 1, "opticalDepth": 20}, "regime": "march"}}},
+    {"name": "c2-slab-far", "scenario": "as506-parking-orbit", "showOrbit": false,
+     "reference": "the same deck from the far LUT: it matches the march",
+     "camera": {"yaw": -34.4, "pitch": 30, "distance": 70, "fov": 60},
+     "settings": {"transparency": {"testBackdrop": true},
+                  "post": {"exposure": {"mode": "manual", "ev100": 14}},
+                  "cloud": {"lookDev": {"cover": 1, "opticalDepth": 20}, "regime": "far"}}}
+  ]
+}

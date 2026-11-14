@@ -611,6 +611,25 @@ inline CloudResult cloud_farLayer(float3 of, float3 df, float3 d, float c, float
     return r;
 }
 
+// The cirrus's optical depth (vertical) at camera-relative body point q on
+// its shell, cover `cover`: fibres of the Worley fBm stretched eight times
+// along the high wind, warped by the curl, cut at the cover's threshold;
+// where the footprint `far` is large, the fibres' mean density.
+inline float cloud_cirrusDepth(float3 q, float cover, float footprint, float far, thread const CloudTextures &t,
+                               sampler wrap, constant CloudUniforms &u) {
+    float3 a = u.windHigh.xyz;
+    float3 p = u.noiseHigh.xyz + q;
+    float along = dot(p, a);
+    float3 across = p - a * along;
+    float2 c = t.curl.sample(wrap, p.xy / u.windHigh.w, level(0.0)).xy;
+    float3 pn = (across + a * (along * 0.125) + float3(c, 0.0) * 2000.0) / u.noiseLow.w;
+    float lod = clamp(log2(max(footprint / 128.0, 1.0)), 0.0, 6.0);
+    float4 s = t.shape.sample(wrap, pn, level(lod));
+    float d01 = clamp(cloud_remap(s.b * 0.7 + s.a * 0.3, cloud_threshold(cover, u), 1.0, 0.0, 1.0), 0.0, 1.0);
+    d01 = mix(d01, 0.5, far);
+    return u.extinction.z * (u.layers.w - u.layers.z) * d01 * u.extinction.w;
+}
+
 // The cirrus: a 2D layer of fibrous ice at its shell, its optical depth
 // from the cover and streaks along the high wind; lit as a thin slab in
 // closed form, from above or below, with ice's phase.
@@ -628,23 +647,9 @@ inline CloudResult cloud_cirrus(float3 of, float3 df, float3 d, float pixelAngle
     float3 up = normalize(float3(pf.x, pf.y, pf.z * u.cameraFigure.w));
     float mu = dot(-d, up), m = max(abs(mu), 0.03);
     float mu0 = dot(u.sun.xyz, up);
-    float3 q = d * th;
-    // Fibres: the Worley fBm stretched eight times along the streaks, warped by the curl.
-    float3 a = u.windHigh.xyz;
-    float3 p = u.noiseHigh.xyz + q;
-    float along = dot(p, a);
-    float3 across = p - a * along;
-    float2 c = t.curl.sample(wrap, p.xy / u.windHigh.w, level(0.0)).xy;
-    float3 pn = (across + a * (along * 0.125) + float3(c, 0.0) * 2000.0) / u.noiseLow.w;
     float footprint = th * pixelAngle / m;
-    float lod = clamp(log2(max(footprint / 128.0, 1.0)), 0.0, 6.0);
-    float4 s = t.shape.sample(wrap, pn, level(lod));
-    float n = mix(s.b * 0.7 + s.a * 0.3, 0.5, cloud_smoothstep(u.footprint.y, u.footprint.z, footprint));
-    float d01 = clamp(cloud_remap(n, cloud_threshold(cover, u), 1.0, 0.0, 1.0), 0.0, 1.0);
-    // Far away the fibres average out: their mean density.
-    d01 = mix(d01, 0.5, cloud_smoothstep(u.footprint.y, u.footprint.z, footprint));
-    float coverEff = mix(1.0, cover, cloud_smoothstep(u.footprint.y, u.footprint.z, footprint));
-    float tau = u.extinction.z * (u.layers.w - u.layers.z) * d01 * u.extinction.w;
+    float far = cloud_smoothstep(u.footprint.y, u.footprint.z, footprint);
+    float tau = cloud_cirrusDepth(d * th, cover, footprint, far, t, wrap, u);
     if (tau <= 1e-5) { return r; }
     float mu0c = max(mu0, u.lighting.y);
     float ct = dot(d, u.sun.xyz);
@@ -666,6 +671,9 @@ inline CloudResult cloud_cirrus(float3 of, float3 df, float3 d, float pixelAngle
     float3 sky = u.sunLight.rgb * cloud_skyIrradiance(h, mu0, irr, linear, u);
     float3 L = sun * (phase * single + diffuse) + sky * skyD;
     float alpha = 1.0 - exp(-tau / m);
+    // Far away the fibres average out: the mean optical depth of the
+    // cloudy part, times the cover.
+    float coverEff = mix(1.0, cover, far);
     r.color = float4(L * coverEff, alpha * coverEff);
     r.front = th;
     r.mean = th;
@@ -842,9 +850,8 @@ struct CloudRay {
     bool valid;
 };
 
-inline CloudRay cloud_ray(uint2 gid, constant CloudUniforms &u, constant FrameUniforms &frame) {
+inline CloudRay cloud_ray(float2 px, constant CloudUniforms &u, constant FrameUniforms &frame) {
     CloudRay r;
-    float2 px = (float2(gid) + 0.5) * u.target.zw;
     float3 vr = orbit_viewRay(px, frame);
     float3 w = normalize((frame.viewToWorld * float4(vr, 0.0)).xyz);
     r.d = normalize((u.worldToBody * float4(w, 0.0)).xyz);
@@ -892,7 +899,7 @@ kernel void cloud_march_kernel(texture2d<float, access::write> outColor [[textur
                                uint2 tid [[thread_position_in_grid]]) {
     uint2 gid = u.checker.z > 0.5 ? tid * 2u + uint2(u.checker.xy) : tid;
     if (gid.x >= uint(u.target.x) || gid.y >= uint(u.target.y)) { return; }
-    CloudRay ray = cloud_ray(gid, u, frame);
+    CloudRay ray = cloud_ray((float2(gid) + 0.5) * u.target.zw, u, frame);
     if (!ray.valid || ray.wFar >= 1.0) {
         outColor.write(float4(0.0), gid);
         outDepth.write(float4(CLOUD_NO_DEPTH), gid);
@@ -916,31 +923,17 @@ struct CloudResolveUniforms {
     float4 checker;          // xy: this frame's texel, z: 1 reprojecting, w: 1 history valid, -1 no march this frame
 };
 
-// Every texel: the march's clouds, marched this frame or last frame's at
+// Every texel of the march target: marched this frame, or last frame's at
 // the same body-fixed point (its colour filtered, its depths the nearest
-// texel's) clamped to the box of this frame's marched neighbours, kept as
-// the history; then, fresh every frame, the far layers (by the far weight)
-// and the cirrus, in order of distance: the frame's clouds.
-kernel void cloud_resolve(texture2d<float, access::write> outColor [[texture(0)]],
-                          texture2d<float, access::write> outDepth [[texture(1)]],
-                          texture3d<float> shape [[texture(2)]],
-                          texture3d<float> detail [[texture(3)]],
-                          texture2d<float> curl [[texture(4)]],
-                          texture2d<float> weatherA [[texture(5)]],
-                          texture2d<float> weatherB [[texture(6)]],
-                          texture3d<float> slab [[texture(7)]],
-                          texture2d<float> trans [[texture(8)]],
-                          texture2d<float> irr [[texture(9)]],
-                          texture2d<float, access::read> fresh [[texture(10)]],
+// texel's) clamped to the box of this frame's marched neighbours: the
+// march's clouds, kept as the history and read by the slot copy.
+kernel void cloud_resolve(texture2d<float, access::read> fresh [[texture(10)]],
                           texture2d<float, access::read> freshDepth [[texture(11)]],
                           texture2d<float> history [[texture(12)]],
                           texture2d<float, access::read> historyDepth [[texture(13)]],
                           texture2d<float, access::write> keepColor [[texture(14)]],
                           texture2d<float, access::write> keepDepth [[texture(15)]],
-                          sampler wrap [[sampler(0)]],
-                          sampler weather [[sampler(1)]],
                           sampler linear [[sampler(ORBIT_SAMPLER_LINEAR_CLAMP)]],
-                          constant CloudUniforms &u [[buffer(0)]],
                           constant CloudResolveUniforms &r [[buffer(1)]],
                           constant FrameUniforms &frame [[buffer(ORBIT_BUFFER_FRAME)]],
                           uint2 gid [[thread_position_in_grid]]) {
@@ -994,35 +987,6 @@ kernel void cloud_resolve(texture2d<float, access::write> outColor [[texture(0)]
     }
     keepColor.write(mc, gid);
     keepDepth.write(md, gid);
-
-    // The far layers and the cirrus, fresh.
-    CloudRay ray = cloud_ray(gid, u, frame);
-    CloudTextures t = {shape, detail, curl, weatherA, weatherB};
-    CloudResult result = {mc, cloud_decodeDepth(md.x) / ray.depthPerMetre, cloud_decodeDepth(md.y) / ray.depthPerMetre,
-                          cloud_decodeDepth(md.z) / ray.depthPerMetre};
-    if (ray.valid && ray.wFar > 0.0) {
-        CloudResult farMid = cloud_farLayer(ray.of, ray.df, ray.d, u.shellMid.x, u.shellMid.w, 1, t, slab, trans, irr,
-                                            linear, weather, u);
-        CloudResult farLow = cloud_farLayer(ray.of, ray.df, ray.d, u.shell.w, u.shellMid.z, 0, t, slab, trans, irr,
-                                            linear, weather, u);
-        CloudResult far = cloud_over(farMid, farLow);
-        float wf = ray.wFar;
-        CloudResult m = result;
-        result.color = mix(m.color, far.color, wf);
-        result.front = wf >= 1.0 ? far.front : min(m.front, far.front);
-        result.mean = wf >= 0.5 ? far.mean : m.mean;
-        result.entry = wf >= 1.0 ? far.entry : min(m.entry, far.entry);
-    }
-    CloudResult cirrus = cloud_cirrus(ray.of, ray.df, ray.d, u.footprint.x, t, trans, irr, wrap, linear, weather, u);
-    if (cirrus.color.a > 0.0) {
-        result = cirrus.entry < result.entry ? cloud_over(cirrus, result) : cloud_over(result, cirrus);
-    }
-    float4 c = result.color;
-    if (orbit_isNotFinite(c.rgb) || orbit_isNotFinite(c.a)) { c = float4(0.0); }
-    outColor.write(float4(min(c.rgb, float3(6e4)), clamp(c.a, 0.0, 1.0)), gid);
-    float k = ray.depthPerMetre;
-    outDepth.write(float4(cloud_encodeDepth(result.front * k), cloud_encodeDepth(result.mean * k),
-                          cloud_encodeDepth(result.entry * k), 0.0), gid);
 }
 
 // ------------------------------------------------ the cloud shadow map ---
@@ -1045,27 +1009,37 @@ kernel void cloud_shadow(texture2d<float, access::write> out [[texture(0)]],
     float2 uv = (float2(gid) + 0.5) / float(n);
     float3 base = u.shadowCenter.xyz + u.shadowU.xyz * ((uv.x - 0.5) * u.shadow.x) + u.shadowV.xyz * ((uv.y - 0.5) * u.shadow.x);
     float3 s = u.sun.xyz;
-    // From the shell's top towards the Sun's opposite, down to the ground.
-    float3 of = cloud_figure(base, u), df = cloud_figureDir(-s, u);
-    float cTop = dot(of, of) - pow(u.radii.x + u.radii.z, 2.0);
-    // Back up the ray to above the shell: start where it enters the top.
-    float2 enter = cloud_shell(of, -df, cTop);
-    float back = enter.x >= 0.0 ? enter.x : (enter.y >= 0.0 ? enter.y : 0.0);
-    float3 o = base + s * back;
-    float3 of2 = cloud_figure(o, u);
-    float2 g = cloud_shell(of2, df, dot(of2, of2) - u.radii.x * u.radii.x);
-    float tEnd = g.x >= 0.0 ? g.x : 2.0 * back;
-    int steps = int(u.shadow.w);
+    float3 pf0 = cloud_figure(base, u);
+    float3 up = normalize(float3(pf0.x, pf0.y, pf0.z * u.cameraFigure.w));
+    float mu0 = max(dot(s, up), 0.02);
+    // The heights the layers here span, with a margin: the ray towards
+    // the Sun from where it crosses their top down to their bottom.
+    CloudWeatherSample w = cloud_weatherAt(pf0, t, weather, u);
     float4 tauAbove = float4(0.0);
-    float dt = tEnd / float(steps);
-    for (int i = 0; i < steps; i++) {
-        float tm = (float(i) + 0.5) * dt;
-        float3 q = o - s * tm;
-        CloudSample c = cloud_sample(q, 0.0, true, t, wrap, weather, u);
-        float h = cloud_height(cloud_figure(q, u), u);
-        float add = c.sigma * dt;
+    float hBase = cloud_height(pf0, u);
+    if (w.topmost > 0.0) {
+        float hTop = min(w.topmost + 300.0, u.radii.z), hBottom = max(w.lowest - 300.0, 0.0);
+        // Along the Sun from the map's plane: height h - hBase at (h - hBase)/μ0 (flat within the margin).
+        float tTop = (hTop - hBase) / mu0, tBottom = (hBottom - hBase) / mu0;
+        int steps = int(u.shadow.w);
+        float dt = (tTop - tBottom) / float(steps);
+        for (int i = 0; i < steps; i++) {
+            float tm = tBottom + (float(i) + 0.5) * dt;
+            float3 q = base + s * tm;
+            float3 pf = cloud_figure(q, u);
+            float h = cloud_height(pf, u);
+            float add = cloud_density(q, h, w, 0.0, true, t, wrap, u).sigma * dt;
+            for (int k = 0; k < 4; k++) {
+                if (h >= u.shadowLevels[k]) { tauAbove[k] += add; }
+            }
+        }
+    }
+    // The cirrus, above every level but the top one, along the Sun.
+    if (u.lookDev.x < 0.5 && w.a.z > 0.002) {
+        float3 qc = base + s * ((u.shellMid.y - hBase) / mu0);
+        float tc = cloud_cirrusDepth(qc, w.a.z, 0.0, 0.0, t, wrap, u) / mu0;
         for (int k = 0; k < 4; k++) {
-            if (h >= u.shadowLevels[k]) { tauAbove[k] += add; }
+            if (u.shadowLevels[k] < u.shellMid.y) { tauAbove[k] += tc; }
         }
     }
     out.write(tauAbove, gid);
@@ -1084,17 +1058,31 @@ vertex CloudSlotOut cloud_slot_vertex(uint vid [[vertex_id]]) {
     return o;
 }
 
-// The resolved clouds at this texel, cut where the scene's depth (R6's
-// test depth) lies in front of or within them: the optical depth before the
-// scene, as a fraction of the way from the cloud's entry to twice its mean
-// depth beyond it. Its front for R6's composite, where it has one.
+// The frame's clouds at this texel of R6's targets: the march's (its
+// target filtered when coarser: colour bilinear, depths the nearest of the
+// four texels around), the far layers by their weight, and the cirrus, at
+// R6's resolution, in order of distance; cut where the scene's depth (R6's
+// test depth) lies in front of or within them: the optical depth before
+// the scene, as a fraction of the way from the cloud's entry to twice its
+// mean depth beyond it. Its front for R6's composite, where it has one.
 fragment EffectCloudOut cloud_slot_fragment(CloudSlotOut in [[stage_in]],
                                             constant FrameUniforms &frame [[buffer(ORBIT_BUFFER_FRAME)]],
                                             constant EffectSlotUniforms &e [[buffer(ORBIT_EFFECT_BUFFER_SLOTS)]],
-                                            constant float4 &scale [[buffer(0)]],
+                                            constant CloudUniforms &u [[buffer(0)]],
+                                            constant float4 &scale [[buffer(1)]],
                                             texture2d<float> clouds [[texture(0)]],
                                             texture2d<float> depths [[texture(1)]],
+                                            texture3d<float> shape [[texture(2)]],
+                                            texture3d<float> detail [[texture(3)]],
+                                            texture2d<float> curl [[texture(4)]],
+                                            texture2d<float> weatherA [[texture(5)]],
+                                            texture2d<float> weatherB [[texture(6)]],
+                                            texture3d<float> slab [[texture(7)]],
+                                            texture2d<float> trans [[texture(8)]],
+                                            texture2d<float> irr [[texture(9)]],
                                             texture2d<float> halfResDepth [[texture(ORBIT_EFFECT_TEXTURE_HALFRES_DEPTH)]],
+                                            sampler wrap [[sampler(0)]],
+                                            sampler weather [[sampler(1)]],
                                             sampler linear [[sampler(ORBIT_SAMPLER_LINEAR_CLAMP)]]) {
     uint2 texel = uint2(in.position.xy);
     float4 c, z;
@@ -1103,8 +1091,6 @@ fragment EffectCloudOut cloud_slot_fragment(CloudSlotOut in [[stage_in]],
         c = clouds.read(t);
         z = depths.read(t);
     } else {
-        // A coarser target, filtered: the colour bilinear, the depths the
-        // nearest of the four texels around (an empty one has none).
         float2 uv = in.position.xy * e.target.zw;
         c = clouds.sample(linear, uv);
         float4 fronts = depths.gather(linear, uv, int2(0), component::x);
@@ -1114,10 +1100,37 @@ fragment EffectCloudOut cloud_slot_fragment(CloudSlotOut in [[stage_in]],
                    min(min(means.x, means.y), min(means.z, means.w)),
                    min(min(entries.x, entries.y), min(entries.z, entries.w)), 0.0);
     }
+    // The march's, in metres along the ray.
+    CloudRay ray = cloud_ray(in.position.xy * e.scale.x, u, frame);
+    float k = ray.depthPerMetre;
+    CloudResult result = {c, cloud_decodeDepth(z.x) / k, cloud_decodeDepth(z.y) / k, cloud_decodeDepth(z.z) / k};
+    CloudTextures t = {shape, detail, curl, weatherA, weatherB};
+    if (ray.valid && ray.wFar > 0.0) {
+        CloudResult farMid = cloud_farLayer(ray.of, ray.df, ray.d, u.shellMid.x, u.shellMid.w, 1, t, slab, trans, irr,
+                                            linear, weather, u);
+        CloudResult farLow = cloud_farLayer(ray.of, ray.df, ray.d, u.shell.w, u.shellMid.z, 0, t, slab, trans, irr,
+                                            linear, weather, u);
+        CloudResult far = cloud_over(farMid, farLow);
+        float wf = ray.wFar;
+        CloudResult m = result;
+        result.color = mix(m.color, far.color, wf);
+        result.front = wf >= 1.0 ? far.front : min(m.front, far.front);
+        result.mean = wf >= 0.5 ? far.mean : m.mean;
+        result.entry = wf >= 1.0 ? far.entry : min(m.entry, far.entry);
+    }
+    CloudResult cirrus = cloud_cirrus(ray.of, ray.df, ray.d, u.footprint.x * e.scale.x / u.target.z, t, trans, irr, wrap,
+                                      linear, weather, u);
+    if (cirrus.color.a > 0.0) {
+        result = cirrus.entry < result.entry ? cloud_over(cirrus, result) : cloud_over(result, cirrus);
+    }
+    c = result.color;
+    if (orbit_isNotFinite(c.rgb) || orbit_isNotFinite(c.a)) { c = float4(0.0); }
+    c = float4(min(c.rgb, float3(6e4)), clamp(c.a, 0.0, 1.0));
     if (c.a <= 0.0 && max(c.r, max(c.g, c.b)) <= 0.0) { discard_fragment(); }
-    z = float4(cloud_decodeDepth(z.x), cloud_decodeDepth(z.y), cloud_decodeDepth(z.z), 0.0);
+    // Linear depths, as R6's.
+    float front = result.front * k, mean = result.mean * k, entry = min(result.entry, result.front) * k;
     float scene = orbit_effectSceneDistance(texel, halfResDepth, frame);
-    float entry = min(z.z, z.x), back = entry + 2.0 * max(z.y - entry, 0.0);
+    float back = entry + 2.0 * max(mean - entry, 0.0);
     if (scene <= entry) { discard_fragment(); }
     if (scene < back) {
         float f = (scene - entry) / max(back - entry, 1e-3);
@@ -1127,13 +1140,48 @@ fragment EffectCloudOut cloud_slot_fragment(CloudSlotOut in [[stage_in]],
         c.a = cut;
     }
     EffectCloudOut o;
-    o.color = float4(c.rgb, clamp(c.a, 0.0, 1.0));
-    bool front = z.x < 1e20 && z.x < scene;
-    o.front = float4(front ? orbit_frontCode(z.x) : ORBIT_EFFECT_NO_FRONT);
+    o.color = c;
+    o.front = float4(front < 1e20 && front < scene ? orbit_frontCode(front) : ORBIT_EFFECT_NO_FRONT);
     return o;
 }
 """#
 
 extension ShaderModule {
     public static let cloud = ShaderModule(name: "Cloud", headers: [.effectSlots], source: cloudShaderSource)
+}
+
+// What other tracks read from the clouds (C2's contract): the Sun's light
+// through the clouds at a point, for the ground (E2), the vessels (R2, R4)
+// and the plumes (P2). A module adds `.cloudShadow` to its headers and
+// samples the reserved slot 24 with AtmosphereUniforms' cloud members, which
+// CloudPass fills in P0.
+let cloudShadowHeaderSource = #"""
+// ------------------------------------------------------- cloud shadow ---
+
+// The Sun's transmittance through the clouds at camera-relative world
+// point p: the cloud shadow map (texture 24: the optical depth along the Sun
+// above 0, 2, 6 and 10 km, CloudPass.shadowLevels, cirrus included below
+// 10 km) at p's place and height, AtmosphereUniforms.cloudShadowMatrix
+// taking p to (u, v, height above the ground, 1). 1 where the clouds are
+// not drawn or p is off the map (from orbit the ground beyond it: the far
+// layer's own cover darkens it there).
+inline float orbit_cloudSunTransmittance(float3 p, constant AtmosphereUniforms &a, texture2d<float> map, sampler s) {
+    if (a.cloudLayer.w < 0.5) { return 1.0; }
+    float4 m = a.cloudShadowMatrix * float4(p, 1.0);
+    if (any(m.xy < 0.0) || any(m.xy > 1.0)) { return 1.0; }
+    float4 tau = map.sample(s, m.xy, level(0.0));
+    float h = m.z;
+    float t = h < 2000.0 ? mix(tau.x, tau.y, max(h, 0.0) / 2000.0)
+            : h < 6000.0 ? mix(tau.y, tau.z, (h - 2000.0) / 4000.0)
+            : h < 10000.0 ? mix(tau.z, tau.w, (h - 6000.0) / 4000.0)
+            : mix(tau.w, 0.0, clamp((h - 10000.0) / 2500.0, 0.0, 1.0));
+    // Fade to the edge of the map over its outer tenth.
+    float2 edge = min(m.xy, 1.0 - m.xy);
+    return mix(1.0, exp(-t), clamp(min(edge.x, edge.y) * 10.0, 0.0, 1.0));
+}
+"""#
+
+extension ShaderHeader {
+    /// The clouds' shadow for other modules (`orbit_cloudSunTransmittance`).
+    public static let cloudShadow = ShaderHeader(name: "CloudShadow", source: cloudShadowHeaderSource)
 }
