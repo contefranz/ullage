@@ -244,6 +244,24 @@ public enum EffectSlots {
         compositeOrder(layers.map(\.front)).reduce(.clear) { below, i in layers[i].color.over(below) }
     }
 
+    /// The most any channel of an effect's radiance holds, pre-exposed:
+    /// half's largest finite value is 65504 (ORBIT_EFFECT_MAX_RADIANCE).
+    public static let maxRadiance = 6.0e4
+
+    /// A layer's channel as the composite takes it: items are held below
+    /// `maxRadiance`, but a layer sums them in half floats, which can reach
+    /// +inf. Light past half's range saturates at `maxRadiance`, as in R1's
+    /// post; NaN and −inf are no light.
+    public static func layerChannel(_ x: Double) -> Double {
+        if x.isNaN { return 0 }
+        return min(max(x, 0), maxRadiance)
+    }
+
+    /// Premultiplied colour as the composite takes it, coverage within 0...1.
+    public static func layer(_ c: Premultiplied) -> Premultiplied {
+        Premultiplied(layerChannel(c.r), layerChannel(c.g), layerChannel(c.b), min(layerChannel(c.a), 1))
+    }
+
     /// One texel of the targets, as the composite reads it.
     public struct Texel {
         public var clouds: Premultiplied
@@ -267,7 +285,9 @@ public enum EffectSlots {
     /// - the drawn layers' texels mixed with the upsample weights;
     /// - each front the least code among the texels that weigh;
     /// - the OIT pair resolved after mixing;
-    /// - the layers composited in front order.
+    /// - each layer's channels taken as `layerChannel` says;
+    /// - the layers composited in front order, the result held below
+    ///   `maxRadiance`.
     public static func compositePixel(_ texels: [Texel], weights: [Double], drawn: Set<Layer>) -> Premultiplied {
         var colors = [Premultiplied](repeating: .clear, count: 3)
         var fronts = [Double](repeating: noFront, count: 3)
@@ -287,7 +307,14 @@ public enum EffectSlots {
                 fronts[2] = min(fronts[2], t.fronts[2])
             }
         }
-        if drawn.contains(.oit) { colors[2] = oitResolve(accumulation: accumulation, revealage: revealage) }
-        return composite((0..<3).map { LayerSample(colors[$0], front: linearDepth(frontCode: fronts[$0])) })
+        colors[0] = layer(colors[0])
+        colors[1] = layer(colors[1])
+        if drawn.contains(.oit) {
+            let a = Premultiplied(layerChannel(accumulation.r), layerChannel(accumulation.g),
+                                  layerChannel(accumulation.b), layerChannel(accumulation.a))
+            colors[2] = layer(oitResolve(accumulation: a, revealage: revealage.isFinite ? revealage : 1))
+        }
+        let c = composite((0..<3).map { LayerSample(colors[$0], front: linearDepth(frontCode: fronts[$0])) })
+        return Premultiplied(min(c.r, maxRadiance), min(c.g, maxRadiance), min(c.b, maxRadiance), min(max(c.a, 0), 1))
     }
 }

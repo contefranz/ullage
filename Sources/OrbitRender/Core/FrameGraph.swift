@@ -97,8 +97,11 @@ public final class FrameGraph {
             e.endEncoding()
             encoder = nil
         }
-        func open(_ descriptor: MTLRenderPassDescriptor, _ label: String, continuation: Bool = false) {
-            end(resumes: true)
+        // `resumes`: the descriptor is the plan's continuation of the scene,
+        // which loads the targets the open encoder leaves; a stage's own
+        // render pass does not.
+        func open(_ descriptor: MTLRenderPassDescriptor, _ label: String, continuation: Bool = false, resumes: Bool) {
+            end(resumes: resumes)
             f.profile?.attach(descriptor, pass: label, continuation: continuation)
             encoder = cb.makeRenderCommandEncoder(descriptor: descriptor)
             encoder?.label = label
@@ -112,7 +115,7 @@ public final class FrameGraph {
         var overheadMeasured = false
         func measureSplitOverhead() {
             guard f.splitsEncoders, !overheadMeasured, encoder != nil, let next = plan.continuation(f) else { return }
-            open(next, FrameProfile.splitOverhead, continuation: true)
+            open(next, FrameProfile.splitOverhead, continuation: true, resumes: true)
             overheadMeasured = true
         }
         for stage in PassStage.allCases where stage != .prepare {
@@ -133,7 +136,7 @@ public final class FrameGraph {
             // or the stage starts with a pass on the command buffer.
             var fresh = plan.renderPass(for: stage, f)
             if here.isEmpty || !f.splitsEncoders && !here[0].encodesOnCommandBuffer, let pass = fresh {
-                open(pass, "\(stage)")
+                open(pass, "\(stage)", resumes: false)
                 fresh = nil
             }
             for p in here {
@@ -153,19 +156,19 @@ public final class FrameGraph {
                 // then the plan's continuation of the scene. Without timing,
                 // the scene resumes only after a pass on the command buffer.
                 if let pass = fresh {
-                    open(pass, f.splitsEncoders ? p.name : "\(stage)")
+                    open(pass, f.splitsEncoders ? p.name : "\(stage)", resumes: false)
                     fresh = nil
                 } else if encoder == nil, suspended {
                     // The resume loads and stores the targets in the plain
                     // frame too: while timing, an empty encoder measures it
                     // for the pass that broke the scene, kept whole, before
                     // this pass's continuation.
-                    if f.splitsEncoders, let resume = plan.continuation(f) { open(resume, breaker) }
+                    if f.splitsEncoders, let resume = plan.continuation(f) { open(resume, breaker, resumes: true) }
                     if let next = plan.continuation(f) {
-                        open(next, f.splitsEncoders ? p.name : "\(stage)", continuation: f.splitsEncoders)
+                        open(next, f.splitsEncoders ? p.name : "\(stage)", continuation: f.splitsEncoders, resumes: true)
                     }
                 } else if f.splitsEncoders, encoder != nil, let next = plan.continuation(f) {
-                    open(next, p.name, continuation: true)
+                    open(next, p.name, continuation: true, resumes: true)
                 }
                 guard let encoder else { continue }
                 f.currentPass = p.name
@@ -175,7 +178,7 @@ public final class FrameGraph {
             }
             // A stage of passes on the command buffer only still opens its
             // render pass, for its load and clear actions.
-            if let pass = fresh { open(pass, "\(stage)") }
+            if let pass = fresh { open(pass, "\(stage)", resumes: false) }
         }
         measureSplitOverhead()
         end(resumes: false)

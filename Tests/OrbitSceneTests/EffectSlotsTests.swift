@@ -243,6 +243,23 @@ final class EffectSlotsTests: XCTestCase {
         XCTAssertEqual(EffectSlots.composite([none, plume, none]), plume.color)
     }
 
+    /// A layer that overflowed half floats (a sum of items each below 6e4)
+    /// saturates rather than vanishing; NaN is no light.
+    func testAnOverflowingLayerSaturates() {
+        XCTAssertEqual(EffectSlots.layerChannel(.infinity), EffectSlots.maxRadiance)
+        XCTAssertEqual(EffectSlots.layerChannel(7e4), EffectSlots.maxRadiance)
+        XCTAssertEqual(EffectSlots.layerChannel(.nan), 0)
+        XCTAssertEqual(EffectSlots.layerChannel(-.infinity), 0)
+        XCTAssertEqual(EffectSlots.layerChannel(5), 5)
+        let hot = EffectSlots.Texel(clouds: .clear, volumes: P(.infinity, .infinity, 3e4, 0.6), accumulation: .clear,
+                                    revealage: 1, fronts: [EffectSlots.noFront, 5, EffectSlots.noFront])
+        let c = EffectSlots.compositePixel([hot], weights: [1], drawn: [.volumes])
+        XCTAssertEqual(c, P(EffectSlots.maxRadiance, EffectSlots.maxRadiance, 3e4, 0.6))
+        let bad = EffectSlots.Texel(clouds: .clear, volumes: P(.nan, 1, 1, .nan), accumulation: .clear,
+                                    revealage: .nan, fronts: [EffectSlots.noFront, 5, EffectSlots.noFront])
+        XCTAssertEqual(EffectSlots.compositePixel([bad], weights: [1], drawn: [.volumes, .oit]), P(0, 1, 1, 0))
+    }
+
     // MARK: Settings and test emitters
 
     func testSettingsDecodePartially() throws {

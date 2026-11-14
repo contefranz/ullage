@@ -37,6 +37,15 @@ inline float3 orbit_effectViewRay(float2 p, constant EffectSlotUniforms &e, cons
     return orbit_viewRay(p * e.scale.x, f);
 }
 
+// The most any channel of radiance an effect writes may hold, pre-exposed:
+// rgba16Float's largest finite value is 65504, and the scene clamps its light
+// here too (R1's rule), so nothing becomes infinite on the way to post.
+#define ORBIT_EFFECT_MAX_RADIANCE 6.0e4
+
+inline float3 orbit_effectRadiance(float3 c) {
+    return min(c, float3(ORBIT_EFFECT_MAX_RADIANCE));
+}
+
 // Linear depths past this are the sky (fast math assumes no infinities).
 #define ORBIT_EFFECT_SKY_DISTANCE 1e30
 
@@ -91,6 +100,7 @@ struct EffectOITOut {
 // An OIT fragment of premultiplied colour (pre-exposed) at a linear depth;
 // its front if it is visible on its own (orbit_frontReached).
 inline EffectOITOut orbit_oitOutput(float4 premultiplied, float linearDepth, constant EffectSlotUniforms &e) {
+    premultiplied.rgb = orbit_effectRadiance(premultiplied.rgb);
     float w = orbit_oitWeight(premultiplied.a, linearDepth, e);
     EffectOITOut o;
     o.accumulation = float4(min(premultiplied.rgb * w, e.front.y), premultiplied.a * w);

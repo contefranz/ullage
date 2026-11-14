@@ -88,7 +88,7 @@ fragment EffectCloudOut effect_test_slab_fragment(EffectTestOut in [[stage_in]],
     float3 radiance = u.params.y * (float3(sun) + float3(0.12, 0.14, 0.18));
     EffectCloudOut out;
     float coverage = 1.0 - transmittance;
-    out.color = float4(radiance * coverage * u.params.x, coverage);
+    out.color = float4(orbit_effectRadiance(radiance * coverage * u.params.x), coverage);
     // Where it becomes visible: by coverage, or by radiance (its source
     // times the coverage), whichever first (EffectSlots.homogeneousFront).
     float3 source = radiance * u.params.x;
@@ -193,7 +193,7 @@ fragment EffectVolumeOut effect_test_cone_fragment(EffectTestConeOut in [[stage_
         if (transmittance < 0.01) { break; }
     }
     EffectVolumeOut out;
-    out.color = float4(radiance * u.params.x, 1.0 - transmittance);
+    out.color = float4(orbit_effectRadiance(radiance * u.params.x), 1.0 - transmittance);
     out.front = float4(front);
     return out;
 }
@@ -284,7 +284,7 @@ fragment float4 effect_test_spark_fragment(EffectTestSparkOut in [[stage_in]],
                                            constant EffectTestUniforms &u [[buffer(0)]]) {
     float across = 1.0 - abs(in.uv.x);
     float3 c = in.color * 4.0 * across * across * (0.3 + 0.7 * (1.0 - in.uv.y));
-    return float4(c * u.params.x, 0.0);
+    return float4(orbit_effectRadiance(c * u.params.x), 0.0);
 }
 
 // -------------------------------------------------- the opaque stand-ins ---
@@ -312,7 +312,7 @@ vertex EffectTestColumnOut effect_test_column_vertex(uint vid [[vertex_id]],
 // Linear light times the scale, as every scene pass writes it (the target
 // plan weights the samples for its resolve itself).
 inline float4 effect_test_opaque(float3 c, constant EffectTestUniforms &u) {
-    return float4(c * u.params.x, 1.0);
+    return float4(orbit_effectRadiance(c * u.params.x), 1.0);
 }
 
 fragment float4 effect_test_column_fragment(EffectTestColumnOut in [[stage_in]],
