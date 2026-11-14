@@ -6,7 +6,8 @@ import OrbitCore
 import OrbitScene
 
 /// The bodies, farthest first, ray-traced on a full-screen triangle each,
-/// with today's sky and haze (P1). Small ones are left to the far points.
+/// with today's sky and haze (P1). Small ones are left to the far points,
+/// and the Sun to R1's star pass.
 /// Track E2 owns this pass and the planet module.
 @MainActor
 public final class PlanetPass: RenderPass {
@@ -75,7 +76,7 @@ public final class PlanetPass: RenderPass {
         enc.setRenderPipelineState(pipeline)
         enc.setDepthStencilState(f.states.depthWrite)
         enc.setFragmentSamplerState(f.states.equirectSampler, index: 0)
-        for body in f.scene.bodies where !f.drawsPoint(body) {
+        for body in f.scene.bodies where !body.isSun && !f.drawsPoint(body) {
             let rel = body.position
             let style = Self.style(for: body.id)
             // The camera in figure coordinates (body axes stretched along z
