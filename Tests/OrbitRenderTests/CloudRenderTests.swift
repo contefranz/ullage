@@ -597,3 +597,54 @@ final class CloudApollo8Shots: XCTestCase {
         XCTAssertEqual(written.count, shots.count)
     }
 }
+
+/// The clouds over a flight at 1×, 10× and 1000× warp (ORBITSIM_CLOUD_SHOTS
+/// =<dir>): the parking orbit stepped as the app steps it, 1/60 s of wall
+/// clock a frame, each frame extracted and rendered by one renderer, so the
+/// history, the reprojection rule and the drift with the wind run as in
+/// the app. Writes the last frame of each, and checks the rule.
+@MainActor
+final class CloudWarpFlights: XCTestCase {
+    func testWarpFlights() throws {
+        guard let dir = ProcessInfo.processInfo.environment["ORBITSIM_CLOUD_SHOTS"] else {
+            throw XCTSkip("set ORBITSIM_CLOUD_SHOTS=<dir> to fly")
+        }
+        let out = URL(fileURLWithPath: dir, isDirectory: true)
+        try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
+        let s = try SnapshotRenderer(device: try XCTUnwrap(RenderDevice.shared))
+        let width = 1280, height = 800
+        let viewport = RenderScene.Viewport(width: Double(width), height: Double(height), pointScale: 2)
+        for warp in [1.0, 10.0, 1000.0] {
+            let scenario = try XCTUnwrap(Scenario.named("as506-parking-orbit"))
+            let sim = scenario.build(s.system)
+            sim.paused = false
+            sim.warp = warp
+            var camera = OrbitCamera()
+            try SnapshotSpec.CameraSpec(yaw: -34.4, pitch: 30, distance: 70, fov: 60).apply(to: &camera, sim: sim)
+            let extractor = SceneExtractor()
+            let r = try s.renderer(userTextures: false)
+            let target = try XCTUnwrap(OffscreenTarget(device: s.device, width: width, height: height))
+            let clouds = try XCTUnwrap(r.graph.passes.compactMap { $0 as? CloudPass }.first)
+            var reprojected = 0
+            let frames = 90
+            for k in 0..<frames {
+                if k > 0 { sim.advance(by: 1.0 / 60) }
+                camera.update(sim: sim)
+                let scene = extractor.extract(sim: sim, camera: camera, viewport: viewport, realTime: Double(k) / 60,
+                                              options: SceneExtractor.Options(showOrbit: false))
+                XCTAssertEqual(scene.clock.warp, warp)
+                _ = r.renderAndWait(scene, into: target)
+                if clouds.lastFrame.reprojected { reprojected += 1 }
+            }
+            try ImageFiles.writePNG(target.bytes(), width: width, height: height, order: .bgra,
+                                    to: out.appendingPathComponent("warp-\(Int(warp))x.png"))
+            print(String(format: "WARP %4.0fx: %d of %d frames reprojected, motion %.2f px", warp, reprojected, frames,
+                         clouds.lastFrame.motionPixels))
+            if warp >= CloudReprojection.maximumWarp {
+                XCTAssertEqual(reprojected, 0, "no reprojection at \(warp)×")
+            } else {
+                XCTAssertGreaterThan(reprojected, frames / 2, "reprojecting at \(warp)×")
+            }
+        }
+    }
+}
