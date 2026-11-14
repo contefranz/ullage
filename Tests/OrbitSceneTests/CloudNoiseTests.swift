@@ -1,0 +1,151 @@
+import XCTest
+@testable import OrbitScene
+
+/// Track C2's procedural noise: tiling, range, Worley against a brute-force
+/// search, and the curl map free of divergence.
+final class CloudNoiseTests: XCTestCase {
+    /// A fixed sequence of points in [0, 1)³ (a splitmix64 stream).
+    private func points(_ n: Int) -> [(Float, Float, Float)] {
+        var state: UInt64 = 0x9E37_79B9_7F4A_7C15
+        func next() -> Float {
+            state &+= 0x9E37_79B9_7F4A_7C15
+            var z = state
+            z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+            z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+            return Float((z ^ (z >> 31)) >> 40) / Float(1 << 24)
+        }
+        return (0..<n).map { _ in (next(), next(), next()) }
+    }
+
+    func testPerlinTilesAndVanishesOnTheLattice() {
+        for (x, y, z) in points(200) {
+            let p = (x * 4, y * 4, z * 4)
+            let a = CloudNoise.perlin(p.0, p.1, p.2, period: 4, seed: 9)
+            XCTAssertEqual(a, CloudNoise.perlin(p.0 + 4, p.1, p.2, period: 4, seed: 9), accuracy: 1e-5)
+            XCTAssertEqual(a, CloudNoise.perlin(p.0, p.1 - 4, p.2 + 8, period: 4, seed: 9), accuracy: 1e-5)
+        }
+        for i in 0..<4 {
+            XCTAssertEqual(CloudNoise.perlin(Float(i), 2, Float(3 - i), period: 4, seed: 9), 0, accuracy: 1e-7)
+        }
+    }
+
+    func testPerlinRangeAndMean() {
+        var lo: Float = 1, hi: Float = -1, sum: Float = 0
+        let samples = points(4000)
+        for (x, y, z) in samples {
+            let v = CloudNoise.perlin(x * 8, y * 8, z * 8, period: 8, seed: 3)
+            lo = min(lo, v)
+            hi = max(hi, v)
+            sum += v
+        }
+        XCTAssertGreaterThan(lo, -1.05)
+        XCTAssertLessThan(hi, 1.05)
+        XCTAssertGreaterThan(hi - lo, 1.0, "the noise spans most of its range")
+        XCTAssertEqual(sum / Float(samples.count), 0, accuracy: 0.03)
+        let fbm = samples.map { CloudNoise.perlinFBM($0.0, $0.1, $0.2, basePeriod: 4, octaves: 5, seed: 3) }
+        XCTAssertTrue(fbm.allSatisfy { $0 >= 0 && $0 <= 1 })
+        XCTAssertEqual(fbm.reduce(0, +) / Float(fbm.count), 0.5, accuracy: 0.03)
+    }
+
+    /// Worley's F1 against the nearest of every feature point of one
+    /// period and its 26 periodic images.
+    func testWorleyAgainstBruteForce() {
+        let cells: Int32 = 4, seed: UInt32 = 21
+        var features: [(Float, Float, Float)] = []
+        for k in 0..<cells {
+            for j in 0..<cells {
+                for i in 0..<cells {
+                    let h = CloudNoise.cellHash(i, j, k, period: cells, seed: seed)
+                    features.append((Float(i) + CloudNoise.unit(h.0), Float(j) + CloudNoise.unit(h.1),
+                                     Float(k) + CloudNoise.unit(h.2)))
+                }
+            }
+        }
+        let n = Float(cells)
+        for (x, y, z) in points(300) {
+            var best = Float.greatestFiniteMagnitude
+            for f in features {
+                for a in -1...1 {
+                    for b in -1...1 {
+                        for c in -1...1 {
+                            let dx = f.0 + Float(a) * n - x * n, dy = f.1 + Float(b) * n - y * n
+                            let dz = f.2 + Float(c) * n - z * n
+                            best = min(best, dx * dx + dy * dy + dz * dz)
+                        }
+                    }
+                }
+            }
+            let expected = min(max(1 - best.squareRoot(), 0), 1)
+            XCTAssertEqual(CloudNoise.worley(x, y, z, cells: cells, seed: seed), expected, accuracy: 1e-5)
+            XCTAssertEqual(CloudNoise.worley(x + 1, y - 1, z + 2, cells: cells, seed: seed), expected, accuracy: 1e-4,
+                           "tiles every unit")
+        }
+    }
+
+    func testPerlinWorleyBlend() {
+        XCTAssertEqual(CloudNoise.perlinWorley(perlin: 0.3, worley: 0), 0.3, accuracy: 1e-7)
+        XCTAssertEqual(CloudNoise.perlinWorley(perlin: 0.3, worley: 1), 0.65, accuracy: 1e-7)
+        for (p, w, _) in points(200) {
+            let v = CloudNoise.perlinWorley(perlin: p, worley: w)
+            XCTAssertTrue(v >= p && v <= 1, "dilates Perlin")
+        }
+    }
+
+    /// The volumes repeat across their edges: the texel past the last is
+    /// the first.
+    func testVolumesTile() {
+        let n = CloudNoise.shapeSize
+        let s = 1 / Float(n)
+        for (y, z) in [(3, 77), (120, 5)] {
+            let u = (Float(n) + 0.5) * s, v = (Float(y) + 0.5) * s, w = (Float(z) + 0.5) * s
+            let past = CloudNoise.perlinFBM(u, v, w, basePeriod: CloudNoise.shapePerlinPeriod,
+                                            octaves: CloudNoise.shapePerlinOctaves, seed: CloudNoise.shapeSeed)
+            let first = CloudNoise.perlinFBM(0.5 * s, v, w, basePeriod: CloudNoise.shapePerlinPeriod,
+                                             octaves: CloudNoise.shapePerlinOctaves, seed: CloudNoise.shapeSeed)
+            XCTAssertEqual(past, first, accuracy: 1e-5)
+            let texel = CloudNoise.shapeTexel(0, y, z)
+            XCTAssertTrue([texel.0, texel.1, texel.2, texel.3].allSatisfy { $0 >= 0 && $0 <= 1 })
+        }
+        let d = CloudNoise.detailTexel(31, 0, 16)
+        XCTAssertTrue([d.0, d.1, d.2].allSatisfy { $0 >= 0 && $0 <= 1 })
+    }
+
+    /// The curl of a stream function has no divergence: at random points
+    /// the map's divergence, by the same half-texel differences, vanishes
+    /// beside its gradients (a swapped component or sign would make it as
+    /// large as they are); and it seldom clips at ±1.
+    func testCurlMapIsFreeOfDivergence() {
+        let h = 0.5 / Float(CloudNoise.curlSize)
+        func curl(_ u: Float, _ v: Float) -> (Float, Float) {
+            let dv = (CloudNoise.streamFunction(u, v + h) - CloudNoise.streamFunction(u, v - h)) / (2 * h)
+            let du = (CloudNoise.streamFunction(u + h, v) - CloudNoise.streamFunction(u - h, v)) / (2 * h)
+            return (dv * CloudNoise.curlScale, -du * CloudNoise.curlScale)
+        }
+        var divergence: Float = 0, gradient: Float = 0
+        for (u, v, _) in points(300) {
+            let ex = (curl(u + h, v).0 - curl(u - h, v).0) / (2 * h)
+            let ey = (curl(u, v + h).1 - curl(u, v - h).1) / (2 * h)
+            divergence += abs(ex + ey)
+            gradient += abs(ex) + abs(ey)
+        }
+        XCTAssertLessThan(divergence / gradient, 1e-3, "divergence against the gradients")
+        var clipped = 0
+        for y in stride(from: 0, to: CloudNoise.curlSize, by: 4) {
+            for x in stride(from: 0, to: CloudNoise.curlSize, by: 4) {
+                let c = curl((Float(x) + 0.5) / Float(CloudNoise.curlSize), (Float(y) + 0.5) / Float(CloudNoise.curlSize))
+                if abs(c.0) > 1 || abs(c.1) > 1 { clipped += 1 }
+                let t = CloudNoise.curlTexel(x, y)
+                XCTAssertTrue(abs(t.0) <= 1 && abs(t.1) <= 1)
+            }
+        }
+        XCTAssertLessThan(clipped, 1 + (CloudNoise.curlSize / 4) * (CloudNoise.curlSize / 4) / 100, "clipped at ±1")
+    }
+
+    func testTexelEncoding() {
+        XCTAssertEqual(CloudNoise.unorm8(0), 0)
+        XCTAssertEqual(CloudNoise.unorm8(1), 255)
+        XCTAssertEqual(CloudNoise.unorm8(0.5), 128)
+        XCTAssertEqual(CloudNoise.snorm8(-1), -127)
+        XCTAssertEqual(CloudNoise.snorm8(1), 127)
+    }
+}
