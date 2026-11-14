@@ -67,7 +67,7 @@ public final class PostPass: RenderPass {
         device = s.device
         for name in ["post_clear_histogram", "post_downsample_first", "post_histogram", "post_downsample",
                      "post_upsample", "post_bloom_capture", "post_sun_visibility", "post_decode_scene",
-                     "post_tone_probe"] {
+                     "post_tone_probe", "post_glare_probe"] {
             guard let fn = library.makeFunction(name: name) else { throw ShaderLibrary.Failure.missingFunction(name) }
             pipelines[name] = try s.device.makeComputePipelineState(function: fn)
         }
@@ -305,6 +305,28 @@ public final class PostPass: RenderPass {
     }
 
     // MARK: Tests
+
+    /// The glare's 1/θ² from the post shader along `rays` (view axes), for
+    /// a Sun at `sunView`: the tests compare it with 1/acos².
+    func glareProbe(_ rays: [SIMD4<Float>], sunView: SIMD3<Float>, minAngle: Float,
+                    queue: MTLCommandQueue) -> [Float]? {
+        guard let device, let p = pipelines["post_glare_probe"],
+              let input = device.makeBuffer(bytes: rays, length: 16 * rays.count, options: .storageModeShared),
+              let output = device.makeBuffer(length: 4 * rays.count, options: .storageModeShared),
+              let cb = queue.makeCommandBuffer(), let c = cb.makeComputeCommandEncoder() else { return nil }
+        var params = SIMD4(sunView, minAngle)
+        c.setComputePipelineState(p)
+        c.setBuffer(input, offset: 0, index: 0)
+        c.setBytes(&params, length: MemoryLayout<SIMD4<Float>>.stride, index: 1)
+        c.setBuffer(output, offset: 0, index: 2)
+        c.dispatchThreads(MTLSize(width: rays.count, height: 1, depth: 1),
+                          threadsPerThreadgroup: MTLSize(width: min(64, rays.count), height: 1, depth: 1))
+        c.endEncoding()
+        cb.commit()
+        cb.waitUntilCompleted()
+        let values = output.contents().bindMemory(to: Float.self, capacity: rays.count)
+        return Array(UnsafeBufferPointer(start: values, count: rays.count))
+    }
 
     /// The tone curve the post shader applies, on `colors` (exposed linear
     /// light), from the GPU: the tests compare it with ToneCurves.
