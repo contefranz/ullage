@@ -174,4 +174,57 @@ final class CloudCoverageTests: XCTestCase {
             XCTAssertEqual(drawn, c, accuracy: 0.03, "cover \(c)")
         }
     }
+
+    /// Columns of the shape volume off the baked statistics' lattice, 12
+    /// texels up. Clouds are features some 30 texels across, so a sample's
+    /// own noise is a few per cent at partial cover, more at 1/10.
+    static let columns: [[(Float, Float, Float, Float)]] = {
+        var columns: [[(Float, Float, Float, Float)]] = []
+        for x in stride(from: 1, to: CloudNoise.shapeSize, by: 5) {
+            for y in stride(from: 3, to: CloudNoise.shapeSize, by: 5) {
+                for z0 in stride(from: 9, to: CloudNoise.shapeSize, by: 23) {
+                    columns.append((0..<12).map { CloudNoise.shapeTexel(x, y, (z0 + $0) % CloudNoise.shapeSize) })
+                }
+            }
+        }
+        return columns
+    }()
+
+    /// The cirrus has its own thresholds: its drawn fraction is the cover
+    /// (with the shape's, 4/10 cirrus drew 0.01 % of the sky).
+    func testCirrusDrawnCoverIsTheCover() {
+        let st = CloudCoverage.standardStatistics
+        XCTAssertEqual(st.cirrusThreshold.count, 33)
+        let values = Self.columns.flatMap { $0.map { Double(CloudCoverage.cirrusValue($0)) } }
+        for c in [0.1, 0.4, 0.7, 0.9] {
+            let theta = CloudCoverage.lookup(c, st.cirrusThreshold)
+            let cloudy = values.filter { $0 > theta }
+            XCTAssertEqual(Double(cloudy.count) / Double(values.count), c, accuracy: 0.04, "cover \(c)")
+            // Its in-cloud optical depth averages C1's.
+            let mean = cloudy.map { ($0 - theta) / (1 - theta) }.reduce(0, +) / Double(cloudy.count)
+            XCTAssertEqual(mean * CloudCoverage.lookup(c, st.cirrusScale), 1, accuracy: c < 0.2 ? 0.15 : 0.08,
+                           "cover \(c)")
+        }
+    }
+
+    /// The march's density, scaled, averages C1's in-cloud extinction where
+    /// there is cloud, at any cover (unscaled it averaged 0.1-0.2 of it).
+    func testMarchDensityAveragesTheLayerModel() {
+        let st = CloudCoverage.standardStatistics
+        for layer in 0..<2 {
+            for c in [0.1, 0.3, 0.5, 0.7, 0.9] {
+                let theta = CloudCoverage.threshold(c), scale = CloudCoverage.lookup(c, st.densityScale[layer])
+                var sum = 0.0, count = 0
+                for column in Self.columns {
+                    for (j, t) in column.enumerated() {
+                        let d = CloudCoverage.density(Double(CloudCoverage.shapeValue(t)), layer: layer,
+                                                      height: Double(j) / 11, threshold: theta)
+                        if d > 0 { sum += d * scale; count += 1 }
+                    }
+                }
+                XCTAssertEqual(sum / Double(count), 1, accuracy: c < 0.2 ? 0.15 : 0.08, "layer \(layer), cover \(c)")
+                XCTAssertGreaterThan(scale, 3, "the thresholded shape alone is far thinner than C1's clouds")
+            }
+        }
+    }
 }

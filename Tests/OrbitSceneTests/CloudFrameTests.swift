@@ -56,6 +56,49 @@ final class CloudFrameTests: XCTestCase {
         }
     }
 
+    /// A body-fixed point keeps its cirrus noise coordinate as the camera
+    /// moves (but for whole periods, as the origin wraps), and the frame
+    /// moves to the camera after 1,000 km or a 30° turn of the wind.
+    func testCirrusFrameIsBodyFixed() {
+        let period = 16_384.0
+        let f = frame(height: 300)
+        let east = f.eastNorth.east
+        let c = CirrusFrame(f, streak: east)
+        func noise(_ point: Vec3, camera: Vec3) -> Vec3 {
+            let o = c.origin(camera: camera, period: period), q = point - camera
+            return o + Vec3(q.dot(c.along) / CirrusFrame.stretch, q.dot(c.across), q.dot(c.up))
+        }
+        let point = f.cameraBody + east * 37_000 + f.eastNorth.north * 12_000
+        let a = noise(point, camera: f.cameraBody)
+        // Cameras 40 km to 400 km away, across many of the old body-axis wraps.
+        for k in 1...10 {
+            let camera = f.cameraBody + f.eastNorth.north * (40_000 * Double(k)) + east * (13_000 * Double(k))
+            let b = noise(point, camera: camera)
+            for (x, y) in [(a.x, b.x), (a.y, b.y), (a.z, b.z)] {
+                let periods = (y - x) / period
+                XCTAssertEqual(periods, periods.rounded(), accuracy: 1e-6, "camera \(k)")
+            }
+        }
+        XCTAssertFalse(c.stale(f, streak: east))
+        XCTAssertTrue(c.stale(f, streak: f.eastNorth.north), "the wind turned 90°")
+        let distant = Ellipsoid.wgs84.bodyFixed(latitude: (28.6 + 11) * Double.pi / 180, longitude: -80.6 * Double.pi / 180,
+                                                height: 300)   // 1,220 km north
+        let far = CloudFrame(earth: earth(center: Mat3.rotZ(0.3).transposed * (distant * -1), angle: 0.3))
+        XCTAssertTrue(c.stale(far, streak: far.eastNorth.east))
+        // A new frame fades the old one out over two seconds.
+        var frames = CirrusFrames()
+        frames.update(f, streak: east, wind: nil, dt: 1, realDt: 1, period: period)
+        XCTAssertNotNil(frames.current)
+        XCTAssertNil(frames.previous)
+        frames.update(f, streak: f.eastNorth.north, wind: nil, dt: 1, realDt: 1, period: period)
+        XCTAssertNotNil(frames.previous)
+        XCTAssertEqual(frames.fade, 1)
+        frames.update(f, streak: f.eastNorth.north, wind: nil, dt: 1, realDt: 1, period: period)
+        XCTAssertEqual(frames.fade, 0.5, accuracy: 1e-12)
+        frames.update(f, streak: f.eastNorth.north, wind: nil, dt: 1, realDt: 1, period: period)
+        XCTAssertNil(frames.previous)
+    }
+
     func testShadowMapFrame() {
         let f = frame(height: 300)
         let map = f.shadowMap(texels: 512)
@@ -70,21 +113,27 @@ final class CloudFrameTests: XCTestCase {
         XCTAssertEqual(c.v, 0.5, accuracy: 0.5 / 512 + 1e-9)
         let back = map.point(u: c.u, v: c.v, along: c.along)
         XCTAssertEqual((back - ground).length, 0, accuracy: 1e-6)
-        // A small move of the camera leaves the snapped centre where it was,
-        // or moves it by whole texels.
-        let lat = 28.6 * Double.pi / 180, lon = -80.6 * Double.pi / 180
-        let p = Ellipsoid.wgs84.bodyFixed(latitude: lat + 2e-6, longitude: lon - 3e-6, height: 300)
-        let moved = CloudFrame(earth: earth(center: Mat3.rotZ(0.3).transposed * (p * -1), angle: 0.3))
-            .shadowMap(texels: 512)
-        let shift = moved.center - map.center, texel = map.extent / 512
-        for axis in [map.u, map.v] {
-            let k = shift.dot(axis) / texel
-            XCTAssertEqual(k, k.rounded(), accuracy: 1e-6)
+        // A move of the camera leaves the snapped centre where it was, or
+        // moves it by whole texels: 13 m, and 20 km (across the 8 km cells
+        // whose anchor once jumped the grid by a fraction of a texel).
+        let lat = 28.6 * Double.pi / 180, lon = -80.6 * Double.pi / 180, texel = map.extent / 512
+        for (dLat, dLon) in [(2e-6, -3e-6), (1.8e-3, -2.1e-3)] {
+            let p = Ellipsoid.wgs84.bodyFixed(latitude: lat + dLat, longitude: lon + dLon, height: 300)
+            let moved = CloudFrame(earth: earth(center: Mat3.rotZ(0.3).transposed * (p * -1), angle: 0.3))
+                .shadowMap(texels: 512)
+            let shift = moved.center - map.center
+            for axis in [map.u, map.v] {
+                let k = shift.dot(axis) / texel
+                XCTAssertEqual(k, k.rounded(), accuracy: 1e-6, "a move of \(dLat), \(dLon) rad")
+            }
         }
         // A frame of the Sun's turning about the Earth (7.3e-5 rad/s, 1/60 s)
-        // moves the grid by a small fraction of a texel.
+        // moves the grid by a small fraction of a texel (modulo whole ones).
         let turned = frame(height: 300, angle: 0.3 + 7.3e-5 / 60).shadowMap(texels: 512)
-        XCTAssertLessThan((turned.center - map.center).length, 0.05 * texel)
+        for axis in [map.u, map.v] {
+            let k = (turned.center - map.center).dot(axis) / texel
+            XCTAssertLessThan(abs(k - k.rounded()), 0.05)
+        }
         XCTAssertEqual(CloudFrame.shadowExtent(altitude: 185_000), 840_000, accuracy: 1e-6)
         XCTAssertEqual(CloudFrame.shadowExtent(altitude: 1e8), 1_000_000, accuracy: 1e-6)
     }
