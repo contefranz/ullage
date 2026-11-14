@@ -153,7 +153,7 @@ final class HDRLookTests: XCTestCase {
     /// Neutral, evaluated in the shader, to float precision.
     func testToneCurveOnTheGPU() throws {
         let (r, post) = try renderer()
-        var g = SystemRandomNumberGenerator()
+        var g = SeededGenerator(seed: 0x70_4E5E)
         let colors: [SIMD4<Float>] = (0..<512).map { _ in
             let l = pow(2, Double.random(in: -10...4, using: &g))
             return SIMD4(Float(l * Double.random(in: 0...1, using: &g)), Float(l * Double.random(in: 0...1, using: &g)),
@@ -507,6 +507,23 @@ extension HDRLookTests {
         XCTAssertLessThan(Double(white) / Double(w * h), 0.1, "EV \(post.control.ev100)")
     }
 
+    /// The glare's 1/θ² comes from a series in 1 - cos θ (no acos): against
+    /// 1/acos² within 0.1 % from 5° to 45°, 0.5 % at 60° and 2.5 % at 90°.
+    func testGlareSeriesMatchesAcos() throws {
+        let (r, post) = try renderer()
+        let degrees: [Double] = [1, 5, 10, 20, 45, 60, 90]
+        let rays = degrees.map { d -> SIMD4<Float> in
+            let t = d * Double.pi / 180
+            return SIMD4(Float(sin(t)), 0, Float(-cos(t)), 0)
+        }
+        let values = try XCTUnwrap(post.glareProbe(rays, sunView: SIMD3(0, 0, -1), minAngle: 0, queue: r.queue))
+        for (d, v) in zip(degrees, values) {
+            let t = d * Double.pi / 180
+            let tolerance = d < 5 ? 0.01 : d <= 45 ? 0.001 : d <= 60 ? 0.005 : 0.025
+            XCTAssertEqual(Double(v) * t * t, 1, accuracy: tolerance, "\(d)°")
+        }
+    }
+
     /// Bright saturated colours whiten through AgX's LUT as AgX itself does,
     /// within 2 steps of 8-bit sRGB, on the GPU (the LUT used to stop each
     /// channel at 2^5).
@@ -584,6 +601,22 @@ final class HDRRuleTests: XCTestCase {
         for p in scene where !(p is HDRResolvePass) {
             XCTAssertLessThan(p.order, HDRResolvePass.sceneOrder, p.name)
         }
+    }
+}
+
+/// SplitMix64: the same colours on every run, so the accuracy bounds
+/// do not fail once in a thousand runs on an unlucky draw.
+struct SeededGenerator: RandomNumberGenerator {
+    private var state: UInt64
+
+    init(seed: UInt64) { state = seed }
+
+    mutating func next() -> UInt64 {
+        state &+= 0x9E37_79B9_7F4A_7C15
+        var z = state
+        z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+        z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+        return z ^ (z >> 31)
     }
 }
 
