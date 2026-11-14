@@ -4,7 +4,7 @@ import OrbitCore
 import OrbitScene
 
 /// F12 in the app: the frame on screen, rendered again offscreen, written as
-/// PNG, PFM, its depth, normal and luminance views and a JSON record to
+/// PNG, PFM (its light in cd/m²), its depth, normal and luminance views and a JSON record to
 /// `ORBITSIM_SNAPSHOT_DIR`, else ~/Library/Application Support/OrbitSim/Snapshots.
 @MainActor
 public enum AppSnapshot {
@@ -59,10 +59,17 @@ public enum AppSnapshot {
             renderer.renderAndWait(scene, into: target)
             return target.bytes()
         }
+        renderer.post?.capturesLight = true
         let image = frame(.none)
         let png = dir.appendingPathComponent("\(name).png")
         try ImageFiles.writePNG(image, width: w, height: h, order: .bgra, to: png)
-        try ImageFiles.writePFM(image, width: w, height: h, order: .bgra, to: dir.appendingPathComponent("\(name).pfm"))
+        let pfm = dir.appendingPathComponent("\(name).pfm")
+        if let post = renderer.post, let c = post.capturedLight() {
+            let k = Float(1 / post.control.preExposure)
+            try ImageFiles.writePFM(light: c.pixels.map { $0 * k }, width: c.width, height: c.height, to: pfm)
+        } else {
+            try ImageFiles.writePFM(image, width: w, height: h, order: .bgra, to: pfm)
+        }
         for view in DebugView.allCases where view != .none {
             try ImageFiles.writePNG(frame(view), width: w, height: h, order: .bgra,
                                     to: dir.appendingPathComponent("\(name).\(view.rawValue).png"))
