@@ -44,12 +44,11 @@ final class VesselPassTests: XCTestCase {
         return c.pixels.enumerated().map { $0.offset % 4 == 3 ? $0.element : $0.element * k }
     }
 
-    /// The exposure's guard (LightingCommon's `orbit_exposed`) on the GPU:
-    /// a NaN or an infinity in any channel blacks the sample out, rather
-    /// than reaching min() first and coming out as a 6e4 highlight that
-    /// would pass R1's own guard into the bloom; finite light is
-    /// pre-exposed and clamped to [0, 6e4]. The inputs come from a buffer,
-    /// so fast math cannot fold them.
+    /// The exposure's guard (LightingCommon's `orbit_exposed`) on the GPU,
+    /// R1's scene rule per channel: NaN and -∞ are no light, +∞ saturates
+    /// at 6e4, the rest is pre-exposed and clamped to [0, 6e4]. A NaN must
+    /// not reach min() first, which would turn it into a 6e4 highlight. The
+    /// inputs come from a buffer, so fast math cannot fold them.
     func testExposureGuardsNaNBeforeItClamps() throws {
         let device = try device()
         let module = ShaderModule(name: "ExposedTest", headers: [.shadowCommon, .lightingCommon], source: """
@@ -65,7 +64,8 @@ final class VesselPassTests: XCTestCase {
             SIMD4(nan, 1, 1, 1), SIMD4(1, nan, 1, 1), SIMD4(.infinity, 1, 1, 1), SIMD4(-.infinity, 1, 1, 1),
             SIMD4(2, 4, 8, 0.5), SIMD4(1e9, -3, 0, 1), SIMD4(1, 1, 1, nan),
         ]
-        let expected: [SIMD3<Float>] = [.zero, .zero, .zero, .zero, SIMD3(1, 2, 4), SIMD3(60_000, 0, 0), .zero]
+        let expected: [SIMD3<Float>] = [SIMD3(0, 1, 1), SIMD3(1, 0, 1), SIMD3(60_000, 1, 1), SIMD3(0, 1, 1),
+                                        SIMD3(1, 2, 4), SIMD3(60_000, 0, 0), .zero]
         let inBuffer = try XCTUnwrap(device.makeBuffer(bytes: input, length: 16 * input.count, options: .storageModeShared))
         let outBuffer = try XCTUnwrap(device.makeBuffer(length: 16 * input.count, options: .storageModeShared))
         let queue = try XCTUnwrap(device.makeCommandQueue())
@@ -83,6 +83,63 @@ final class VesselPassTests: XCTestCase {
             let o = SIMD3(out[i].x, out[i].y, out[i].z)
             XCTAssertEqual(o, e, "input \(input[i])")
         }
+    }
+
+    /// Every way the vessel pass writes light is clamped below half float's
+    /// overflow after the pre-exposure: at EV -4 (P = 13), the raw scene
+    /// (R1's resolve target, before post) holds no +∞ where a sunlit white
+    /// plate (opaque path, 4.5e5 pre-exposed), a heat shield glowing at
+    /// 1e9 cd/m² (emission) and a thin sunlit tube (the blended wire path)
+    /// stand side by side; the plate and the glow saturate at 6e4. R1's
+    /// `testBridgeShadersClampTheirLight` checks the pad the same way.
+    func testEveryVesselPathClampsItsLight() throws {
+        let post = PostPass()
+        let raw = RawSceneCapture()
+        let r = try SceneRenderer(device: try device(), outputFormat: .bgra8Unorm_srgb,
+                                  passes: [post.exposurePass, VesselPass(), raw],
+                                  plan: HDRTargetPlan(outputFormat: .bgra8Unorm_srgb, sampleCount: 4))
+        XCTAssertEqual(r.failures, [:])
+        var settings = RenderSettings()
+        settings.post.exposure.mode = .manual
+        settings.post.exposure.ev100 = -4
+        r.settings = settings
+        var white = VisualShape.box(from: Vec3(-5, 0, 0), length: 0.1, width: 4, height: 6, axis: -.unitY,
+                                    color: (0.8, 0.8, 0.8))
+        white.material = .apolloWhitePaint
+        var shield = VisualShape.box(from: Vec3(0, 0, 0), length: 0.1, width: 4, height: 6, axis: -.unitY,
+                                     color: (0.3, 0.26, 0.22))
+        shield.material = .apolloAblator
+        shield.emissive = .heatShield
+        var tube = VisualShape.frustum(from: Vec3(5, -1, -3), length: 6, baseRadius: 0.02, topRadius: 0.02,
+                                       axis: .unitZ, color: (0.9, 0.9, 0.9))
+        tube.material = .apolloLESTower
+        XCTAssertTrue(PartMesh.isWire(tube))
+        let part = VesselPart(name: "Three paths", dryMass: 1, length: 1, radius: 8, shapes: [white, shield, tube])
+        let vessel = Vessel(name: "Three paths", parts: [part], reference: Self.system.earth)
+        let (w, h) = (160, 100)
+        var scene = LookDevScenes.scene(vessel, at: Vec3(0, 20, 0), attitude: .identity, fovY: 30, width: w, height: h)
+        let toSun = Vec3(0, -1, 0)
+        scene.sun.direction = toSun
+        scene.vessels[0].light.toSun = toSun
+        scene.vessels[0].glow = RenderScene.RGB(1e9, 6e8, 3e8)
+        scene.vessels[0].flowDirection = Vec3(0, -1, 0)
+        let target = try XCTUnwrap(OffscreenTarget(device: r.device, width: w, height: h))
+        r.renderAndWait(scene, into: target)
+        let halves = try XCTUnwrap(raw.halves())
+        func light(_ x: Int, _ y: Int) -> [Float] {
+            (0..<3).map { Float(Float16(bitPattern: halves[4 * (y * w + x) + $0])) }
+        }
+        let infinite = halves.indices.filter { $0 % 4 != 3 && halves[$0] & 0x7fff == 0x7c00 }.count
+        XCTAssertEqual(infinite, 0, "+∞ in the raw scene")
+        // Plate centres in pixels: x = w/2 + (offset / (2 · 20 · tan 15° · aspect)) · w.
+        let metresPerPixel = 2 * 19.9 * tan(15 * Double.pi / 180) / Double(h)
+        func column(_ x: Double) -> Int { w / 2 + Int((x / metresPerPixel).rounded()) }
+        for c in light(column(-5), h / 2) { XCTAssertEqual(c, 60_000, accuracy: 600, "the sunlit plate saturates") }
+        for c in light(column(0), h / 2) { XCTAssertEqual(c, 60_000, accuracy: 600, "the glow saturates") }
+        var wire: Float = 0
+        for x in (column(5) - 2)...(column(5) + 2) { wire = max(wire, light(x, h / 2).max() ?? 0) }
+        XCTAssertGreaterThan(wire, 0, "the tube draws")
+        XCTAssertLessThanOrEqual(wire, 60_000, "and its blended light is clamped too")
     }
 
     /// A plate 10 m square facing the camera 10 m away, in `material`.

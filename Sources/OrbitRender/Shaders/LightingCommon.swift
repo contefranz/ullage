@@ -8,8 +8,8 @@ let lightingCommonSource = #"""
 //
 // Units. Light is photometric: illuminance in lux, luminance (radiance) in
 // cd/m², linear Rec. 709. A shader writes linear light times the frame's
-// pre-exposure (FrameUniforms.exposure.x, R1), guarded and clamped by
-// `orbit_exposed`, and blends linearly. It never calls orbit_encodeHDR: R1's
+// pre-exposure (FrameUniforms.exposure.x, R1), cleaned and clamped below 6e4
+// by `orbit_exposed` (R1's scene rule), and blends linearly. It never calls orbit_encodeHDR: R1's
 // HDRResolvePass alone weights the scene's samples for the resolve, so
 // exactly one side encodes (VesselPassTests.testRadianceMatchesTheSwiftReference
 // fails if a vessel's light is encoded twice, or not pre-exposed).
@@ -299,14 +299,20 @@ inline float3 orbit_environmentLight(OrbitShadingPoint p, float ao, constant Lig
     return prefiltered * p.specularWeight * so + irradianceOverPi * p.diffuseWeight * ao;
 }
 
-// Pre-exposure, a NaN guard and the FP16 ceiling: what a shader writes. The
-// guard comes first: min() returns its other argument for a NaN (and clamps
-// an infinity), so after it a NaN would read as a 6e4 highlight. Any NaN or
-// infinity in a channel blacks the sample out.
+// Pre-exposure, then R1's scene rule per channel (docs/look/units-and-
+// exposure.md): NaN and -inf are no light, +inf saturates, and the rest is
+// clamped to [0, 6e4], below half float's overflow. Every vessel output
+// (opaque, wires, emission and glow) goes through it. The bit test comes
+// before any min(): min() returns its other argument for a NaN, so after it
+// a NaN would read as a 6e4 highlight.
+inline float orbit_exposedChannel(float x) {
+    uint b = as_type<uint>(x);
+    if ((b & 0x7f800000u) == 0x7f800000u) { return (b & 0x807fffffu) == 0u ? ORBIT_MAX_HDR : 0.0; }
+    return clamp(x, 0.0, ORBIT_MAX_HDR);
+}
 inline float3 orbit_exposed(float3 radiance, float preExposure) {
     float3 c = radiance * preExposure;
-    if (orbit_isNotFinite(c)) { return float3(0.0); }
-    return clamp(c, float3(0.0), float3(ORBIT_MAX_HDR));
+    return float3(orbit_exposedChannel(c.r), orbit_exposedChannel(c.g), orbit_exposedChannel(c.b));
 }
 """#
 
