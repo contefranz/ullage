@@ -510,10 +510,11 @@ final class CloudMapTests: XCTestCase {
     }
 }
 
-/// Apollo 8's skies (ORBITSIM_CLOUD_SHOTS=<dir>): orbitsnap has no Apollo 8
-/// scenario, so this builds AS-506's stack on LC-39A at AS-503's launch,
-/// 1968-12-21 12:51:00 UTC, and a capsule in a 185 km orbit in daylight an
-/// hour later (the terminator is Apollo 11's, c2-scenes.json),
+/// Apollo 8's orbit by day (ORBITSIM_CLOUD_SHOTS=<dir>): the pad and the
+/// ascent are orbitsnap's (`apollo8-pad`, c2-scenes.json), but a parking
+/// orbit on Apollo 8's day is M2's, so this puts a capsule in a 185 km orbit
+/// in daylight an hour after AS-503's launch (the terminator is Apollo
+/// 11's, c2-scenes.json),
 /// and renders them as orbitsnap does (auto exposure, settled), with
 /// Apollo 8's ERA5 field when it is fetched.
 @MainActor
@@ -528,14 +529,6 @@ final class CloudApollo8Shots: XCTestCase {
     }
 
     static let launch = Epoch(utcYear: 1968, month: 12, day: 21, hour: 12, minute: 51)
-
-    static func pad(_ system: SolarSystem) -> Simulation {
-        let sim = Simulation(system: system, time: launch)
-        let v = VesselLibrary.apollo11OnPad(in: sim, program: SaturnIU.as506())
-        v.mainThrottle = 1
-        sim.paused = true
-        return sim
-    }
 
     /// A capsule in a 185 km orbit at 32.5° an hour after launch, its
     /// ascending node towards the Sun (RA about 270° at the December
@@ -560,12 +553,6 @@ final class CloudApollo8Shots: XCTestCase {
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
         let s = try SnapshotRenderer(device: try XCTUnwrap(RenderDevice.shared))
         let shots: [Shot] = [
-            Shot(name: "a8-pad-dawn", build: Self.pad, camera: .init(yaw: -100, pitch: 8, distance: 300, fov: 60)),
-            Shot(name: "a8-pad-cirrus", build: Self.pad, camera: .init(yaw: -100, pitch: -35, distance: 120, fov: 70)),
-            Shot(name: "a8-ascent-60s", build: Self.pad, advance: ["met:60"], missionClockZero: Self.launch,
-                 camera: .init(yaw: 149, pitch: -20, distance: 400, fov: 60)),
-            Shot(name: "a8-ascent-120s", build: Self.pad, advance: ["met:120"], missionClockZero: Self.launch,
-                 camera: .init(yaw: 149, pitch: -25, distance: 400, fov: 60)),
             Shot(name: "a8-leo-day", build: Self.orbit(latitudeArgument: 10), camera: .init(yaw: -34, pitch: 25, distance: 60, fov: 60)),
         ]
         let width = 1280, height = 800
