@@ -337,13 +337,17 @@ final class HDRLookTests: XCTestCase {
 
 extension HDRLookTests {
     /// A render-stage pass on the command buffer (`encodesOnCommandBuffer`,
-    /// R6's half-resolution targets) breaks the scene's encoder: the HDR plan
-    /// stores its MSAA samples, and the image is the same, also while timing.
+    /// R6's half-resolution targets) breaks the scene's encoder. In P3 the
+    /// HDR plan resolves the scene there and re-expands it: two more half
+    /// float roundings, which move some pixels by one step of 8-bit sRGB and
+    /// none by more. While timing it keeps the samples, and the image is the
+    /// same to the bit; so is it with a break in P1, which keeps them too.
     func testBreakingTheSceneKeepsThePixels() throws {
         final class Gap: RenderPass {
             let name = "Gap"
-            let stage = PassStage.transparent
+            let stage: PassStage
             let order = 15
+            init(_ stage: PassStage = .transparent) { self.stage = stage }
             var encodesOnCommandBuffer: Bool { true }
             var broke = false
             func encode(_ f: FrameContext, _ e: PassEncoding) {
@@ -375,9 +379,12 @@ extension HDRLookTests {
         }
         let gap = Gap()
         let plain = try image([])
-        XCTAssertEqual(try image([gap]), plain)
+        let steps = zip(try image([gap]), plain).map { abs(Int($0) - Int($1)) }
         XCTAssertTrue(gap.broke, "the plan was told")
+        XCTAssertLessThanOrEqual(steps.max() ?? 2, 1, "a step at most")
+        XCTAssertGreaterThan(steps.filter { $0 == 0 }.count, steps.count * 9 / 10)
         XCTAssertEqual(try image([Gap()], timing: true), plain, "while timing")
+        XCTAssertEqual(try image([Gap(.opaque)]), plain, "a break in P1")
     }
 }
 

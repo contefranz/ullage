@@ -511,6 +511,8 @@ extension FrameGraphTests {
     /// breaks too: in P3, in P1, before the scene's first encoder and in P5
     /// (its overlay), plain and timed. Its scene encoders take their stores
     /// as they end; its overlay's keep theirs (the validation layer checks).
+    /// A break in P3 resolves the scene and re-expands it in the plain frame,
+    /// which moves some pixels by a step of 8-bit sRGB (HDRBreakTests).
     func testBreakingTheSceneOnTheShippingPlanKeepsThePixels() throws {
         final class Gap: RenderPass {
             let name = "Gap"
@@ -548,7 +550,13 @@ extension FrameGraphTests {
         let plain = try image([])
         XCTAssertGreaterThan(plain.filter { $0 != 0 }.count, plain.count / 2, "a frame with something in it")
         for (stage, order) in [(PassStage.transparent, 15), (.opaque, 15), (.opaque, -5), (.overlay, 100)] {
-            XCTAssertEqual(try image([Gap(stage, order)]), plain, "a break in \(stage) at \(order)")
+            let broken = try image([Gap(stage, order)])
+            if stage == .transparent {
+                let steps = zip(broken, plain).map { abs(Int($0) - Int($1)) }
+                XCTAssertLessThanOrEqual(steps.max() ?? 2, 1, "a break in \(stage) at \(order)")
+            } else {
+                XCTAssertEqual(broken, plain, "a break in \(stage) at \(order)")
+            }
             XCTAssertEqual(try image([Gap(stage, order)], timing: true), plain, "a break in \(stage) at \(order), timed")
         }
     }

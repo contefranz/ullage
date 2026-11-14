@@ -77,6 +77,20 @@ Checks in `Tests/OrbitSceneTests/PhotometryTests.swift`: the 1948 candela
   1 / (1 + its brightest channel), weight in alpha, so the hardware's
   average is a weighted mean and edges against the Sun or a plume do not
   alias. Passes before it blend in linear light.
+- **Breaks**: a render-stage pass on the command buffer (R6's effect slots)
+  ends the scene's encoder. A break in P2 or P3 resolves the scene there,
+  with the same weighting, and the scene resumes re-expanded in tile memory:
+  its first draw gives every sample of a pixel the pixel's resolved light
+  and nearest depth. No 4× sample is stored or loaded, and P3's passes keep
+  their 4× pipelines and antialias their own edges. A glow behind an opaque
+  silhouette is hidden in the whole edge pixel, and a break moves some
+  pixels by a step of 8-bit sRGB (two more half-float roundings). A break in
+  P1 keeps the samples. At 3024×1964 on an M3 Pro, a break costs 0.28 ms
+  this way and 1.17 ms with the samples kept; R6's test slab with it,
+  0.86 ms against 1.62 ms (`HDRBreakCostTests`). While timing, the samples
+  are kept and the resume after a P2 or P3 break, charged to the pass that
+  broke the scene, re-expands into scratch targets, so the profile shows
+  the plain frame's cost.
 - **Bloom**: six levels from half resolution, rgba16Float (rg11b10Float's
   short mantissas lost 3 % of the light), 13-tap down (the first level from
   each 6×6 neighbourhood of decoded texels, shared in threadgroups) and tent

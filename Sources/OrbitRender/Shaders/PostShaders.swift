@@ -96,6 +96,25 @@ static float3 post_decode(float4 e) {
     return post_clean(e.rgb / max(e.a, 1e-7));
 }
 
+// The scene re-expanded after a break that resolved it (HDRTargetPlan): the
+// first draw of the resumed scene, at pixel rate, so every sample of a
+// pixel takes its resolved light, decoded, and its nearest depth. The
+// passes after the break draw on that in tile memory; the resolve at the
+// scene's end weights the samples again.
+struct PostExpanded {
+    float4 color [[color(0)]];
+    float depth [[depth(any)]];
+};
+fragment PostExpanded post_expand_scene(PostVertexOut in [[stage_in]],
+                                        texture2d<float> hdr [[texture(0)]],
+                                        depth2d<float> depth [[texture(1)]]) {
+    uint2 p = uint2(in.position.xy);
+    PostExpanded o;
+    o.color = float4(post_decode(hdr.read(p)), 1.0);
+    o.depth = depth.read(p);
+    return o;
+}
+
 // ---------------------------------------------------- downsample, histogram ---
 
 static float post_luma(float3 c) { return dot(c, float3(0.2126, 0.7152, 0.0722)); }
