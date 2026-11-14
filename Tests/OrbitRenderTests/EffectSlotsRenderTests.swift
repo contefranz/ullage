@@ -425,6 +425,36 @@ final class EffectSlotsRenderTests: XCTestCase {
         XCTAssertEqual(target.bytes(), with.pixels)
     }
 
+    /// Effects hold their radiance below 6e4, short of half's 65504, in the
+    /// helper every output goes through, OIT fragments included.
+    func testEffectRadianceIsHeldBelowHalfsLimit() throws {
+        let device = try XCTUnwrap(RenderDevice.shared)
+        let module = ShaderModule(name: "EffectClamp", headers: [.effectSlots], source: """
+            kernel void effect_clamp(device float4 *out [[buffer(0)]], constant EffectSlotUniforms &e [[buffer(1)]]) {
+                out[0] = float4(orbit_effectRadiance(float3(1e9, 5e4, 0.25)), 0.0);
+                out[1] = orbit_oitOutput(float4(1e9, 1e9, 1e9, 1.0), 10.0, e).accumulation;
+            }
+            """)
+        let library = try ShaderLibrary(device: device).library(module)
+        let pipeline = try device.makeComputePipelineState(function: try XCTUnwrap(library.makeFunction(name: "effect_clamp")))
+        let out = try XCTUnwrap(device.makeBuffer(length: 32, options: .storageModeShared))
+        var u = EffectSlotUniforms(size: RenderSize(width: 4, height: 4), scale: 2, layers: .oit,
+                                   settings: TransparencySettings(), reference: 10)
+        let queue = try XCTUnwrap(device.makeCommandQueue())
+        let cb = try XCTUnwrap(queue.makeCommandBuffer()), enc = try XCTUnwrap(cb.makeComputeCommandEncoder())
+        enc.setComputePipelineState(pipeline)
+        enc.setBuffer(out, offset: 0, index: 0)
+        enc.setBytes(&u, length: MemoryLayout<EffectSlotUniforms>.stride, index: 1)
+        enc.dispatchThreads(MTLSize(width: 1, height: 1, depth: 1), threadsPerThreadgroup: MTLSize(width: 1, height: 1, depth: 1))
+        enc.endEncoding()
+        cb.commit()
+        cb.waitUntilCompleted()
+        let v = out.contents().bindMemory(to: SIMD4<Float>.self, capacity: 2)
+        XCTAssertEqual(v[0], SIMD4(6e4, 5e4, 0.25, 0))
+        for k in 0..<3 { XCTAssertLessThanOrEqual(v[1][k], Float(EffectSlots.oitMaxAccumulation)) }
+        XCTAssertTrue(v[1].x.isFinite)
+    }
+
     /// The slots' and the test emitters' Swift mirrors have MSL's sizes.
     func testStructLayoutsMatchMSL() throws {
         let device = try XCTUnwrap(RenderDevice.shared)

@@ -151,7 +151,7 @@ fragment float4 effect_composite_fragment(EffectFullscreenOut in [[stage_in]],
     }
     float4 c = effect_compositeLayers(l);
     if (orbit_isNotFinite(c.rgb) || orbit_isNotFinite(c.a)) { return float4(0.0); }
-    return float4(c.rgb, clamp(c.a, 0.0, 1.0));
+    return float4(orbit_effectRadiance(c.rgb), clamp(c.a, 0.0, 1.0));
 }
 
 // ----------------------------------------------------- slot debug views ---

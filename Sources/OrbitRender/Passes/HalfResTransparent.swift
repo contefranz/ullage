@@ -39,8 +39,9 @@ import OrbitScene
 //    unbound). A pass there tests against the depth attachment, or reads
 //    `.halfResPixelDepths` on frames the slots run.
 // 5. Units: radiance is linear light times `FrameUniforms.exposure.x`, never
-//    `orbit_encodeHDR`-ed (the target plan weights the samples itself), and
-//    the composite comes back into the scene in P3 before the plan's resolve.
+//    `orbit_encodeHDR`-ed (the target plan weights the samples itself), held
+//    below 6e4 in every channel (`orbit_effectRadiance`), and the composite
+//    comes back into the scene in P3 before the plan's resolve.
 
 /// The layers an effect draws into this frame.
 public struct HalfResLayers: OptionSet, Hashable {
