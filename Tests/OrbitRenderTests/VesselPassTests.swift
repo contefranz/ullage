@@ -855,6 +855,7 @@ final class VesselPassTests: XCTestCase {
         r.settings = Self.manual(RenderSettings())
         let target = try XCTUnwrap(OffscreenTarget(device: r.device, width: w, height: h))
         let bare = SceneExtractor()
+        bare.sites = []             // R4's default places LC-39A
         r.renderAndWait(bare.extract(sim: sim, camera: camera, viewport: viewport, realTime: 0), into: target)
         let without = target.bytes()
         let x = SceneExtractor()

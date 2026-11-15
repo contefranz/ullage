@@ -8,19 +8,19 @@ import OrbitScene
 final class SceneRendererTests: XCTestCase {
     static let system = try! SolarSystem.bundled()
 
-    /// Today's passes, R1's, A2's and C2's clouds are set up and active, every
+    /// Today's passes, R1's, A2's, C2's clouds and R4's shadows are set up and active, every
     /// track's stub is off. R6's effect slots are set up too; they run only on
     /// frames an effect draws in.
     func testDefaultPasses() throws {
         let r = try SceneRenderer(device: try XCTUnwrap(RenderDevice.shared), loadsUserTextures: false)
         XCTAssertEqual(r.failures, [:])
-        XCTAssertEqual(r.graph.active.map(\.name), ["Exposure", "Atmosphere LUTs", "Clouds", "Particle simulation",
-                                                    "Stars", "Planets", "Vessels", "Effect test opaque",
-                                                    "Particle chunks", "Atmosphere composite", "Vessel wires",
-                                                    "Half-resolution transparents", "Plumes", "Far points",
+        XCTAssertEqual(r.graph.active.map(\.name), ["Exposure", "Atmosphere LUTs", "Clouds", "Shadows",
+                                                    "Particle simulation", "Stars", "Planets", "Vessels",
+                                                    "Effect test opaque", "Particle chunks", "Atmosphere composite",
+                                                    "Vessel wires", "Half-resolution transparents", "Plumes", "Far points",
                                                     "Transparent composite", "Effect test sparks", "Particles",
                                                     "HDR resolve", "Post", "Debug view", "Effect slots debug view",
-                                                    "Orbit line", "Markers"])
+                                                    "Sun-shadow view", "Orbit line", "Markers"])
         XCTAssertEqual(Set(r.graph.passes.map(\.name)).count, r.graph.passes.count, "pass names are unique")
         for stage in PassStage.allCases {
             XCTAssertTrue(r.graph.passes.contains { $0.stage == stage }, "a pass in every slot, \(stage)")

@@ -16,8 +16,9 @@ public final class SceneExtractor {
         }
     }
 
-    /// Body-fixed sites to place each frame (the launch complex).
-    public var sites: [SitePlacement] = []
+    /// Body-fixed sites to place each frame: LC-39A, which stands in every
+    /// scene, as it stood through 1968 and 1969.
+    public var sites: [SitePlacement] = [LC39A.placement()]
 
     /// The temporal history goes stale when the body nearest the camera
     /// turns more than this between two scenes, rad (0.5°).

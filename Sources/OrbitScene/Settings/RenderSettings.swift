@@ -115,4 +115,7 @@ public enum DebugView: String, Codable, CaseIterable {
     case effectLayers
     /// R6: the nearest effect front's depth, tinted by its layer.
     case effectFront
+    /// The Sun's visible share from the shadow maps on every surface, tinted
+    /// by the map that served it (R4's `ShadowDebugPass`).
+    case sunShadow
 }
