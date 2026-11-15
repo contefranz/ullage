@@ -36,7 +36,7 @@ public final class VesselPass: RenderPass {
 
     private var opaque: MTLRenderPipelineState?
     private var wire: MTLRenderPipelineState?
-    /// The wires' depth where they cover half their width or more (`VesselWirePass`).
+    /// The wires' depth where their coverage is 0.5 or more (`VesselWirePass`).
     private var wireDepth: MTLRenderPipelineState?
     private(set) var dfg: MTLTexture?
     private var dummy: MTLBuffer?
@@ -561,8 +561,8 @@ final class HeldWires {
 
         /// Blends the wires over what `encoder`'s targets hold, depth-tested
         /// against the scene without writing depth; then, with `writing`
-        /// (a state that writes depth), draws their depth where they cover
-        /// half their width or more, so that what lies behind them there is
+        /// (a state that writes depth), draws their depth where their
+        /// coverage is 0.5 or more, so that what lies behind them there is
         /// hidden from the draws after (P3's clouds and plumes, P5).
         @MainActor func draw(on encoder: MTLRenderCommandEncoder, depth: MTLDepthStencilState,
                              writing: MTLDepthStencilState?) {

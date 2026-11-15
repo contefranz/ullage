@@ -289,6 +289,140 @@ All new, in Sources/OrbitCore/Effects/:
 - Condensation (optional).
 The only edits to existing core files are in Simulation.swift and SimulationStaging.swift, in the prep PR.
 
+## P3 API (frozen)
+
+Frozen on 2026-11-15 by track P3 (branch `m16-particles`). P4, P5 and P6 build on it. Where this section and the sections above differ, this one wins: it is what the code does. A change to it is a small PR of P3's, announced to the coordinator first.
+
+WHERE THINGS ARE
+- `Sources/OrbitScene/Effects/` (Linux, tested in OrbitSceneTests): the API the effect tracks write against.
+  - `ParticleMaterial.swift`: `ParticleMaterial`, `ParticleRenderClass`, `ChunkShape`, `ParticleColor`, `ParticleMaterialTable`, `ParticleMaterialID`, and a starting `library` (spark, flash, smoke, soot, steam, ice flake, debris, ice slab).
+  - `EmitRequest.swift`: `EmitRequest`, `EmitShape`, `EmitDirection`, `EmitSampler` (the emit kernel's sampling in Double) and `ParticleRandom` (the PCG hash the GPU uses).
+  - `EffectAnchor.swift`: `EffectAnchor`, `EffectAnchorID`, `StudioAnchor`, `AnchorFrame`.
+  - `EffectTime.swift`: `EffectClock`, `EffectTimeRules`, `FlashHold`, `ContinuousEmission`.
+  - `EffectSession.swift`: `EffectProducer`, `EffectFrame`, `EffectPlacement`, `EffectSession`, `EffectFrameOutput`.
+  - `AirProfile.swift`: the 64-level air table.
+- `Sources/OrbitCore/Effects/ParticlePhysics.swift` (Linux, OrbitCoreTests): buoyancy, drag of grains and gas parcels, entrainment, cooling, exact sublimation, and `advance`, the step the GPU runs. P1's `ParticleKinematics.step` is its drag step.
+- `Sources/OrbitScene/Settings/ParticleSettings.swift`: `ParticleQuality` (the budget), the look-dev `testBursts` and the `studio`.
+- `Sources/OrbitRender/Effects/` (Mac): `EffectDirector` (runs the session each frame and lists the producers), `ParticleSystem` (the GPU buffers and kernels), `EffectAnchors` (anchors to float), `VolumeNoise` (the 128³ noise), `EffectsSelfTest`. `Shaders/ParticleShaders.swift` is the module.
+- Seams added to F0's scene: `RenderScene.Body.gm`, `.j2` and `.air` (an `AirProfile`), and `RenderScene.Vessel.velocity` (ICRF, relative to its reference body). SceneExtractor fills them.
+  - `.air` is sampled from the atmosphere the simulation flies through, `Simulation.atmosphere(of:)`. On AS-506's pad that is the launch day's sounding and its winds, not the body's bare US76.
+
+HOW AN EFFECT TRACK PLUGS IN
+1. Write a class adopting `EffectProducer` (OrbitScene types only, so it can live in OrbitScene and be tested on Linux, or in OrbitRender/Effects beside the director).
+2. List it in `EffectDirector.defaultProducers()` (OrbitRender/Effects/EffectDirector.swift), one line per track, in the order P4, P5, P6.
+3. In `registerMaterials(_:)`, register your materials and keep their `ParticleMaterialID`s. Names are unique across tracks: prefix them (`"p4 pad steam"`).
+4. Each frame the director calls `handle(_:in:)` for every journal event (`EffectEvent`) not handled before, oldest first, then `update(_:)`. Neither runs on a frame drawn again (a snapshot's AOV) or while the look-dev studio is on.
+5. `reset()` is called on a scenario change and on a time jump. Forget any state then. Anchor ids you kept no longer resolve.
+6. Never touch the particle shaders: a look the material table cannot express is a request to P3.
+
+ANCHORS (`EffectFrame`)
+- `anchor(_:)` makes one, carried on to the frame's epoch. It returns nil when all 256 are in use; skip the emission then. An anchor lives while particles emitted into it may (their lifetimes, plus 3 frames for a held flash), then its id stops resolving. Its slot is not handed out again for two frames, so the GPU kills any particle left in it first.
+- `freeFallAnchor(for: event)`: at the event's vessel's state at the event. This is the anchor for a staging burst: retros, pyros, debris.
+- `freeFallAnchor(for: vessel)`: at a scene vessel's state now.
+- `vesselAnchor(id, key:)`: one tracking anchor per vessel and key, rebased every 2 s or 500 m; body-fixed while the vessel is landed. Use it for continuous emitters on a vessel: vents, frost, RCS.
+- `bodyFixedAnchor(at: site)`: the pad, before LC's own anchors exist.
+- `.bodyFixed(bodyID:origin:)`: body axes, m from the body's centre.
+- Axes: a body-fixed anchor's are the body's own (rotating), a free-fall anchor's are ICRF, the studio's are the camera target's east, north and up.
+- Gravity (`AnchorFrame.gravity`) is the body's at the anchor's origin. In a body-fixed anchor it points down the geodetic normal.
+- A free-fall anchor (`AnchorFrame.fallsFreely`) falls at that gravity with its particles:
+  - their weight is gone, but Archimedes' buoyancy (the static air's pressure gradient) is not;
+  - the air accelerates at −g relative to the anchor.
+  - So a particle's slip through the air is exactly what it is in a body-fixed anchor: neutral steam stays with the air, and hot smoke rises.
+  - Over a turning body, the still air also accelerates at its centripetal ω × (ω × r). Its pressure gradient carries that too, so the slip feels the turning air's effective gravity, g − ω × (ω × r) (`Environment.airAcceleration`).
+  - A free-fall anchor that has fallen below half its body's radius (one left at the ground for some ten minutes) is retired with its particles. Effects that stay near the ground for minutes belong in body-fixed anchors.
+- The air at a particle:
+  - the body's `AirProfile` at its altitude, read where the particle was when it met that air: a climbing or falling free-fall anchor was elsewhere earlier in the step (`Environment.frameVelocity`, `AnchorFrame.environment`);
+  - the wind blows east and north at the anchor's origin;
+  - in free fall the air also turns with the body: ω × r, less the anchor's velocity, plus the −g above.
+- `place(point, of: event, in:)` and `place(point, of: vessel, in:)`: a point in vessel body axes from the centre of mass. They give its position, velocity and (for a scene vessel) acceleration in the anchor's axes, and `toAnchor` for directions. For a vessel, `place` gives `origin`, `sourceVelocity` and `sourceAcceleration`.
+  - The acceleration is relative to the anchor.
+  - In a free-fall anchor it is the vessel's thrust and drag alone: none for a coasting vessel. Gravity's mean over the last frame is taken off its change of velocity. Across a change of reference body (a sphere of influence) it is zero for that frame.
+  - In a body-fixed anchor it is the whole acceleration, gravity included.
+
+EMITTING
+- `EmitRequest` fields:
+  - anchor, material, count;
+  - `origin` (anchor axes, m) and `axis`;
+  - `shape`: point, ball, sphere, disc, ring, band or line;
+  - `direction`: `.axis(spread:)` or `.radial(spread:)`, in radians;
+  - `speed` range;
+  - `velocity`, added to every particle, relative to the source;
+  - `sourceVelocity` and `sourceAcceleration`, relative to the anchor;
+  - `radius` and `lifetime` ranges;
+  - `temperature`, in K (0: the air's);
+  - `ages`, stratified: particle i of n is at lower + (i + u)/n × (upper − lower);
+  - `seed`.
+- How a particle is placed: one of age a started at origin − v·a + ½A·a², moving at v − A·a plus its own velocity. The emit kernel then ages it to the frame with `ParticlePhysics.advance`.
+- `emit(r)`: the ages as given.
+- `burst(r, at: epoch)`: a journal burst. Its ages are shifted by frame − epoch. It is dropped if older than its lifetime, unless it is a flash above 10× that ended within this frame.
+- `emitContinuous(key, rate:, r, persistsAtHighWarp:)`: rate × dt particles, carrying the fractions. They cover only the last lifetime (`lifetime.upperBound`) of the frame's interval, with stratified ages. Suspended at 1,000× and above unless `persistsAtHighWarp` (P4's trail). Its count, ages and seed are set for you.
+- Budget:
+  - `ParticleQuality.capacity`: Low 8k, Medium 32k, High 128k (the default), Ultra 256k;
+  - 1,024 requests a frame;
+  - 2,048 chunks drawn;
+  - past the budget the newest particles are dropped, never the frame.
+
+MATERIALS (`ParticleMaterial`; JSON keys are the member names)
+- Look:
+  - `renderClass`: `streak`, `smoke` or `chunk`;
+  - `albedo`;
+  - `emission`, in cd/m², linear Rec. 709, before pre-exposure (the shaders apply `FrameUniforms.exposure.x` and clamp at 6e4, R1's rule);
+  - `emissionTemperature`: the emission follows (T/this)⁴, or is fixed if 0;
+  - `opticalDepth` (smoke), falling as (r0/r)² as the puff grows;
+  - `phaseG`, `fadeIn` and `fadeOut` (fractions of the lifetime), `streakTime`;
+  - `chunkShape`, `chunkAspect` and `spin`.
+- Motion (`ParticlePhysics.Material`):
+  - `density` (0: a gas parcel at its own temperature);
+  - `dragCoefficient`, `buoyancy`, `entrainment` (α), `spreadRate` (m/s), `coolingTime` (s, infinite or left out for none);
+  - `sublimates`.
+- Time and ground: `isFlash` (held at least 3 frames above 10×) and `killedAtGround`.
+- How each render class is drawn and lit:
+  - streaks: emission plus a sunlit glint, albedo × E⊙ × sunlit × HG. A capsule along the trail across the line of sight, at least 3 px wide, its flux the particle's at any view angle;
+  - smoke: albedo × (E⊙ × sunlit × HG + sky/π), plus emission, through R6's OIT layer;
+  - chunks: Lambert in P1, one-sided as the vessels.
+- What is drawn:
+  - every class is culled against the view in the simulate kernel, by the bound of what it draws:
+    - a streak's capsule: its trail, and its width (at least 3 px) about the head and tail;
+    - a plate chunk's corners, r √(2 + aspect²);
+    - a puff's or a tetrahedron's r.
+  - streaks too faint to see at the frame's exposure (a tenth of sRGB's first 8-bit step) are not drawn; they still move;
+  - `ParticleSettings.culls` turns culling off, to check that it changes nothing (ParticleRenderTests).
+  - Smoke has no LOD of P3's: every live puff in view is drawn. Its overdraw on the pad is R7's to tier.
+  - The Sun is the frame's, through the air (A2's transmitted Sun) when the camera is in air, times the anchor's sunlit fraction (`Eclipse`).
+
+TIME (`EffectTimeRules`)
+- The particles advance by the simulation's dt. It is 0 when paused, on the first frame, and on a frame drawn again.
+- On a scenario change (a new simulation, or the extractor's frame index going back) or a time jump (dt < 0 or > 600 s), everything resets.
+- The turbulence clock is real dt × min(warp, 4). The noise drifts on it by whole tiles an hour, so it does not jump when the clock wraps.
+- A flash (`isFlash`) above 10× lives on past its lifetime until drawn on 3 frames, looking as it did at half its life (`FlashHold`).
+- The GPU's integrator takes any dt. It uses up to 32 pieces of the exact linear-drag step on the slip through the air, each re-linearised (second order) in speed, radius and temperature.
+  - The pieces are equal while 32 of twice the shortest of τ and the terminal time suffice.
+  - Otherwise they grow geometrically from it, since quadratic drag's slip dies as 1/t.
+  - So a 300 m/s pyro puff aged through one 100× frame, or the F-1's exhaust pre-aged 8.9 s, lands within 3 % of 1 ms steps (ParticlePhysicsTests).
+- Gas parcels:
+  - they mix as an ideal gas at the air's pressure, conserving r³ (1 − Ta/T);
+  - they cool on the dry adiabat as they rise through the profile's pressure, so the stable troposphere stops them;
+  - spreading into vacuum, they cool as V^−(γ−1).
+
+LOOK-DEV
+- `ParticleSettings.testBursts` are spawned afresh every frame in the studio anchor at the camera's target, at their ages, in place of every producer. With them a shot is deterministic and the same in any scenario.
+  - A frame drawn again (a snapshot's AOVs and timing frames) keeps them, so `--timings` measures the steady state.
+- The studio:
+  - `ParticleSettings.studio` gives its gravity and its air, e.g. sea level;
+  - it is lit by the Sun above any air (`AnchorFrame.sunAboveAir`), whatever the scenario's eclipse.
+- A burst names a library material or carries a `custom` one.
+- P3's shots:
+  - `docs/look/shots/p3.json`: look-dev goldens at a manual EV 15;
+  - `p3-cost.json`: the cost shots at 3024×1964, contact sheet only.
+- P4-P6 add their own specs the same way.
+
+KNOWN LIMITS (ask P3 rather than work around them)
+- A body-fixed anchor's ground is the reference surface (sea level). There is no terrain or pad-deck height yet.
+- Streaks are stretched by their motion relative to their anchor, not to the camera.
+- Coriolis is neglected in body-fixed anchors, and tides in free-fall ones (their particles stay within kilometres).
+- Within one advance the air's profile is looked up at each piece's start. A free-fall anchor's velocity is ω × r − its air's, with r up its radius (the geodetic up): within about 1.5 m/s of the true one.
+- Smoke has no self-shadowing (option 6, deferred). Thick puffs are lit by a diffuse wrap, thin ones by single scattering.
+
 ## Phasing
 
 P0. Seams (0.75–1 d; core part on Linux, hook on the Mac). Lands first.

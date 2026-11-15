@@ -389,10 +389,16 @@ final class EffectSlotsRenderTests: XCTestCase {
     func testOITIsOrderIndependent() throws {
         let shot = Self.shot([EffectTestEmitter(.sprites, size: 30, count: 24)])
         let forward = try render(shot)
+        var reversed = false
         let backward = try render(shot) { r in
+            // The test emitters wherever they stand among the effects
+            // (clouds and P3's smoke come first).
             let slots = r.graph.passes.compactMap { $0 as? HalfResTransparentPass }.first
-            (slots?.effects.first as? EffectTestEmitters)?.reversesSprites = true
+            let emitters = slots?.effects.compactMap { $0 as? EffectTestEmitters }.first
+            emitters?.reversesSprites = true
+            reversed = emitters != nil
         }
+        XCTAssertTrue(reversed, "the backward frame drew the sprites last to first")
         let differ = zip(forward.pixels, backward.pixels).map { abs(Int($0) - Int($1)) }
         XCTAssertLessThanOrEqual(differ.max() ?? 0, 1)
         XCTAssertGreaterThan(Set(forward.pixels).count, 50, "the sprites are drawn")
