@@ -12,14 +12,17 @@ import OrbitCore
 ///   wall's equilibrium temperature falls along the bell as the heat flux
 ///   does, about as the area ratio to the -0.9 (T ∝ ε^-0.225 ∝ r^-0.45):
 ///   about 870 K at the 62.5:1 exit, dark there.
-/// - The wall heats and cools exponentially in simulation time, with time
-///   constants of 30 s heating and 90 s cooling, like the heat shield's lag.
+/// - The wall heats and cools exponentially in simulation time. A thin
+///   radiation-cooled sheet holds little heat: 0.5 mm of columbium, ρct
+///   about 1,160 J/(m² K), radiating from both faces, relaxes in
+///   ρct / (8εσT³), about 1 s at 1,400 K and 6 s at 800 K; 4 s heating
+///   and 12 s cooling here (L).
 /// - It radiates as a grey body of emissivity 0.8 (the silicide coating).
 public enum NozzleGlow {
     public static let topTemperature = 1_480.0
     public static let exponent = 0.45
     public static let emissivity = 0.8
-    public static let heating = 30.0, cooling = 90.0
+    public static let heating = 4.0, cooling = 12.0
     /// The cold wall's temperature, K.
     public static let ambient = 300.0
     /// The thrusters that glow, by name.
@@ -95,8 +98,10 @@ public final class NozzleGlowTracker {
                 break
             }
         }
-        var flows: [RenderScene.ThrusterKey: Double] = [:]
-        for e in scene.emitters where NozzleGlow.thrusters.contains(e.name) { flows[e.thruster] = e.flowFraction }
+        var flows: [RenderScene.ThrusterKey: (flow: Double, burnTime: Double)] = [:]
+        for e in scene.emitters where NozzleGlow.thrusters.contains(e.name) {
+            flows[e.thruster] = (e.flowFraction, e.burnTime)
+        }
         var out: [RenderScene.ThrusterKey: Double] = [:]
         var seen = Set<Key>()
         for v in scene.vessels {
@@ -104,10 +109,15 @@ public final class NozzleGlowTracker {
                 for t in part.thrusters where NozzleGlow.thrusters.contains(t.name) {
                     let key = Key(vessel: v.id, thruster: t.name)
                     seen.insert(key)
-                    let flow = flows[t.key] ?? 0
+                    let firing = flows[t.key]
+                    let flow = firing?.flow ?? 0
                     var h: Double
                     if let before = heat[key] {
                         h = NozzleGlow.advance(before, flow: flow, dt: dt)
+                    } else if let firing, ignitions[key] == nil {
+                        // Firing with no record of its start: the engine's
+                        // own burn time.
+                        h = NozzleGlow.heat(sinceIgnition: firing.burnTime, sinceCutoff: nil) * min(firing.flow, 1.2)
                     } else {
                         h = NozzleGlow.heat(sinceIgnition: ignitions[key].map { now - $0 },
                                             sinceCutoff: cutoffs[key].map { now - $0 })

@@ -50,7 +50,7 @@ final class SnapshotToolTests: XCTestCase {
         XCTAssertEqual(timed.timings.map(\.pass), ["Atmosphere LUTs", "Clouds", "Shadows", "Stars", "Planets",
                                                    "Vessels", "Atmosphere composite", "Vessel wires",
                                                    FrameProfile.splitOverhead,
-                                                   "Half-resolution transparents", "Plumes", "Far points",
+                                                   "Half-resolution transparents", "Far points",
                                                    "Transparent composite", "HDR resolve", "Post", "Orbit line", "Markers"])
         // Each render pass's vertex and fragment time less what splitting
         // costs (an empty encoder's time): small passes may read 0.

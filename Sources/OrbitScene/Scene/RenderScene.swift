@@ -327,10 +327,14 @@ public struct RenderScene {
         /// The air at the vessel (the simulation's: the launch day's sounding
         /// on AS-506's pad), for the plume model.
         public var ambient: AtmosphereState
+        /// Seconds it has been commanded on since it last started
+        /// (`Thruster.burnTime`): the nozzle glow's history on a first frame.
+        public var burnTime: Double
 
         public init(vesselID: UUID, thruster: ThrusterKey, name: String, exit: Vec3, axis: Vec3, exitRadius: Double,
                     style: PlumeStyle, thrustFraction: Double, pressureRatio: Double, isSolid: Bool, isJet: Bool,
-                    part: String = "", flowFraction: Double? = nil, ambient: AtmosphereState? = nil) {
+                    part: String = "", flowFraction: Double? = nil, ambient: AtmosphereState? = nil,
+                    burnTime: Double = 0) {
             self.vesselID = vesselID
             self.thruster = thruster
             self.name = name
@@ -345,6 +349,7 @@ public struct RenderScene {
             self.part = part
             self.flowFraction = flowFraction ?? thrustFraction
             self.ambient = ambient ?? Self.air(pressureRatio: pressureRatio)
+            self.burnTime = burnTime
         }
 
         /// Air at `pressureRatio` of sea level's, at a 250 K mean

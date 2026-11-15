@@ -19,6 +19,9 @@ public struct PlumeSettings: Codable, Equatable {
     public var model = PlumeLookModel.physical
     /// The SPS extension's glow on its drawn bell.
     public var nozzleGlow = true
+    /// The eddies' noise; off, the march draws `PlumeLook`'s field as the
+    /// reference march does (tests).
+    public var turbulence = true
     /// Level of detail by a cluster's size on screen, pixels across its
     /// longest extent: marched from `marchPixels`, an impostor from
     /// `impostorPixels`, nothing below (the vessel's far point carries it).
@@ -33,7 +36,7 @@ public struct PlumeSettings: Codable, Equatable {
     public init() {}
 
     private enum CodingKeys: String, CodingKey {
-        case quality, readable, model, nozzleGlow, marchPixels, impostorPixels, jetMarchDistance, testEngines
+        case quality, readable, model, nozzleGlow, turbulence, marchPixels, impostorPixels, jetMarchDistance, testEngines
     }
 
     public init(from decoder: Decoder) throws {
@@ -43,6 +46,7 @@ public struct PlumeSettings: Codable, Equatable {
         readable = try c.decodeIfPresent(Bool.self, forKey: .readable) ?? d.readable
         model = try c.decodeIfPresent(PlumeLookModel.self, forKey: .model) ?? d.model
         nozzleGlow = try c.decodeIfPresent(Bool.self, forKey: .nozzleGlow) ?? d.nozzleGlow
+        turbulence = try c.decodeIfPresent(Bool.self, forKey: .turbulence) ?? d.turbulence
         marchPixels = try c.decodeIfPresent(Double.self, forKey: .marchPixels) ?? d.marchPixels
         impostorPixels = try c.decodeIfPresent(Double.self, forKey: .impostorPixels) ?? d.impostorPixels
         jetMarchDistance = try c.decodeIfPresent(Double.self, forKey: .jetMarchDistance) ?? d.jetMarchDistance

@@ -46,7 +46,8 @@ public struct PlumeCluster {
 
     /// The profile's radius at x (m), 0 outside it.
     public func radius(atX x: Double) -> Double {
-        guard let first = rings.first, let last = rings.last, x >= first.x, x <= last.x else { return 0 }
+        guard let first = rings.first, let last = rings.last, x >= first.x - 1e-9, x <= last.x + 1e-9 else { return 0 }
+        let x = min(max(x, first.x), last.x)
         for k in 1..<rings.count where x <= rings[k].x {
             let a = rings[k - 1], b = rings[k]
             let t = b.x > a.x ? (x - a.x) / (b.x - a.x) : 1
@@ -237,5 +238,79 @@ public enum PlumeClusters {
             && (!c.isJet || distance <= settings.jetMarchDistance)
         if marches { return .march }
         return pixels >= settings.impostorPixels ? .impostor : .none
+    }
+}
+
+extension PlumeCluster {
+    /// The interval of t over which the camera-relative ray `o + t d` lies
+    /// in the proxy (`d` need not be unit), nil when it misses: the slab
+    /// between the end rings intersected with each edge's cone, as
+    /// PlumeShaders' march does it (`plume_coneInterval`).
+    public func interval(origin o: Vec3, direction d: Vec3) -> ClosedRange<Double>? {
+        let big = 1e30
+        let rel = o - origin
+        let ox = rel.dot(axis), dx = d.dot(axis)
+        let op = rel - axis * ox, dp = d - axis * dx
+        var enter = -big, exit = big
+        if abs(dx) > 1e-12 {
+            let t0 = (start - ox) / dx, t1 = (end - ox) / dx
+            enter = max(enter, min(t0, t1))
+            exit = min(exit, max(t0, t1))
+        } else if ox < start || ox > end {
+            return nil
+        }
+        for k in 1..<rings.count {
+            let p0 = rings[k - 1], p1 = rings[k]
+            let b = (p1.r - p0.r) / max(p1.x - p0.x, 1e-6)
+            guard let span = PlumeClusters.coneInterval(ox: ox, dx: dx, op: op, dp: dp, a: p0.r - b * p0.x, b: b)
+            else { return nil }
+            enter = max(enter, span.lowerBound)
+            exit = min(exit, span.upperBound)
+        }
+        return exit > enter ? enter...exit : nil
+    }
+}
+
+extension PlumeClusters {
+    /// Where `x(t) = ox + t dx`, perpendicular part `op + t dp`, lies in
+    /// the cone r ≤ a + b x on its nappe a + b x ≥ 0; nil when nowhere.
+    public static func coneInterval(ox: Double, dx: Double, op: Vec3, dp: Vec3, a: Double,
+                                    b: Double) -> ClosedRange<Double>? {
+        let big = 1e30
+        let k = a + b * ox, kd = b * dx
+        let qa = kd * kd - dp.dot(dp), qb = 2 * (kd * k - op.dot(dp)), qc = k * k - op.dot(op)
+        var nappe = (-big, big)
+        if abs(kd) > 1e-12 {
+            let th = -k / kd
+            nappe = kd > 0 ? (th, big) : (-big, th)
+        } else if k < 0 {
+            return nil
+        }
+        var inside: (Double, Double)
+        if abs(qa) < 1e-12 {
+            if abs(qb) < 1e-12 {
+                guard qc >= 0 else { return nil }
+                inside = (-big, big)
+            } else {
+                let t = -qc / qb
+                inside = qb > 0 ? (t, big) : (-big, t)
+            }
+        } else {
+            let disc = qb * qb - 4 * qa * qc
+            if qa < 0 {
+                guard disc >= 0 else { return nil }
+                let q = disc.squareRoot()
+                let t0 = (-qb + q) / (2 * qa), t1 = (-qb - q) / (2 * qa)
+                inside = (min(t0, t1), max(t0, t1))
+            } else if disc <= 0 {
+                inside = (-big, big)
+            } else {
+                let q = disc.squareRoot()
+                let t0 = (-qb - q) / (2 * qa), t1 = (-qb + q) / (2 * qa)
+                inside = nappe.0 > -big ? (t1, big) : (-big, t0)
+            }
+        }
+        let lo = max(inside.0, nappe.0), hi = min(inside.1, nappe.1)
+        return hi >= lo ? lo...hi : nil
     }
 }
