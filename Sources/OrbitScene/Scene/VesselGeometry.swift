@@ -14,6 +14,10 @@ public struct VesselGeometry {
 
     public struct Part {
         public let id: ObjectIdentifier
+        /// The part's name and its Apollo variant (nil for a part with
+        /// none), which its paint depends on.
+        public let name: String
+        public let appearance: ApolloVariant?
         /// The part's origin in the construction frame, m.
         public let offset: Vec3
         public let shapes: [VisualShape]
@@ -68,7 +72,8 @@ public struct VesselGeometry {
                                                           pivot: t.position + offset)
                 }
             }
-            parts.append(Part(id: ObjectIdentifier(part), offset: offset, shapes: part.shapes,
+            parts.append(Part(id: ObjectIdentifier(part), name: part.name, appearance: part.appearance, offset: offset,
+                              shapes: part.shapes,
                               thrusters: part.thrusters.map {
                                   ThrusterMount(key: ObjectIdentifier($0), name: $0.name, position: $0.position,
                                                 direction: $0.direction, isGimballed: !$0.gimbal.isEmpty)

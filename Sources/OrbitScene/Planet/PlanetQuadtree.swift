@@ -78,15 +78,21 @@ public struct PlanetQuadtree {
         /// Tighter height bounds per tile, inside `heightRange`, e.g. a tile
         /// file's index (`PlanetTileFile.valueRange`); nil falls back to it.
         public var tileHeights: ((TileKey) -> ClosedRange<Double>?)?
+        /// Whether a tile may be split (E1): a layer whose finer tiles are
+        /// stored only in places (the Cape inset over BMNG) refines there
+        /// alone, and spends no budget elsewhere. nil splits everywhere
+        /// down to `maxLevel`. The balancing pass may still split a tile
+        /// this refuses, next to a finer one.
+        public var refinable: ((TileKey) -> Bool)?
 
         public init(figure: Ellipsoid, maxLevel: Int, samplesPerTile: Int = 256, pixelError: Double = 1,
                     tileBudget: Int = 384, morphStartRatio: Double = 2.0 / 3, minimumFramesPerTile: Double = 4,
                     heightRange: ClosedRange<Double> = 0 ... 0,
-                    tileHeights: ((TileKey) -> ClosedRange<Double>?)? = nil) {
+                    tileHeights: ((TileKey) -> ClosedRange<Double>?)? = nil, refinable: ((TileKey) -> Bool)? = nil) {
             self.figure = figure; self.maxLevel = min(max(maxLevel, 0), TileKey.maxLevel)
             self.samplesPerTile = samplesPerTile; self.pixelError = pixelError; self.tileBudget = tileBudget
             self.morphStartRatio = morphStartRatio; self.minimumFramesPerTile = minimumFramesPerTile
-            self.heightRange = heightRange; self.tileHeights = tileHeights
+            self.heightRange = heightRange; self.tileHeights = tileHeights; self.refinable = refinable
         }
     }
 
@@ -538,7 +544,8 @@ extension PlanetQuadtree {
             while let (key, quad) = stack.popLast() {
                 visited += 1
                 guard let distance = context.test(key, quad) else { continue }
-                if key.level < levelLimit && distance < detail(key.level) {
+                if key.level < levelLimit && distance < detail(key.level)
+                    && context.parameters.refinable?(key) ?? true {
                     nodes[key.id] = Pass.split
                     quad.pushQuarters(of: key, onto: &stack)
                 } else {

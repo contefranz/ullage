@@ -52,6 +52,10 @@ public final class SnapshotRenderer {
     /// split and timed, keeping each pass's median, and that many unsplit,
     /// keeping the median GPU time of the whole frame.
     public func render(_ shot: SnapshotSpec.Shot, timingFrames: Int = 0) throws -> Output {
+        // A snapshot is whole at once: the user's Earth tiles (E1) load
+        // before the frame, as no run loop here would deliver them later.
+        var shot = shot
+        shot.settings.planetTile.synchronous = true
         let prepared = try shot.prepare(system: system)
         let scene = shot.scene(prepared)
         let r = try renderer(userTextures: shot.userTextures)
