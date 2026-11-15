@@ -58,7 +58,10 @@ what the tracks that come after R2 plug into. The code is the reference:
   in `SceneRenderer.defaultPasses`) draws them. A graph without it gets them
   at the end of P1. Alpha to coverage was tried and drops a sub-pixel
   tube's last samples, breaking it up. Since they write no depth, a P3 or P5
-  draw behind a wire still covers it.
+  draw behind a wire still covers it: C2's clouds (composited in P3 where
+  the scene's depth lies behind them) cover the LES truss against a cloudy
+  sky. Open: a depth-only draw of the wires where their coverage is at
+  least 0.5 would hide what lies behind them there.
 - Tests (Linux): `BRDFTests` (GGX normalisation, Heitz's projected-area
   identity, Schlick's mirror limit, the table against direct quadrature, the
   white furnace ≥ 0.98, Rakić's aluminium F0 0.914, the filter, the Sun disc,

@@ -281,8 +281,8 @@ final class VesselPassTests: XCTestCase {
 
     // MARK: Through A2's air
 
-    /// The app's renderer at a fixed EV, with no bloom, glare or dither (the
-    /// light as the scene holds it). EV 17 keeps the pre-exposed light small,
+    /// The app's renderer at a fixed EV, with no bloom, glare, dither or
+    /// clouds (the air's light as the scene holds it). EV 17 keeps the pre-exposed light small,
     /// where R1's tone-mapped MSAA weights are nearly even.
     func airRenderer(ev100: Double = 17) throws -> SceneRenderer {
         let r = try floatRenderer()
@@ -291,6 +291,10 @@ final class VesselPassTests: XCTestCase {
         s.post.bloom = 0
         s.post.sunGlare = false
         s.post.dither = false
+        // The air alone, as A2's tests have it. C2's clouds composite in P3
+        // where the scene's depth lies behind them, which a wire's (it
+        // writes none) does: they would cover the wires these tests read.
+        s.cloud.enabled = false
         r.settings = s
         XCTAssertEqual(r.failures, [:])
         return r
@@ -302,7 +306,7 @@ final class VesselPassTests: XCTestCase {
     /// test vessel, and the view's forward, up and right (world).
     func dawnPad(width: Int, height: Int, fovY: Double, pitch: Double = 10) throws
         -> (scene: RenderScene, light: LegacyLight, forward: Vec3, up: Vec3, right: Vec3) {
-        let sim = Scenario.apollo8DawnPad.build(Self.system)
+        let sim = Scenario.apollo8Pad.build(Self.system)
         var camera = OrbitCamera()
         if let focus = sim.focus { camera.target = .vessel(focus.id) }
         camera.distance = 400
