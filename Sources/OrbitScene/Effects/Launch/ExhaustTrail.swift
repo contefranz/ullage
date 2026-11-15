@@ -202,10 +202,22 @@ public final class ExhaustTrail {
         let behind = Self.offset(altitude: frame.altitude(of: centre.position))
         let here: Point
         if c.rebuilt {
-            // Behind along the path: a stage that has stopped firing may
-            // have turned away from it.
-            let along = centre.velocity.length > 1 ? centre.velocity.normalized : c.toAnchor * .unitZ
-            here = Point(epoch: c.now, position: centre.position - along * behind, velocity: centre.velocity)
+            // Behind along the path, from the vehicle now while the S-IC
+            // fires; once it has stopped, from the vehicle's state at its
+            // last cutoff (the journal's), where it stopped laying the
+            // trail: the spent stage now coasts on another path.
+            var at = (position: centre.position, velocity: centre.velocity, epoch: c.now)
+            if !firing {
+                guard let e = owner.lastCutoff, e.epoch > c.firstMotion,
+                      let p = c.frame.place(e.point, of: e, in: a) else {
+                    last = nil
+                    return
+                }
+                at = (p.position, p.velocity, e.epoch)
+            }
+            let along = at.velocity.length > 1 ? at.velocity.normalized : c.toAnchor * .unitZ
+            let back = Self.offset(altitude: frame.altitude(of: at.position))
+            here = Point(epoch: at.epoch, position: at.position - along * back, velocity: at.velocity)
         } else {
             guard let p = c.frame.place(exits - Vec3.unitX * behind, of: v, in: a) else { return }
             here = Point(epoch: c.now, position: p.position, velocity: p.velocity)
@@ -221,28 +233,29 @@ public final class ExhaustTrail {
     }
 
     /// The path from the pad at first motion to `here`: the vertical climb
-    /// to the pitch program, then `climb`.
+    /// to the pitch program (in pieces of at most a second), then `climb`
+    /// (in the pieces left).
     func rebuild(to here: Point, _ c: inout LaunchEffects.Context, anchor a: EffectAnchorID, frame: AnchorFrame,
                  materials: [ParticleMaterialID], owner: LaunchEffects) {
         let up = c.toAnchor * .unitZ
         let base = PadExhaust.exitHeightOnPad - Self.offset(altitude: c.site.placement.height)
         let pad = Point(epoch: c.firstMotion, position: c.toAnchor * Vec3(0, 0, base), velocity: .zero)
-        let d = c.now - c.firstMotion, tp = LiftoffRise.programStart
+        let d = here.epoch - c.firstMotion, tp = LiftoffRise.programStart
         var curves: [Curve] = []
         if d <= tp {
             curves.append(Self.climb(from: pad, to: here, axes: c.toAnchor))
         } else {
             let pitch = Point(epoch: c.firstMotion + tp, position: pad.position + up * LiftoffRise.rise(after: tp),
-                              velocity: up * (LiftoffRise.acceleration * tp))
+                              velocity: up * LiftoffRise.speed(after: tp))
             curves.append(.hermite(start: pad.epoch, duration: tp, p0: pad.position, v0: .zero, p1: pitch.position,
                                    v1: pitch.velocity))
             curves.append(Self.climb(from: pitch, to: here, axes: c.toAnchor))
         }
-        let total = curves.reduce(0) { $0 + $1.length }
-        for curve in curves {
-            let share = total > 0 ? curve.length / total : 1
-            lay(curve, &c, anchor: a, frame: frame, materials: materials, owner: owner,
-                maxPieces: max(1, Int((Double(Self.maxRebuiltPieces) * share).rounded())))
+        var left = Self.maxRebuiltPieces
+        for (i, curve) in curves.enumerated() {
+            let pieces = i == curves.count - 1 ? left : Int((curve.duration / Self.pieceTime).rounded(.up))
+            lay(curve, &c, anchor: a, frame: frame, materials: materials, owner: owner, maxPieces: max(1, pieces))
+            left = max(1, left - pieces)
         }
     }
 
@@ -256,13 +269,21 @@ public final class ExhaustTrail {
         let up = c.toAnchor * .unitZ
         let air = c.body.air
         for i in 0..<n {
-            let p0 = curve.position(cuts[i]), p1 = curve.position(cuts[i + 1])
+            var p0 = curve.position(cuts[i]), p1 = curve.position(cuts[i + 1])
+            var t0 = curve.start + d * cuts[i], t1 = curve.start + d * cuts[i + 1]
+            // Clipped at the deck: the pad's exhaust is below it.
+            let s0 = p0.dot(up), s1 = p1.dot(up)
+            guard s0 > 0 || s1 > 0 else { continue }
+            if s0 < 0 || s1 < 0 {
+                let w = s0 / (s0 - s1)
+                let cut = p0 + (p1 - p0) * w, at = t0 + (t1 - t0) * w
+                if s0 < 0 { (p0, t0) = (cut, at) } else { (p1, t1) = (cut, at) }
+            }
             let chord = p1 - p0, length = chord.length
             let mid = p0 + chord * 0.5
             let h = frame.altitude(of: mid)
-            // Not below the deck (the pad's exhaust is there) nor above the ceiling.
-            guard length > 0, h < Self.ceiling, mid.dot(up) > 0 else { continue }
-            let t0 = curve.start + d * cuts[i], t1 = curve.start + d * cuts[i + 1]
+            // Nor above the ceiling.
+            guard length > 0, h < Self.ceiling else { continue }
             let flow = min(1, owner.flow(c, t0 + 0.5 * (t1 - t0)))
             let wind = air.map { $0.sample(altitude: h) }.map { frame.east * $0.windEast + frame.north * $0.windNorth } ?? .zero
             let puffs = length / Self.spacing(altitude: h) * flow

@@ -49,6 +49,10 @@ public final class LaunchEffects: EffectProducer {
     /// The S-IC engines' cutoffs the journal recorded (CECO, OECO, an engine
     /// out), by thruster name: the flow a rebuilt history follows.
     private(set) var cutoffs: [String: Epoch] = [:]
+    /// The latest of them, with the vehicle's state then: where a rebuilt
+    /// trail ends once the S-IC has stopped firing (the spent stage's
+    /// present, ballistic state is not the path it laid the trail on).
+    private(set) var lastCutoff: EffectEvent?
 
     public init() {}
 
@@ -68,6 +72,7 @@ public final class LaunchEffects: EffectProducer {
             return
         }
         cutoffs[thruster] = event.epoch
+        if lastCutoff.map({ event.epoch >= $0.epoch }) ?? true { lastCutoff = event }
     }
 
     public func reset() {
@@ -76,6 +81,7 @@ public final class LaunchEffects: EffectProducer {
         carry = [:]
         serial = 0
         cutoffs = [:]
+        lastCutoff = nil
         trail.reset()
     }
 
@@ -367,10 +373,13 @@ public final class LaunchEffects: EffectProducer {
     /// - before first motion, standing on the pad: the point's height on it
     ///   above the exits' plane, on the pad's axis;
     /// - on a frame after another, the scene's placement;
-    /// - on a rebuilt history before the pitch program, uniformly
-    ///   accelerated straight up through this frame's place;
-    /// - on a rebuilt history after it (only its last second is rebuilt),
-    ///   the vehicle's own velocity now (its acceleration is not known on a
+    /// - on a rebuilt history, uniformly accelerated straight up through
+    ///   this frame's place: near enough while the vehicle is low (the
+    ///   vapour streams for `vapourWindow` after first motion, its puffs
+    ///   live 12 s);
+    /// - on a rebuilt history after the pitch program for a `recent`
+    ///   source, of which only the last second is rebuilt (the frost), the
+    ///   vehicle's own velocity now (its acceleration is not known on a
     ///   frame with none before: none is taken).
     struct SourceMotion {
         var origin: Vec3
@@ -379,7 +388,7 @@ public final class LaunchEffects: EffectProducer {
         var axis: Vec3
     }
 
-    func motion(_ point: Vec3, _ c: inout Context, before firstMotion: Bool) -> SourceMotion? {
+    func motion(_ point: Vec3, _ c: inout Context, before firstMotion: Bool, recent: Bool = false) -> SourceMotion? {
         guard let a = anchor(&c), let p = c.frame.place(point, of: c.vehicle.vessel, in: a) else { return nil }
         let up = c.toAnchor * .unitZ
         if firstMotion {
@@ -393,7 +402,7 @@ public final class LaunchEffects: EffectProducer {
         }
         let d = c.now - c.firstMotion
         guard d > 0 else { return SourceMotion(origin: p.position, velocity: .zero, acceleration: .zero, axis: axis) }
-        guard d <= LiftoffRise.programStart else {
+        if recent && d > LiftoffRise.programStart {
             return SourceMotion(origin: p.position, velocity: p.velocity, acceleration: .zero, axis: axis)
         }
         let accel = 2 * c.vehicle.climb / (d * d)
@@ -531,7 +540,7 @@ public final class LaunchEffects: EffectProducer {
             let point = c.vehicle.vessel.structureOrigin + Vec3(mid, 0, 0)
             let length = (zone.stations.upperBound - zone.stations.lowerBound) * inch
             for before in [true, false] {
-                guard let s = motion(point, &c, before: before), let a = c.anchor else { return }
+                guard let s = motion(point, &c, before: before, recent: true), let a = c.anchor else { return }
                 // In flight a rebuilt history keeps only its last second:
                 // the path before the frame is not known there.
                 var start = before ? c.from : max(c.from, c.firstMotion)
