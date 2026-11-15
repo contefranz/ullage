@@ -95,12 +95,13 @@ public final class SceneRenderer {
         let clouds = CloudPass()
         let slots = HalfResTransparentPass(effects: [clouds, EffectTestEmitters()])
         let post = PostPass()
+        let tiles = PlanetTilePass(loadsUserTiles: loadsUserTextures)
         return [
             // P0
             post.exposurePass, AtmosphereLUTPass(), clouds, ShadowPass(), EnvironmentProbePass(),
-            ParticleSimulationPass(),
+            ParticleSimulationPass(), tiles,
             // P1
-            StarPass(), PlanetPass(loadsUserTextures: loadsUserTextures), VesselPass(), EffectTestOpaquePass(),
+            StarPass(), PlanetPass(loadsUserTextures: loadsUserTextures, tiles: tiles), VesselPass(), EffectTestOpaquePass(),
             // P2
             AtmosphereCompositePass(),
             // P3
