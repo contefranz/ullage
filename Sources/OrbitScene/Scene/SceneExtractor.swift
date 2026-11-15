@@ -50,9 +50,11 @@ public final class SceneExtractor {
     /// The atmosphere is held, so its identifier is not reused while here.
     private var airProfiles: [ObjectIdentifier: (atmosphere: Atmosphere, profile: AirProfile)] = [:]
 
-    /// `body`'s air at 64 altitudes (`AirProfile`), nil without an atmosphere.
-    func airProfile(_ body: CelestialBody) -> AirProfile? {
-        guard let a = body.atmosphere else { return nil }
+    /// An atmosphere's air at 64 altitudes (`AirProfile`), nil without one.
+    /// The scene passes the one the simulation flies through
+    /// (`Simulation.atmosphere(of:)`: a launch day's sounding and its winds).
+    func airProfile(_ atmosphere: Atmosphere?) -> AirProfile? {
+        guard let a = atmosphere else { return nil }
         if let p = airProfiles[ObjectIdentifier(a)] { return p.profile }
         let p = AirProfile(a)
         airProfiles[ObjectIdentifier(a)] = (a, p)
@@ -105,7 +107,7 @@ public final class SceneExtractor {
             RenderScene.Body(id: body.id, name: body.name, position: snap.position(body) - cam.position,
                              orientation: snap.orientation(body), figure: body.figure, radius: body.radius,
                              isSun: body === sim.system.sun, toSun: (sunPos - snap.position(body)).normalized,
-                             gm: body.gm, j2: body.j2, air: airProfile(body))
+                             gm: body.gm, j2: body.j2, air: airProfile(sim.atmosphere(of: body)))
         }
 
         // Vessels, their emitters and canopies.

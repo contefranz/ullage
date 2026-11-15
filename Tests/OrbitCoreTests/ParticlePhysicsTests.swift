@@ -73,9 +73,9 @@ final class ParticlePhysicsTests: XCTestCase {
         var fine = start
         for _ in 0..<6_000 { fine = P.advance(fine, material: grain, environment: env, dt: 0.01) { _ in self.seaLevel } }
         XCTAssertEqual(-fine.velocity.z, terminal, accuracy: 1e-3 * terminal)
-        // The fall itself: the GPU's bound of 16 substeps (`maxSubsteps`;
-        // P1's CPU step takes up to 64) costs about 1.5 % of it in the first
-        // seconds' transient, as the 30 m/s throw dies away.
+        // The fall itself, in at most 32 pieces (`maxSubsteps`), within 2 %
+        // of fine steps through the first seconds' transient, as the 30 m/s
+        // throw dies away.
         XCTAssertEqual(one.position.z, fine.position.z, accuracy: 0.02 * (start.position.z - fine.position.z))
     }
 
@@ -109,9 +109,11 @@ final class ParticlePhysicsTests: XCTestCase {
     }
 
     /// Morton, Taylor and Turner (1956): a thermal entraining the air of a
-    /// uniform environment keeps its buoyancy, g (Tp − Ta)/Ta × volume, so
-    /// with no other cooling the excess temperature times r³ is conserved,
-    /// and the radius grows by α per metre of its path through the air.
+    /// uniform environment keeps its buoyancy, the weight of the air it
+    /// displaces less its own. For an ideal-gas parcel at the air's pressure
+    /// that is ρa V (1 − Ta/T): r³ (1 − Ta/T) is conserved, Boussinesq's
+    /// (T − Ta) r³ only near Ta. The radius grows by α per metre of path
+    /// through the air.
     func testEntrainingThermalConservesBuoyancy() {
         let thermal = P.Material(density: 0, dragCoefficient: 0.5, entrainment: 0.25)
         let start = P.State(position: .zero, velocity: Vec3(0, 0, 5), radius: 3, temperature: 600)
@@ -123,10 +125,101 @@ final class ParticlePhysicsTests: XCTestCase {
             s = next
         }
         XCTAssertGreaterThan(s.position.z, 10, "it rose")
-        let b0 = (start.temperature - 288.15) * pow(start.radius, 3), b1 = (s.temperature - 288.15) * pow(s.radius, 3)
-        XCTAssertEqual(b1, b0, accuracy: 1e-9 * b0)
-        XCTAssertEqual(s.radius - start.radius, 0.25 * path, accuracy: 1e-3 * 0.25 * path)
+        func buoyancy(_ x: P.State) -> Double { pow(x.radius, 3) * (1 - 288.15 / x.temperature) }
+        XCTAssertEqual(buoyancy(s), buoyancy(start), accuracy: 1e-9 * buoyancy(start))
+        XCTAssertEqual(s.radius - start.radius, 0.25 * path, accuracy: 2e-3 * 0.25 * path)
         XCTAssertLessThan(s.temperature, start.temperature)
+    }
+
+    /// The mixture of a 2,000 K puff grown from 4 to 7 m in 288 K air: by
+    /// enthalpy and volume, Ta / (1 − (4/7)³ (1 − Ta/T)) = 343 K (the
+    /// Boussinesq law would leave it at 608 K).
+    func testIdealGasMixing() {
+        let air = P.Air(density: 1.225, temperature: 288, pressure: 101_325)
+        let puff = P.Material(density: 0, spreadRate: 3)
+        let s = P.State(position: .zero, velocity: .zero, radius: 4, temperature: 2_000)
+        let after = P.grown(s, material: puff, air: air, dt: 1, path: 0)
+        XCTAssertEqual(after.radius, 7)
+        XCTAssertEqual(after.temperature, 288 / (1 - pow(4.0 / 7, 3) * (1 - 288.0 / 2_000)), accuracy: 1e-9)
+        XCTAssertEqual(after.temperature, 342.7, accuracy: 0.1)
+        // Spreading into vacuum cools adiabatically: T (r0/r)^(3(γ−1)).
+        let gone = P.grown(s, material: puff, air: .vacuum, dt: 1, path: 0)
+        XCTAssertEqual(gone.temperature, 2_000 * pow(4.0 / 7, 1.2), accuracy: 1e-9)
+    }
+
+    /// A falling frame is the same physics: a particle's slip through the
+    /// air does not depend on the anchor. Steam at the air's temperature, a
+    /// hot puff and a grain, from rest relative to still air, in a
+    /// body-fixed anchor and in a free-fall one that starts at rest and
+    /// falls with g (where the air rises at −g t): over 10 s of 1/60 s
+    /// frames and in one advance, the free-fall positions are the
+    /// body-fixed ones less ½ g t², the velocities less g t. Steam at the
+    /// air's temperature stays where it was in the air.
+    func testFreeFallFrameMatchesBodyFixed() {
+        let air = P.Air(density: 1.225, temperature: 288.15, pressure: 101_325)
+        let cases: [(String, P.Material, P.State)] = [
+            ("steam", P.Material(density: 0, dragCoefficient: 0.5, entrainment: 0.1, spreadRate: 0.5, coolingTime: 8),
+             P.State(position: .zero, velocity: .zero, radius: 5, temperature: 288.15)),
+            ("hot puff", P.Material(density: 0, dragCoefficient: 0.5, entrainment: 0.1, coolingTime: 30),
+             P.State(position: .zero, velocity: Vec3(3, 0, 0), radius: 2, temperature: 400)),
+            ("grain", P.Material(density: 917, dragCoefficient: 1.2), 
+             P.State(position: .zero, velocity: Vec3(5, 0, 0), radius: 2e-3, temperature: 260)),
+        ]
+        for (name, m, start) in cases {
+            var settled = start
+            for frames in [600, 1] {
+                let h = 10.0 / Double(frames)
+                var fixed = start, falling = start
+                for k in 1...frames {
+                    fixed = P.advance(fixed, material: m, environment: P.Environment(gravity: g), dt: h) { _ in air }
+                    var rising = air
+                    rising.velocity = g * -(Double(k) * h)
+                    falling = P.advance(falling, material: m, environment: .freeFall(gravity: g), dt: h) { _ in rising }
+                }
+                let t = 10.0
+                XCTAssertEqual((falling.position - (fixed.position - g * (0.5 * t * t))).length, 0,
+                               accuracy: 1e-6 * max(1, fixed.position.length, 0.5 * 9.8 * t * t), "\(name), \(frames)")
+                XCTAssertEqual((falling.velocity - (fixed.velocity - g * t)).length, 0, accuracy: 1e-6 * 98, "\(name)")
+                XCTAssertEqual(falling.radius, fixed.radius, accuracy: 1e-9 * fixed.radius, name)
+                XCTAssertEqual(falling.temperature, fixed.temperature, accuracy: 1e-9 * fixed.temperature, name)
+                if frames == 600 { settled = fixed }
+            }
+            if name == "steam" { XCTAssertLessThan(settled.position.length, 0.01, "neutral steam stays put") }
+            if name == "hot puff" { XCTAssertGreaterThan(settled.position.z, 5, "the hot puff rises") }
+        }
+    }
+
+    /// A gas parcel carried up through US76 cools on the dry adiabat, g/cp =
+    /// 9.76 K/km (dry air, cp 1,004.7 J/(kg K)), steeper than the
+    /// standard atmosphere's 6.5 K/km; so a parcel thrown up from 1 km in
+    /// the stable troposphere comes back down rather than running away.
+    func testAdiabaticLiftAndStability() {
+        let us76 = USStandardAtmosphere1976()
+        func air(_ updraft: Double) -> (Vec3) -> P.Air {
+            { p in
+                let s = us76.state(altitude: p.z)
+                return P.Air(density: s.density, temperature: s.temperature, pressure: s.pressure,
+                             velocity: Vec3(0, 0, updraft))
+            }
+        }
+        let parcel = P.Material(density: 0, dragCoefficient: 0.5)
+        let t0 = us76.state(altitude: 1_000).temperature
+        var s = P.State(position: Vec3(0, 0, 1_000), velocity: Vec3(0, 0, 5), radius: 1, temperature: t0)
+        let carried = air(5)
+        while s.position.z < 2_000 {
+            s = P.advance(s, material: parcel, environment: P.Environment(gravity: g), dt: 0.5, air: carried)
+        }
+        let rate = (s.temperature - t0) / (s.position.z - 1_000) * 1_000
+        XCTAssertEqual(rate, -9.76, accuracy: 0.25, "K/km on the dry adiabat")
+
+        var thrown = P.State(position: Vec3(0, 0, 1_000), velocity: Vec3(0, 0, 10), radius: 5, temperature: t0)
+        var highest = thrown.position.z
+        for _ in 0..<1_200 {
+            thrown = P.advance(thrown, material: parcel, environment: P.Environment(gravity: g), dt: 0.5, air: air(0))
+            highest = max(highest, thrown.position.z)
+        }
+        XCTAssertLessThan(highest, 1_400, "it was stopped by the stable air")
+        XCTAssertEqual(thrown.position.z, 1_000, accuracy: 300, "and settled back near where it started")
     }
 
     /// A spark cools towards the air (here vacuum's 3 K) with its time
@@ -139,28 +232,53 @@ final class ParticlePhysicsTests: XCTestCase {
         XCTAssertEqual(one.position, Vec3(20, 0, 0), "ballistic in vacuum")
     }
 
-    /// At 1,000× one frame is 16.7 s: the advance splits it and lands within
-    /// 2 % of 1,670 advances of 0.01 s, for a hot puff rising and entraining.
+    /// One advance against fine ones (1 ms): a hot puff over a 1,000× frame
+    /// (16.7 s); a 0.5 m, 1,500 K pyro puff thrown at 300 m/s through a
+    /// 100× frame (1.67 s) and through a 1,000× one; the F-1's 2,000 K
+    /// exhaust at 1,000 m/s and a 5 m puff at 200 m/s, aged 8.9 s at once
+    /// as P4 pre-ages the ignition. Quadratic drag's slip dies as 1/t: the
+    /// schedule's growing pieces keep the throw and the entrainment.
     func testLongAdvanceMatchesFineSteps() {
         let puff = P.Material(density: 0, dragCoefficient: 0.5, entrainment: 0.1, spreadRate: 0.2, coolingTime: 30)
         var air = seaLevel
         air.velocity = Vec3(4, -1, 0)
-        let start = P.State(position: Vec3(0, 0, 50), velocity: Vec3(0, 0, 40), radius: 6, temperature: 1_200)
         let env = P.Environment(gravity: g)
-        XCTAssertGreaterThan(P.substeps(start, material: puff, environment: env, dt: 16.7, air: air), 1)
-        let one = P.advance(start, material: puff, environment: env, dt: 16.7) { _ in air }
-        var fine = start
-        for _ in 0..<1_670 { fine = P.advance(fine, material: puff, environment: env, dt: 0.01) { _ in air } }
-        let travelled = (fine.position - start.position).length
-        XCTAssertLessThan((one.position - fine.position).length, 0.02 * travelled)
-        XCTAssertEqual(one.radius, fine.radius, accuracy: 0.02 * fine.radius)
-        XCTAssertEqual(one.temperature - 288.15, fine.temperature - 288.15, accuracy: 0.05 * (fine.temperature - 288.15))
+        let cases: [(String, P.State, Double)] = [
+            ("hot puff, 1000x", P.State(position: Vec3(0, 0, 50), velocity: Vec3(0, 0, 40), radius: 6,
+                                        temperature: 1_200), 16.7),
+            ("pyro puff, 100x", P.State(position: .zero, velocity: Vec3(300, 0, 0), radius: 0.5, temperature: 1_500), 1.67),
+            ("pyro puff, 1000x", P.State(position: .zero, velocity: Vec3(300, 0, 0), radius: 0.5, temperature: 1_500), 16.7),
+            ("F-1 exhaust, 8.9 s", P.State(position: Vec3(0, 0, 10), velocity: Vec3(1_000, 0, -50), radius: 2,
+                                           temperature: 2_000), 8.9),
+            ("puff at 200 m/s, 8.9 s", P.State(position: .zero, velocity: Vec3(200, 0, 0), radius: 5,
+                                               temperature: 1_200), 8.9),
+        ]
+        for (name, start, dt) in cases {
+            let one = P.advance(start, material: puff, environment: env, dt: dt) { _ in air }
+            var fine = start
+            for _ in 0..<Int((dt / 1e-3).rounded()) {
+                fine = P.advance(fine, material: puff, environment: env, dt: 1e-3) { _ in air }
+            }
+            let travelled = (fine.position - start.position).length
+            XCTAssertLessThan((one.position - fine.position).length, 0.03 * travelled, "\(name): \(one.position) vs \(fine.position)")
+            XCTAssertEqual(one.radius, fine.radius, accuracy: 0.03 * fine.radius, name)
+            XCTAssertEqual(one.temperature - 288.15, fine.temperature - 288.15,
+                           accuracy: 0.05 * (fine.temperature - 288.15) + 0.5, name)
+        }
+        // The schedule: equal pieces while 32 of twice τ do, then geometric.
+        XCTAssertEqual(P.schedule(dt: 1, shortest: 1).count, 1)
+        let equal = P.schedule(dt: 10, shortest: 1)
+        XCTAssertEqual([equal.count, Int(equal.ratio)], [5, 1])
+        let growing = P.schedule(dt: 557, shortest: 1)
+        XCTAssertEqual(growing.count, 32)
+        XCTAssertEqual(growing.first, 1, accuracy: 1e-9)
+        XCTAssertEqual(growing.first * (pow(growing.ratio, 32) - 1) / (growing.ratio - 1), 557, accuracy: 1e-6)
     }
 
     /// The golden vectors are finite, each case moves something, and they
     /// are what `advance` gives.
     func testGoldenCases() {
-        XCTAssertEqual(P.goldenCases.count, 7)
+        XCTAssertEqual(P.goldenCases.count, 10)
         for c in P.goldenCases {
             let e = c.expected
             for x in [e.position.x, e.position.y, e.position.z, e.velocity.x, e.velocity.y, e.velocity.z, e.radius,

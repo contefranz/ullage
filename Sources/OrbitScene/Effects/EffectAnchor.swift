@@ -43,9 +43,14 @@ public enum EffectAnchor: Equatable {
     case bodyFixed(bodyID: Int, origin: Vec3)
     /// Falling freely about a body (a staging's debris, a vessel's vent):
     /// its state relative to the body's centre (ICRF, m and m/s) at `epoch`,
-    /// carried on with two-body + J2 gravity. Particles move in ICRF axes,
-    /// with no gravity (the anchor falls with them), through air turning
-    /// with the body: ω × r plus the wind, less the anchor's velocity.
+    /// carried on with two-body + J2 gravity. Particles move in ICRF axes.
+    /// The anchor falls with them, so their weight is gone; Archimedes'
+    /// buoyancy is not, and the air, turning with the body (ω × r plus the
+    /// wind, less the anchor's velocity), accelerates at −g relative to it.
+    /// A particle's slip through the air is then exactly as in a body-fixed
+    /// anchor. An anchor that falls deep into its body (below half its
+    /// radius: one left at the ground for ten minutes) is retired with its
+    /// particles.
     case freeFall(bodyID: Int, position: Vec3, velocity: Vec3, epoch: Epoch)
     /// Look-dev's studio (`StudioAnchor`).
     case studio(StudioAnchor)
@@ -57,6 +62,13 @@ public enum EffectAnchor: Equatable {
     /// Two-body + J2 (`CelestialBody.gravity`), RK4 in steps of at most
     /// `maximumStep`.
     public func propagated(to epoch: Epoch, body: RenderScene.Body?) -> EffectAnchor {
+        propagatedAboveHalfRadius(to: epoch, body: body) ?? self
+    }
+
+    /// As `propagated`, nil once a free-fall anchor has fallen below half
+    /// its body's radius on the way (one left at the ground for ten
+    /// minutes): it is retired before its orbit dives through the centre.
+    public func propagatedAboveHalfRadius(to epoch: Epoch, body: RenderScene.Body?) -> EffectAnchor? {
         guard case let .freeFall(id, r0, v0, t0) = self, let body, body.gm > 0 else { return self }
         let total = epoch - t0
         guard total != 0 else { return self }
@@ -75,6 +87,7 @@ public enum EffectAnchor: Equatable {
             let a4 = accel(r4)
             r = r + (v + v2 * 2 + v3 * 2 + v4) * (h / 6)
             v = v + (a1 + a2 * 2 + a3 * 2 + a4) * (h / 6)
+            guard r.length >= 0.5 * body.radius, r.length.isFinite, v.length.isFinite else { return nil }
         }
         return .freeFall(bodyID: id, position: r, velocity: v, epoch: epoch)
     }
@@ -119,8 +132,12 @@ public struct AnchorFrame: Equatable {
     /// The body's radius there, m: a particle at p is at
     /// altitude + p·up + |p⊥|² / (2 R).
     public var radius: Double
-    /// Gravity in its axes, m/s² (zero in free fall).
+    /// The body's gravity at the origin, in its axes, m/s².
     public var gravity: Vec3
+    /// The anchor falls freely at `gravity` with its particles: their weight
+    /// is gone, but not Archimedes' buoyancy, and the air accelerates at
+    /// −`gravity` relative to it (`ParticlePhysics.Environment.freeFall`).
+    public var fallsFreely: Bool
     /// The air's velocity relative to the anchor at its origin, less the
     /// wind, in its axes (free fall: ω × r − v; else zero), and the body's
     /// rotation (free fall: the air at p moves ω × p more; else zero).
@@ -138,8 +155,9 @@ public struct AnchorFrame: Equatable {
     public var sunAboveAir: Bool
 
     public init(origin: Vec3, toWorld: Mat3, up: Vec3, east: Vec3, north: Vec3, altitude: Double,
-                groundAltitude: Double, radius: Double, gravity: Vec3, airVelocity: Vec3, rotation: Vec3,
-                airProfile: Int?, sunlitFraction: Double, vacuumIceTemperature: Double, sunAboveAir: Bool = false) {
+                groundAltitude: Double, radius: Double, gravity: Vec3, fallsFreely: Bool = false, airVelocity: Vec3,
+                rotation: Vec3, airProfile: Int?, sunlitFraction: Double, vacuumIceTemperature: Double,
+                sunAboveAir: Bool = false) {
         self.origin = origin
         self.toWorld = toWorld
         self.up = up
@@ -149,6 +167,7 @@ public struct AnchorFrame: Equatable {
         self.groundAltitude = groundAltitude
         self.radius = radius
         self.gravity = gravity
+        self.fallsFreely = fallsFreely
         self.airVelocity = airVelocity
         self.rotation = rotation
         self.airProfile = airProfile
@@ -212,7 +231,8 @@ extension EffectAnchor {
             let sunlit = lit(world)
             return AnchorFrame(origin: world, toWorld: .identity, up: toWorld * axes.up, east: toWorld * axes.east,
                                north: toWorld * axes.north, altitude: height, groundAltitude: 0, radius: r.length,
-                               gravity: .zero, airVelocity: omega.cross(r) - v, rotation: omega,
+                               gravity: Self.gravity(at: r, body: body, pole: toBody.r2), fallsFreely: true,
+                               airVelocity: omega.cross(r) - v, rotation: omega,
                                airProfile: airProfile(id), sunlitFraction: sunlit,
                                vacuumIceTemperature: iceTemperature(sunlit))
         case let .studio(s):

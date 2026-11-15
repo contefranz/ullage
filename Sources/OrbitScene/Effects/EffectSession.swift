@@ -154,23 +154,30 @@ public final class EffectFrame {
     }
 
     /// A point of a vessel now (body axes from its centre of mass), in the
-    /// anchor, with the vessel's acceleration over the last frame: a
+    /// anchor, with the vessel's acceleration over the last frame relative
+    /// to the anchor (in a free-fall anchor its thrust and drag alone): a
     /// continuous emitter's origin, `sourceVelocity` and `sourceAcceleration`.
     public func place(_ point: Vec3, of v: RenderScene.Vessel, in id: EffectAnchorID) -> EffectPlacement? {
         guard let a = session.anchorState(id), let b = body(v.referenceBodyID) else { return nil }
         let toICRF = v.attitude.matrix
-        return Self.place(r: v.position - b.position + toICRF * point, v: v.velocity,
-                          acceleration: session.acceleration(of: v.id), toICRF: toICRF, at: clock.epoch, in: a,
-                          now: clock.epoch, body: b)
+        let r = v.position - b.position
+        // The vessel's whole acceleration: its thrust and drag, and gravity.
+        let total = session.thrustAcceleration(of: v.id) + EffectAnchor.gravity(at: r, body: b, pole: b.orientation.icrfToBody.r2)
+        return Self.place(r: r + toICRF * point, v: v.velocity, acceleration: total, toICRF: toICRF, at: clock.epoch,
+                          in: a, now: clock.epoch, body: b)
     }
 
     static func place(r: Vec3, v: Vec3, acceleration: Vec3, toICRF: Mat3, at epoch: Epoch, in a: EffectAnchor,
                       now: Epoch, body: RenderScene.Body?) -> EffectPlacement? {
         switch a {
         case let .freeFall(id, _, _, _):
-            guard let state = body.map({ a.propagated(to: epoch, body: $0) }), body?.id == id,
+            guard let body, let state = Optional(a.propagated(to: epoch, body: body)), body.id == id,
                   case let .freeFall(_, ra, va, _) = state else { return nil }
-            return EffectPlacement(position: r - ra, velocity: v - va, acceleration: acceleration, toAnchor: toICRF)
+            // The anchor falls at its gravity: relative to it the vessel
+            // accelerates by its thrust and drag alone.
+            let fall = EffectAnchor.gravity(at: ra, body: body, pole: body.orientation.icrfToBody.r2)
+            return EffectPlacement(position: r - ra, velocity: v - va, acceleration: acceleration - fall,
+                                   toAnchor: toICRF)
         case let .bodyFixed(id, origin):
             guard let body, body.id == id else { return nil }
             // The body's axes then: B(t) = B(now) R_ω(now − t).
@@ -237,7 +244,9 @@ public final class EffectSession {
     private var generations = [Int](repeating: 0, count: ParticleBudget.anchors)
     private var tracking: [String: (id: EffectAnchorID, since: Epoch)] = [:]
     private var continuous: [String: ContinuousEmission] = [:]
-    private var lastVelocity: [UUID: (velocity: Vec3, epoch: Epoch, acceleration: Vec3)] = [:]
+    /// Each vessel's last velocity and position (relative to its body), and
+    /// its acceleration less gravity over the last frame (thrust and drag).
+    private var lastVelocity: [UUID: (velocity: Vec3, position: Vec3, epoch: Epoch, acceleration: Vec3)] = [:]
     /// Per class: when its last particles die, and the last frame a held flash may show.
     private var liveUntil: [ParticleRenderClass: Epoch] = [:]
     private var flashFrames: [ParticleRenderClass: Int] = [:]
@@ -377,7 +386,15 @@ public final class EffectSession {
     private func propagateAnchors(_ scene: RenderScene, clock: EffectClock) {
         for i in slots.indices {
             guard var s = slots[i], case .freeFall(let id, _, _, _) = s.anchor else { continue }
-            s.anchor = s.anchor.propagated(to: clock.epoch, body: scene.bodies.first { $0.id == id })
+            // Fallen deep into its body (left at the ground for minutes):
+            // retired, its particles with it, before its orbit dives through
+            // the centre.
+            guard let next = s.anchor.propagatedAboveHalfRadius(to: clock.epoch, body: scene.bodies.first { $0.id == id })
+            else {
+                slots[i] = nil
+                continue
+            }
+            s.anchor = next
             slots[i] = s
         }
     }
@@ -412,19 +429,27 @@ public final class EffectSession {
         return made
     }
 
-    /// Each vessel's acceleration over the last frame (ICRF), for continuous
-    /// emitters' `sourceAcceleration`.
-    func acceleration(of id: UUID) -> Vec3 { lastVelocity[id]?.acceleration ?? .zero }
+    /// Each vessel's acceleration less gravity over the last frame (ICRF):
+    /// its thrust and drag, for continuous emitters' `sourceAcceleration`.
+    func thrustAcceleration(of id: UUID) -> Vec3 { lastVelocity[id]?.acceleration ?? .zero }
 
+    /// The velocity's change over the frame less the gravity's mean along
+    /// the way (the trapezoid of its two ends): at 1,000× a coasting
+    /// vessel's arc turns gravity by 1° a frame.
     private func noteVelocities(_ scene: RenderScene, clock: EffectClock) {
-        var next: [UUID: (velocity: Vec3, epoch: Epoch, acceleration: Vec3)] = [:]
+        var next: [UUID: (velocity: Vec3, position: Vec3, epoch: Epoch, acceleration: Vec3)] = [:]
         for v in scene.vessels {
+            guard let b = scene.bodies.first(where: { $0.id == v.referenceBodyID }) else { continue }
+            let r = v.position - b.position
             var a = Vec3.zero
             if let p = lastVelocity[v.id] {
                 let dt = clock.epoch - p.epoch
-                a = dt > 0 ? (v.velocity - p.velocity) / dt : p.acceleration
+                let pole = b.orientation.icrfToBody.r2
+                let g = (EffectAnchor.gravity(at: r, body: b, pole: pole)
+                    + EffectAnchor.gravity(at: p.position, body: b, pole: pole)) * 0.5
+                a = dt > 0 && b.gm > 0 ? (v.velocity - p.velocity) / dt - g : p.acceleration
             }
-            next[v.id] = (v.velocity, clock.epoch, a)
+            next[v.id] = (v.velocity, r, clock.epoch, a)
         }
         lastVelocity = next
     }

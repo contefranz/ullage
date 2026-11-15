@@ -141,7 +141,7 @@ extension EffectsSelfTest {
         }
 
         struct GoldenAdvanceGPU {
-            var positionRadius, velocityTemperature, air, airVelocity, gravity, params: SIMD4<Float>
+            var positionRadius, velocityTemperature, air, airVelocity, gravity, frameAcceleration, params: SIMD4<Float>
         }
 
         static func tau(_ t: Double) -> Float { t.isFinite ? Float(t) : 1e30 }
@@ -180,6 +180,7 @@ extension EffectsSelfTest {
                                  air: SIMD4(Float(c.air.density), Float(c.air.temperature), Float(c.air.pressure), 0),
                                  airVelocity: SIMD4(c.air.velocity, 0),
                                  gravity: SIMD4(c.environment.gravity, Float(c.environment.vacuumIceTemperature)),
+                                 frameAcceleration: SIMD4(c.environment.frameAcceleration, 0),
                                  params: SIMD4(Float(c.dt), Float(ParticlePhysics.maxSubsteps), 0, 0))
             }
             let materials = cases.map { c -> ParticleMaterialGPU in
@@ -269,10 +270,10 @@ extension EffectsSelfTest {
         /// A studio anchor in constant sea-level air with a light wind, under gravity.
         static let air = ParticlePhysics.Air(density: 1.2, temperature: 290, pressure: 101_325, velocity: Vec3(3, -1, 0))
 
-        static func anchor() -> AnchorFrame {
+        static func anchor(falling: Bool = false) -> AnchorFrame {
             AnchorFrame(origin: Vec3(0, 0, -50), toWorld: .identity, up: .unitZ, east: .unitX, north: .unitY,
                         altitude: 100, groundAltitude: -.infinity, radius: 6.371e6, gravity: Vec3(0, 0, -9.80665),
-                        airVelocity: .zero, rotation: .zero, airProfile: 0, sunlitFraction: 1,
+                        fallsFreely: falling, airVelocity: .zero, rotation: .zero, airProfile: 0, sunlitFraction: 1,
                         vacuumIceTemperature: 205)
         }
 
@@ -282,7 +283,7 @@ extension EffectsSelfTest {
             let uploads = SelfTestUploads(device: device)
             let materials = ParticleMaterialTable()
             let steam = materials.register(.steam), spark = materials.register(.spark), flash = materials.register(.flash)
-            let id = EffectAnchorID(slot: 0, generation: 1)
+            let id = EffectAnchorID(slot: 0, generation: 1), falling = EffectAnchorID(slot: 1, generation: 1)
             let profile = AirProfile(constant: Self.air, windEast: Self.air.velocity.x, windNorth: Self.air.velocity.y)
             var epoch = Epoch(tdbSecondsPastJ2000: 0)
 
@@ -291,7 +292,7 @@ extension EffectsSelfTest {
                 epoch = epoch + dt
                 let clock = EffectClock(epoch: epoch, dt: dt, realDt: dt / warp, warp: warp)
                 let out = EffectFrameOutput(clock: clock, resets: resets, requests: requests,
-                                            anchors: anchored ? [(id, Self.anchor())] : [],
+                                            anchors: anchored ? [(id, Self.anchor()), (falling, Self.anchor(falling: true))] : [],
                                             airProfiles: [profile], drawn: drawn, materials: materials)
                 guard let cb = queue.makeCommandBuffer(), let enc = cb.makeComputeCommandEncoder() else { return (-1, -1, -1, -1) }
                 system.encode(system.makePlan(out, settings: ParticleSettings()), uploads: uploads, encoder: enc)
@@ -325,10 +326,18 @@ extension EffectsSelfTest {
             sparks.radius = 1e-3...3e-3
             sparks.temperature = 2_600
             sparks.seed = 12
-            let first = run([puffs, sparks], dt: 0, resets: true)
+            // The same puffs in a free-falling anchor (another material, to tell them apart).
+            let fallingSteam = materials.register({ var m = ParticleMaterial.steam; m.name = "falling steam"; return m }())
+            var fallingPuffs = puffs
+            fallingPuffs.anchor = falling
+            fallingPuffs.material = fallingSteam
+            fallingPuffs.count = 1_024
+            fallingPuffs.seed = 13
+            let first = run([puffs, sparks, fallingPuffs], dt: 0, resets: true)
             let gpu = system.readAlive(queue: queue)
             var errors: [Double] = []
-            for (r, mat) in [(puffs, ParticleMaterial.steam), (sparks, ParticleMaterial.spark)] {
+            for (r, mat) in [(puffs, ParticleMaterial.steam), (sparks, ParticleMaterial.spark),
+                             (fallingPuffs, ParticleMaterial.steam)] {
                 let mine = gpu.filter { $0.material == r.material.index }.sorted { $0.velocityAge.w < $1.velocityAge.w }
                 let cpu = (0..<r.count).map { EmitSampler.sample(r, index: $0) }.sorted { $0.age < $1.age }
                 guard mine.count == cpu.count else {
@@ -338,19 +347,20 @@ extension EffectsSelfTest {
                 for (g, c) in zip(mine, cpu) {
                     let start = ParticlePhysics.State(position: c.position, velocity: c.velocity, radius: c.radius,
                                                       temperature: r.temperature)
-                    let e = ParticlePhysics.advance(start, material: mat.physics, environment:
-                                                        ParticlePhysics.Environment(gravity: Vec3(0, 0, -9.80665),
-                                                                                    vacuumIceTemperature: 205),
-                                                    dt: c.age) { _ in Self.air }
+                    let gravity = Vec3(0, 0, -9.80665)
+                    let env = r.anchor == falling
+                        ? ParticlePhysics.Environment.freeFall(gravity: gravity, vacuumIceTemperature: 205)
+                        : ParticlePhysics.Environment(gravity: gravity, vacuumIceTemperature: 205)
+                    let e = ParticlePhysics.advance(start, material: mat.physics, environment: env, dt: c.age) { _ in Self.air }
                     errors.append(Self.error(gpu: (g.positionRadius, SIMD4(g.velocityAge.x, g.velocityAge.y, g.velocityAge.z,
                                                                             g.state.1)), expected: e, from: start, dt: c.age))
                 }
             }
             let sorted = errors.sorted()
             let p99 = sorted.isEmpty ? .infinity : sorted[Int(Double(sorted.count - 1) * 0.99)]
-            checks.append(Check(name: "spawn and age", passed: first.alive == 2_560 && p99 < 1e-3 && (sorted.last ?? .infinity) < 0.03,
-                                detail: String(format: "%d alive of 2,560; against the CPU p99 %.2e, worst %.2e", first.alive,
-                                               p99, sorted.last ?? .infinity)))
+            checks.append(Check(name: "spawn and age", passed: first.alive == 3_584 && p99 < 1e-3 && (sorted.last ?? .infinity) < 0.03,
+                                detail: String(format: "%d alive of 3,584 (1,024 in a falling anchor); against the CPU p99 %.2e, worst %.2e",
+                                               first.alive, p99, sorted.last ?? .infinity)))
 
             // 2. Every slot accounted for as particles die.
             let half = run([], dt: 1.2)

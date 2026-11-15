@@ -255,12 +255,14 @@ final class ParticleEffectsTests: XCTestCase {
         return (sim, camera)
     }
 
+    /// Moves the simulation on by `seconds` of its own time, whatever the warp
+    /// (`advance(by:)` takes wall-clock seconds and multiplies them by it).
     func advance(_ sim: Simulation, _ seconds: Double) {
         sim.paused = false
         sim.stepBudget = nil
         var left = seconds
         while left > 1e-9 {
-            sim.advance(by: min(5, left))
+            sim.advance(by: min(5, left) / sim.warp)
             left -= min(5, left)
         }
     }
@@ -290,7 +292,11 @@ final class ParticleEffectsTests: XCTestCase {
         let climbed = (vessel.position - earth.position).length - (anchor.origin - earth.position).length
         XCTAssertGreaterThan(climbed, 1, "the vehicle rose away from the free-falling anchor")
         XCTAssertNotNil(anchor.airProfile, "the Earth's air")
-        XCTAssertEqual(anchor.gravity, .zero)
+        // It falls freely: the body's gravity, which its particles' weight
+        // shares, is carried for their buoyancy and the air's fall past them.
+        XCTAssertTrue(anchor.fallsFreely)
+        XCTAssertEqual(anchor.gravity.length, 9.8, accuracy: 0.05)
+        XCTAssertLessThan(anchor.gravity.normalized.dot(anchor.up), -0.99)
 
         // Drawn again: nothing new, time stands still.
         let again = session.frame(scene, settings: ParticleSettings())
@@ -378,6 +384,89 @@ final class ParticleEffectsTests: XCTestCase {
         XCTAssertEqual((a.origin - EffectTargetFrame(scene: scene).origin).length, 0)
     }
 
+    /// The particles' air is the air the simulation flies through: on
+    /// AS-506's pad, the launch day's sounding and its winds (sim.atmosphere(of:)),
+    /// not the bare US76 of the body.
+    func testAirIsTheSimulationsAtmosphere() throws {
+        let (sim, camera) = try open("as506-pad")
+        let scene = SceneExtractor().extract(sim: sim, camera: camera, viewport: Self.viewport, realTime: 0)
+        let earth = try XCTUnwrap(sim.system.bodies.first { $0.id == 399 })
+        let sounding = try XCTUnwrap(sim.atmosphere(of: earth))
+        let air = try XCTUnwrap(scene.bodies.first { $0.id == 399 }?.air)
+        let level = 24, h = AirProfile.altitude(level)
+        XCTAssertEqual(h, 14_000, accuracy: 600)
+        let wind = sounding.wind(altitude: h), sample = air.sample(altitude: h)
+        XCTAssertGreaterThan(abs(wind.east) + abs(wind.north), 1, "the day had wind at 14 km")
+        XCTAssertEqual(sample.windEast, wind.east, accuracy: 1e-9)
+        XCTAssertEqual(sample.windNorth, wind.north, accuracy: 1e-9)
+        XCTAssertEqual(sample.temperature, sounding.state(altitude: h).temperature, accuracy: 1e-9)
+    }
+
+    /// A coasting vessel's acceleration relative to its free-falling
+    /// tracking anchor is its thrust and drag alone, none in the parking
+    /// orbit, so continuous emitters' particles do not fan out at warp.
+    func testSourceAccelerationIsRelativeToTheFallingAnchor() throws {
+        let (sim, camera) = try open("as506-parking-orbit")
+        let x = SceneExtractor()
+        final class Probe: EffectProducer {
+            let name = "probe"
+            var placements: [EffectPlacement] = []
+            func registerMaterials(_ table: ParticleMaterialTable) {}
+            func update(_ f: EffectFrame) {
+                guard let v = f.scene.vessels.first, let a = f.vesselAnchor(v.id), let p = f.place(.zero, of: v, in: a)
+                else { return }
+                placements.append(p)
+            }
+        }
+        let probe = Probe(), session = EffectSession(producers: [probe])
+        var t = 0.0
+        sim.warp = 100
+        for _ in 0..<3 {
+            advance(sim, 1.7)
+            t += 1.0 / 60
+            _ = session.frame(x.extract(sim: sim, camera: camera, viewport: Self.viewport, realTime: t),
+                              settings: ParticleSettings())
+        }
+        let last = try XCTUnwrap(probe.placements.last)
+        XCTAssertLessThan(last.acceleration.length, 0.05, "coasting: no thrust, no drag at 190 km")
+        XCTAssertLessThan(last.position.length, 1e-6, "the anchor was just started at the vessel")
+    }
+
+    /// A free-fall anchor left at the ground falls into the body; once deep
+    /// (below half its radius, some ten minutes on) it is retired with its
+    /// particles rather than diving through the centre.
+    func testFallenAnchorIsRetired() throws {
+        let (sim, camera) = try open("leo")
+        let base = SceneExtractor().extract(sim: sim, camera: camera, viewport: Self.viewport, realTime: 0)
+        let earth = try XCTUnwrap(base.bodies.first { $0.id == 399 })
+        final class Dropper: EffectProducer {
+            let name = "dropper"
+            var made = false
+            let earth: RenderScene.Body
+            init(earth: RenderScene.Body) { self.earth = earth }
+            func registerMaterials(_ table: ParticleMaterialTable) { table.register(.steam) }
+            func update(_ f: EffectFrame) {
+                guard !made else { return }
+                made = true
+                let r = Vec3(earth.radius, 0, 0)
+                guard let a = f.anchor(.freeFall(bodyID: 399, position: r, velocity: .zero, epoch: f.clock.epoch)) else { return }
+                var q = EmitRequest(anchor: a, material: ParticleMaterialID(0), count: 1)
+                q.lifetime = 5_000...5_000
+                f.emit(q)
+            }
+        }
+        let session = EffectSession(producers: [Dropper(earth: earth)])
+        var anchors: [Int] = []
+        for k in 0..<5 {
+            var scene = base
+            scene.clock.frameIndex = k + 1
+            scene.clock.simTime = base.clock.simTime + 300 * Double(k)
+            anchors.append(session.frame(scene, settings: ParticleSettings()).anchors.count)
+        }
+        XCTAssertEqual(anchors.first, 1)
+        XCTAssertEqual(anchors.last, 0, "\(anchors)")
+    }
+
     // MARK: Materials and settings
 
     func testMaterialTable() {
@@ -419,5 +508,11 @@ final class ParticleEffectsTests: XCTestCase {
         let spark = try JSONDecoder().decode(ParticleMaterial.self, from: JSONEncoder().encode(ParticleMaterial.flash))
         XCTAssertEqual(spark, .flash)
         XCTAssertEqual(try JSONDecoder().decode(RenderSettings.self, from: Data("{}".utf8)).particle, ParticleSettings())
+        // A burst with only a material of its own draws it, not the library's smoke.
+        let own = try JSONDecoder().decode(ParticleTestBurst.self, from: Data(
+            #"{"custom": {"name": "p4 pad steam", "renderClass": "smoke", "albedo": [0.5, 0.5, 0.5]}, "count": 5}"#.utf8))
+        XCTAssertEqual(own.material, "p4 pad steam")
+        XCTAssertEqual(own.resolvedMaterial?.name, "p4 pad steam")
+        XCTAssertEqual(own.resolvedMaterial?.albedo, ParticleColor(gray: 0.5))
     }
 }

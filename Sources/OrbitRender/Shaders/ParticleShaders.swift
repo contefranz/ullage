@@ -27,13 +27,13 @@ struct ParticleMaterial {
 
 struct ParticleAnchor {
     float4 origin;           // xyz: camera-relative (m), w: 1 live, 2 live and lit by the Sun above any air (the studio)
-    float4 toWorld0;         // anchor axes to world, columns
+    float4 toWorld0;         // anchor axes to world, columns; w: 1 when it falls freely (at `gravity`)
     float4 toWorld1;
     float4 toWorld2;
     float4 up;               // xyz: unit (anchor axes), w: the origin's altitude (m)
     float4 east;             // xyz: unit, w: the ground's altitude (m)
     float4 north;            // xyz: unit, w: the body's radius (m)
-    float4 gravity;          // xyz: m/s² (anchor axes), w: air profile (-1: vacuum)
+    float4 gravity;          // xyz: the body's gravity at the origin (m/s², anchor axes), w: air profile (-1: vacuum)
     float4 air;              // xyz: the air's velocity at the origin less the wind (m/s), w: sunlit fraction
     float4 rotation;         // xyz: the body's rotation (rad/s; free fall only), w: ice's temperature in vacuum (K)
 };
@@ -72,6 +72,8 @@ struct ParticleFrame {
 #define PARTICLE_AIR_TOP 100000.0
 #define PARTICLE_VACUUM_TEMPERATURE 3.0
 #define PARTICLE_FLASH_HOLD_FRAMES 3u
+#define PARTICLE_ADIABATIC 0.2857             // R / cp of dry air
+#define PARTICLE_EXPANSION 0.4                // γ - 1 of a cloud spreading into vacuum
 
 inline uint particle_materialIndex(uint p) { return p & 63u; }
 inline uint particle_anchorIndex(uint p) { return (p >> 6) & 255u; }
@@ -162,44 +164,97 @@ inline float particle_sublimatedRadius(float r, float dt, float ts, ParticleAir 
     return 2.0 * f / (invK + sqrt(invK * invK + 2.0 * f * invD));
 }
 
+// ParticlePhysics.grown: entrainment and spreading; the gas mixed as an ideal
+// gas at the air's pressure (r³ (1 - Ta/T) kept), or cooled adiabatically
+// spreading into vacuum; then relaxed to the air's temperature.
 inline float2 particle_grown(ParticleState s, device const ParticleMaterial &m, ParticleAir a, float h, float path) {
     bool vacuum = a.density <= 0.0;
     float radius = s.radius + (vacuum ? 0.0 : m.motion.w * path) + m.thermal.x * h;
     float ambient = vacuum ? PARTICLE_VACUUM_TEMPERATURE : a.temperature;
-    float excess = s.temperature - ambient;
-    if (radius > s.radius && s.radius > 0.0) {
-        float q = s.radius / radius;
-        excess *= q * q * q;
+    float t = s.temperature;
+    if (radius > s.radius && s.radius > 0.0 && t > 0.0) {
+        float q = s.radius / radius, q3 = q * q * q;
+        t = vacuum ? t * pow(q3, PARTICLE_EXPANSION) : ambient / (1.0 - q3 * (1.0 - ambient / t));
     }
-    if (m.thermal.y >= 0.0) { excess *= m.thermal.y > 0.0 ? exp(-h / m.thermal.y) : 0.0; }
-    return float2(radius, ambient + excess);
+    if (m.thermal.y >= 0.0) { t = ambient + (t - ambient) * (m.thermal.y > 0.0 ? exp(-h / m.thermal.y) : 0.0); }
+    return float2(radius, t);
 }
 
-inline int particle_substeps(ParticleState s, device const ParticleMaterial &m, float3 gravity, ParticleAir a, float dt,
-                             int most) {
-    float g = length(particle_effectiveGravity(m, s.temperature, a, gravity));
-    float tau = particle_tau(m, s.radius, s.temperature, a, length(s.velocity - a.velocity));
-    float shortest = min(tau, particle_terminalTime(m, s.radius, s.temperature, a, g));
-    if (shortest >= PARTICLE_NO_DRAG * 0.5 || shortest <= 0.0) { return 1; }
-    return clamp(int(ceil(dt / (2.0 * shortest))), 1, most);
+// ParticlePhysics.airMotion: the air's velocity at time t from the frame's
+// epoch, and its acceleration (-the frame's), zero in vacuum.
+inline void particle_airMotion(ParticleAir a, float3 frameAcceleration, float t, thread float3 &u, thread float3 &c) {
+    if (a.density <= 0.0) {
+        u = float3(0.0);
+        c = float3(0.0);
+        return;
+    }
+    u = a.velocity - frameAcceleration * t;
+    c = -frameAcceleration;
 }
 
-// ParticlePhysics.substep.
-inline ParticleState particle_substep(ParticleState s, device const ParticleMaterial &m, float3 gravity, float iceVacuum,
-                                      ParticleAir a, float h) {
-    float start = length(s.velocity - a.velocity);
-    float3 g0 = particle_effectiveGravity(m, s.temperature, a, gravity);
+// ParticlePhysics.slipGravity.
+inline float3 particle_slipGravity(device const ParticleMaterial &m, float t, ParticleAir a, float3 g,
+                                   float3 frameAcceleration) {
+    return a.density <= 0.0 ? g - frameAcceleration : particle_effectiveGravity(m, t, a, g);
+}
+
+inline float particle_shortest(ParticleState s, device const ParticleMaterial &m, float3 g, float3 frameAcceleration,
+                               ParticleAir a, float t) {
+    float3 u, c;
+    particle_airMotion(a, frameAcceleration, t, u, c);
+    float gs = length(particle_slipGravity(m, s.temperature, a, g, frameAcceleration));
+    float tau = particle_tau(m, s.radius, s.temperature, a, length(s.velocity - u));
+    return min(tau, particle_terminalTime(m, s.radius, s.temperature, a, gs));
+}
+
+// ParticlePhysics.schedule: x = first piece, y = ratio, z = count.
+inline float3 particle_schedule(float dt, float shortest, int most) {
+    if (!(shortest < PARTICLE_NO_DRAG * 0.5) || shortest <= 0.0 || dt <= 2.0 * shortest) { return float3(dt, 1.0, 1.0); }
+    float x = dt / shortest, n = float(most);
+    if (x <= 2.0 * n) {
+        float count = ceil(x / 2.0);
+        return float3(dt / count, 1.0, count);
+    }
+    float s2 = pow(2.0, n) - 1.0;
+    if (s2 <= x) { return float3(dt / s2, 2.0, n); }
+    float lo = 1.0, hi = 2.0;
+    for (int k = 0; k < 40; k++) {
+        float mid = 0.5 * (lo + hi);
+        if ((pow(mid, n) - 1.0) / (mid - 1.0) < x) { lo = mid; } else { hi = mid; }
+    }
+    float q = 0.5 * (lo + hi);
+    return float3(dt / ((pow(q, n) - 1.0) / (q - 1.0)), q, n);
+}
+
+// ParticlePhysics.slipStep: the exact linear step of the slip through air
+// moving at u0 and accelerating at c.
+inline void particle_slipStep(thread float3 &x, thread float3 &v, thread float3 &slip, thread float3 &slipVelocity,
+                              float3 u0, float3 c, float3 g, float tau, float h) {
+    float3 wx = float3(0.0), wv = v - u0;
+    particle_step(wx, wv, float3(0.0), g, tau, h);
+    x = x + u0 * h + c * (0.5 * h * h) + wx;
+    v = u0 + c * h + wv;
+    slip = wx;
+    slipVelocity = wv;
+}
+
+// ParticlePhysics.substep, starting at time t from the frame's epoch.
+inline ParticleState particle_substep(ParticleState s, device const ParticleMaterial &m, float3 gravity,
+                                      float3 frameAcceleration, float iceVacuum, ParticleAir a, float h, float t) {
+    float3 u0, c;
+    particle_airMotion(a, frameAcceleration, t, u0, c);
+    float start = length(s.velocity - u0);
+    float3 g0 = particle_slipGravity(m, s.temperature, a, gravity, frameAcceleration);
     float tau0 = particle_tau(m, s.radius, s.temperature, a, start);
-    float3 px = s.position, pv = s.velocity;
-    particle_step(px, pv, a.velocity, g0, tau0, h);
-    float predictedSpeed = length(pv - a.velocity);
-    float2 guess = particle_grown(s, m, a, h, h * 0.5 * (start + predictedSpeed));
+    float3 px = s.position, pv = s.velocity, pSlip, pSlipV;
+    particle_slipStep(px, pv, pSlip, pSlipV, u0, c, g0, tau0, h);
+    float2 guess = particle_grown(s, m, a, h, length(pSlip));
     float radius = 0.5 * (s.radius + guess.x), temperature = 0.5 * (s.temperature + guess.y);
-    float3 g = particle_effectiveGravity(m, temperature, a, gravity);
-    float tau = particle_tau(m, radius, temperature, a, 0.5 * (start + predictedSpeed));
-    float3 x = s.position, v = s.velocity;
-    particle_step(x, v, a.velocity, g, tau, h);
-    float2 after = particle_grown(s, m, a, h, h * 0.5 * (start + length(v - a.velocity)));
+    float3 g = particle_slipGravity(m, temperature, a, gravity, frameAcceleration);
+    float tau = particle_tau(m, radius, temperature, a, 0.5 * (start + length(pSlipV)));
+    float3 x = s.position, v = s.velocity, slip, slipV;
+    particle_slipStep(x, v, slip, slipV, u0, c, g, tau, h);
+    float2 after = particle_grown(s, m, a, h, length(slip));
     ParticleState next;
     next.position = x;
     next.velocity = v;
@@ -247,17 +302,28 @@ inline ParticleAir particle_air(device const ParticleAnchor &an, device const fl
     return o;
 }
 
-// ParticlePhysics.advance, the air looked up in the anchor's profile each substep.
+// ParticlePhysics.advance, the air looked up in the anchor's profile at each
+// piece's start, and a gas parcel cooled or warmed adiabatically with the
+// air's pressure between pieces.
 inline ParticleState particle_advance(ParticleState s, device const ParticleMaterial &m, device const ParticleAnchor &an,
                                       device const float4 *profiles, float dt, int most) {
     if (dt <= 0.0) { return s; }
+    float3 frameAcceleration = an.toWorld0.w > 0.5 ? an.gravity.xyz : float3(0.0);
     ParticleAir a = particle_air(an, profiles, s.position);
-    int n = particle_substeps(s, m, an.gravity.xyz, a, dt, most);
-    float h = dt / float(n);
-    for (int k = 0; k < n; k++) {
+    float3 plan = particle_schedule(dt, particle_shortest(s, m, an.gravity.xyz, frameAcceleration, a, -dt), most);
+    int count = int(plan.z);
+    float elapsed = 0.0, h = plan.x;
+    for (int k = 0; k < count; k++) {
         if (s.radius <= 0.0) { break; }
-        if (k > 0) { a = particle_air(an, profiles, s.position); }
-        s = particle_substep(s, m, an.gravity.xyz, an.rotation.w, a, h);
+        float step = k == count - 1 ? dt - elapsed : h;
+        s = particle_substep(s, m, an.gravity.xyz, frameAcceleration, an.rotation.w, a, step, elapsed - dt);
+        elapsed += step;
+        h *= plan.y;
+        ParticleAir next = particle_air(an, profiles, s.position);
+        if (m.motion.x <= 0.0 && a.density > 0.0 && next.density > 0.0 && a.pressure > 0.0 && next.pressure > 0.0) {
+            s.temperature *= pow(next.pressure / a.pressure, PARTICLE_ADIABATIC);
+        }
+        a = next;
     }
     return s;
 }
@@ -897,8 +963,9 @@ struct ParticleGoldenAdvance {
     float4 positionRadius;   // xyz, w: radius
     float4 velocityTemperature; // xyz, w: temperature
     float4 air;              // x: density, y: temperature, z: pressure
-    float4 airVelocity;      // xyz
+    float4 airVelocity;      // xyz: at the end of the advance
     float4 gravity;          // xyz, w: ice's temperature in vacuum
+    float4 frameAcceleration; // xyz
     float4 params;           // x: dt, y: substeps at most
 };
 
@@ -922,11 +989,16 @@ kernel void particle_golden_advance(device const ParticleGoldenAdvance *cases [[
     s.velocity = c.velocityTemperature.xyz;
     s.temperature = c.velocityTemperature.w;
     float dt = c.params.x;
-    int n = particle_substeps(s, m, c.gravity.xyz, a, dt, int(c.params.y));
-    float h = dt / float(n);
-    for (int k = 0; k < n; k++) {
+    float3 fa = c.frameAcceleration.xyz;
+    float3 plan = particle_schedule(dt, particle_shortest(s, m, c.gravity.xyz, fa, a, -dt), int(c.params.y));
+    int pieces = int(plan.z);
+    float elapsed = 0.0, h = plan.x;
+    for (int k = 0; k < pieces; k++) {
         if (s.radius <= 0.0) { break; }
-        s = particle_substep(s, m, c.gravity.xyz, c.gravity.w, a, h);
+        float step = k == pieces - 1 ? dt - elapsed : h;
+        s = particle_substep(s, m, c.gravity.xyz, fa, c.gravity.w, a, step, elapsed - dt);
+        elapsed += step;
+        h *= plan.y;
     }
     out[2 * id] = float4(s.position, s.radius);
     out[2 * id + 1] = float4(s.velocity, s.temperature);

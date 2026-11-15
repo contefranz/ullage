@@ -103,7 +103,8 @@ public struct ParticleStudio: Codable, Equatable {
 /// A look-dev burst: an `EmitRequest` in the studio, written in the camera
 /// target's east, north and up (m, m/s, degrees).
 public struct ParticleTestBurst: Codable, Equatable {
-    /// A library material's name (`ParticleMaterial.library`), or the name of `custom`.
+    /// A library material's name (`ParticleMaterial.library`), or the name of
+    /// `custom`; left out, `custom`'s, or the library's smoke without one.
     public var material = "smoke"
     /// A material of the shot's own.
     public var custom: ParticleMaterial?
@@ -137,8 +138,9 @@ public struct ParticleTestBurst: Codable, Equatable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let d = ParticleTestBurst()
-        material = try c.decodeIfPresent(String.self, forKey: .material) ?? d.material
         custom = try c.decodeIfPresent(ParticleMaterial.self, forKey: .custom)
+        // A burst that gives only its own material draws it.
+        material = try c.decodeIfPresent(String.self, forKey: .material) ?? custom?.name ?? d.material
         count = try c.decodeIfPresent(Int.self, forKey: .count) ?? d.count
         position = try c.decodeIfPresent([Double].self, forKey: .position) ?? d.position
         axis = try c.decodeIfPresent([Double].self, forKey: .axis) ?? d.axis

@@ -28,7 +28,7 @@ struct ParticleAnchorGPU: Equatable {
 
     init(_ a: AnchorFrame) {
         origin = SIMD4(a.origin, a.sunAboveAir ? 2 : 1)
-        toWorld0 = SIMD4(a.toWorld.c0, 0)
+        toWorld0 = SIMD4(a.toWorld.c0, a.fallsFreely ? 1 : 0)
         toWorld1 = SIMD4(a.toWorld.c1, 0)
         toWorld2 = SIMD4(a.toWorld.c2, 0)
         up = SIMD4(a.up, Float(a.altitude))

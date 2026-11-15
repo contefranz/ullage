@@ -305,6 +305,7 @@ WHERE THINGS ARE
 - `Sources/OrbitScene/Settings/ParticleSettings.swift`: `ParticleQuality` (the budget), the look-dev `testBursts` and the `studio`.
 - `Sources/OrbitRender/Effects/` (Mac): `EffectDirector` (runs the session each frame and lists the producers), `ParticleSystem` (the GPU buffers and kernels), `EffectAnchors` (anchors to float), `VolumeNoise` (the 128³ noise), `EffectsSelfTest`. `Shaders/ParticleShaders.swift` is the module.
 - Seams added to F0's scene: `RenderScene.Body.gm`, `.j2` and `.air` (an `AirProfile`), and `RenderScene.Vessel.velocity` (ICRF, relative to its reference body). SceneExtractor fills them.
+  - `.air` is sampled from the atmosphere the simulation flies through, `Simulation.atmosphere(of:)`. On AS-506's pad that is the launch day's sounding and its winds, not the body's bare US76.
 
 HOW AN EFFECT TRACK PLUGS IN
 1. Write a class adopting `EffectProducer` (OrbitScene types only, so it can live in OrbitScene and be tested on Linux, or in OrbitRender/Effects beside the director).
@@ -322,9 +323,20 @@ ANCHORS (`EffectFrame`)
 - `bodyFixedAnchor(at: site)`: the pad, before LC's own anchors exist.
 - `.bodyFixed(bodyID:origin:)`: body axes, m from the body's centre.
 - Axes: a body-fixed anchor's are the body's own (rotating), a free-fall anchor's are ICRF, the studio's are the camera target's east, north and up.
-- Gravity: −g down the geodetic normal in a body-fixed anchor, none in a free-fall one (it falls with its particles).
-- The air at a particle: the body's `AirProfile` at its altitude. The wind is east and north at the anchor's origin. In free fall the air turns with the body: ω × r, less the anchor's velocity.
+- Gravity (`AnchorFrame.gravity`) is the body's at the anchor's origin. In a body-fixed anchor it points down the geodetic normal.
+- A free-fall anchor (`AnchorFrame.fallsFreely`) falls at that gravity with its particles:
+  - their weight is gone, but Archimedes' buoyancy (the static air's pressure gradient) is not;
+  - the air accelerates at −g relative to the anchor.
+  - So a particle's slip through the air is exactly what it is in a body-fixed anchor: neutral steam stays with the air, and hot smoke rises.
+  - A free-fall anchor that has fallen below half its body's radius (one left at the ground for some ten minutes) is retired with its particles. Effects that stay near the ground for minutes belong in body-fixed anchors.
+- The air at a particle:
+  - the body's `AirProfile` at its altitude;
+  - the wind blows east and north at the anchor's origin;
+  - in free fall the air also turns with the body: ω × r, less the anchor's velocity, plus the −g above.
 - `place(point, of: event, in:)` and `place(point, of: vessel, in:)`: a point in vessel body axes from the centre of mass. They give its position, velocity and (for a scene vessel) acceleration in the anchor's axes, and `toAnchor` for directions. For a vessel, `place` gives `origin`, `sourceVelocity` and `sourceAcceleration`.
+  - The acceleration is relative to the anchor.
+  - In a free-fall anchor it is the vessel's thrust and drag alone: none for a coasting vessel. Gravity's mean over the last frame is taken off its change of velocity.
+  - In a body-fixed anchor it is the whole acceleration, gravity included.
 
 EMITTING
 - `EmitRequest` fields:
@@ -374,7 +386,14 @@ TIME (`EffectTimeRules`)
 - On a scenario change (a new simulation, or the extractor's frame index going back) or a time jump (dt < 0 or > 600 s), everything resets.
 - The turbulence clock is real dt × min(warp, 4); the noise runs on it.
 - A flash (`isFlash`) above 10× lives on past its lifetime until drawn on 3 frames, looking as it did at half its life (`FlashHold`).
-- The GPU's integrator takes any dt: up to 16 substeps of the exact linear-drag step, each re-linearised (second order) in speed, radius and temperature.
+- The GPU's integrator takes any dt. It uses up to 32 pieces of the exact linear-drag step on the slip through the air, each re-linearised (second order) in speed, radius and temperature.
+  - The pieces are equal while 32 of twice the shortest of τ and the terminal time suffice.
+  - Otherwise they grow geometrically from it, since quadratic drag's slip dies as 1/t.
+  - So a 300 m/s pyro puff aged through one 100× frame, or the F-1's exhaust pre-aged 8.9 s, lands within 3 % of 1 ms steps (ParticlePhysicsTests).
+- Gas parcels:
+  - they mix as an ideal gas at the air's pressure, conserving r³ (1 − Ta/T);
+  - they cool on the dry adiabat as they rise through the profile's pressure, so the stable troposphere stops them;
+  - spreading into vacuum, they cool as V^−(γ−1).
 
 LOOK-DEV
 - `ParticleSettings.testBursts` are spawned afresh every frame in the studio anchor at the camera's target, at their ages, in place of every producer. With them a shot is deterministic and the same in any scenario.
@@ -392,7 +411,7 @@ KNOWN LIMITS (ask P3 rather than work around them)
 - A body-fixed anchor's ground is the reference surface (sea level). There is no terrain or pad-deck height yet.
 - Streaks are stretched by their motion relative to their anchor, not to the camera.
 - Coriolis is neglected in body-fixed anchors, and tides in free-fall ones (their particles stay within kilometres).
-- The GPU advance takes at most 16 substeps. A grain thrown fast and aged a minute in one frame lands about 1.5 % short of fine steps (ParticlePhysicsTests).
+- Within one advance, the air's profile is looked up at each piece's start. In free fall, the anchor's own altitude is taken at the frame's epoch: a few metres off over a 100× frame.
 - Smoke has no self-shadowing (option 6, deferred). Thick puffs are lit by a diffuse wrap, thin ones by single scattering.
 
 ## Phasing

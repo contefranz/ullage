@@ -84,21 +84,41 @@ public enum ParticlePhysics {
         }
     }
 
-    /// Where it moves: the anchor's gravity (m/s²; zero in a free-fall
-    /// anchor, which falls with its particles), and the temperature ice
+    /// Where it moves, in its anchor's axes: the body's gravity at the
+    /// anchor (m/s²), the anchor's own acceleration, and the temperature ice
     /// takes in vacuum there (`IceSublimation.radiativeEquilibriumTemperature`).
+    /// A body-fixed anchor stands still (`frameAcceleration` zero); a
+    /// free-fall one falls at `gravity` with its particles. In a falling
+    /// frame a particle's weight is gone, but not Archimedes' buoyancy (the
+    /// static air's pressure gradient), and the air itself accelerates at
+    /// −`frameAcceleration`: the slip through the air is the same in either
+    /// frame.
     public struct Environment: Equatable {
         public var gravity: Vec3
+        public var frameAcceleration: Vec3
         public var vacuumIceTemperature: Double
 
-        public init(gravity: Vec3, vacuumIceTemperature: Double = 200) {
+        public init(gravity: Vec3, frameAcceleration: Vec3 = .zero, vacuumIceTemperature: Double = 200) {
             self.gravity = gravity
+            self.frameAcceleration = frameAcceleration
             self.vacuumIceTemperature = vacuumIceTemperature
+        }
+
+        /// A free-fall anchor's: it falls at the body's gravity.
+        public static func freeFall(gravity: Vec3, vacuumIceTemperature: Double = 200) -> Environment {
+            Environment(gravity: gravity, frameAcceleration: gravity, vacuumIceTemperature: vacuumIceTemperature)
         }
     }
 
+    /// R / cp of dry air: a parcel lifted at the air's pressure cools as
+    /// (p' / p)^κ, the dry adiabat's 9.8 K/km.
+    public static let adiabaticExponent = 0.2857
+    /// γ − 1 for a gas cloud spreading into vacuum, which cools adiabatically
+    /// as its volume grows: T ∝ V^−(γ−1).
+    public static let expansionExponent = 0.4
+
     /// The most substeps one advance takes (the GPU's loop bound).
-    public static let maxSubsteps = 16
+    public static let maxSubsteps = 32
 
     // MARK: Mass and drag
 
@@ -129,10 +149,10 @@ public enum ParticlePhysics {
 
     // MARK: Buoyancy
 
-    /// Gravity less Archimedes' buoyancy, m/s²: g (1 − b ρa / ρp). A gas
+    /// Gravity less Archimedes' buoyancy, m/s²: g (1 − b ρa / ρp), the
+    /// acceleration of the slip through the air whatever the frame. A gas
     /// parcel at the air's temperature floats (b = 1); a hot one rises at
-    /// g (Tp − Ta) / Ta before drag; in vacuum, or in a free-fall anchor
-    /// (g = 0), there is none.
+    /// g (Tp − Ta) / Ta before drag; in vacuum there is no buoyancy.
     public static func effectiveGravity(_ m: Material, temperature: Double, air: Air, gravity g: Vec3) -> Vec3 {
         guard air.density > 0, m.buoyancy != 0 else { return g }
         let rho = density(m, temperature: temperature, air: air)
@@ -167,63 +187,122 @@ public enum ParticlePhysics {
 
     // MARK: The step
 
-    /// The particle after `dt` s, through air given by `air` at a position
-    /// (the GPU looks it up in the anchor's altitude table), in
-    /// `substeps(...)` equal pieces, each:
-    /// 1. drag and buoyancy, with P1's exact linear step, τ re-linearised
-    ///    about the mean of the relative speeds at the start and at the end
-    ///    the start's τ predicts (as `ParticleKinematics.dragStep`);
-    /// 2. growth by entrainment over the path through the air, plus the
-    ///    spreading;
-    /// 3. the temperature's excess diluted by the growth, (r / r')³, and
-    ///    relaxed over `coolingTime`;
-    /// 4. sublimation, for ice.
+    /// The particle after `dt` s. `air` gives the air at a position at the
+    /// end of the advance (the frame's epoch: the GPU looks it up in the
+    /// anchor's altitude table); in a falling frame the air's velocity at
+    /// time t before then was that plus `frameAcceleration` × t. The advance
+    /// takes the pieces `schedule` gives, each:
+    /// 1. drag and buoyancy on the slip through the air, P1's exact linear
+    ///    step, re-linearised about the mean of the slip speeds at the start
+    ///    and at the end the start's τ predicts, its radius and temperature
+    ///    the means of the start's and the prediction's;
+    /// 2. growth by entrainment over the path through the air (the slip's
+    ///    own displacement), plus the spreading; the gas mixed as an ideal
+    ///    gas at the air's pressure, r³ (1 − Ta/T) kept, and relaxed over
+    ///    `coolingTime`;
+    /// 3. sublimation, for ice;
+    /// 4. between pieces, a gas parcel's adiabatic cooling or warming with
+    ///    the air's pressure as it rises or sinks.
     public static func advance(_ s: State, material m: Material, environment e: Environment, dt: Double,
                                air: (Vec3) -> Air) -> State {
         guard dt > 0 else { return s }
-        let n = substeps(s, material: m, environment: e, dt: dt, air: air(s.position))
-        let h = dt / Double(n)
-        var state = s
-        for _ in 0..<n {
+        var a = air(s.position)
+        let plan = schedule(dt: dt, shortest: shortestTime(s, material: m, environment: e, air: a, at: -dt))
+        var state = s, elapsed = 0.0, h = plan.first
+        for k in 0..<plan.count {
             guard state.radius > 0 else { break }
-            state = substep(state, material: m, environment: e, dt: h, air: air(state.position))
+            let step = k == plan.count - 1 ? dt - elapsed : h
+            state = substep(state, material: m, environment: e, dt: step, air: a, at: elapsed - dt)
+            elapsed += step
+            h *= plan.ratio
+            let next = air(state.position)
+            if m.density <= 0, !a.isVacuum, !next.isVacuum, a.pressure > 0, next.pressure > 0 {
+                state.temperature *= pow(next.pressure / a.pressure, adiabaticExponent)
+            }
+            a = next
         }
         return state
     }
 
-    /// How many pieces an advance of `dt` takes: one, or as many as make
-    /// each at most twice the shorter of the start's τ and the terminal
-    /// time, up to `maxSubsteps`.
-    public static func substeps(_ s: State, material m: Material, environment e: Environment, dt: Double,
-                                air a: Air) -> Int {
-        let g = effectiveGravity(m, temperature: s.temperature, air: a, gravity: e.gravity).length
-        let tau = relaxationTime(m, radius: s.radius, temperature: s.temperature, air: a,
-                                 relativeSpeed: (s.velocity - a.velocity).length)
-        let shortest = min(tau, terminalTime(m, radius: s.radius, temperature: s.temperature, air: a, gravity: g))
-        guard shortest.isFinite, shortest > 0 else { return 1 }
-        return max(1, min(maxSubsteps, Int((dt / (2 * shortest)).rounded(.up))))
+    /// The air's velocity at time `t` (s, from the frame's epoch: negative
+    /// before it) and its acceleration, in the anchor's frame; zero in vacuum.
+    static func airMotion(_ a: Air, environment e: Environment, at t: Double) -> (velocity: Vec3, acceleration: Vec3) {
+        a.isVacuum ? (.zero, .zero) : (a.velocity - e.frameAcceleration * t, -e.frameAcceleration)
     }
 
-    /// One piece of `advance`, in air `a` taken at its start: a predictor
-    /// with the start's τ, buoyancy, radius and temperature, then the step
-    /// with each taken at the mean of the start and the prediction's end, so
-    /// a hot puff that dilutes fast as it entrains is second order too.
+    /// The slip's own acceleration: gravity less buoyancy in air; in vacuum,
+    /// where the slip is the velocity, gravity less the frame's fall.
+    static func slipGravity(_ m: Material, temperature: Double, air a: Air, environment e: Environment) -> Vec3 {
+        a.isVacuum ? e.gravity - e.frameAcceleration : effectiveGravity(m, temperature: temperature, air: a, gravity: e.gravity)
+    }
+
+    /// The shorter of the drag time and the terminal time at a substep's start.
+    static func shortestTime(_ s: State, material m: Material, environment e: Environment, air a: Air,
+                             at t: Double) -> Double {
+        let u = airMotion(a, environment: e, at: t).velocity
+        let g = slipGravity(m, temperature: s.temperature, air: a, environment: e).length
+        let tau = relaxationTime(m, radius: s.radius, temperature: s.temperature, air: a,
+                                 relativeSpeed: (s.velocity - u).length)
+        return min(tau, terminalTime(m, radius: s.radius, temperature: s.temperature, air: a, gravity: g))
+    }
+
+    /// The pieces of an advance of `dt` given the start's shortest time:
+    /// one when `dt` is at most twice it; equal pieces of at most twice it
+    /// while `maxSubsteps` do; else `maxSubsteps` growing geometrically from
+    /// it, by `ratio` (at most 2), to add up to `dt`. Quadratic drag's slip
+    /// dies as 1/t, so its τ grows with the time since the throw: growing
+    /// pieces keep up with it, and a 300 m/s pyro puff aged 1.7 s in one
+    /// advance lands where 1/60 s frames take it.
+    public static func schedule(dt: Double, shortest: Double) -> (first: Double, ratio: Double, count: Int) {
+        guard shortest.isFinite, shortest > 0, dt > 2 * shortest else { return (dt, 1, 1) }
+        let x = dt / shortest, n = Double(maxSubsteps)
+        if x <= 2 * n {
+            let count = Int((x / 2).rounded(.up))
+            return (dt / Double(count), 1, count)
+        }
+        func sum(_ q: Double) -> Double { (pow(q, n) - 1) / (q - 1) }
+        if sum(2) <= x { return (dt / sum(2), 2, maxSubsteps) }
+        var lo = 1.0, hi = 2.0
+        for _ in 0..<40 {
+            let mid = 0.5 * (lo + hi)
+            if sum(mid) < x { lo = mid } else { hi = mid }
+        }
+        let q = 0.5 * (lo + hi)
+        return (dt / sum(q), q, maxSubsteps)
+    }
+
+    /// The exact linear step of the slip w = v − u through air moving at u0
+    /// and accelerating at c (P1's `ParticleKinematics.step` on the slip):
+    /// the particle's position and velocity, and the slip's displacement,
+    /// its path through the air.
+    static func slipStep(position x: Vec3, velocity v: Vec3, air u0: Vec3, airAcceleration c: Vec3, gravity g: Vec3,
+                         relaxationTime tau: Double, dt h: Double) -> (position: Vec3, velocity: Vec3, slip: Vec3,
+                                                                       slipVelocity: Vec3) {
+        let w = ParticleKinematics.step(position: .zero, velocity: v - u0, airVelocity: .zero, gravity: g,
+                                        relaxationTime: tau, dt: h)
+        return (x + u0 * h + c * (0.5 * h * h) + w.position, u0 + c * h + w.velocity, w.position, w.velocity)
+    }
+
+    /// One piece of `advance`, starting at time `t` (s from the frame's
+    /// epoch), in air `a` looked up at its start: a predictor with the
+    /// start's τ, buoyancy, radius and temperature, then the step with each
+    /// taken at the mean of the start and the prediction's end.
     public static func substep(_ s: State, material m: Material, environment e: Environment, dt h: Double,
-                               air a: Air) -> State {
-        let start = (s.velocity - a.velocity).length
-        let g0 = effectiveGravity(m, temperature: s.temperature, air: a, gravity: e.gravity)
+                               air a: Air, at t: Double = 0) -> State {
+        let air = airMotion(a, environment: e, at: t)
+        let start = (s.velocity - air.velocity).length
+        let g0 = slipGravity(m, temperature: s.temperature, air: a, environment: e)
         let tau0 = relaxationTime(m, radius: s.radius, temperature: s.temperature, air: a, relativeSpeed: start)
-        let predicted = ParticleKinematics.step(position: s.position, velocity: s.velocity, airVelocity: a.velocity,
-                                                gravity: g0, relaxationTime: tau0, dt: h)
-        let predictedSpeed = (predicted.velocity - a.velocity).length
-        let guess = grown(s, material: m, air: a, dt: h, path: h * 0.5 * (start + predictedSpeed))
+        let predicted = slipStep(position: s.position, velocity: s.velocity, air: air.velocity,
+                                 airAcceleration: air.acceleration, gravity: g0, relaxationTime: tau0, dt: h)
+        let guess = grown(s, material: m, air: a, dt: h, path: predicted.slip.length)
         let radius = 0.5 * (s.radius + guess.radius), temperature = 0.5 * (s.temperature + guess.temperature)
-        let g = effectiveGravity(m, temperature: temperature, air: a, gravity: e.gravity)
+        let g = slipGravity(m, temperature: temperature, air: a, environment: e)
         let tau = relaxationTime(m, radius: radius, temperature: temperature, air: a,
-                                 relativeSpeed: 0.5 * (start + predictedSpeed))
-        let moved = ParticleKinematics.step(position: s.position, velocity: s.velocity, airVelocity: a.velocity,
-                                            gravity: g, relaxationTime: tau, dt: h)
-        let after = grown(s, material: m, air: a, dt: h, path: h * 0.5 * (start + (moved.velocity - a.velocity).length))
+                                 relativeSpeed: 0.5 * (start + predicted.slipVelocity.length))
+        let moved = slipStep(position: s.position, velocity: s.velocity, air: air.velocity,
+                             airAcceleration: air.acceleration, gravity: g, relaxationTime: tau, dt: h)
+        let after = grown(s, material: m, air: a, dt: h, path: moved.slip.length)
         var next = State(position: moved.position, velocity: moved.velocity, radius: after.radius,
                          temperature: after.temperature)
         if m.sublimates {
@@ -233,20 +312,26 @@ public enum ParticlePhysics {
         return next
     }
 
-    /// The radius and temperature after `dt` s and `path` m through the air:
-    /// grown by entrainment (none in vacuum) and spreading, the excess
-    /// temperature diluted by the growth, (r / r')³, and relaxed.
+    /// The radius and temperature after `dt` s and `path` m through the air.
+    /// The radius grows by entrainment (none in vacuum) and spreading. In
+    /// air the parcel mixes as an ideal gas at the air's pressure: volumes
+    /// add and enthalpy is kept, so r³ (1 − Ta/T) is conserved and
+    /// T' = Ta / (1 − (r/r')³ (1 − Ta/T)) (Boussinesq's (T − Ta) r³ only
+    /// while T is near Ta). Spreading into vacuum cools it adiabatically,
+    /// T ∝ V^−(γ−1). Then the temperature relaxes to the air's over
+    /// `coolingTime`.
     static func grown(_ s: State, material m: Material, air a: Air, dt h: Double,
                       path: Double) -> (radius: Double, temperature: Double) {
-        let radius = s.radius + (a.isVacuum ? 0 : m.entrainment * path) + m.spreadRate * h
-        let ambient = a.isVacuum ? Air.vacuum.temperature : a.temperature
-        var excess = s.temperature - ambient
-        if radius > s.radius, s.radius > 0 {
-            let q = s.radius / radius
-            excess *= q * q * q
+        let vacuum = a.isVacuum
+        let radius = s.radius + (vacuum ? 0 : m.entrainment * path) + m.spreadRate * h
+        let ambient = vacuum ? Air.vacuum.temperature : a.temperature
+        var t = s.temperature
+        if radius > s.radius, s.radius > 0, t > 0 {
+            let q = s.radius / radius, q3 = q * q * q
+            t = vacuum ? t * pow(q3, expansionExponent) : ambient / (1 - q3 * (1 - ambient / t))
         }
-        if m.coolingTime.isFinite { excess *= m.coolingTime > 0 ? exp(-h / m.coolingTime) : 0 }
-        return (radius, ambient + excess)
+        if m.coolingTime.isFinite { t = ambient + (t - ambient) * (m.coolingTime > 0 ? exp(-h / m.coolingTime) : 0) }
+        return (radius, t)
     }
 
     // MARK: Golden vectors
@@ -267,8 +352,9 @@ public enum ParticlePhysics {
     /// not change along the way: a hot pad puff rising and entraining, a
     /// steam puff drifting in the wind, a frost flake falling and
     /// sublimating, a flake sublimating in sunlit vacuum, a spark cooling in
-    /// vacuum, a hot puff over one 1,000× frame (substeps), and a slab
-    /// tossed at max q.
+    /// vacuum, a hot puff over one 1,000× frame, a slab tossed at max q, a
+    /// steam puff in a free-falling anchor, a pyro puff thrown at 300 m/s
+    /// aged through a 100× frame, and the F-1's exhaust aged 8.9 s.
     public static let goldenCases: [GoldenCase] = {
         let g = Vec3(0, 0, -9.80665)
         let seaLevel = Air(density: 1.2, temperature: 300, pressure: 101_325, velocity: Vec3(4, -1, 0))
@@ -287,15 +373,24 @@ public enum ParticlePhysics {
              flake, Environment(gravity: g), Air(density: 0.9, temperature: 270, pressure: 70_000), 2.0),
             ("flake in sunlit vacuum", State(position: Vec3(1, 2, 3), velocity: Vec3(0.5, 0, 0), radius: 1e-3,
                                              temperature: 200),
-             flake, Environment(gravity: .zero, vacuumIceTemperature: 205), .vacuum, 600),
+             flake, .freeFall(gravity: g * 0.9, vacuumIceTemperature: 205), .vacuum, 600),
             ("spark in vacuum", State(position: .zero, velocity: Vec3(-40, 90, 5), radius: 2e-4, temperature: 2_600),
-             spark, Environment(gravity: .zero), .vacuum, 0.8),
+             spark, .freeFall(gravity: g * 0.9), .vacuum, 0.8),
             ("hot puff, 1000x frame", State(position: Vec3(0, 0, 50), velocity: Vec3(0, 0, 40), radius: 6,
                                             temperature: 1_200),
              puff, Environment(gravity: g), seaLevel, 16.7),
             ("slab at max q", State(position: Vec3(0, 0, 13_000), velocity: Vec3(-400, 0, 50), radius: 0.08,
                                     temperature: 90),
              slab, Environment(gravity: g * 0.998), Air(density: 0.25, temperature: 217, pressure: 17_000), 0.5),
+            ("steam in free fall", State(position: Vec3(3, 0, -2), velocity: Vec3(1, 0, 4), radius: 5, temperature: 400),
+             steam, .freeFall(gravity: g), Air(density: 1.1, temperature: 290, pressure: 95_000, velocity: Vec3(2, 0, 30)),
+             2.0),
+            ("pyro puff at 300 m/s, 100x", State(position: .zero, velocity: Vec3(300, 0, 0), radius: 0.5,
+                                                 temperature: 1_500),
+             puff, Environment(gravity: g), seaLevel, 1.67),
+            ("F-1 exhaust aged 8.9 s", State(position: Vec3(0, 0, 10), velocity: Vec3(1_000, 0, -50), radius: 2,
+                                             temperature: 2_000),
+             puff, Environment(gravity: g), seaLevel, 8.9),
         ]
         return inputs.map { name, s, m, e, a, dt in
             GoldenCase(name: name, state: s, material: m, environment: e, air: a, dt: dt,
