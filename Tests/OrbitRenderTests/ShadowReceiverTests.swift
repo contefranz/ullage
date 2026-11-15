@@ -292,4 +292,29 @@ final class ShadowReceiverTests: XCTestCase {
         let pass = try XCTUnwrap(r.graph.pass(named: "Shadows") as? ShadowPass)
         XCTAssertEqual(pass.casterTriangles(of: v.id), own)
     }
+
+    /// The same for a vessel the maps first meet after R5's bake: one in
+    /// the Earth's shadow on its first frame (Apollo 7's entry scenarios open
+    /// in the umbra), whose casters are made all the same, and one first
+    /// drawn with the shadows off, whose casters come from its shapes again.
+    func testCastersKeepThePartsOwnMeshAfterTheDark() throws {
+        for darkFirst in [true, false] {
+            let r = try renderer()
+            r.settings.shading.waitForAmbientOcclusion = true
+            r.settings.ambientOcclusion.maxEdge = 0.5
+            // Wide enough for a map (64 px across).
+            var scene = ShadowLookDevTests.scene(distance: 34, width: 320, height: 200)
+            let v = scene.vessels[0]
+            if darkFirst { scene.vessels[0].light.sunlit = 0 }
+            _ = try luminance(scene, shadows: darkFirst, renderer: r)
+            let entry = try XCTUnwrap(r.meshes.mesh(v.id)?.parts.first)
+            XCTAssertEqual(entry.mesh.subdividedEdge, 0.5, "R5's mesh after the first frame")
+            scene.vessels[0].light.sunlit = 1
+            _ = try luminance(scene, shadows: true, renderer: r)
+            let pass = try XCTUnwrap(r.graph.pass(named: "Shadows") as? ShadowPass)
+            XCTAssertFalse(pass.maps.isEmpty, "lit, it casts")
+            let own = entry.part.shapes.map { $0.mesh().triangleCount }.reduce(0, +)
+            XCTAssertEqual(pass.casterTriangles(of: v.id), own, darkFirst ? "dark first" : "shadows off first")
+        }
+    }
 }

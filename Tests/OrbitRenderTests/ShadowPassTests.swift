@@ -571,6 +571,27 @@ final class ShadowPassTests: XCTestCase {
         }
     }
 
+    /// A part's caster goes once its part entry is freed, even frames after
+    /// the vessels changed: here the old vessel's parts are held past the
+    /// swap (as a bake or a wire draw may hold them) and then let go.
+    func testOrphanPartCastersGo() throws {
+        let (r, pass) = try shadowRenderer()
+        func vessel(_ k: Int) -> RenderScene.Vessel {
+            Self.vessel([VisualShape.box(from: .zero, length: 2 + Double(k), width: 2, height: 2, axis: .unitZ,
+                                         color: Self.white)], position: Vec3(0, 0, -20))
+        }
+        let a = vessel(0), b = vessel(1)
+        try draw(Self.scene([a], toSun: Vec3(0.3, 0.2, 1)), r)
+        var held: [PartEntry]? = try XCTUnwrap(r.meshes.mesh(a.id)).parts
+        try draw(Self.scene([b], toSun: Vec3(0.3, 0.2, 1)), r)
+        XCTAssertEqual(pass.cachedCasters.parts, 2, "the old part still lives")
+        XCTAssertEqual(held?.count, 1)
+        held = nil
+        try draw(Self.scene([b], toSun: Vec3(0.3, 0.2, 1)), r)
+        XCTAssertEqual(pass.cachedCasters.vessels, 1)
+        XCTAssertEqual(pass.cachedCasters.parts, 1, "its caster goes with it")
+    }
+
     // MARK: The pad
 
     /// AS-506 on LC-39A at Apollo 11's launch (the Sun 36° up in the east),
