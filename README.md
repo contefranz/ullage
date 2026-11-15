@@ -61,6 +61,21 @@ grid. For real imagery, put equirectangular maps (8192×4096 or smaller) in
 - Earth: NASA Visible Earth, *Blue Marble* collection
 - Moon: NASA Scientific Visualization Studio, *CGI Moon Kit* (LROC colour map)
 
+### Earth tiles (optional)
+
+The Earth's 500 m imagery, water and relief stream from a tile store
+(docs/m16/planet-tile-cache.md). Make it once (about 7 GB of downloads, up to
+15 GB of scratch space while it builds, about 3 GB of tiles):
+
+```sh
+tools/fetch_planet_data.sh --dry-run   # what it would fetch, and how big
+tools/fetch_planet_data.sh             # BMNG July and December, Natural Earth, ETOPO 2022; Landsat by hand
+swift run -c release PlanetTiles earth all
+```
+
+The tiles go to `~/Library/Application Support/OrbitSim/Tiles/`. Without
+them the Earth keeps `earth.jpg` (or the plain ocean), and the console says so.
+
 ## Controls
 
 | Key | Action |
@@ -329,6 +344,13 @@ Some design notes:
   docstring).
 - `coastlines.bin` (the app's MAP MFD): Natural Earth 1:110m coastlines
   (public domain), built with `tools/make_coastlines.py`.
+- Earth tiles, which you fetch with `tools/fetch_planet_data.sh` and build
+  with `PlanetTiles earth` (not in the repository; each file's metadata and
+  SOURCES.txt record the URLs and sha256): NASA Blue Marble Next Generation
+  (NASA Earth Observatory, Reto Stöckli), with the 1960s Aral Sea and Lake
+  Chad from Natural Earth's historic lakes; Natural Earth 1:10m land and
+  lakes; NOAA ETOPO 2022 (NOAA NCEI, doi:10.25921/fd45-gt74); a Landsat 9
+  scene of the Cape (USGS). All public domain.
 - Clouds: ERA5 (Hersbach et al. 2020, Copernicus Climate Change Service, CC
   BY 4.0), read from Google's ARCO-ERA5 copy by `tools/make_clouds_era5.py`:
   the zonal climatology in `Sources/OrbitScene/Earth/CloudClimatology.swift`

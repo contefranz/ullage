@@ -85,6 +85,8 @@ The byte layout is in the header comment of PlanetTileFormat.swift. That comment
 
 ### For E1 (streaming the Earth's imagery)
 
+E1 built it: docs/m16/planet-tile-cache.md.
+
 - Make resident, for each selected key, `finestAvailable(key)` in the layer's file. Sample per pixel through the indirection texture at the finest resident ancestor.
 - The selection is purely geometric, so it never depends on what is loaded. Prefetch along the predicted track by selecting a few future views.
 

@@ -97,12 +97,13 @@ public final class SceneRenderer {
         let post = PostPass()
         // R2's vessels, whose thin tubes blend over the sky after A2's composite.
         let vessels = VesselPass()
+        let tiles = PlanetTilePass(loadsUserTiles: loadsUserTextures)
         return [
             // P0
             post.exposurePass, AtmosphereLUTPass(), clouds, ShadowPass(), EnvironmentProbePass(),
-            ParticleSimulationPass(),
+            ParticleSimulationPass(), tiles,
             // P1
-            StarPass(), PlanetPass(loadsUserTextures: loadsUserTextures), vessels, EffectTestOpaquePass(),
+            StarPass(), PlanetPass(loadsUserTextures: loadsUserTextures, tiles: tiles), vessels, EffectTestOpaquePass(),
             // P2
             AtmosphereCompositePass(), vessels.wirePass,
             // P3
