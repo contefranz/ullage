@@ -86,14 +86,19 @@ public enum GeoJSON {
     }
 }
 
-/// Fills polygons on a `GeoGrid` with antialiased coverage, by the even-odd
-/// rule over all their rings together: holes are outside, an island in a
-/// hole inside again. Polygons that do not overlap (Natural Earth's land, or
-/// its lakes) are therefore filled as their union. Coverage is exact along
-/// each scanline and taken on `subRows` scanlines per pixel row.
+/// Fills polygons on a `GeoGrid` with antialiased coverage: each polygon by
+/// the even-odd rule over its own rings (its holes are outside), and the
+/// polygons together as their union, so polygons that overlap (Natural
+/// Earth's lakes: Georgian Bay inside Lake Huron) or nest (a modern lake in
+/// its 1960s outline) are inside wherever any of them is, and an island
+/// given as a polygon of its own in another's hole is inside too. Coverage
+/// is exact along each scanline (the union of the polygons' spans) and
+/// taken on `subRows` scanlines per pixel row.
 public enum PolygonRasterizer {
     struct Edge {
         var x0: Double, y0: Double, x1: Double, y1: Double
+        /// The polygon it belongs to.
+        var polygon: Int
     }
 
     /// Calls `row(r, coverage)` for every pixel row the polygons reach, with
@@ -106,14 +111,14 @@ public enum PolygonRasterizer {
         let w = grid.width, h = grid.height
         // Edges in pixel units, the y axis down.
         var edges: [Edge] = []
-        for p in polygons {
+        for (index, p) in polygons.enumerated() {
             for ring in p.rings where ring.count >= 3 {
                 for k in 0 ..< ring.count {
                     let a = ring[k], b = ring[(k + 1) % ring.count]
                     let pa = grid.position(latitudeDegrees: a.latitude, longitudeDegrees: a.longitude)
                     let pb = grid.position(latitudeDegrees: b.latitude, longitudeDegrees: b.longitude)
                     if pa.y == pb.y { continue }
-                    edges.append(Edge(x0: pa.x, y0: pa.y, x1: pb.x, y1: pb.y))
+                    edges.append(Edge(x0: pa.x, y0: pa.y, x1: pb.x, y1: pb.y, polygon: index))
                 }
             }
         }
@@ -132,7 +137,8 @@ public enum PolygonRasterizer {
         DispatchQueue.concurrentPerform(iterations: bands) { band in
             let mine = byBand[band]
             guard !mine.isEmpty else { return }
-            var crossings: [Double] = []
+            var crossings: [(polygon: Int, x: Double)] = []
+            var spans: [(a: Double, b: Double)] = []
             var cover = [Float](repeating: 0, count: w)
             for r in band * bandRows ..< min(h, (band + 1) * bandRows) {
                 var touched = false
@@ -143,15 +149,31 @@ public enum PolygonRasterizer {
                         let e = edges[i]
                         let lo = min(e.y0, e.y1), hi = max(e.y0, e.y1)
                         guard y >= lo && y < hi else { continue }
-                        crossings.append(e.x0 + (y - e.y0) / (e.y1 - e.y0) * (e.x1 - e.x0))
+                        crossings.append((e.polygon, e.x0 + (y - e.y0) / (e.y1 - e.y0) * (e.x1 - e.x0)))
                     }
                     guard crossings.count >= 2 else { continue }
-                    crossings.sort()
+                    // Each polygon's own spans, even-odd over its rings...
+                    crossings.sort { $0.polygon != $1.polygon ? $0.polygon < $1.polygon : $0.x < $1.x }
+                    spans.removeAll(keepingCapacity: true)
                     var k = 0
                     while k + 1 < crossings.count {
-                        let xa = max(0, min(Double(w), crossings[k])), xb = max(0, min(Double(w), crossings[k + 1]))
+                        if crossings[k].polygon != crossings[k + 1].polygon { k += 1; continue }
+                        let xa = max(0, min(Double(w), crossings[k].x)), xb = max(0, min(Double(w), crossings[k + 1].x))
                         k += 2
-                        guard xb > xa else { continue }
+                        if xb > xa { spans.append((xa, xb)) }
+                    }
+                    guard !spans.isEmpty else { continue }
+                    // ...and their union, each stretch of the row covered once.
+                    spans.sort { $0.a < $1.a }
+                    var merged: [(a: Double, b: Double)] = [spans[0]]
+                    for sp in spans.dropFirst() {
+                        if sp.a <= merged[merged.count - 1].b {
+                            merged[merged.count - 1].b = max(merged[merged.count - 1].b, sp.b)
+                        } else {
+                            merged.append(sp)
+                        }
+                    }
+                    for (xa, xb) in merged {
                         touched = true
                         let ca = Int(xa), cb = min(Int(xb), w - 1)
                         if ca == cb {
@@ -190,14 +212,13 @@ public enum PolygonRasterizer {
 }
 
 /// The water fraction the Earth's water layer holds (M1.6 track E1):
-/// max(1 − land, lakes, historic lakes), each set filled in a pass of its
-/// own. The rasteriser's even-odd rule makes a union only of polygons that
-/// do not overlap, and a modern lake lies inside its 1960s outline: in one
-/// pass the lake would read as a hole, land.
+/// max(1 − land, lakes, historic lakes). The rasteriser fills polygons as
+/// their union, so lakes that overlap (Georgian Bay inside Lake Huron) or
+/// nest (a modern lake in its 1960s outline) are water throughout.
 public enum WaterMask {
     /// An 8-bit raster on `grid` (255 water, read as a fraction): land's
-    /// coverage inverted, then each of `waters` (sets of non-overlapping
-    /// polygons) laid over it by max.
+    /// coverage inverted, then each of `waters` (sets of polygons, filled as
+    /// their union) laid over it by max.
     public static func rasterize(land: [GeoPolygon], waters: [[GeoPolygon]], on grid: GeoGrid,
                                  storage: RasterStorage? = nil) -> GeoRaster {
         let out = GeoRaster(grid: grid, channels: 1, type: .uint8, storage: storage)

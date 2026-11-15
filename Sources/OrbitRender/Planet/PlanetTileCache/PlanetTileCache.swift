@@ -4,6 +4,13 @@ import QuartzCore
 import OrbitCore
 import OrbitScene
 
+/// A tile load in flight on Metal's IO queue: its tile and staging buffer,
+/// which only the completion handler reads until the loader has them back.
+private struct IOLoad: @unchecked Sendable {
+    let key: TileKey
+    let staging: MTLBuffer
+}
+
 /// Swift mirror of PlanetTileCommon's `PlanetTileLayer`.
 public struct PlanetTileLayerUniforms: Equatable {
     /// x: tile size n, y: border b, z: n + 2b, w: the atlas's deepest mip.
@@ -384,9 +391,12 @@ public final class PlanetTileCache {
             let cb = io.makeCommandBuffer()
             cb.load(staging, offset: 0, size: entry.length, sourceHandle: ioHandles[file], sourceHandleOffset: entry.offset)
             let loader = self.loader, start = CACurrentMediaTime(), length = entry.length
+            // The load's tile and buffer, handed to Metal's completion thread
+            // and back; nothing else touches them meanwhile.
+            let load = IOLoad(key: key, staging: staging)
             loader.enterIO()
             cb.addCompletedHandler { b in
-                loader.finish(.init(key: key, staging: staging, ok: b.status == .complete,
+                loader.finish(.init(key: load.key, staging: load.staging, ok: b.status == .complete,
                                     seconds: CACurrentMediaTime() - start, bytes: length))
             }
             cb.commit()

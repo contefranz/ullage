@@ -111,30 +111,48 @@ final class PlanetTileBuildTests: XCTestCase {
         XCTAssertEqual(both.value(Int(p.x), Int(p.y)), 1)
     }
 
-    /// The Earth's water: a modern lake inside its 1960s outline, both on
-    /// land, is water in both; filled in one even-odd pass, the modern lake
-    /// would be a hole (land).
-    func testWaterMaskTakesNestedLakesAsWater() {
+    /// Polygons of one set that overlap or nest are filled as their union,
+    /// each polygon's own holes staying holes: Natural Earth's lakes layer
+    /// has Georgian Bay inside Lake Huron, and a modern lake lies inside
+    /// its 1960s outline.
+    func testPolygonsThatOverlapOrNestAreFilledAsTheirUnion() {
         let grid = GeoGrid(width: 100, height: 100, west: 0, north: 10, pixelWidth: 0.1, pixelHeight: 0.1)
-        func box(_ w: Double, _ s: Double, _ e: Double, _ n: Double) -> GeoPolygon {
-            GeoPolygon(rings: [[GeoPoint(longitude: w, latitude: s), GeoPoint(longitude: e, latitude: s),
-                                GeoPoint(longitude: e, latitude: n), GeoPoint(longitude: w, latitude: n)]])
+        func ring(_ w: Double, _ s: Double, _ e: Double, _ n: Double) -> [GeoPoint] {
+            [GeoPoint(longitude: w, latitude: s), GeoPoint(longitude: e, latitude: s),
+             GeoPoint(longitude: e, latitude: n), GeoPoint(longitude: w, latitude: n)]
         }
-        let land = [box(1, 1, 9, 9)], historic = [box(3, 3, 7, 7)], modern = [box(4, 4, 5, 5), box(5.5, 5.5, 6.5, 6.5)]
-        let water = WaterMask.rasterize(land: land, waters: [modern, historic], on: grid)
+        // A lake with an island, and a bay overlapping it; a second lake
+        // nested whole in the first; one set.
+        let huron = GeoPolygon(rings: [ring(1, 1, 6, 6), ring(2, 2, 3, 3)])
+        let georgian = GeoPolygon(rings: [ring(5, 5, 8, 8)])
+        let nested = GeoPolygon(rings: [ring(3.5, 3.5, 4.5, 4.5)])
+        let cover = PolygonRasterizer.coverage([huron, georgian, nested], on: grid, subRows: 8)
         func at(_ lon: Double, _ lat: Double) -> Float {
+            let p = grid.position(latitudeDegrees: lat, longitudeDegrees: lon)
+            return cover.value(Int(p.x), Int(p.y))
+        }
+        XCTAssertEqual(at(1.5, 1.5), 1, "the lake")
+        XCTAssertEqual(at(2.5, 2.5), 0, "its island")
+        XCTAssertEqual(at(5.5, 5.5), 1, "where the bay overlaps the lake")
+        XCTAssertEqual(at(7.5, 7.5), 1, "the bay alone")
+        XCTAssertEqual(at(4, 4), 1, "the nested lake")
+        XCTAssertEqual(at(8.5, 8.5), 0)
+        var area = 0.0
+        for r in 0 ..< 100 { for c in 0 ..< 100 { area += Double(cover.value(c, r)) * 0.01 } }
+        // 25 − 1 (the island) + 9 − 1 (the overlap); the nested lake adds nothing.
+        XCTAssertEqual(area, 32, accuracy: 0.02, "deg²")
+        // Water: land over all of it, the lakes and the 1960s outline laid in.
+        let water = WaterMask.rasterize(land: [GeoPolygon(rings: [ring(0.5, 0.5, 9.5, 9.5)])],
+                                        waters: [[huron, georgian], [GeoPolygon(rings: [ring(3, 3, 5, 5)])]], on: grid)
+        func wet(_ lon: Double, _ lat: Double) -> Float {
             let p = grid.position(latitudeDegrees: lat, longitudeDegrees: lon)
             return water.value(Int(p.x), Int(p.y))
         }
-        XCTAssertEqual(at(0.5, 0.5), 1, "open sea")
-        XCTAssertEqual(at(2, 2), 0, "land")
-        XCTAssertEqual(at(3.5, 3.5), 1, "the 1960s lake")
-        XCTAssertEqual(at(4.5, 4.5), 1, "a modern lake inside it")
-        XCTAssertEqual(at(6, 6), 1, "another")
-        // The one-pass fill this replaces gets the nested lakes wrong.
-        let onePass = PolygonRasterizer.coverage(modern + historic, on: grid)
-        let p = grid.position(latitudeDegrees: 4.5, longitudeDegrees: 4.5)
-        XCTAssertEqual(onePass.value(Int(p.x), Int(p.y)), 0)
+        XCTAssertEqual(wet(0.2, 0.2), 1, "open sea")
+        XCTAssertEqual(wet(9, 2), 0, "land")
+        XCTAssertEqual(wet(5.5, 5.5), 1)
+        XCTAssertEqual(wet(4, 4), 1, "inside both the lake and the old outline")
+        XCTAssertEqual(wet(2.5, 2.5), 0, "the island")
     }
 
     /// A work raster is reused only when its build finished: an interrupted

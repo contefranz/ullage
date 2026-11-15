@@ -67,7 +67,7 @@ Every layer uses 256-texel tiles with 4-texel borders on WGS 84. Each texel, bor
 |---|---|---|---|---|
 | albedo | `earth-bmng-2004-MM.ostiles` | JPEG q 0.9, RGB | 0-7 (texel 305 m nominal) | BMNG month; sRGB mips in linear light; the late-1950s Aral Sea and early-1960s Lake Chad painted in |
 | albedo inset | `earth-cape-landsat.ostiles` | JPEG, RGB | 8-12 over 28.30-28.85° N, 80.85-80.45° W | the Landsat scene, see below |
-| water | `earth-water.ostiles` | PNG grey | 0-5 (1.22 km) | 255 × max(1 − land, lakes, the historic Aral Sea and Lake Chad), each set filled in a pass of its own (`WaterMask`): the modern lakes lie inside their 1960s outlines, and one even-odd pass would make them holes |
+| water | `earth-water.ostiles` | PNG grey | 0-5 (1.22 km) | 255 × max(1 − land, lakes, the historic Aral Sea and Lake Chad) (`WaterMask`). Polygons are filled as their union, each even-odd over its own rings: Natural Earth's lakes overlap (Georgian Bay, the North Channel, Saginaw and Whitefish Bays inside Lakes Huron and Superior), and the modern Aral and Chad lakes lie inside their 1960s outlines. One even-odd pass over everything made all of those holes, land |
 | relief | `earth-relief.ostiles` | PNG RGB | 0-5 | ETOPO 2022 heights, normals (east, north, up) as 0-255; flat over water |
 
 - **The 1960s lakes (decision 33).** Natural Earth's historic-lakes layer holds four lakes. The tool takes the Aral Sea ("late 1950s") and Lake Chad ("early 1960s"); Lake Texcoco (1500s) and Lop Nur (1970s) are left out.
@@ -95,7 +95,7 @@ Measured on the M3 Pro, in Release:
   - The runway's middle drops from about 166 to 68 (scrub).
   - The region's edge matches BMNG to under one code.
   - A faint seam remains where the cloned strip meets the synthetic texture. Judge it on the real scene's preview.
-- After the review's fix the Aral Sea and Lake Chad tiles are water throughout, the modern lakes inside them included (the first build had them as land).
+- After the review's fixes, the Aral Sea and Lake Chad tiles are water throughout, the modern lakes inside them included. So are Georgian Bay and the North Channel, with Manitoulin and the other islands still land. The first builds had the overlaps as land.
 - **Not yet run:** the albedo, relief and Cape steps on the full sources, which need the owner's fetch. From the water step's rate, a month of albedo (131,070 tiles; reading and decompressing 2.4 GB of GeoTIFF; the 11 GB mosaic and its pyramid) should take about 10-20 min, and `earth all` with two months about 30-45 min. `PlanetTiles info` prints what came out.
 
 ## The cache
@@ -154,7 +154,7 @@ Without tile files the tile pass does nothing, and the console says why and how 
 
 | Layer | Slots | Atlas | Indirection |
 |---|---|---|---|
-| albedo (RGBA8 sRGB, 3 mips) | 440 | 153.5 MB | 0.5 MB on the GPU and as much on the CPU: levels 0-7, BMNG's complete levels; the Cape's 8-12 are in the deep table, 14 KB for 880 buckets |
+| albedo (RGBA8 sRGB, 3 mips) | 440 | 153.5 MB | 0.5 MB on the GPU and as much on the CPU: levels 0-7, BMNG's complete levels; the Cape's 8-12 are in the deep table, 16 KB (2 × 440 slots rounded up to 1,024 buckets of 16 bytes) |
 | water (R8, 3 mips) | 293 | 25.6 MB | 32 KB |
 | relief (RGBA8, 3 mips) | 220 | 76.8 MB | 32 KB |
 
@@ -209,7 +209,7 @@ The tile pass itself takes 0.00 ms on frames that upload nothing.
 
 - Linux (OrbitSceneTests: `PlanetTileBuildTests`, `PlanetTileResidencyTests`, `PlanetTileCatalogTests`):
   - rasters: bilinear across the antimeridian, halving with no data, the work-file round trip, footprint averaging (a checkerboard to ½, taps near the pole); a work raster reused only when its build finished, never an interrupted one's .partial;
-  - polygons: area with a hole and an island, partial edge coverage, GeoJSON properties; the water mask with modern lakes nested in a 1960s outline;
+  - polygons: area with a hole and an island, partial edge coverage, GeoJSON properties; polygons that overlap or nest filled as their union, a polygon's own island staying a hole; the water mask;
   - selection refined only where tiles are stored: no budget bias over the Pacific where refining to 12 everywhere overruns it, levels 10+ over the Cape;
   - tiles from a synthetic field: written, read back and checksummed, within 0.006 of the field at every level; border texels equal the neighbour's inside a face, and values read through a border agree with the other face's tile across every face edge;
   - region keys round LC-39; texel footprints;
