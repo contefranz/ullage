@@ -1303,22 +1303,27 @@ inline void cloud_haze(thread CloudResult &r, float2 uv, texture3d<float> froxel
 // radius), the transmittance of the air above it, A2's own from it to space
 // (A1's table: Rayleigh, aerosol and ozone, channel by channel), and of
 // A2's in-scatter over the ground from space along the ray (cd/m², as the
-// ground has it) the cloud's share of the air's optical depth there,
-// (1 − T) / (1 − T_ground). Not the froxels: they reach 2,000 km along the
-// ray (none of the air on the disc's outer part from 1,000 km up), and from
-// orbit their slices, 40-125 km apart within the air, place a cloud's haze
-// by distance, not height. (A share of the column by the Rayleigh scale
-// height gave the aerosol below the clouds and missed none of the ozone
-// above: 4-24 % too dark from LEO.)
+// ground has it) the share of the air's mass above the cloud,
+// e^(−h / 8 km). The light scattered per unit of extinction is not the
+// same along the ray (the aerosol lies almost all below the clouds, the
+// ozone above them only absorbs), so the cloud's share of the optical
+// depth, (1 − T) / (1 − T_ground), gave a 2 km cloud 0.46-0.62 of the
+// column's in-scatter where 0.62-0.76 lies above it (the #76 review's
+// ports, one with A1's multiple scattering); the mass share is closer
+// everywhere but forward toward a low Sun. Not the froxels: they reach
+// 2,000 km along the ray (none of the air on the disc's outer part from
+// 1,000 km up), and from orbit their slices, 40-125 km apart within the
+// air, place a cloud's haze by distance, not height. (The mass share for
+// the transmittance as well gave the clouds the aerosol below them and
+// missed 22-71 % of the ozone above: 4-24 % too dark from LEO.)
 inline void cloud_hazeFromSpace(thread CloudResult &r, float2 uv, float h, float muCamera, float rCamera,
-                                texture2d<float> scatter, texture2d<float> transmittance, texture2d<float> trans,
+                                texture2d<float> scatter, texture2d<float> trans,
                                 sampler s, constant CloudUniforms &u, float exposure) {
     if (r.color.a <= 0.0) { return; }
     float rc = u.radii.x + max(h, 0.0), q = rCamera / rc;
     float mu = sqrt(max(1.0 - q * q * max(1.0 - muCamera * muCamera, 0.0), 0.0));
     float3 t = cloud_airTransmittance(h, mu, trans, s, u);
-    float3 ground = transmittance.sample(s, uv, level(0)).rgb;
-    float3 share = clamp((1.0 - t) / max(1.0 - ground, float3(1e-4)), 0.0, 1.0);
+    float share = exp(-max(h, 0.0) / 8000.0);
     r.color.rgb = r.color.rgb * t + r.color.a * scatter.sample(s, uv, level(0)).rgb * share * exposure;
 }
 
@@ -1424,13 +1429,13 @@ fragment EffectCloudOut cloud_slot_fragment(CloudSlotOut in [[stage_in]],
     if (wSpace > 0.0) {
         float3 upCamera = normalize(float3(ray.of.x, ray.of.y, ray.of.z * u.cameraFigure.w));
         float muCamera = dot(ray.d, upCamera), rCamera = u.radii.x + u.radii.y;
-        cloud_hazeFromSpace(march, screen, u.shellMid.z, muCamera, rCamera, spaceScatter, spaceTransmittance, trans,
+        cloud_hazeFromSpace(march, screen, u.shellMid.z, muCamera, rCamera, spaceScatter, trans,
                             linear, u, exposure);
-        cloud_hazeFromSpace(farMid, screen, u.shellMid.w, muCamera, rCamera, spaceScatter, spaceTransmittance, trans,
+        cloud_hazeFromSpace(farMid, screen, u.shellMid.w, muCamera, rCamera, spaceScatter, trans,
                             linear, u, exposure);
-        cloud_hazeFromSpace(farLow, screen, u.shellMid.z, muCamera, rCamera, spaceScatter, spaceTransmittance, trans,
+        cloud_hazeFromSpace(farLow, screen, u.shellMid.z, muCamera, rCamera, spaceScatter, trans,
                             linear, u, exposure);
-        cloud_hazeFromSpace(cirrus, screen, u.shellMid.y, muCamera, rCamera, spaceScatter, spaceTransmittance, trans,
+        cloud_hazeFromSpace(cirrus, screen, u.shellMid.y, muCamera, rCamera, spaceScatter, trans,
                             linear, u, exposure);
         result.color = mix(result.color, cloud_compose(march, farMid, farLow, cirrus, wf).color, wSpace);
     }

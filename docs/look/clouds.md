@@ -66,10 +66,13 @@ and the cirrus per texel of R6's targets, orders them by distance, hazes
 them, cuts the clouds at the scene's depth, and writes R6's clouds layer
 and its front. The haze: with the camera inside the air, one lookup of
 A2's aerial-perspective froxels at the parts' combined, opacity-weighted
-mean distance; above the air, A2's haze over the ground from space, as
-the ground has it, each part its share by height (the air's mass above
-it). The froxels reach 2,000 km along the ray, not in altitude, so from
-orbit they would leave the disc's outer part unhazed.
+mean distance; above the air, each part through the air above it: A1's
+transmittance from the part to space, channel by channel, and of A2's
+in-scatter over the ground from space the share of the air's mass above
+the part, e^(−h / 8 km). The two blend over the 40 km above the air's top,
+where the froxels still hold the whole air, so a climb or an entry does
+not step there. The froxels reach 2,000 km along the ray, not in
+altitude, so from orbit they would leave the disc's outer part unhazed.
 
 ## The regimes
 
@@ -187,7 +190,7 @@ a = b = c = 0.5 a deck of τ 90 had a plane albedo of 0.09 against 0.18 for
 | GPU: the pad's horizon 0.3-1.5° up, the far layer against C2's field integrated to convergence (the #73 review's port), 1/10 and 3/10 | within 0.08 (0.76 against 0.73-0.85; 0.99), and no thinner than the march |
 | GPU: the far layers in front of the ground only, from 2.9 km over the ascent | the low layer the same with a 5/10 mid layer behind the Earth (0.07 of it before) |
 | GPU: under a 2.8 km base at 2.2 km, rays 0.3-1° down | no far layer (0.28 opaque before) |
-| GPU: the haze from above the air: at 1,500 km over the disc's outer part, and across 2,000 km | hazed (0.82-0.92 of the bare clouds); the same within 5 % (1.000) |
+| GPU: the haze from above the air: at 1,500 km over the disc's outer part, and across 2,000 km | hazed (0.84-0.93 of the bare clouds); the same within 5 % (1.000) |
 | GPU: the haze through the air's top, AS-506's ascent 1 km under and over 100 km | the same within 3 % (0.999; the hard switch 1.13, 1.00, 0.87) |
 | GPU: the pad's horizon 0.6-1.5° up, the far mid layer alone against C2's converged field (the #73 fix check's port), 1/10 and 3/10 | within 0.06 (0.19 against 0.19-0.21; 0.52 against 0.49-0.53) |
 | GPU: the march in its own GPU pass | four encoders, after A2's LUTs |
@@ -266,7 +269,8 @@ scene at the break), so the clouds' own share is the difference:
   the mean depth. These are not hazed: a pass that reads them applies A2's
   air at its own distance, as the slot copy does (inside the air the
   froxels; above it A1's transmittance from the point to space and A2's
-  in-scatter over the ground from space, the point's share of it).
+  in-scatter over the ground from space, the share of the air's mass
+  above the point).
 - **A2 (AtmosphereContext):** the clouds read A1's transmittance and sky
   irradiance from A2's LUT pass (`FrameContext.textures` `.atmosphereLUTs`
   and `.atmosphereIrradiance`, set in P0 before the clouds), and with the
@@ -284,7 +288,8 @@ scene at the break), so the clouds' own share is the difference:
 - **Near field** (this follow-up): done are the horizon from below (the far
   layer seen from below), the ascent under, inside and over a deck
   (`c2-near.json`), the views from between the layers, and the aerial
-  perspective (A2's froxels, and beyond their reach A2's haze from space).
+  perspective (A2's froxels inside the air, above it A2's haze from space,
+  blended over the 40 km above the air's top).
   Open: the detail erosion up close wants tuning against photographs.
 - **The 13 km step:** the march switches from near to orbit at the shell's
   top in one frame. Inside the shell its reach is 150 km, its clear-air
