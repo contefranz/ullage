@@ -41,8 +41,12 @@ In P0, on the command buffer:
    `CloudLayerModel`, line for line). Assembled again only when a weight
    moves by 1/500.
 3. **The cloud shadow map**, 256² along the Sun around the camera's ground
-   point (100 km on the ground, growing to 1,000 km from orbit), snapped to
-   whole texels of a lattice through the Earth's centre. Each texel holds
+   point (100 km on the ground, growing to 1,000 km from orbit on a ladder
+   of 100, 200, 400 and 800 km, so its texel changes at four heights only),
+   snapped to whole texels of a lattice through an anchor near the camera,
+   moved by whole texels when the camera is a quarter of the map away (it
+   turns about the anchor with the Sun, a quarter of a texel a minute).
+   Each texel holds
    the optical depth along its line towards the Sun above 0, 2, 6 and 10 km,
    the cirrus included, marched on the curved Earth with the weather where
    the line crosses the layers (refetched every 4 km).
@@ -93,7 +97,10 @@ clouds at the scene's depth, and writes R6's clouds layer and its front.
   wind, the old frame fading over 2 s), warped by the curl in that frame's
   tangent plane. Lit as a thin slab: the Sun scattered once in closed form,
   and the slab's diffuse streams scattered towards the eye as the march
-  does, with ice's phase (g 0.75); averaging out by footprint.
+  does, with ice's phase (g 0.75). The fibres are drawn from the shape's
+  mip 0 or 1 (their thresholds are mip 0's) and hand over to the deck's mean
+  (its in-cloud depth over the cover's share) over 128-512 m footprints,
+  the two blended in light and opacity, each lit at its own depth.
 - **Wind:** each layer's noise drifts with its wind; the drift starts over
   only with a scene (the extractor's first frame or a jump in time), not on
   a warp change or a camera cut.
@@ -200,6 +207,16 @@ pad (budget 3.0) and 1.2 ms in LEO (budget 2.0).
   or a seen-from-below surface layer, the detail needs tuning up close, and
   the inside-cloud views are untested. The plan cuts this first, and it
   merges after the far and orbit regimes.
+- **The 13 km step:** the march switches from near to orbit at the shell's
+  top in one frame. Inside the shell its reach is 150 km, its clear-air
+  steps grow with the distance and the far layer takes no ray; above, the
+  ray spans the shell to the horizon in uniform steps and the far layer
+  takes it by footprint. As the camera climbs through 13 km a band 3-7°
+  below the horizon changes at once. The near-field follow-up hands rays
+  to the far layer by footprint from the ground up (wherever the camera is
+  clear of the layers it meets), which takes the far layer's step away; the
+  reach and the steps still want blending there. `CloudFrame.regimes`'
+  near and orbit weights are reported, not used.
 - **Water paths** (decision 29): not added. The far layer's optical depth
   is the layer model's. ERA5's total column liquid and ice water would vary
   the brightness of thin and thick decks; adding them is two OSCLOUD1

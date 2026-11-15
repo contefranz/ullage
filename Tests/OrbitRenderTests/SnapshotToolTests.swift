@@ -31,8 +31,15 @@ final class SnapshotToolTests: XCTestCase {
         let timed = try s.render(shot, timingFrames: 3)
         XCTAssertEqual(timed.pixels, plain.pixels)
         // A split frame: every pass in its own encoder, the MSAA samples
-        // stored and loaded between them, resolved each time.
-        XCTAssertEqual(try XCTUnwrap(timed.profiledPixels), plain.pixels, "a profiled frame has the same pixels")
+        // stored and loaded between them, resolved each time. C2's clouds
+        // break the scene (R6's slots), where a plain frame resolves the scene
+        // and re-expands it while a timed one keeps the samples (R1's #70): two
+        // half float roundings apart, a step of 8-bit sRGB at most
+        // (HDRLookTests.testBreakingTheSceneKeepsThePixels).
+        let profiled = try XCTUnwrap(timed.profiledPixels)
+        let steps = zip(profiled, plain.pixels).map { abs(Int($0) - Int($1)) }
+        XCTAssertLessThanOrEqual(steps.max() ?? 2, 1, "a profiled frame has the same pixels, to a step")
+        XCTAssertGreaterThan(steps.filter { $0 == 0 }.count, steps.count * 9 / 10)
         guard try s.renderer(userTextures: false).profiler.isSupported else {
             throw XCTSkip("no timestamp counters on this GPU")
         }

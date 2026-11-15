@@ -90,11 +90,12 @@ public struct CloudFrame: Equatable {
 
     /// The cloud shadow map's frame: an orthographic view along the Sun,
     /// `extent` m across in `texels` texels, centred on the camera's ground
-    /// point snapped to whole texels of a lattice through the Earth's centre
-    /// in the map's plane, so that it does not swim as the camera moves (an
-    /// anchor near the camera jumped by 8 km at a time, a fraction of a
-    /// texel each time). As the Sun turns about the Earth the lattice turns
-    /// with it, under a texel a minute at the ground.
+    /// point snapped to whole texels of a lattice through `anchor`, a
+    /// body-fixed point near the camera (`shadowAnchor`), so that it does
+    /// not swim as the camera moves. The lattice turns about the anchor as
+    /// the Sun turns about the Earth: at most a quarter of the map from it,
+    /// about a quarter of a texel a minute. (Through the Earth's centre it
+    /// slid more than a texel a second.)
     public struct ShadowMap: Equatable {
         /// Its centre, body axes from the Earth's centre (m).
         public let center: Vec3
@@ -120,21 +121,51 @@ public struct CloudFrame: Equatable {
     }
 
     /// The shadow map's extent, m: 100 km on the ground, growing with the
-    /// camera's height (four times it) to 1,000 km from orbit.
+    /// camera's height (100 km and four times it) to 1,000 km from orbit, on
+    /// a ladder of powers of two (100, 200, 400, 800 km, then 1,000), so the
+    /// texel's size, and with it the lattice, changes at four heights only
+    /// (25, 75, 175 and 225 km), not every frame of a climb.
     public static func shadowExtent(altitude: Double) -> Double {
-        min(max(100_000 + 4 * altitude, 100_000), 1_000_000)
+        let want = min(max(100_000 + 4 * altitude, 100_000), 1_000_000)
+        if want >= 1_000_000 { return 1_000_000 }
+        return 100_000 * pow(2, (log2(want / 100_000) + 1e-9).rounded(.down))
     }
 
-    public func shadowMap(texels: Int, extent: Double? = nil) -> ShadowMap {
+    public func shadowMap(texels: Int, extent: Double? = nil, anchor: Vec3? = nil) -> ShadowMap {
         let extent = extent ?? Self.shadowExtent(altitude: altitude)
-        let s = sunBody
-        // Axes across the Sun: from the pole unless the Sun is near it.
-        let ref = abs(s.z) < 0.9 ? Vec3(0, 0, 1) : Vec3(1, 0, 0)
-        let u = ref.cross(s).normalized, v = s.cross(u)
-        let ground = cameraBody.normalized * radius, texel = extent / Double(texels)
-        let center = u * ((ground.dot(u) / texel).rounded() * texel) + v * ((ground.dot(v) / texel).rounded() * texel)
-            + s * ground.dot(s)
+        let (u, v, s) = shadowAxes
+        let texel = extent / Double(texels)
+        let a = anchor ?? groundPoint
+        let d = groundPoint - a
+        let center = a + u * ((d.dot(u) / texel).rounded() * texel) + v * ((d.dot(v) / texel).rounded() * texel)
+            + s * d.dot(s)
         return ShadowMap(center: center, u: u, v: v, sun: s, extent: extent, texels: texels)
+    }
+
+    /// The map's axes: u and v across the Sun (from the pole unless the Sun
+    /// is near it), and the Sun.
+    public var shadowAxes: (u: Vec3, v: Vec3, sun: Vec3) {
+        let s = sunBody
+        let ref = abs(s.z) < 0.9 ? Vec3(0, 0, 1) : Vec3(1, 0, 0)
+        let u = ref.cross(s).normalized
+        return (u, s.cross(u), s)
+    }
+
+    /// The camera's ground point, body axes (m).
+    public var groundPoint: Vec3 { cameraBody.normalized * radius }
+
+    /// The shadow map's anchor this frame: the last one while the ground
+    /// point is within a quarter of the map of it and the extent is the
+    /// same; else moved to the ground point by whole texels of its lattice,
+    /// so the lattice stays put (or, with no last one or a new extent, the
+    /// ground point itself).
+    public func shadowAnchor(previous: Vec3?, previousExtent: Double?, texels: Int) -> Vec3 {
+        let extent = Self.shadowExtent(altitude: altitude)
+        guard let previous, previousExtent == extent else { return groundPoint }
+        let d = groundPoint - previous
+        if d.length <= extent / 4 { return previous }
+        let (u, v, _) = shadowAxes, texel = extent / Double(texels)
+        return previous + u * ((d.dot(u) / texel).rounded() * texel) + v * ((d.dot(v) / texel).rounded() * texel)
     }
 
     // MARK: Regimes
@@ -142,9 +173,11 @@ public struct CloudFrame: Equatable {
     /// The regimes' weights at the camera's height (docs/m16/design-earth-
     /// moon.md, clouds): `near` (the volumetric march with its detail, below
     /// about 20 km), the `orbit` slab march, and the far surface layer (from
-    /// about 5,000 km). Each crosses smoothly into the next. The march itself
-    /// fades its detail and lengthens its steps with each sample's distance
-    /// and the pixel's footprint, so the weights only set its budget.
+    /// about 5,000 km). The renderer reads only `far`, which hands the whole
+    /// view to the far layer smoothly; `near` and `orbit` are reported, not
+    /// drawn by. The march's own switch from near to orbit is at the shell's
+    /// top (13 km), a step: its reach, its steps and the far layer's footprint
+    /// rule change there (docs/look/clouds.md, Open).
     public static func regimes(altitude h: Double) -> (near: Double, orbit: Double, far: Double) {
         let near = 1 - smoothstep(12_000, 30_000, h)
         let far = smoothstep(3_000_000, 6_000_000, h)
@@ -257,7 +290,9 @@ public struct CirrusFrames: Equatable {
                                 period: Double) {
         fade = max(fade - realDt / Self.fadeTime, 0)
         if fade <= 0 { previous = nil }
-        if let c = current, !c.stale(frame, streak: streak) {
+        // A frame gone stale while the last one still fades waits for the
+        // fade to end (replacing it would drop the fading one at once).
+        if let c = current, !c.stale(frame, streak: streak) || fade > 0 {
             current?.advance(frame, wind: wind, dt: dt, period: period)
             previous?.advance(frame, wind: wind, dt: dt, period: period)
             return
