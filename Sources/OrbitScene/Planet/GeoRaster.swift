@@ -431,4 +431,14 @@ public enum SRGB {
 
     /// 8-bit sRGB to linear, by table.
     public static let byteToLinear: [Float] = (0 ..< 256).map { toLinear(Float($0) / 255) }
+
+    /// Linear 0...1 to 8-bit sRGB, by a table of 16,384 steps (within half
+    /// a code everywhere, the curve's steep toe included).
+    public static let linearToByteTable: [UInt8] = (0 ..< 16_384).map {
+        UInt8(min(255, max(0, (fromLinear(Float($0) / 16_383) * 255).rounded())))
+    }
+
+    @inlinable public static func linearToByte(_ v: Float) -> UInt8 {
+        linearToByteTable[Int(min(max(v, 0), 1) * 16_383 + 0.5)]
+    }
 }

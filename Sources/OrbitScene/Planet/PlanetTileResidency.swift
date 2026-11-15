@@ -197,10 +197,13 @@ public enum PlanetTileWants {
     public static func ordered(_ selection: [PlanetQuadtree.Tile],
                                finestAvailable: (TileKey) -> TileKey?) -> [TileKey] {
         var best: [TileKey: Double] = [:]
+        best.reserveCapacity(selection.count * 2)
         for t in selection {
             guard var k = finestAvailable(t.key) else { continue }
             while true {
-                best[k] = min(best[k] ?? .infinity, t.distance)
+                // Once a tile holds a distance this near, so do its ancestors.
+                if let d = best[k], d <= t.distance { break }
+                best[k] = t.distance
                 guard let p = k.parent else { break }
                 k = p
             }

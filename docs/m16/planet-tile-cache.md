@@ -77,8 +77,13 @@ Every layer uses 256-texel tiles with 4-texel borders on WGS 84. Each texel, bor
 
 Work space: the albedo mosaic is 86,400 × 43,200 RGB, 11.2 GB, plus its pyramid (3.7 GB), mapped from files in `~/Library/Application Support/OrbitSim/Work`. They are deleted after each month unless `--keep-work`.
 
-Measured on the M3 Pro (Release):
-WATER_TIMING
+Measured on the M3 Pro, in Release:
+- `earth water`, on the real Natural Earth files: 18.7 s wall, 152 s of CPU and 1.5 GB resident at most.
+  - That covers rasterising 6,837 land polygons and 1,368 lakes on the 30" grid (43,200 × 21,600), the pyramid, and 8,190 tiles to level 5.
+  - The file is 15.3 MB: 1.6 KB a tile at level 5, 12.8 KB at level 0. Its checksums verify. The Aral Sea and Lake Chad tiles show their late-1950s and early-1960s outlines.
+- `earth demo --image Textures/earth.jpg --max-level 4` (BMNG July at 8 km): 2,046 tiles, 14.9 MB, 3.6 s.
+- `PlanetTiles tiff`: the reader matches ImageIO on NASA's 5400 × 2700 BMNG GeoTIFF (Deflate strips), on all 43.7 M samples.
+- **Not yet run:** the albedo, relief and Cape steps on the full sources, which need the owner's fetch. From the water step's rate, a month of albedo (131,070 tiles; reading and decompressing 2.4 GB of GeoTIFF; the 11 GB mosaic and its pyramid) should take about 10-20 min, and `earth all` with two months about 30-45 min. `PlanetTiles info` prints what came out.
 
 ## The cache
 
@@ -110,7 +115,49 @@ Until E2, `PlanetPass` takes the Earth's albedo from the albedo layer once anyth
 
 ### Cost
 
-CACHE_TIMING
+**Atlas memory**, at the default `atlasMemoryMB` = 256:
+
+| Layer | Slots | Atlas | Indirection |
+|---|---|---|---|
+| albedo (RGBA8 sRGB, 3 mips) | 440 | 153.5 MB | 0.5 MB (to level 7; the Cape's 8-12 use the deep table, 32 KB at most) |
+| water (R8, 3 mips) | 293 | 25.6 MB | 32 KB |
+| relief (RGBA8, 3 mips) | 220 | 76.8 MB | 32 KB |
+
+Staging buffers come on top: at most 68 per layer, at 372 KB each for albedo, and they are recycled.
+
+**Streaming along the parking orbit** comes from `PlanetTileTimingTests` (`ORBITSIM_TIMINGS=1`; Release; holds the GPU lock).
+- It runs PlanetTilePass's own frame logic on a real albedo cache.
+- The flight is 185 km at 32.5° with the Earth turning. The camera looks 20° below the horizontal ahead, 50° high on 3,024 × 1,964.
+- It is paced at 60 frames a second with three frames in flight, 360 frames at each warp.
+- The tiles are the 3,462 the flight wants, as 264² JPEGs (q 0.9) of coloured value noise, 9.7 KB each on average: about BMNG's land's decode cost.
+- Measured while another session's tests kept about 10 of the 12 cores busy (load 12-17). Treat the latencies as upper bounds.
+
+| Warp | Main thread, ms (mean / max) | Uploads per frame (mean / max) | Upload, MB per frame | Decode, CPU ms per frame | GPU blit, ms (mean / max) | Wanted but not resident (mean / max) | Frames with any |
+|---|---|---|---|---|---|---|---|
+| 1× | 0.38 / 0.91 | 0.06 / 4 | 0.02 | 0.05 | 0.00 / 0.04 | 0 / 0 | 0 of 300 |
+| 10× | 0.43 / 0.88 | 0.53 / 12 | 0.18 | 0.42 | 0.06 / 1.6 | 0 / 0 | 0 of 360 |
+| 100× | 0.62 / 1.26 | 5.7 / 12 | 2.0 | 5.3 | 0.37 / 4.6 | 4.9 / 82 | 240 of 360 |
+| 1000× | 0.17 / 0.55 | 1.8 / 12 | 0.65 | 1.5 | 0.14 / 1.9 | 0.1 / 4 | 21 of 360 |
+
+- **Main thread, at 1×:**
+  - 0.11 ms for the selection, under the 0.5 ms the plan gives the quadtree;
+  - 0.07 ms for prefetch, averaged over the frames that select it (every fourth), at most 0.4-0.6 ms on those frames;
+  - 0.08 ms for the wanted lists;
+  - 0.11 ms for the update.
+- **Decode** costs about 0.93 ms of CPU per 264² JPEG tile with its mips, on the background threads.
+- **Upload** costs 0.35 MB per tile (three mips), plus the indirection's changed rectangles.
+- **At 100×**, BMNG's level 7 is still selected: the quadtree's motion limit only cuts it from about 160×. Level-7 tiles cross the view every few frames, so two-thirds of the frames show a few tiles one level coarse while their finer tile streams in.
+- **At 1000×** the motion limit holds the selection to level 4, and streaming keeps up.
+
+**The planet pass's lookup** in place of the single equirect sample (`orbitsnap --timings 60`, 3,024 × 1,964, the July demo layer):
+
+| Shot | Planets pass with tiles | With earth.jpg |
+|---|---|---|
+| the whole Earth from 22,000 km | 0.87 ms | 0.82 ms |
+| the parking orbit's limb | 0.85 ms | 0.75 ms |
+| the ground filling the screen from orbit | 1.21 ms | 0.91 ms |
+
+The tile pass itself takes 0.00 ms on frames that upload nothing.
 
 ## Tests
 

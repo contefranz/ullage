@@ -136,6 +136,7 @@ public enum TileTexelMips {
     public static func generate(_ p: UnsafeMutableRawPointer, across m: Int, channels: Int, levels: Int, srgb: Bool) {
         var src = p.assumingMemoryBound(to: UInt8.self), side = m
         let toLinear = SRGB.byteToLinear
+        let toByte = SRGB.linearToByteTable
         for _ in 1 ..< max(levels, 1) {
             let half = max(1, side / 2)
             let dst = src + side * side * channels
@@ -145,15 +146,14 @@ public enum TileTexelMips {
                         let i0 = ((2 * y) * side + 2 * x) * channels + c
                         let x1 = min(2 * x + 1, side - 1) - 2 * x, y1 = min(2 * y + 1, side - 1) - 2 * y
                         let i1 = i0 + x1 * channels, i2 = i0 + y1 * side * channels, i3 = i2 + x1 * channels
-                        let v: Float
                         if srgb && c < 3 {
                             let l = (toLinear[Int(src[i0])] + toLinear[Int(src[i1])] + toLinear[Int(src[i2])]
                                      + toLinear[Int(src[i3])]) / 4
-                            v = SRGB.fromLinear(l) * 255
+                            dst[(y * half + x) * channels + c] = toByte[Int(min(max(l, 0), 1) * 16_383 + 0.5)]
                         } else {
-                            v = (Float(src[i0]) + Float(src[i1]) + Float(src[i2]) + Float(src[i3])) / 4
+                            let v = (Float(src[i0]) + Float(src[i1]) + Float(src[i2]) + Float(src[i3])) / 4
+                            dst[(y * half + x) * channels + c] = UInt8(min(255, max(0, v.rounded())))
                         }
-                        dst[(y * half + x) * channels + c] = UInt8(min(255, max(0, v.rounded())))
                     }
                 }
             }

@@ -31,6 +31,9 @@ public final class PlanetTilePass: RenderPass {
     public private(set) var lastSelection: PlanetQuadtree.Selection?
     /// Main-thread seconds of the last frame: selection, prefetch and updates.
     public private(set) var lastFrameSeconds = 0.0
+    /// Its parts: the selection, the prefetch views' selections, the wanted
+    /// lists, and the layers' updates.
+    public private(set) var lastFrameParts = (select: 0.0, prefetch: 0.0, wants: 0.0, update: 0.0)
 
     private var device: MTLDevice?
     private var loading = false
@@ -38,6 +41,8 @@ public final class PlanetTilePass: RenderPass {
     private var predictor = PlanetTrackPredictor(mu: 3.986_004_418e14)
     private var previous: PlanetQuadtree.Selection?
     private var prefetchTiles: [PlanetQuadtree.Tile] = []
+    /// Each layer's prefetch wants, made when the prefetch views change.
+    private var prefetchWants: [PlanetTileLayerKind: [TileKey]] = [:]
     private var frames = 0
     private var statsWindow = StatsWindow()
     private var announced = false
@@ -78,56 +83,100 @@ public final class PlanetTilePass: RenderPass {
             open(month: month, device: device, settings: settings, synchronous: settings.synchronous)
         }
         guard !layers.isEmpty else { return }
+        let clock = f.scene.clock, cam = f.scene.camera
+        let view = PlanetTileView(camera: -earth.position, worldToView: cam.worldToView, fovY: cam.fovY,
+                                  width: cam.viewport.width, height: cam.viewport.height, orientation: earth.orientation,
+                                  figure: earth.figure, simTime: clock.simTime.tdb, warp: clock.warp, realDt: clock.realDt,
+                                  reset: clock.temporalReset)
+        guard let blit = f.makeBlitEncoder() else { return }
+        frame(view, settings: settings, commandBuffer: cb, blit: blit)
+        blit.endEncoding()
+    }
+
+    /// What one frame of the pass needs to know of the camera and the Earth.
+    struct PlanetTileView {
+        /// The camera relative to the Earth's centre, ICRF, m.
+        var camera: Vec3
+        var worldToView: Mat3
+        var fovY: Double, width: Double, height: Double
+        var orientation: BodyOrientation
+        var figure: Ellipsoid
+        /// Simulation seconds (TDB past J2000), the warp, real seconds of the frame.
+        var simTime: Double, warp: Double, realDt: Double
+        var reset: Bool
+    }
+
+    /// One frame: the selection, the prefetch views every few frames, and
+    /// each layer's update into `blit` on `commandBuffer`.
+    func frame(_ v: PlanetTileView, settings: PlanetTileSettings, commandBuffer cb: MTLCommandBuffer,
+               blit: MTLBlitCommandEncoder) {
         let start = CACurrentMediaTime()
         frames += 1
-        let clock = f.scene.clock, cam = f.scene.camera
-        let camera = -earth.position
-        predictor.observe(time: clock.simTime.tdb, position: camera, reset: clock.temporalReset)
+        predictor.observe(time: v.simTime, position: v.camera, reset: v.reset)
         let tileSize = layers.values.first!.catalog.layout.tileSize
         let deepest = layers.values.map(\.catalog.maxLevel).max() ?? 0
         let budget = layers.values.map { Int(Double($0.slots) * settings.selectionShare) }.min() ?? 64
-        let quadtree = PlanetQuadtree(.init(figure: earth.figure, maxLevel: deepest, samplesPerTile: tileSize,
+        let quadtree = PlanetQuadtree(.init(figure: v.figure, maxLevel: deepest, samplesPerTile: tileSize,
                                             pixelError: settings.pixelError, tileBudget: budget))
-        let view = quadtree.view(cameraPosition: camera, worldToView: cam.worldToView, fovY: cam.fovY,
-                                 viewportWidth: cam.viewport.width, viewportHeight: cam.viewport.height,
-                                 orientation: earth.orientation, velocity: predictor.velocity ?? .zero,
-                                 warp: clock.warp, frameInterval: min(max(clock.realDt, 1.0 / 240), 0.25))
-        let selection = quadtree.select(view, previous: clock.temporalReset ? nil : previous)
+        let view = quadtree.view(cameraPosition: v.camera, worldToView: v.worldToView, fovY: v.fovY,
+                                 viewportWidth: v.width, viewportHeight: v.height, orientation: v.orientation,
+                                 velocity: predictor.velocity ?? .zero, warp: v.warp,
+                                 frameInterval: min(max(v.realDt, 1.0 / 240), 0.25))
+        let selection = quadtree.select(view, previous: v.reset ? nil : previous)
         previous = selection
         lastSelection = selection
+        let selected = CACurrentMediaTime()
         // Prefetch: the views along the predicted track, every few frames,
         // when the ground moves far enough in that time to matter.
         let horizon = settings.prefetchSeconds.max() ?? 0
-        if settings.prefetchSeconds.isEmpty || view.groundSpeed * clock.warp * horizon < 1_000 {
-            prefetchTiles = []
+        if settings.prefetchSeconds.isEmpty || view.groundSpeed * v.warp * horizon < 1_000 {
+            if !prefetchTiles.isEmpty { prefetchTiles = []; prefetchWants = [:] }
         } else if frames % max(settings.prefetchInterval, 1) == 1 || settings.prefetchInterval <= 1 {
             var tiles: [PlanetQuadtree.Tile] = []
             for seconds in settings.prefetchSeconds {
-                guard let v = predictor.predictedView(after: seconds * clock.warp, position: camera,
-                                                      forward: -cam.worldToView.r2, up: cam.worldToView.r1,
-                                                      fovY: cam.fovY, aspect: cam.aspect, orientation: earth.orientation,
-                                                      figure: earth.figure, current: view) else { continue }
-                tiles += quadtree.select(v).tiles
+                guard let p = predictor.predictedView(after: seconds * v.warp, position: v.camera,
+                                                      forward: -v.worldToView.r2, up: v.worldToView.r1, fovY: v.fovY,
+                                                      aspect: v.width / max(v.height, 1), orientation: v.orientation,
+                                                      figure: v.figure, current: view) else { continue }
+                tiles += quadtree.select(p).tiles
             }
             prefetchTiles = tiles
+            prefetchWants = [:]
         }
-        guard let blit = f.makeBlitEncoder() else { return }
+        let prefetched = CACurrentMediaTime()
+        var wants = 0.0, updates = 0.0
         for kind in PlanetTileLayerKind.allCases {
             guard let cache = layers[kind] else { continue }
             cache.uploadsPerFrame = settings.uploadsPerFrame
             cache.maxPendingLoads = settings.maxPendingLoads
+            let t0 = CACurrentMediaTime()
             let current = PlanetTileWants.ordered(selection.tiles, finestAvailable: cache.catalog.finestAvailable)
-            let now = Set(current)
-            let ahead = PlanetTileWants.ordered(prefetchTiles, finestAvailable: cache.catalog.finestAvailable)
-                .filter { !now.contains($0) }
+            let ahead: [TileKey]
+            if let w = prefetchWants[kind] {
+                ahead = w
+            } else {
+                ahead = PlanetTileWants.ordered(prefetchTiles, finestAvailable: cache.catalog.finestAvailable)
+                prefetchWants[kind] = ahead
+            }
+            let t1 = CACurrentMediaTime()
             cache.update(current: current, prefetch: ahead, commandBuffer: cb, blit: blit, synchronous: settings.synchronous)
+            wants += t1 - t0
+            updates += CACurrentMediaTime() - t1
         }
-        blit.endEncoding()
+        lastFrameParts = (selected - start, prefetched - selected, wants, updates)
         lastFrameSeconds = CACurrentMediaTime() - start
         if ProcessInfo.processInfo.environment["ORBITSIM_TILE_STATS"] != nil {
             statsWindow.add(self)
             if let line = statsWindow.report(every: 2) { NSLog("OrbitSim: tiles: %@", line) }
         }
+    }
+
+    /// Installs layers made elsewhere (tests, timings).
+    func install(_ caches: [PlanetTileLayerKind: PlanetTileCache]) {
+        layers = caches
+        previous = nil
+        prefetchWants = [:]
+        loading = false
     }
 
     /// Opens the layers for `month`, off the main thread (or now, when
@@ -155,6 +204,7 @@ public final class PlanetTilePass: RenderPass {
         if found.month == month && !layers.isEmpty { return }
         layers = [:]
         previous = nil
+        prefetchWants = [:]
         month = found.month
         var lines: [String] = []
         for kind in PlanetTileLayerKind.allCases {

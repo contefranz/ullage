@@ -22,7 +22,8 @@ final class PlanetTileLoader: @unchecked Sendable {
         let key: TileKey
         let staging: MTLBuffer
         let ok: Bool
-        /// Seconds spent decoding (or copying), and payload bytes read.
+        /// CPU seconds spent decoding (or copying; wall time for the IO
+        /// queue), and payload bytes read.
         let seconds: Double
         let bytes: Int
     }
@@ -49,15 +50,22 @@ final class PlanetTileLoader: @unchecked Sendable {
     func submit(_ job: Job) {
         group.enter()
         queue.async { [self] in
-            let start = CACurrentMediaTime()
+            let start = Self.threadCPUTime()
             var ok = false
             if let payload = job.payload {
                 ok = (try? Self.decode(payload, format: format, into: job.staging.contents(), across: across,
                                        channels: channels, mipLevels: mipLevels, srgb: srgb)) != nil
             }
-            finish(Result(key: job.key, staging: job.staging, ok: ok, seconds: CACurrentMediaTime() - start,
+            finish(Result(key: job.key, staging: job.staging, ok: ok, seconds: Self.threadCPUTime() - start,
                           bytes: job.payload?.count ?? 0))
         }
+    }
+
+    /// This thread's CPU seconds: what a decode costs, whatever else runs.
+    static func threadCPUTime() -> Double {
+        var t = timespec()
+        clock_gettime(CLOCK_THREAD_CPUTIME_ID, &t)
+        return Double(t.tv_sec) + Double(t.tv_nsec) * 1e-9
     }
 
     /// Records a finished load (the IO queue's completions land here too).

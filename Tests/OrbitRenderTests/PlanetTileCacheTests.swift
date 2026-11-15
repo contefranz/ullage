@@ -307,7 +307,7 @@ final class PlanetTileCacheTests: XCTestCase {
         XCTAssertThrowsError(try cache([url], slots: 10, maxTextureLevel: 2), "fewer slots than the pinned tiles need")
     }
 
-    static func jpeg(_ rgb: [UInt8], side: Int, quality: Double = 0.95) throws -> Data {
+    nonisolated static func jpeg(_ rgb: [UInt8], side: Int, quality: Double = 0.95) throws -> Data {
         let provider = try XCTUnwrap(CGDataProvider(data: Data(rgb) as CFData))
         let image = try XCTUnwrap(CGImage(width: side, height: side, bitsPerComponent: 8, bitsPerPixel: 24,
                                           bytesPerRow: side * 3, space: CGColorSpace(name: CGColorSpace.sRGB)!,

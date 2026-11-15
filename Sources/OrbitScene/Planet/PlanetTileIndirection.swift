@@ -105,14 +105,34 @@ public struct PlanetTileIndirection {
         }
     }
 
+    /// Adds a changed rectangle: merged with one of its face and level that
+    /// it touches; past 8 rectangles for a face and level, they become their
+    /// bounding box. Scattered tiles so upload little.
     mutating func mark(_ r: Region) {
-        if let k = dirty.firstIndex(where: { $0.face == r.face && $0.level == r.level }) {
+        var r = r
+        // Absorb every touching rectangle of the same face and level.
+        var k = 0
+        while k < dirty.count {
             let d = dirty[k]
-            dirty[k] = Region(face: r.face, level: r.level, x0: min(d.x0, r.x0), y0: min(d.y0, r.y0),
-                              x1: max(d.x1, r.x1), y1: max(d.y1, r.y1))
-        } else {
-            dirty.append(r)
+            if d.face == r.face && d.level == r.level && d.x0 <= r.x1 && r.x0 <= d.x1 && d.y0 <= r.y1 && r.y0 <= d.y1 {
+                r = Region(face: r.face, level: r.level, x0: min(d.x0, r.x0), y0: min(d.y0, r.y0),
+                           x1: max(d.x1, r.x1), y1: max(d.y1, r.y1))
+                dirty.remove(at: k)
+                k = 0
+            } else {
+                k += 1
+            }
         }
+        let same = dirty.indices.filter { dirty[$0].face == r.face && dirty[$0].level == r.level }
+        if same.count >= 8 {
+            for i in same {
+                let d = dirty[i]
+                r = Region(face: r.face, level: r.level, x0: min(d.x0, r.x0), y0: min(d.y0, r.y0),
+                           x1: max(d.x1, r.x1), y1: max(d.y1, r.y1))
+            }
+            dirty = dirty.enumerated().filter { !same.contains($0.offset) }.map(\.element)
+        }
+        dirty.append(r)
     }
 
     /// The changed regions since the last call, and whether the deep table

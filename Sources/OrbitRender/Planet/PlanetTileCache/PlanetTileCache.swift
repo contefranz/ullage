@@ -35,6 +35,8 @@ public final class PlanetTileCache {
         public var requested = 0
         public var uploaded = 0
         public var evicted = 0
+        /// Ready tiles that found no free slot.
+        public var refused = 0
         /// Bytes blitted to the atlas and the indirection in the last frame.
         public var uploadBytes = 0
         public var indirectionBytes = 0
@@ -48,6 +50,9 @@ public final class PlanetTileCache {
         public var pending = 0
         /// Wanted tiles not resident after the update (current only).
         public var missing = 0
+        /// Main-thread seconds of the update's phases: bookkeeping, taking
+        /// finished loads, admitting and uploading, requesting, the indirection.
+        public var phases = [Double](repeating: 0, count: 5)
     }
 
     public let name: String
@@ -267,9 +272,16 @@ public final class PlanetTileCache {
             busyStaging = kept
         }
         var s = Stats()
-        for k in current { residency.touch(k, current: true) }
+        var mark = start
+        func phase(_ i: Int) { let now = CACurrentMediaTime(); s.phases[i] = now - mark; mark = now }
+        // Prefetch only what the atlas can hold beside the current wants.
+        let wantedCurrent = Set(current)
+        let room = max(0, slots - wantedCurrent.count - 3 * uploadsPerFrame)
+        let prefetch = Array(prefetch.lazy.filter { !wantedCurrent.contains($0) }.prefix(room))
         for k in prefetch { residency.touch(k, current: false) }
+        for k in current { residency.touch(k, current: true) }
         residency.reserve(uploadsPerFrame * 2)
+        phase(0)
 
         // What finished loading since the last frame.
         func collect() {
@@ -281,8 +293,8 @@ public final class PlanetTileCache {
             }
         }
         collect()
-        let wantedCurrent = Set(current)
         let wanted = wantedCurrent.union(prefetch)
+        let all = current + prefetch
         // Drop what is no longer wanted.
         for (k, r) in ready where !wanted.contains(k) {
             ready[k] = nil
@@ -291,7 +303,7 @@ public final class PlanetTileCache {
 
         var uploads = 0
         func admitReady(limit: Int) {
-            for k in current + prefetch where uploads < limit {
+            for k in all where uploads < limit {
                 guard let r = ready[k], residency.canAdmit(k) else { continue }
                 guard let slot = residency.admit(k, current: wantedCurrent.contains(k)) else { continue }
                 ready[k] = nil
@@ -303,7 +315,7 @@ public final class PlanetTileCache {
         }
 
         func request() {
-            for k in current + prefetch where pending.count < maxPendingLoads {
+            for k in all where pending.count < maxPendingLoads {
                 guard !residency.isResident(k), !pending.contains(k), ready[k] == nil else { continue }
                 // Its parent must be on its way, or the child would only wait.
                 if let p = k.parent, !residency.isResident(p), !pending.contains(p), ready[p] == nil { continue }
@@ -313,6 +325,7 @@ public final class PlanetTileCache {
             }
         }
 
+        phase(1)
         if synchronous {
             // Load everything wanted now, coarse to fine, as many passes as
             // the levels need.
@@ -330,13 +343,17 @@ public final class PlanetTileCache {
             }
         } else {
             admitReady(limit: uploadsPerFrame)
+            phase(2)
             request()
+            phase(3)
         }
 
         s.indirectionBytes = uploadIndirection(blit: blit)
+        phase(4)
         let c = residency.takeCounters()
         s.uploaded = c.admitted
         s.evicted = c.evicted
+        s.refused = c.refused
         s.resident = residency.residentCount
         s.pending = pending.count + ready.count
         s.missing = current.filter { !residency.isResident($0) }.count

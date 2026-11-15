@@ -65,8 +65,13 @@ enum Earth {
             try Landsat.cape(paths: paths, scene: o.values["scene"] ?? Landsat.defaultScene, bmng: bmng, month: month,
                              quality: quality, preview: o.values["preview"].map { URL(fileURLWithPath: $0) })
         case "all":
-            let w = try water(paths: paths, maxLevel: 5)
-            try relief(paths: paths, maxLevel: 5, water: w)
+            // Water and relief first, their rasters dropped before the
+            // albedo's 15 GB: the peak stays one month's mosaic.
+            do {
+                let w = try water(paths: paths, maxLevel: 5)
+                try relief(paths: paths, maxLevel: 5, water: w)
+            }
+            if !paths.keepWork { cleanWork(paths.work, prefix: "etopo"); cleanWork(paths.work, prefix: "water") }
             let months = availableMonths(paths)
             guard !months.isEmpty else { throw ToolError("no BMNG months in \(paths.sources.path)/bmng") }
             let match = try matchMonth(o, paths)
