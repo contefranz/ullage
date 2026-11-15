@@ -251,6 +251,13 @@ fragment float4 vessel_fragment(VesselOut in [[stage_in]], bool front [[front_fa
     // Linear light, pre-exposed: R1's resolve weights the samples.
     return float4(orbit_exposed(c, object.shading.x), in.coverage * m.coverage);
 }
+
+// A wire's depth where it covers half its width or more, drawn after its
+// colour (VesselWirePass): what lies behind it there is hidden from the
+// passes after, as by opaque geometry. Thinner, it stays depthless.
+fragment void vessel_wireDepth(VesselOut in [[stage_in]]) {
+    if (in.coverage < 0.5) { discard_fragment(); }
+}
 """#
 
 extension ShaderHeader {

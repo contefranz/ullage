@@ -36,6 +36,8 @@ public final class VesselPass: RenderPass {
 
     private var opaque: MTLRenderPipelineState?
     private var wire: MTLRenderPipelineState?
+    /// The wires' depth where they cover half their width or more (`VesselWirePass`).
+    private var wireDepth: MTLRenderPipelineState?
     private(set) var dfg: MTLTexture?
     private var dummy: MTLBuffer?
     private var paints: [VesselPaintGPU] = VesselPaintGPU.table()
@@ -66,6 +68,7 @@ public final class VesselPass: RenderPass {
         let library = try s.shaders.library(.vessel)
         opaque = try Self.pipeline(library, wire: false, setup: s)
         wire = try Self.pipeline(library, wire: true, setup: s)
+        wireDepth = try Self.depthPipeline(library, setup: s)
         dfg = Self.dfgTexture(device: s.device)
         dummy = s.device.makeBuffer(length: 256, options: .storageModeShared)
     }
@@ -94,6 +97,23 @@ public final class VesselPass: RenderPass {
             c.destinationAlphaBlendFactor = .oneMinusSourceAlpha
         }
         d.label = wire ? "Vessels (wires)" : "Vessels"
+        return try s.device.makeRenderPipelineState(descriptor: d)
+    }
+
+    /// The wires' depth alone (`vessel_wireDepth`), no colour written.
+    static func depthPipeline(_ library: MTLLibrary, setup s: PassSetup) throws -> MTLRenderPipelineState {
+        let d = MTLRenderPipelineDescriptor()
+        guard let vertex = library.makeFunction(name: "vessel_vertex"),
+              let fragment = library.makeFunction(name: "vessel_wireDepth") else {
+            throw ShaderLibrary.Failure.missingFunction("vessel_vertex / vessel_wireDepth")
+        }
+        d.vertexFunction = vertex
+        d.fragmentFunction = fragment
+        d.colorAttachments[0].pixelFormat = s.formats.color
+        d.colorAttachments[0].writeMask = []
+        d.depthAttachmentPixelFormat = s.formats.depth
+        d.rasterSampleCount = s.formats.sampleCount
+        d.label = "Vessels (wires' depth)"
         return try s.device.makeRenderPipelineState(descriptor: d)
     }
 
@@ -180,12 +200,12 @@ public final class VesselPass: RenderPass {
         drawSites(f, draw: draw, materials: materials, shading: shading, settings: settings, frustum: frustum)
         let wires = draw.takeWires()
         if !wires.isEmpty {
-            let frame = HeldWires.Frame(wires: wires, pipeline: wire, materials: materials.buffer, paints: paints,
-                                        lights: lights, dfg: dfg)
+            let frame = HeldWires.Frame(wires: wires, pipeline: wire, depthPipeline: wireDepth,
+                                        materials: materials.buffer, paints: paints, lights: lights, dfg: dfg)
             if held.drawnLater {
                 held.frame = frame
             } else {
-                frame.draw(on: enc, depth: f.states.depthReadOnly)
+                frame.draw(on: enc, depth: f.states.depthReadOnly, writing: nil)
                 enc.setDepthStencilState(f.states.depthWrite)
             }
         }
@@ -533,14 +553,19 @@ final class HeldWires {
     struct Frame {
         var wires: [Drawing.Wire]
         var pipeline: MTLRenderPipelineState
+        var depthPipeline: MTLRenderPipelineState?
         var materials: MTLBuffer
         var paints: [VesselPaintGPU]
         var lights: [LocalLight]
         var dfg: MTLTexture
 
         /// Blends the wires over what `encoder`'s targets hold, depth-tested
-        /// against the scene without writing depth.
-        @MainActor func draw(on encoder: MTLRenderCommandEncoder, depth: MTLDepthStencilState) {
+        /// against the scene without writing depth; then, with `writing`
+        /// (a state that writes depth), draws their depth where they cover
+        /// half their width or more, so that what lies behind them there is
+        /// hidden from the draws after (P3's clouds and plumes, P5).
+        @MainActor func draw(on encoder: MTLRenderCommandEncoder, depth: MTLDepthStencilState,
+                             writing: MTLDepthStencilState?) {
             var paints = paints, lights = lights
             encoder.setFragmentBuffer(materials, offset: 0, index: 0)
             encoder.setFragmentBytes(&paints, length: MemoryLayout<VesselPaintGPU>.stride * paints.count, index: 3)
@@ -549,6 +574,10 @@ final class HeldWires {
             encoder.setDepthStencilState(depth)
             encoder.setFrontFacing(.counterClockwise)
             for w in wires { Drawing.draw(w, pipeline: pipeline, on: encoder) }
+            if let writing, let depthPipeline {
+                encoder.setDepthStencilState(writing)
+                for w in wires { Drawing.draw(w, pipeline: depthPipeline, on: encoder) }
+            }
             encoder.setCullMode(.none)
         }
     }
@@ -566,7 +595,10 @@ final class HeldWires {
 /// has to be final there: the composite draws the sky only where the scene
 /// has no depth, which a blended wire does not write. Their light passes
 /// through the air by A2's froxels in the vessel shader, as the opaque
-/// draws' does. Track R2's, made by `VesselPass` (`wirePass`).
+/// draws' does. Then their depth where c ≥ 0.5: what lies behind a wire
+/// there (C2's clouds and the plumes through R6's slots in P3, P5's
+/// overlays) is hidden as by opaque geometry; a thinner wire stays
+/// depthless, under them. Track R2's, made by `VesselPass` (`wirePass`).
 @MainActor
 public final class VesselWirePass: RenderPass {
     public let name = "Vessel wires"
@@ -584,7 +616,7 @@ public final class VesselWirePass: RenderPass {
     public func encode(_ f: FrameContext, _ e: PassEncoding) {
         guard case .render(let enc) = e, let frame = held.frame else { return }
         held.frame = nil
-        frame.draw(on: enc, depth: f.states.depthReadOnly)
+        frame.draw(on: enc, depth: f.states.depthReadOnly, writing: f.states.depthWrite)
     }
 }
 

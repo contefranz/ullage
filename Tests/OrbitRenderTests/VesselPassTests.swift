@@ -281,20 +281,20 @@ final class VesselPassTests: XCTestCase {
 
     // MARK: Through A2's air
 
-    /// The app's renderer at a fixed EV, with no bloom, glare, dither or
-    /// clouds (the air's light as the scene holds it). EV 17 keeps the pre-exposed light small,
+    /// The app's renderer at a fixed EV, with no bloom, glare or dither, and
+    /// clouds only when asked (the air's light as the scene holds it). EV 17 keeps the pre-exposed light small,
     /// where R1's tone-mapped MSAA weights are nearly even.
-    func airRenderer(ev100: Double = 17) throws -> SceneRenderer {
+    func airRenderer(ev100: Double = 17, clouds: Bool = false) throws -> SceneRenderer {
         let r = try floatRenderer()
         var s = r.settings
         s.post.exposure.ev100 = ev100
         s.post.bloom = 0
         s.post.sunGlare = false
         s.post.dither = false
-        // The air alone, as A2's tests have it. C2's clouds composite in P3
-        // where the scene's depth lies behind them, which a wire's (it
-        // writes none) does: they would cover the wires these tests read.
-        s.cloud.enabled = false
+        // The air alone unless asked, as A2's tests have it: C2's clouds
+        // change the sky the tests read, and they cover a wire too thin to
+        // write depth (`testCloudsBehindAWireStayBehindIt`).
+        s.cloud.enabled = clouds
         r.settings = s
         XCTAssertEqual(r.failures, [:])
         return r
@@ -351,38 +351,19 @@ final class VesselPassTests: XCTestCase {
     ///   light to the sky's, a dark wire reading brighter than the sky).
     /// Tilted 5° on screen so the rows sample the pixels' every offset.
     func testWiresBlendOverTheSkyOfTheAir() throws {
-        let (w, h, fovY) = (128, 256, 20.0)
-        let pad = try dawnPad(width: w, height: h, fovY: fovY)
+        let t = try PadTube(pad: dawnPad(width: PadTube.w, height: PadTube.h, fovY: PadTube.fovY))
         let r = try airRenderer()
-        let distance = 50.0, length = 12.0, tilt = 5 * Double.pi / 180
-        let pixel = 2 * distance * tan(fovY / 2 * Double.pi / 180) / Double(h)
-        let axis = (pad.up * cos(tilt) + pad.right * sin(tilt)).normalized
-        func tube(_ radius: Double) -> VisualShape {
-            var t = VisualShape.frustum(from: axis * (-length / 2), length: length, baseRadius: radius,
-                                        topRadius: radius, axis: axis, color: (0.03, 0.03, 0.03))
-            t.material = .apolloLESTower
-            return t
-        }
+        let (w, pixel) = (PadTube.w, t.pixel)
         func light(_ radius: Double?, wires: Bool = true) throws -> [Float] {
-            var scene = pad.scene
-            if let radius {
-                XCTAssertTrue(PartMesh.isWire(tube(radius)))
-                scene.vessels = [testVessel([tube(radius)], at: pad.forward * distance, light: pad.light)]
-            }
-            var s = r.settings
-            s.shading.wireMinimumRadius = wires ? 0.7 : 0
-            r.settings = s
-            return try renderFloat(scene, renderer: r)
+            try tubeLight(t, r, radius: radius, wires: wires)
         }
         let wide = 0.1, thin = 0.3 * 0.7 * pixel
         XCTAssertGreaterThan(wide / pixel, 1.2, "the wide tube covers its axis's pixels")
         let sky = try light(nil), opaque = try light(wide, wires: false), wire = try light(wide), faint = try light(thin)
-        let rows = (h / 2 - 70)...(h / 2 + 70)
-        // The axis's column on row y (pixel centres at + 0.5).
-        func axisColumn(_ y: Int) -> Int { Int((Double(w) / 2 + (Double(h) / 2 - Double(y) - 0.5) * tan(tilt)).rounded(.down)) }
+        let rows = PadTube.rows
         var worst = 0.0, contrast = [0.0, 0.0, 0.0], taken = [0.0, 0.0, 0.0], expected = [0.0, 0.0, 0.0]
         for y in rows {
-            let x = axisColumn(y)
+            let x = PadTube.axisColumn(y)
             for c in 0..<3 {
                 let i = 4 * (y * w + x) + c
                 let o = Double(opaque[i]), s = Double(sky[i])
@@ -401,6 +382,77 @@ final class VesselPassTests: XCTestCase {
             XCTAssertLessThan(expected[c], 0)
             XCTAssertEqual(taken[c], expected[c], accuracy: 0.08 * abs(expected[c]), "coverage 0.3, channel \(c)")
         }
+    }
+
+    /// A dark tube against the dawn pad's sky 10° up (`dawnPad`, 128 × 256
+    /// pixels, 20°), 50 m along the view, 12 m long, tilted 5° on screen so
+    /// that the rows sample the pixels' every offset.
+    struct PadTube {
+        static let w = 128, h = 256, fovY = 20.0, distance = 50.0, length = 12.0, tilt = 5 * Double.pi / 180
+        /// The rows the tests read: ±70 about the centre, inside the tube's ±87.
+        static let rows = (h / 2 - 70)...(h / 2 + 70)
+        let pad: (scene: RenderScene, light: LegacyLight, forward: Vec3, up: Vec3, right: Vec3)
+        /// Metres per pixel at the tube.
+        var pixel: Double { 2 * Self.distance * tan(Self.fovY / 2 * Double.pi / 180) / Double(Self.h) }
+        var axis: Vec3 { (pad.up * cos(Self.tilt) + pad.right * sin(Self.tilt)).normalized }
+
+        /// The axis's column on row y (pixel centres at + 0.5).
+        static func axisColumn(_ y: Int) -> Int {
+            Int((Double(w) / 2 + (Double(h) / 2 - Double(y) - 0.5) * tan(tilt)).rounded(.down))
+        }
+
+        func tube(_ radius: Double) -> VisualShape {
+            var t = VisualShape.frustum(from: axis * (-Self.length / 2), length: Self.length, baseRadius: radius,
+                                        topRadius: radius, axis: axis, color: (0.03, 0.03, 0.03))
+            t.material = .apolloLESTower
+            return t
+        }
+    }
+
+    /// `t`'s scene light with a tube of `radius` (nil: none), drawn as a
+    /// wire, or opaque (`ShadingSettings.wireMinimumRadius` 0).
+    func tubeLight(_ t: PadTube, _ r: SceneRenderer, radius: Double?, wires: Bool = true) throws -> [Float] {
+        var scene = t.pad.scene
+        if let radius {
+            XCTAssertTrue(PartMesh.isWire(t.tube(radius)))
+            scene.vessels = [testVessel([t.tube(radius)], at: t.pad.forward * PadTube.distance, light: t.pad.light)]
+        }
+        var s = r.settings
+        s.shading.wireMinimumRadius = wires ? 0.7 : 0
+        r.settings = s
+        return try renderFloat(scene, renderer: r)
+    }
+
+    /// C2's clouds behind a wire stay behind it. At Apollo 8's pad with its
+    /// 4/10 cirrus on, the 0.1 m tube (coverage 1) against the cloudy sky:
+    /// each row's pixel on its axis is the same tube drawn opaque, within
+    /// 2 %, where the clouds change the sky behind it. The clouds draw in P3
+    /// through R6's slots, after R1's break, against the depth the wire
+    /// writes (`VesselWirePass`'s depth-only draw, where c ≥ 0.5): R6's
+    /// half-resolution depth and its composite see it. Without that draw
+    /// they covered the wire (it read 2.5 times off).
+    func testCloudsBehindAWireStayBehindIt() throws {
+        let t = try PadTube(pad: dawnPad(width: PadTube.w, height: PadTube.h, fovY: PadTube.fovY))
+        let r = try airRenderer(clouds: true)
+        let clear = try airRenderer(clouds: false)
+        let wide = 0.1
+        XCTAssertGreaterThan(wide / t.pixel, 1.2, "coverage 1 on its axis")
+        let cloudy = try tubeLight(t, r, radius: nil), sky = try tubeLight(t, clear, radius: nil)
+        let opaque = try tubeLight(t, r, radius: wide, wires: false), wire = try tubeLight(t, r, radius: wide)
+        var worst = 0.0, clouded = 0
+        for y in PadTube.rows {
+            let x = PadTube.axisColumn(y)
+            var differs = false
+            for c in 0..<3 {
+                let i = 4 * (y * PadTube.w + x) + c
+                let o = Double(opaque[i])
+                worst = max(worst, abs(Double(wire[i]) - o) / max(o, 1e-3 * Double(sky[i])))
+                if abs(Double(cloudy[i]) - Double(sky[i])) > 0.1 * Double(sky[i]) { differs = true }
+            }
+            if differs { clouded += 1 }
+        }
+        XCTAssertGreaterThan(clouded, PadTube.rows.count / 4, "clouds lie behind the tube on a quarter of its rows")
+        XCTAssertLessThan(worst, 0.02, "the wire hides the clouds behind it as the opaque tube does")
     }
 
     /// The air between a vessel and the camera (A2's froxels): at the dawn

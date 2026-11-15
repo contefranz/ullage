@@ -57,11 +57,15 @@ what the tracks that come after R2 plug into. The code is the reference:
   `VesselWirePass` (P2, order 10, after A2's composite; `VesselPass.wirePass`,
   in `SceneRenderer.defaultPasses`) draws them. A graph without it gets them
   at the end of P1. Alpha to coverage was tried and drops a sub-pixel
-  tube's last samples, breaking it up. Since they write no depth, a P3 or P5
-  draw behind a wire still covers it: C2's clouds (composited in P3 where
-  the scene's depth lies behind them) cover the LES truss against a cloudy
-  sky. Open: a depth-only draw of the wires where their coverage is at
-  least 0.5 would hide what lies behind them there.
+  tube's last samples, breaking it up. After their colour the wire pass
+  draws their depth where their coverage is at least 0.5
+  (`vessel_wireDepth`), so what lies behind them there is hidden as by
+  opaque geometry: C2's clouds and the plumes through R6's slots (R6's
+  half-resolution depth and its composite see the wire, after R1's break),
+  P3's full-resolution passes and P5's overlays. A thinner wire stays
+  depthless, and a P3 or P5 draw behind it covers it (it is under half a
+  pixel wide). `VesselPassTests.testCloudsBehindAWireStayBehindIt` checks
+  the pad with C2's cirrus on.
 - Tests (Linux): `BRDFTests` (GGX normalisation, Heitz's projected-area
   identity, Schlick's mirror limit, the table against direct quadrature, the
   white furnace ≥ 0.98, Rakić's aluminium F0 0.914, the filter, the Sun disc,
