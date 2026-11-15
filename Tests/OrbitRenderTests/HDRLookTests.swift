@@ -489,8 +489,8 @@ extension HDRLookTests {
         XCTAssertGreaterThan(lit.brightest, 100, "the uneclipsed Sun glares")
     }
 
-    /// From the pad, the legacy sky's depth does not hide the Sun: the probe
-    /// sees all of its disc through the translucent sky.
+    /// From the pad, the sky does not hide the Sun: A2's composite writes no
+    /// depth, so the probe sees all of its disc through the air.
     func testSunSeenThroughTheSky() throws {
         var shot = SnapshotSpec.Shot(name: "pad", scenario: "as506-pad")
         shot.width = 160
