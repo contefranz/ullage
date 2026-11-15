@@ -62,15 +62,22 @@ what the tracks that come after R2 plug into. The code is the reference:
   (`vessel_wireDepth`), so what lies behind them there is hidden as by
   opaque geometry: C2's clouds and the plumes through R6's slots (R6's
   half-resolution depth and its composite see the wire, after R1's break),
-  P3's full-resolution passes and P5's overlays. A thinner wire stays
-  depthless, and a P3 or P5 draw behind it covers it (it is under half a
-  pixel wide). The halo is an opaque silhouette's: after R1's break each
-  pixel's nearest depth stands for all its samples, so the clouds leave
-  the whole of a pixel the wire touches (none loses half its clouds more
-  than 0.33 px beyond the edge), and R6's upsample takes up to a third of
-  them from a few pixels 1-2.5 px beyond it, as for opaque geometry.
-  `VesselPassTests.testCloudsBehindAWireStayBehindIt` checks the pad with
-  C2's cirrus on: the wire is the opaque tube within 2 % across ±6 px.
+  P3's full-resolution passes and P5's overlays. A wire whose coverage is
+  under 0.5 stays depthless: its own radius is under half
+  `wireMinimumRadius` (0.35 px at the default 0.7 px), and it is drawn
+  0.7 px in radius at that coverage, so a P3 or P5 draw behind it covers
+  it. The halo is an opaque silhouette's: after R1's break each pixel's
+  nearest depth stands for all its samples, so the clouds leave the whole
+  of a pixel the wire touches, and R6's upsample takes part of them from
+  pixels beyond, as for opaque geometry. For the 0.1 m tube at coverage 1
+  (1.45 px in radius) no pixel loses half its clouds more than 0.33 px
+  beyond the edge, and the upsample takes up to a third from some pixels
+  0.5-2.5 px beyond it. `VesselPassTests.testCloudsBehindAWireStayBehindIt`
+  checks that tube at Apollo 8's pad with C2's cirrus on (the wire is the
+  opaque tube within 2 % across ±6 px), and
+  `testWireDepthStartsAtHalfCoverage` the threshold at Apollo 11's pad
+  under its 9/10 cirrostratus (coverage 0.3: the clouds lie over the
+  wire; 0.7: they leave the pixels it touches).
 - Tests (Linux): `BRDFTests` (GGX normalisation, Heitz's projected-area
   identity, Schlick's mirror limit, the table against direct quadrature, the
   white furnace ≥ 0.98, Rakić's aluminium F0 0.914, the filter, the Sun disc,
