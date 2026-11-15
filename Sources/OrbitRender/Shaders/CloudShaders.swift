@@ -677,8 +677,14 @@ inline CloudResult cloud_farLayer(float3 of, float3 df, float3 d, float c, float
     // cover itself: the deck's lit tops, as the march draws them from orbit
     // (testMarchAndFarAgreeOnABrokenDeck), whose oblique views see their
     // shadowed sides as well.
+    // The mid layer's lens altocumulus fill only a band 200-280 m deep about
+    // 0.35 of its 3 km (cloud_profileMid), so its span is that band's, an
+    // effective 350 m fitted as the low layer's whole depth was: 0.19, 0.52
+    // and 0.76 at 1/10, 3/10 and 5/10 1° up, the field 0.19-0.21, 0.49-0.53
+    // and 0.74-0.80 (the #73 fix check's port).
     float cell = 0.25 * (layer == 0 ? u.noiseLow.w : u.noiseMid.w);
-    float span = thickness * sqrt(max(1.0 - mu * mu, 0.0)) / mu;
+    float depth = layer == 0 ? thickness : 350.0;
+    float span = depth * sqrt(max(1.0 - mu * mu, 0.0)) / mu;
     float seen = below ? 1.0 - pow(1.0 - min(cover, 1.0), 1.0 + span / cell) : cover;
     // C1's in-cloud optical depth, the march's own (its extinction averages
     // C1's where there is cloud), times farDensity.
@@ -1292,20 +1298,49 @@ inline void cloud_haze(thread CloudResult &r, float2 uv, texture3d<float> froxel
     r.color.rgb = r.color.rgb * ap.a + r.color.a * ap.rgb * exposure;
 }
 
-// The camera above the air: A2's haze over the ground from space, as the
-// ground has it (its in-scatter, cd/m², and transmittance along the pixel's
-// ray to the ground), for a cloud at height h the share of it from the air
-// above the cloud, the air's mass above h: e^(-h / 8 km). Not the froxels:
-// they reach 2,000 km along the ray (none of the air on the disc's outer
-// part from 1,000 km up), and from orbit their slices, 40-125 km apart
-// within the air, place a cloud's haze by distance, not height.
-inline void cloud_hazeFromSpace(thread CloudResult &r, float2 uv, float h, texture2d<float> scatter,
-                                texture2d<float> transmittance, sampler s, float exposure) {
+// The camera above the air: for a cloud at height h on the pixel's ray
+// (muCamera its cosine from the camera's zenith, rCamera the camera's
+// radius), the transmittance of the air above it, A2's own from it to space
+// (A1's table: Rayleigh, aerosol and ozone, channel by channel), and of
+// A2's in-scatter over the ground from space along the ray (cd/m², as the
+// ground has it) the cloud's share of the air's optical depth there,
+// (1 − T) / (1 − T_ground). Not the froxels: they reach 2,000 km along the
+// ray (none of the air on the disc's outer part from 1,000 km up), and from
+// orbit their slices, 40-125 km apart within the air, place a cloud's haze
+// by distance, not height. (A share of the column by the Rayleigh scale
+// height gave the aerosol below the clouds and missed none of the ozone
+// above: 4-24 % too dark from LEO.)
+inline void cloud_hazeFromSpace(thread CloudResult &r, float2 uv, float h, float muCamera, float rCamera,
+                                texture2d<float> scatter, texture2d<float> transmittance, texture2d<float> trans,
+                                sampler s, constant CloudUniforms &u, float exposure) {
     if (r.color.a <= 0.0) { return; }
-    float share = exp(-h / 8000.0);
-    float3 t = pow(max(transmittance.sample(s, uv, level(0)).rgb, float3(1e-4)), float3(share));
-    float3 inscatter = scatter.sample(s, uv, level(0)).rgb * share;
-    r.color.rgb = r.color.rgb * t + r.color.a * inscatter * exposure;
+    float rc = u.radii.x + max(h, 0.0), q = rCamera / rc;
+    float mu = sqrt(max(1.0 - q * q * max(1.0 - muCamera * muCamera, 0.0), 0.0));
+    float3 t = cloud_airTransmittance(h, mu, trans, s, u);
+    float3 ground = transmittance.sample(s, uv, level(0)).rgb;
+    float3 share = clamp((1.0 - t) / max(1.0 - ground, float3(1e-4)), 0.0, 1.0);
+    r.color.rgb = r.color.rgb * t + r.color.a * scatter.sample(s, uv, level(0)).rgb * share * exposure;
+}
+
+// The parts in order of distance: the march's and the far layers' by the
+// far weight wf, then the cirrus.
+inline CloudResult cloud_compose(CloudResult m, CloudResult farMid, CloudResult farLow, CloudResult cirrus, float wf) {
+    CloudResult result = m;
+    if (wf > 0.0) {
+        CloudResult far = farLow.front < farMid.front ? cloud_over(farLow, farMid) : cloud_over(farMid, farLow);
+        result.color = mix(m.color, far.color, wf);
+        result.front = wf >= 1.0 ? far.front : min(m.front, far.front);
+        // The mean of the two by their shares of the opacity (a texel the
+        // march found clear has no mean of its own: switching to the far
+        // layer's at a weight cut the far layer's share there, an edge).
+        float am = m.color.a * (1.0 - wf), af = far.color.a * wf;
+        result.mean = am + af > 0.0 ? (am * min(m.mean, 1e12) + af * min(far.mean, 1e12)) / (am + af) : 1e30;
+        result.entry = wf >= 1.0 ? far.entry : min(m.entry, far.entry);
+    }
+    if (cirrus.color.a > 0.0) {
+        result = cirrus.entry < result.entry ? cloud_over(cirrus, result) : cloud_over(result, cirrus);
+    }
+    return result;
 }
 
 // The frame's clouds at this texel of R6's targets: the march's (its
@@ -1359,46 +1394,46 @@ fragment EffectCloudOut cloud_slot_fragment(CloudSlotOut in [[stage_in]],
     float k = ray.depthPerMetre;
     CloudResult result = {c, cloud_decodeDepth(z.x) / k, cloud_decodeDepth(z.y) / k, cloud_decodeDepth(z.z) / k};
     CloudTextures t = {shape, detail, curl, weatherA, weatherB};
-    // The air in front: with the camera above the air (A2's haze from space
-    // bound, as the ground has it) that haze, each part at its height;
-    // inside the air A2's froxels at the clouds' combined mean distance
-    // (below); none without air.
+    // The air in front. Inside the air, A2's froxels at the clouds' combined
+    // mean distance (below); above it (A2's haze from space bound, as the
+    // ground has it), each part through the air above its height. The two
+    // blend over the 40 km above the air's top, where the froxels still hold
+    // the whole air, so a climb or an entry does not step there (the
+    // froxels' transmittance is grey and slice-interpolated, the other each
+    // channel's own). None without air.
     float2 screen = in.position.xy * e.target.zw;
     float exposure = frame.exposure.x;
-    bool fromSpace = scale.y > 0.5, froxelsOn = !fromSpace && air.aerialPerspective.x >= 1.0;
-    if (fromSpace) {
-        cloud_hazeFromSpace(result, screen, u.shellMid.z, spaceScatter, spaceTransmittance, linear, exposure);
-    }
+    bool froxelsOn = air.aerialPerspective.x >= 1.0;
+    float airTop = air.radii.y - air.radii.x;
+    float wSpace = scale.y < 0.5 ? 0.0 : (froxelsOn ? cloud_smoothstep(airTop, airTop + 40000.0, air.radii.z) : 1.0);
+    CloudResult none = {float4(0.0), 1e30, 1e30, 1e30};
+    CloudResult farMid = none, farLow = none;
+    float wf = 0.0;
     if (ray.valid && ray.wFar > 0.0) {
-        CloudResult farMid = cloud_farLayer(ray.of, ray.df, ray.d, u.shellMid.x, u.shellMid.w, 1, t, slab, trans, irr,
-                                            wrap, linear, weather, u);
-        CloudResult farLow = cloud_farLayer(ray.of, ray.df, ray.d, u.shell.w, u.shellMid.z, 0, t, slab, trans, irr,
-                                            wrap, linear, weather, u);
-        if (fromSpace) {
-            cloud_hazeFromSpace(farMid, screen, u.shellMid.w, spaceScatter, spaceTransmittance, linear, exposure);
-            cloud_hazeFromSpace(farLow, screen, u.shellMid.z, spaceScatter, spaceTransmittance, linear, exposure);
-        }
-        CloudResult far = farLow.front < farMid.front ? cloud_over(farLow, farMid) : cloud_over(farMid, farLow);
-        float wf = ray.wFar;
-        CloudResult m = result;
-        result.color = mix(m.color, far.color, wf);
-        result.front = wf >= 1.0 ? far.front : min(m.front, far.front);
-        // The mean of the two by their shares of the opacity (a texel the
-        // march found clear has no mean of its own: switching to the far
-        // layer's at a weight cut the far layer's share there, an edge).
-        float am = m.color.a * (1.0 - wf), af = far.color.a * wf;
-        result.mean = am + af > 0.0 ? (am * min(m.mean, 1e12) + af * min(far.mean, 1e12)) / (am + af) : 1e30;
-        result.entry = wf >= 1.0 ? far.entry : min(m.entry, far.entry);
+        farMid = cloud_farLayer(ray.of, ray.df, ray.d, u.shellMid.x, u.shellMid.w, 1, t, slab, trans, irr, wrap, linear,
+                                weather, u);
+        farLow = cloud_farLayer(ray.of, ray.df, ray.d, u.shell.w, u.shellMid.z, 0, t, slab, trans, irr, wrap, linear,
+                                weather, u);
+        wf = ray.wFar;
     }
     CloudResult cirrus = cloud_cirrus(ray.of, ray.df, ray.d, u.footprint.x * e.scale.x * 0.5, t, trans, irr, wrap,
                                       linear, weather, u);
-    if (fromSpace) {
-        cloud_hazeFromSpace(cirrus, screen, u.shellMid.y, spaceScatter, spaceTransmittance, linear, exposure);
+    CloudResult march = result;
+    result = cloud_compose(march, farMid, farLow, cirrus, wf);
+    if (froxelsOn && wSpace < 1.0) { cloud_haze(result, screen, froxels, linear, air, exposure); }
+    if (wSpace > 0.0) {
+        float3 upCamera = normalize(float3(ray.of.x, ray.of.y, ray.of.z * u.cameraFigure.w));
+        float muCamera = dot(ray.d, upCamera), rCamera = u.radii.x + u.radii.y;
+        cloud_hazeFromSpace(march, screen, u.shellMid.z, muCamera, rCamera, spaceScatter, spaceTransmittance, trans,
+                            linear, u, exposure);
+        cloud_hazeFromSpace(farMid, screen, u.shellMid.w, muCamera, rCamera, spaceScatter, spaceTransmittance, trans,
+                            linear, u, exposure);
+        cloud_hazeFromSpace(farLow, screen, u.shellMid.z, muCamera, rCamera, spaceScatter, spaceTransmittance, trans,
+                            linear, u, exposure);
+        cloud_hazeFromSpace(cirrus, screen, u.shellMid.y, muCamera, rCamera, spaceScatter, spaceTransmittance, trans,
+                            linear, u, exposure);
+        result.color = mix(result.color, cloud_compose(march, farMid, farLow, cirrus, wf).color, wSpace);
     }
-    if (cirrus.color.a > 0.0) {
-        result = cirrus.entry < result.entry ? cloud_over(cirrus, result) : cloud_over(result, cirrus);
-    }
-    if (froxelsOn) { cloud_haze(result, screen, froxels, linear, air, exposure); }
     c = result.color;
     if (orbit_isNotFinite(c.rgb) || orbit_isNotFinite(c.a)) { c = float4(0.0); }
     c = float4(min(c.rgb, float3(6e4)), clamp(c.a, 0.0, 1.0));

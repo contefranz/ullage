@@ -619,6 +619,75 @@ final class CloudRenderTests: XCTestCase {
         XCTAssertLessThan(worst, 0.08, "the worst texel")
     }
 
+    /// The mid layer holds the pad's horizon as C2's field does: its lens
+    /// altocumulus fill a band about 250 m deep, so a slant ray crosses far
+    /// fewer of them than the 3 km layer's span would. The field, integrated
+    /// to convergence 0.6-1.5° up (the #73 fix check's port), is 0.19-0.21
+    /// opaque at 1/10 and 0.49-0.53 at 3/10; with the whole layer's span the
+    /// far layer drew 0.61-0.67 and 0.96-0.98.
+    func testFarMidLayerHoldsThePadsHorizon() throws {
+        for (cover, field) in [(0.1, 0.20), (0.3, 0.51)] {
+            let frame = try render(Self.padHorizonShot(regime: "far"), weather: try Self.uniformWeather(low: 0, mid: cover))
+            let c = try XCTUnwrap(frame.capture.values(.halfResClouds))
+            let angles = try Self.rayAngles(frame, width: c.width, height: c.height)
+            var sum = 0.0, n = 0
+            for (k, texel) in c.texels.enumerated() {
+                let e = angles[k].elevation * 180 / .pi, x = k % c.width
+                guard e > 0.6, e < 1.5, x < c.width / 3 || x > 2 * c.width / 3 else { continue }
+                sum += texel[3]
+                n += 1
+            }
+            XCTAssertGreaterThan(n, 50, "the band is in view")
+            print("pad horizon, mid layer at cover \(cover): far \(sum / Double(max(n, 1)))")
+            XCTAssertEqual(sum / Double(max(n, 1)), field, accuracy: 0.06, "the field's opacity at cover \(cover)")
+        }
+    }
+
+    /// The camera's height above the Earth (geodetic, m) in `frame`.
+    static func cameraAltitude(_ frame: Frame) throws -> Double {
+        let earth = try XCTUnwrap(frame.scene.bodies.first { $0.id == AtmosphereFrame.planetID })
+        return earth.figure.geodetic(earth.orientation.icrfToBody * (-earth.position)).height
+    }
+
+    /// AS-506's ascent at `met` s, looking down across the deck.
+    static func climbShot(met: Double) -> SnapshotSpec.Shot {
+        var shot = deckShot(width: 160, height: 160)
+        shot.scenario = "as506-pad"
+        shot.advance = [String(format: "met:%.2f", met)]
+        shot.settings.atmosphere.enabled = true
+        return shot
+    }
+
+    /// Through the air's top the clouds' haze goes on smoothly: inside it
+    /// A2's froxels, above it A2's haze from space, the two blended over the
+    /// 40 km above the top. AS-506's ascent passes it at about 217 s. Before,
+    /// a 2 km cloud's light stepped by about (1.01, 0.94, 0.85) at nadir as
+    /// the camera crossed it.
+    func testCloudsHazeGoesOnThroughTheAirsTop() throws {
+        let lut = try XCTUnwrap(AtmosphereTables.shared.tables(wait: true))
+        let top = lut.topRadius - lut.bottomRadius
+        let weather = try Self.uniformWeather(low: 0.5)
+        // The times the ascent is 1 km under and over the top.
+        let t0 = 210.0, t1 = 225.0
+        let h0 = try Self.cameraAltitude(render(Self.climbShot(met: t0), weather: weather))
+        let h1 = try Self.cameraAltitude(render(Self.climbShot(met: t1), weather: weather))
+        func mean(_ altitude: Double) throws -> SIMD3<Double> {
+            let frame = try render(Self.climbShot(met: t0 + (altitude - h0) / (h1 - h0) * (t1 - t0)), weather: weather)
+            XCTAssertEqual(try Self.cameraAltitude(frame), altitude, accuracy: 800)
+            let c = try XCTUnwrap(frame.capture.values(.halfResClouds))
+            var s = SIMD3<Double>(0, 0, 0), n = 0
+            for texel in c.texels where texel[3] > 0.05 {
+                s += SIMD3(texel[0], texel[1], texel[2])
+                n += 1
+            }
+            XCTAssertGreaterThan(n, 1_000)
+            return s / Double(max(n, 1))
+        }
+        let inside = try mean(top - 1_000), above = try mean(top + 1_000)
+        print("haze across the air's top at \(top) m (above / inside):", above / inside)
+        for k in 0..<3 { XCTAssertEqual((above / inside)[k], 1, accuracy: 0.03, "channel \(k)") }
+    }
+
     /// The march has a GPU pass of its own: the weather and shadow maps'
     /// compute encoder, a blit, the march and resolve's, a blit. Apple's
     /// driver merges consecutive compute encoders, and merged with A2's LUTs,
