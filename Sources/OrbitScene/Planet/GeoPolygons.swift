@@ -47,7 +47,7 @@ public enum GeoJSON {
         for f in features {
             var props: [String: String] = [:]
             for (k, v) in f["properties"] as? [String: Any] ?? [:] {
-                if let s = v as? String { props[k] = s } else if let n = v as? NSNumber { props[k] = n.stringValue }
+                if let s = v as? String { props[k] = s } else if let n = number(v) { props[k] = n == n.rounded() && abs(n) < 1e15 ? String(Int(n)) : String(n) }
             }
             guard include(props), let g = f["geometry"] as? [String: Any], let type = g["type"] as? String else { continue }
             let coords = g["coordinates"]
@@ -64,12 +64,20 @@ public enum GeoJSON {
         return out
     }
 
+    /// A JSON number, however Foundation hands it over (NSNumber on
+    /// Darwin, Swift numbers on Linux).
+    static func number(_ x: Any) -> Double? {
+        if let d = x as? Double { return d }
+        if let i = x as? Int { return Double(i) }
+        if let n = x as? NSNumber { return n.doubleValue }
+        return nil
+    }
+
     static func rings(_ any: Any?) throws -> [[GeoPoint]] {
         guard let rings = any as? [[Any]] else { throw Failure.badGeometry("rings") }
         return try rings.map { ring in
             try ring.map { p in
-                guard let c = p as? [Any], c.count >= 2,
-                      let lon = (c[0] as? NSNumber)?.doubleValue, let lat = (c[1] as? NSNumber)?.doubleValue else {
+                guard let c = p as? [Any], c.count >= 2, let lon = number(c[0]), let lat = number(c[1]) else {
                     throw Failure.badGeometry("position")
                 }
                 return GeoPoint(longitude: lon, latitude: lat)

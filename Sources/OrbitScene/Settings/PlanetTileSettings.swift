@@ -82,7 +82,7 @@ public enum PlanetTileLayerKind: String, CaseIterable, Codable {
 /// The tile files' names and the month a scenario's date takes.
 public enum EarthTileFiles {
     /// BMNG's month file, e.g. `earth-bmng-2004-12.ostiles`.
-    public static func albedo(month: Int) -> String { String(format: "earth-bmng-2004-%02d.ostiles", month) }
+    public static func albedo(month: Int) -> String { "earth-bmng-2004-\(month < 10 ? "0" : "")\(month).ostiles" }
     public static let capeInset = "earth-cape-landsat.ostiles"
     public static let water = "earth-water.ostiles"
     public static let relief = "earth-relief.ostiles"

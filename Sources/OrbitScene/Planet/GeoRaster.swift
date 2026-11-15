@@ -89,7 +89,9 @@ public final class RasterStorage {
         defer { close(fd) }
         let protection = writable ? PROT_READ | PROT_WRITE : PROT_READ
         let length = offset + count
-        guard let p = mmap(nil, length, protection, MAP_SHARED, fd, 0), p != MAP_FAILED else {
+        // MAP_FAILED, (void *)-1, which Swift's Glibc does not import.
+        let p: UnsafeMutableRawPointer? = mmap(nil, length, protection, MAP_SHARED, fd, 0)
+        guard let p, p != UnsafeMutableRawPointer(bitPattern: -1) else {
             throw GeoRasterError.io("cannot map \(path)")
         }
         mapping = (p, length)
