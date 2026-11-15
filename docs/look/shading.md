@@ -73,11 +73,12 @@ what the tracks that come after R2 plug into. The code is the reference:
   (1.45 px in radius) no pixel loses half its clouds more than 0.33 px
   beyond the edge, and the upsample takes up to a third from some pixels
   0.5-2.5 px beyond it. `VesselPassTests.testCloudsBehindAWireStayBehindIt`
-  checks that tube at Apollo 8's pad with C2's cirrus on (the wire is the
-  opaque tube within 2 % across ±6 px), and
+  checks that tube at Apollo 8's pad under a uniform deck, C2's look-dev
+  slab, so the clouds behind it do not depend on the day's weather or C2's
+  look (the wire is the opaque tube within 2 % across ±6 px), and
   `testWireDepthStartsAtHalfCoverage` the threshold at Apollo 11's pad
-  under its 9/10 cirrostratus (coverage 0.3: the clouds lie over the
-  wire; 0.7: they leave the pixels it touches).
+  under the same deck (coverage 0.3: the clouds lie over the wire, 1.445;
+  0.7: they leave the pixels it touches, 0.000).
 - Tests (Linux): `BRDFTests` (GGX normalisation, Heitz's projected-area
   identity, Schlick's mirror limit, the table against direct quadrature, the
   white furnace ≥ 0.98, Rakić's aluminium F0 0.914, the filter, the Sun disc,

@@ -433,8 +433,8 @@ final class VesselPassTests: XCTestCase {
         return try renderFloat(scene, renderer: r)
     }
 
-    /// C2's clouds behind a wire stay behind it. At Apollo 8's pad with its
-    /// 4/10 cirrus on, the 0.1 m tube (1.45 px, coverage 1) against the
+    /// C2's clouds behind a wire stay behind it. At Apollo 8's pad under a
+    /// uniform deck (C2's look-dev slab, `airRenderer(clouds: true)`), the 0.1 m tube (1.45 px, coverage 1) against the
     /// cloudy sky is the same tube drawn opaque, within 2 %, at every pixel
     /// of its rows from 6 px left of its axis to 6 px right. The clouds
     /// draw in P3 through R6's slots, after R1's break, against the depth
@@ -490,13 +490,13 @@ final class VesselPassTests: XCTestCase {
     }
 
     /// Where a wire starts to hide the clouds behind it: at coverage 0.5
-    /// (`vessel_wireDepth`). At Apollo 11's pad under its launch-day 9/10
-    /// cirrostratus, the clouds' change at each pixel on the tube's axis,
+    /// (`vessel_wireDepth`). At Apollo 11's pad under a uniform deck (C2's
+    /// look-dev slab, `airRenderer(clouds: true)`), the clouds' change at each pixel on the tube's axis,
     /// (wire − the wire without clouds) / (sky − the sky without clouds),
     /// on rows where the clouds change the sky by a tenth or more:
     /// - coverage 0.3 (a radius of 0.21 px, drawn at 0.7 px) writes no
     ///   depth: the clouds lie over the wire and change it as they change
-    ///   the sky (1.16 measured);
+    ///   the sky (1.445 measured);
     /// - coverage 0.7 (0.49 px) writes its depth: the clouds leave the
     ///   pixels it touches (0.000).
     /// Deleting the discard, or moving the threshold past either, fails it.
