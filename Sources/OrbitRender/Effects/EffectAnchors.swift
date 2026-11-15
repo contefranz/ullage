@@ -27,7 +27,7 @@ struct ParticleAnchorGPU: Equatable {
     init() {}
 
     init(_ a: AnchorFrame) {
-        origin = SIMD4(a.origin, 1)
+        origin = SIMD4(a.origin, a.sunAboveAir ? 2 : 1)
         toWorld0 = SIMD4(a.toWorld.c0, 0)
         toWorld1 = SIMD4(a.toWorld.c1, 0)
         toWorld2 = SIMD4(a.toWorld.c2, 0)

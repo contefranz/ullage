@@ -68,12 +68,13 @@ public final class ParticleDrawPass: RenderPass {
     }
 }
 
-/// Tumbling chunks: debris, ice slabs, cork (P1, opaque).
+/// Tumbling chunks: debris, ice slabs, cork (P1, opaque; after R6's
+/// look-dev backdrop at 1,000, so look-dev shots show them).
 @MainActor
 public final class ParticleChunkPass: RenderPass {
     public let name = "Particle chunks"
     public let stage = PassStage.opaque
-    public let order = 50
+    public let order = 1_010
     public var reads: Set<ResourceID> { [.particles] }
 
     let system: ParticleSystem

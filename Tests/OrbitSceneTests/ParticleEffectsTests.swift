@@ -342,7 +342,7 @@ final class ParticleEffectsTests: XCTestCase {
     }
 
     /// Look-dev bursts are spawned afresh every frame in the studio, in its
-    /// own air, whatever the scenario.
+    /// own air, whatever the scenario; a frame drawn again keeps them.
     func testStudioBursts() throws {
         let (sim, camera) = try open("leo")
         var settings = ParticleSettings()
@@ -353,9 +353,15 @@ final class ParticleEffectsTests: XCTestCase {
         b.lifetime = [5, 5]
         settings.testBursts = [b]
         settings.studio = .seaLevel
-        let session = EffectSession()
-        let scene = SceneExtractor().extract(sim: sim, camera: camera, viewport: Self.viewport, realTime: 0)
-        let one = session.frame(scene, settings: settings), two = session.frame(scene, settings: settings)
+        let session = EffectSession(), x = SceneExtractor()
+        let scene = x.extract(sim: sim, camera: camera, viewport: Self.viewport, realTime: 0)
+        let one = session.frame(scene, settings: settings)
+        let again = session.frame(scene, settings: settings)
+        XCTAssertFalse(again.resets)
+        XCTAssertTrue(again.requests.isEmpty)
+        XCTAssertEqual(again.drawn, [.smoke])
+        let two = session.frame(x.extract(sim: sim, camera: camera, viewport: Self.viewport, realTime: 1 / 60),
+                                settings: settings)
         XCTAssertTrue(one.resets && two.resets)
         // The same particles each frame, in a new anchor each time.
         func same(_ r: EmitRequest) -> EmitRequest {

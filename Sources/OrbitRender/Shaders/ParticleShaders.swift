@@ -26,7 +26,7 @@ struct ParticleMaterial {
 };
 
 struct ParticleAnchor {
-    float4 origin;           // xyz: camera-relative (m), w: 1 live
+    float4 origin;           // xyz: camera-relative (m), w: 1 live, 2 live and lit by the Sun above any air (the studio)
     float4 toWorld0;         // anchor axes to world, columns
     float4 toWorld1;
     float4 toWorld2;
@@ -575,12 +575,14 @@ inline float particle_phase(float cosTheta, float g) {
     return (1.0 - g * g) / (4.0 * M_PI_F * d * sqrt(max(d, 1e-6)));
 }
 
-// The Sun's lux per channel at the particles: through the air the camera is
-// in (A2), or above any; times the anchor's sunlit fraction.
-inline float3 particle_sun(constant FrameUniforms &frame, constant AtmosphereUniforms &atmosphere, float sunlit) {
-    float3 sun = atmosphere.radii.w > 0.5 ? atmosphere.sunTransmitted.rgb * atmosphere.sunTransmitted.w
-                                          : frame.sunIlluminance.rgb;
-    return sun * sunlit;
+// The Sun's lux per channel at an anchor's particles: through the air the
+// camera is in (A2), or above any (and always in the studio); times the
+// anchor's sunlit fraction.
+inline float3 particle_sun(constant FrameUniforms &frame, constant AtmosphereUniforms &atmosphere,
+                           device const ParticleAnchor &an) {
+    bool above = an.origin.w > 1.5 || atmosphere.radii.w < 0.5;
+    float3 sun = above ? frame.sunIlluminance.rgb : atmosphere.sunTransmitted.rgb * atmosphere.sunTransmitted.w;
+    return sun * an.air.w;
 }
 
 // ------------------------------------------------------------- streaks ---
@@ -591,8 +593,8 @@ inline float3 particle_sun(constant FrameUniforms &frame, constant AtmosphereUni
 struct ParticleStreakOut {
     float4 position [[position]];
     float2 uv;               // x: across (-1...1), y: along (0 tail ... 1 head)
-    float2 ends;             // the caps' share of the length at each end
-    float3 color;            // pre-exposed radiance at the centre line
+    float cap;               // each round cap's share of the length
+    float3 color;            // pre-exposed radiance on the core
 };
 
 vertex ParticleStreakOut particle_streak_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
@@ -613,7 +615,7 @@ vertex ParticleStreakOut particle_streak_vertex(uint vid [[vertex_id]], uint iid
     if (depth <= frame.camera.x) {
         o.position = float4(2.0, 2.0, 2.0, 1.0);
         o.uv = float2(0.0);
-        o.ends = float2(0.0);
+        o.cap = 0.0;
         o.color = float3(0.0);
         return o;
     }
@@ -637,12 +639,14 @@ vertex ParticleStreakOut particle_streak_vertex(uint vid [[vertex_id]], uint iid
     float3 q = tail + along * (k.y * total) + side * (k.x * 0.5 * width);
     o.position = frame.projection * float4(q, 1.0);
     o.uv = k;
-    o.ends = float2(0.5 * width / total);
-    // The particle's flux spread over the quad: its disc's area over the
-    // quad's, with the across profile's mean (2/3) taken out.
-    float coverage = M_PI_F * p.radius * p.radius / (width * total) * 1.5;
+    o.cap = 0.5 * width / total;
+    // The particle's flux spread over the capsule: its disc's area over the
+    // profile's integral, (1 - d²) about the core, d in half-widths: (4/3) h L
+    // along the length and (π/2) h² for the two caps.
+    float h = 0.5 * width;
+    float coverage = M_PI_F * p.radius * p.radius / (4.0 / 3.0 * h * len + 0.5 * M_PI_F * h * h);
     float3 view = normalize(p.world);
-    float3 glint = m.albedo.rgb * particle_sun(frame, atmosphere, an.air.w)
+    float3 glint = m.albedo.rgb * particle_sun(frame, atmosphere, an)
         * particle_phase(dot(frame.sunDirection.xyz, view), m.look.y);
     float3 light = (particle_emission(m, p.temperature) + glint) * particle_fade(m, p.age, p.lifetime);
     o.color = light * coverage * frame.exposure.x;
@@ -650,10 +654,11 @@ vertex ParticleStreakOut particle_streak_vertex(uint vid [[vertex_id]], uint iid
 }
 
 fragment float4 particle_streak_fragment(ParticleStreakOut in [[stage_in]]) {
-    float across = 1.0 - in.uv.x * in.uv.x;
-    float tail = smoothstep(0.0, max(in.ends.x, 1e-3), in.uv.y);
-    float head = smoothstep(0.0, max(in.ends.y, 1e-3), 1.0 - in.uv.y);
-    return float4(orbit_effectRadiance(in.color * across * tail * head), 0.0);
+    // The distance from the core in half-widths: across, and into a cap.
+    float c = max(in.cap, 1e-4);
+    float along = in.uv.y < c ? (c - in.uv.y) / c : (in.uv.y > 1.0 - c ? (in.uv.y - 1.0 + c) / c : 0.0);
+    float d2 = in.uv.x * in.uv.x + along * along;
+    return float4(orbit_effectRadiance(in.color * max(1.0 - d2, 0.0)), 0.0);
 }
 
 // --------------------------------------------------------------- smoke ---
@@ -699,7 +704,7 @@ vertex ParticleSmokeOut particle_smoke_vertex(uint vid [[vertex_id]], uint iid [
     float grown = p.spawnRadius / max(p.radius, 1e-6);
     o.tau = m.look.x * grown * grown * particle_fade(m, p.age, p.lifetime);
     float3 view = normalize(p.world);
-    float3 sun = particle_sun(frame, atmosphere, an.air.w);
+    float3 sun = particle_sun(frame, atmosphere, an);
     o.sunLight = m.albedo.rgb * sun;
     o.phase = particle_phase(dot(frame.sunDirection.xyz, view), m.look.y);
     o.ambient = m.albedo.rgb * atmosphere.skyIrradiance.rgb / M_PI_F + particle_emission(m, p.temperature);
@@ -808,7 +813,7 @@ vertex ParticleChunkOut particle_chunk_vertex(uint vid [[vertex_id]], uint iid [
     float3 world = p.world + particle_rotate(corner, axis, angle);
     o.position = frame.viewProjection * float4(world, 1.0);
     o.color = m.albedo.rgb;
-    o.sun = particle_sun(frame, atmosphere, an.air.w) / M_PI_F * frame.exposure.x;
+    o.sun = particle_sun(frame, atmosphere, an) / M_PI_F * frame.exposure.x;
     o.base = (m.albedo.rgb * (atmosphere.skyIrradiance.rgb / M_PI_F) + particle_emission(m, p.temperature))
         * frame.exposure.x + m.albedo.rgb * 0.01;
     return o;

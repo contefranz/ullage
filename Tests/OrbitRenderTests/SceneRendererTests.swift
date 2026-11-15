@@ -14,11 +14,12 @@ final class SceneRendererTests: XCTestCase {
     func testDefaultPasses() throws {
         let r = try SceneRenderer(device: try XCTUnwrap(RenderDevice.shared), loadsUserTextures: false)
         XCTAssertEqual(r.failures, [:])
-        XCTAssertEqual(r.graph.active.map(\.name), ["Exposure", "Atmosphere LUTs", "Stars", "Planets", "Vessels",
-                                                    "Effect test opaque", "Atmosphere composite",
-                                                    "Half-resolution transparents", "Plumes", "Far points",
-                                                    "Transparent composite", "Effect test sparks", "HDR resolve", "Post",
-                                                    "Debug view", "Effect slots debug view", "Orbit line", "Markers"])
+        XCTAssertEqual(r.graph.active.map(\.name), ["Exposure", "Atmosphere LUTs", "Particle simulation", "Stars",
+                                                    "Planets", "Vessels", "Effect test opaque", "Particle chunks",
+                                                    "Atmosphere composite", "Half-resolution transparents", "Plumes",
+                                                    "Far points", "Transparent composite", "Effect test sparks",
+                                                    "Particles", "HDR resolve", "Post", "Debug view",
+                                                    "Effect slots debug view", "Orbit line", "Markers"])
         XCTAssertEqual(Set(r.graph.passes.map(\.name)).count, r.graph.passes.count, "pass names are unique")
         for stage in PassStage.allCases {
             XCTAssertTrue(r.graph.passes.contains { $0.stage == stage }, "a pass in every slot, \(stage)")

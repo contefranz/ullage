@@ -211,12 +211,13 @@ extension ParticleMaterial {
     /// The library's material named `name`.
     public static func named(_ name: String) -> ParticleMaterial? { library.first { $0.name == name } }
 
-    /// Incandescent Al2O3 or metal, glowing at 2,600 K and cooling by
-    /// radiation over 1.5 s.
+    /// Incandescent Al2O3 or metal at 2,600 K, cooling by radiation over
+    /// 1.5 s: about a blackbody's luminance there, σT⁴/π at some 15 lm/W,
+    /// 1.2e7 cd/m².
     public static var spark: ParticleMaterial {
         var m = ParticleMaterial(name: "spark", renderClass: .streak)
         m.albedo = .black
-        m.emission = ParticleColor(1, 0.55, 0.22) * 4e6
+        m.emission = ParticleColor(1, 0.55, 0.22) * 1.2e7
         m.emissionTemperature = 2_600
         m.fadeIn = 0
         m.fadeOut = 0.2

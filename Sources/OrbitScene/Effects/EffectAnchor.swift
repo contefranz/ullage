@@ -132,10 +132,14 @@ public struct AnchorFrame: Equatable {
     public var sunlitFraction: Double
     /// Ice's temperature in vacuum there (`IceSublimation.radiativeEquilibriumTemperature`), K.
     public var vacuumIceTemperature: Double
+    /// Lit by the Sun as it is above any air, whatever the camera's air
+    /// says (the studio); otherwise by the Sun through the air the camera
+    /// is in (A2's), times `sunlitFraction`.
+    public var sunAboveAir: Bool
 
     public init(origin: Vec3, toWorld: Mat3, up: Vec3, east: Vec3, north: Vec3, altitude: Double,
                 groundAltitude: Double, radius: Double, gravity: Vec3, airVelocity: Vec3, rotation: Vec3,
-                airProfile: Int?, sunlitFraction: Double, vacuumIceTemperature: Double) {
+                airProfile: Int?, sunlitFraction: Double, vacuumIceTemperature: Double, sunAboveAir: Bool = false) {
         self.origin = origin
         self.toWorld = toWorld
         self.up = up
@@ -150,6 +154,7 @@ public struct AnchorFrame: Equatable {
         self.airProfile = airProfile
         self.sunlitFraction = sunlitFraction
         self.vacuumIceTemperature = vacuumIceTemperature
+        self.sunAboveAir = sunAboveAir
     }
 
     /// The camera-relative world position of `p`, given in the anchor's axes.
@@ -216,7 +221,7 @@ extension EffectAnchor {
             return AnchorFrame(origin: t.origin, toWorld: toWorld, up: .unitZ, east: .unitX, north: .unitY,
                                altitude: 0, groundAltitude: -.infinity, radius: 6.371e6, gravity: s.gravity,
                                airVelocity: .zero, rotation: .zero, airProfile: s.air.isVacuum ? nil : studioProfile,
-                               sunlitFraction: 1, vacuumIceTemperature: iceTemperature(1))
+                               sunlitFraction: 1, vacuumIceTemperature: iceTemperature(1), sunAboveAir: true)
         }
     }
 }

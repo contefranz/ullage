@@ -289,8 +289,10 @@ public final class EffectSession {
         if c.paused { dt = 0 }
         let jump = EffectTimeRules.isTimeJump(dt)
         if jump { dt = 0 }
+        // The studio spawns its bursts afresh on every frame but one drawn
+        // again (a snapshot's AOVs and timing frames), which keeps them.
         let studio = !settings.testBursts.isEmpty
-        let resets = newSimulation || jump || studio
+        let resets = newSimulation || jump || studio && !again
         if resets { reset(newSimulation: newSimulation) }
         last = (c.frameIndex, c.simTime, vessels)
         var turbulenceDt = 0.0
@@ -308,7 +310,7 @@ public final class EffectSession {
         let f = EffectFrame(scene: scene, clock: clock, session: self)
 
         if studio {
-            if let id = f.anchor(.studio(settings.studio.anchor)) {
+            if !again, let id = f.anchor(.studio(settings.studio.anchor)) {
                 for b in settings.testBursts {
                     guard let m = b.resolvedMaterial else { continue }
                     f.emit(b.request(anchor: id, material: materials.register(m)))
