@@ -543,6 +543,9 @@ extension FrameGraphTests {
             let r = try SceneRenderer(device: device, outputFormat: .bgra8Unorm_srgb,
                                       passes: SceneRenderer.defaultPasses(loadsUserTextures: false) + extra, plan: p)
             r.setStars(stars)
+            // The test's break alone: C2's clouds would break the scene too,
+            // through R6's slots, and the plain frame would not be plain.
+            r.settings.cloud.enabled = false
             r.profiling = timing
             r.profileInterval = 1
             let target = try XCTUnwrap(OffscreenTarget(device: device, width: 320, height: 200))
