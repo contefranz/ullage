@@ -31,15 +31,26 @@ final class SnapshotToolTests: XCTestCase {
         let timed = try s.render(shot, timingFrames: 3)
         XCTAssertEqual(timed.pixels, plain.pixels)
         // A split frame: every pass in its own encoder, the MSAA samples
-        // stored and loaded between them, resolved each time.
-        XCTAssertEqual(try XCTUnwrap(timed.profiledPixels), plain.pixels, "a profiled frame has the same pixels")
+        // stored and loaded between them, resolved each time. C2's clouds
+        // break the scene (R6's slots), where a plain frame resolves the scene
+        // and re-expands it while a timed one keeps the samples (R1's #70): two
+        // half float roundings apart, a step of 8-bit sRGB at most
+        // (HDRLookTests.testBreakingTheSceneKeepsThePixels).
+        let profiled = try XCTUnwrap(timed.profiledPixels)
+        let steps = zip(profiled, plain.pixels).map { abs(Int($0) - Int($1)) }
+        XCTAssertLessThanOrEqual(steps.max() ?? 2, 1, "a profiled frame has the same pixels, to a step")
+        XCTAssertGreaterThan(steps.filter { $0 == 0 }.count, steps.count * 9 / 10)
         guard try s.renderer(userTextures: false).profiler.isSupported else {
             throw XCTSkip("no timestamp counters on this GPU")
         }
         // The overhead is measured where the scene's encoders end, before post.
-        XCTAssertEqual(timed.timings.map(\.pass), ["Atmosphere LUTs", "Stars", "Planets", "Vessels", "Atmosphere composite",
-                                                   "Vessel wires", "Plumes", "Far points", "HDR resolve", FrameProfile.splitOverhead,
-                                                   "Post", "Orbit line", "Markers"])
+        // C2's clouds draw through R6's slots, which break the scene: their
+        // half-resolution pass and composite run, and the overhead is
+        // measured at the break.
+        XCTAssertEqual(timed.timings.map(\.pass), ["Atmosphere LUTs", "Clouds", "Stars", "Planets", "Vessels",
+                                                   "Atmosphere composite", "Vessel wires", FrameProfile.splitOverhead,
+                                                   "Half-resolution transparents", "Plumes", "Far points",
+                                                   "Transparent composite", "HDR resolve", "Post", "Orbit line", "Markers"])
         // Each render pass's vertex and fragment time less what splitting
         // costs (an empty encoder's time): small passes may read 0.
         for t in timed.timings { XCTAssertGreaterThanOrEqual(t.seconds, 0, t.pass) }

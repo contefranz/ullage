@@ -1,11 +1,11 @@
 {
   "goldens": "none",
   "shots": [
-    {"name": "a2-pad-dawn-sun", "scenario": "apollo8-dawn-pad", "userTextures": true,
+    {"name": "a2-pad-dawn-sun", "scenario": "apollo8-pad", "userTextures": true,
      "reference": "S68-56050, S68-56002", "camera": {"yaw": -60, "pitch": 4, "distance": 260, "fov": 60}},
-    {"name": "a2-pad-dawn-lit", "scenario": "apollo8-dawn-pad", "userTextures": true,
+    {"name": "a2-pad-dawn-lit", "scenario": "apollo8-pad", "userTextures": true,
      "camera": {"yaw": 120, "pitch": 4, "distance": 260, "fov": 60}},
-    {"name": "a2-pad-dawn-wide", "scenario": "apollo8-dawn-pad", "userTextures": true,
+    {"name": "a2-pad-dawn-wide", "scenario": "apollo8-pad", "userTextures": true,
      "camera": {"yaw": 30, "pitch": 1, "distance": 900, "fov": 90}},
     {"name": "a2-ascent-60s", "scenario": "as506-pad", "advance": ["met:60"], "userTextures": true,
      "camera": {"yaw": 149, "pitch": -11.5, "distance": 220}},
