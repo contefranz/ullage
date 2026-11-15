@@ -83,6 +83,54 @@ final class PlanetTileFallbackTests: XCTestCase {
         XCTAssertTrue(tilePass.status.hasPrefix("no Earth tiles in"), tilePass.status)
     }
 
+    /// With an albedo layer the Earth's colour comes from it: an all-magenta
+    /// July layer turns the disc magenta, through the default passes; and
+    /// with `planetTile.enabled` off the same renderer draws it as before.
+    func testAnAlbedoLayerColoursTheEarthAndTheSettingTurnsItOff() throws {
+        let device = try XCTUnwrap(RenderDevice.shared)
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("magenta-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let n = 32, b = 4, m = n + 2 * b
+        let layout = PlanetTileLayout(format: .jpeg, tileSize: n, border: b, channels: 3, maxLevel: 2, bodyID: 399, figure: .wgs84)
+        let w = try PlanetTileWriter(url: dir.appendingPathComponent(EarthTileFiles.albedo(month: 7)), layout: layout)
+        let magenta = try PlanetTileCacheTests.jpeg([UInt8](repeating: 0, count: m * m * 3).enumerated().map { $0.offset % 3 == 1 ? 0 : 255 },
+                                                    side: m)
+        for k in PlanetTileBuilder.keys(levels: 0 ... 2, figure: .wgs84) { try w.add(k, payload: magenta) }
+        try w.finish()
+        setenv("ORBITSIM_TILES_DIR", dir.path, 1)
+        defer { unsetenv("ORBITSIM_TILES_DIR") }
+        let r = try SceneRenderer(device: device, loadsUserTextures: true)
+        r.setStars(try StarCatalog.bundled())
+        let spec = try SnapshotSpec.load(Self.shots.appendingPathComponent("a2.json"))
+        var shot = try XCTUnwrap(spec.shots.first { $0.name == "a2-earth-from-afar" })
+        shot.width = 320
+        shot.height = 200
+        shot.settings.post.exposure = ExposureSettings(mode: .manual)
+        shot.settings.post.exposure.ev100 = 13
+        shot.settings.planetTile.synchronous = true
+        let scene = shot.scene(try shot.prepare(system: try SolarSystem.bundled()))
+        func magentaPixels(enabled: Bool) throws -> Int {
+            var settings = shot.settings
+            settings.planetTile.enabled = enabled
+            r.settings = settings
+            let target = try XCTUnwrap(OffscreenTarget(device: device, width: shot.width, height: shot.height))
+            _ = r.renderAndWait(scene, into: target)
+            _ = r.renderAndWait(scene, into: target)
+            let px = target.bytes()   // BGRA
+            return stride(from: 0, to: px.count, by: 4).filter { k in
+                let blue = Int(px[k]), green = Int(px[k + 1]), red = Int(px[k + 2])
+                return red > green + 25 && blue > green + 25
+            }.count
+        }
+        let tiled = try magentaPixels(enabled: true)
+        let tilePass = try XCTUnwrap(r.graph.passes.first { $0 is PlanetTilePass } as? PlanetTilePass)
+        XCTAssertNotNil(tilePass.layer(.albedo), tilePass.status)
+        XCTAssertGreaterThan(tilePass.layer(.albedo)?.residency.residentCount ?? 0, 0)
+        XCTAssertGreaterThan(tiled, 2_000, "the disc is magenta")
+        XCTAssertLessThan(try magentaPixels(enabled: false), 50, "off, the Earth is not drawn from the tiles")
+    }
+
     /// The plain planet module is E2's own, with nothing of the tile store;
     /// the tiled one found both of its anchors in it.
     func testThePlanetModuleIsUntouchedAndTheTiledOneComplete() throws {

@@ -14,6 +14,11 @@ public final class PlanetTileCatalog {
     public let layout: PlanetTileLayout
     /// Which file holds each tile.
     let source: [TileKey: Int]
+    /// Tiles with a stored child: where the layer is finer.
+    let parents: Set<TileKey>
+    /// The deepest level whose every tile is stored (levels 0 to it all
+    /// complete): BMNG's 7, the water's 5; -1 without the roots.
+    public let completeLevel: Int
     /// Why files or tiles were left out.
     public private(set) var notes: [String] = []
 
@@ -41,6 +46,12 @@ public final class PlanetTileCatalog {
             if let p = key.parent, source[p] == nil { source[key] = nil; dropped += 1 }
         }
         if dropped > 0 { notes.append("\(dropped) tiles without a stored parent left out") }
+        parents = Set(source.keys.compactMap(\.parent))
+        var perLevel: [Int: Int] = [:]
+        for k in source.keys { perLevel[k.level, default: 0] += 1 }
+        var complete = -1
+        while complete < layout.maxLevel, perLevel[complete + 1] == CubeSphere.tileCount(level: complete + 1) { complete += 1 }
+        completeLevel = complete
         self.files = kept
         names = keptNames
         self.layout = layout
@@ -52,6 +63,10 @@ public final class PlanetTileCatalog {
     public var maxLevel: Int { layout.maxLevel }
 
     public func contains(_ key: TileKey) -> Bool { source[key] != nil }
+
+    /// Whether any child of `key` is stored: the quadtree refines there
+    /// (`PlanetQuadtree.Parameters.refinable`).
+    public func hasStoredChildren(_ key: TileKey) -> Bool { parents.contains(key) }
 
     /// `key` if stored, else its deepest stored ancestor.
     public func finestAvailable(_ key: TileKey) -> TileKey? {

@@ -98,7 +98,7 @@ enum Earth {
 
     static func cleanWork(_ work: URL, prefix: String = "") {
         for f in (try? FileManager.default.contentsOfDirectory(atPath: work.path)) ?? []
-            where f.hasSuffix(".osrastr") && f.hasPrefix(prefix) {
+            where (f.hasSuffix(".osrastr") || f.hasSuffix(".osrastr.partial")) && f.hasPrefix(prefix) {
             try? FileManager.default.removeItem(at: work.appendingPathComponent(f))
         }
     }
@@ -143,19 +143,14 @@ enum Earth {
         let dir = paths.sources.appendingPathComponent("bmng")
         let grid = GeoGrid.global(width: 86_400)
         let base = paths.work.appendingPathComponent("bmng-\(month)-0.osrastr")
-        var files: [String] = []
-        let raster: GeoRaster
-        if let existing = try? GeoRasterFile.open(path: base.path), existing.grid == grid {
-            raster = existing
-            log("reusing \(base.lastPathComponent)")
-            files = bmngTiles.map { "bmng/" + (bmngFile(dir, month, $0)?.lastPathComponent ?? $0) }
-        } else {
-            raster = try GeoRasterFile.create(path: base.path, grid: grid, channels: 3, type: .uint8)
+        let files = bmngTiles.map { "bmng/" + (bmngFile(dir, month, $0)?.lastPathComponent ?? $0) }
+        // Written as .partial and renamed when every tile is in and the
+        // lakes are painted: an interrupted run's mosaic is never reused.
+        let (raster, reused) = try GeoRasterFile.build(path: base.path, grid: grid, channels: 3, type: .uint8) { raster in
             for t in bmngTiles {
                 guard let url = bmngFile(dir, month, t) else {
                     throw ToolError(String(format: "BMNG month %02d tile %@ missing in %@", month, t, dir.path))
                 }
-                files.append("bmng/" + url.lastPathComponent)
                 let column = (Int(t.prefix(1).unicodeScalars.first!.value) - 65) * 21_600
                 let row = t.hasSuffix("1") ? 0 : 21_600
                 log("reading \(url.lastPathComponent)")
@@ -184,6 +179,7 @@ enum Earth {
             }
             try paintHistoricLakes(into: raster, paths: paths)
         }
+        if reused { log("reusing the complete mosaic \(base.lastPathComponent)") }
         log("BMNG \(String(format: "%02d", month)): building the pyramid")
         let pyramid = try buildPyramid(raster, name: "bmng-\(month)", work: paths.work, linearize: srgbToLinear,
                                        delinearize: linearToSRGB)
@@ -295,21 +291,12 @@ enum Earth {
     static func water(paths: Paths, maxLevel: Int) throws -> GeoRasterPyramid {
         let grid = GeoGrid.global(width: 43_200)
         let path = paths.work.appendingPathComponent("water-0.osrastr").path
-        let raster = try GeoRasterFile.create(path: path, grid: grid, channels: 1, type: .uint8, scale: 1.0 / 255)
+        let file = try GeoRasterFile.create(path: path, grid: grid, channels: 1, type: .uint8, scale: 1.0 / 255)
         let land = try Water.polygons(paths, "ne_10m_land.geojson")
-        log("water: \(land.count) land polygons")
-        let p = raster.storage.bytes.assumingMemoryBound(to: UInt8.self)
-        for k in 0 ..< grid.width * grid.height { p[k] = 255 }
-        PolygonRasterizer.rasterize(land, on: grid) { r, cover in
-            for c in 0 ..< grid.width where cover[c] > 0 { p[r * grid.width + c] = UInt8(min(255, ((1 - cover[c]) * 255).rounded())) }
-        }
-        let lakes = try Water.polygons(paths, "ne_10m_lakes.geojson") + Water.historicLakes(paths)
-        log("water: \(lakes.count) lakes, the Aral Sea and Lake Chad as in the 1960s")
-        PolygonRasterizer.rasterize(lakes, on: grid) { r, cover in
-            for c in 0 ..< grid.width where cover[c] > 0 {
-                p[r * grid.width + c] = max(p[r * grid.width + c], UInt8(min(255, (cover[c] * 255).rounded())))
-            }
-        }
+        let lakes = try Water.polygons(paths, "ne_10m_lakes.geojson"), historic = try Water.historicLakes(paths)
+        log("water: \(land.count) land polygons, \(lakes.count) lakes, the Aral Sea and Lake Chad as in the 1960s")
+        // Each set in a pass of its own: the modern lakes lie inside their 1960s outlines.
+        let raster = WaterMask.rasterize(land: land, waters: [lakes, historic], on: grid, storage: file.storage)
         let pyramid = try buildPyramid(raster, name: "water", work: paths.work)
         let meta = paths.sourcesFile.metadata(for: Water.files, tool: toolLine("earth water"),
                                               extra: ["layer": "water", "values": "water fraction, 0 land to 255 water"])

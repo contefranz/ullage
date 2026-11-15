@@ -321,8 +321,35 @@ public enum GeoRasterFile {
         return r
     }
 
-    /// Maps the file at `path` read-only.
-    public static func open(path: String) throws -> GeoRaster {
+    /// A raster file at `path` that is always complete: made by `fill` in
+    /// `path`.partial and renamed to `path` only when `fill` returns. With
+    /// `reuse`, a complete file of the same shape at `path` is returned as
+    /// it is and `fill` is not called. A run interrupted in `fill` (an
+    /// error, a signal, a full disk) leaves at most the .partial file,
+    /// which the next build starts over. Returns the raster, mapped
+    /// read-write, and whether it was reused.
+    public static func build(path: String, grid: GeoGrid, channels: Int, type: GeoSampleType, scale: Float = 1,
+                             noData: Float? = nil, reuse: Bool = true,
+                             fill: (GeoRaster) throws -> Void) throws -> (raster: GeoRaster, reused: Bool) {
+        if reuse, FileManager.default.fileExists(atPath: path), let r = try? open(path: path, writable: true),
+           r.grid == grid, r.channels == channels, r.type == type {
+            return (r, true)
+        }
+        let partial = path + ".partial"
+        try? FileManager.default.removeItem(atPath: path)
+        let r = try create(path: partial, grid: grid, channels: channels, type: type, scale: scale, noData: noData)
+        do {
+            try fill(r)
+        } catch {
+            try? FileManager.default.removeItem(atPath: partial)
+            throw error
+        }
+        guard rename(partial, path) == 0 else { throw GeoRasterError.io("cannot rename \(partial)") }
+        return (r, false)
+    }
+
+    /// Maps the file at `path` read-only (or read-write).
+    public static func open(path: String, writable: Bool = false) throws -> GeoRaster {
         let head = try FileHandle(forReadingFrom: URL(fileURLWithPath: path))
         defer { try? head.close() }
         let h = head.readData(ofLength: 68)
@@ -336,7 +363,7 @@ public enum GeoRasterFile {
                            pixelWidth: f64(40), pixelHeight: f64(48))
         let channels = Int(u32(16))
         let count = grid.width * grid.height * channels * type.size
-        let storage = try RasterStorage(mapping: path, offset: headerSize, count: count, writable: false)
+        let storage = try RasterStorage(mapping: path, offset: headerSize, count: count, writable: writable)
         let r = GeoRaster(grid: grid, channels: channels, type: type, storage: storage)
         r.scale = Float(bitPattern: u32(56))
         r.noData = u32(60) & 1 != 0 ? Float(bitPattern: u32(64)) : nil

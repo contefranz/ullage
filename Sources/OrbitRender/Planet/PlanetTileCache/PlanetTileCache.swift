@@ -147,8 +147,10 @@ public final class PlanetTileCache {
         texelBytes = texel
         across = layout.samplesAcross
         mipLevels = Self.mipCount(layout)
+        // The indirection texture covers the levels stored everywhere;
+        // deeper ones (an inset's) go through the deep table.
         residency = PlanetTileResidency(slots: slots, maxLevel: catalog.maxLevel, pinnedLevel: pinnedLevel,
-                                        maxTextureLevel: maxTextureLevel)
+                                        maxTextureLevel: max(0, min(maxTextureLevel, catalog.completeLevel)))
         var pinnedKeys: [TileKey] = []
         var frontier = TileKey.roots.filter(catalog.contains)
         for _ in 0 ... max(pinnedLevel, 0) {

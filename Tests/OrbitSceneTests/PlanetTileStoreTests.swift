@@ -111,6 +111,70 @@ final class PlanetTileBuildTests: XCTestCase {
         XCTAssertEqual(both.value(Int(p.x), Int(p.y)), 1)
     }
 
+    /// The Earth's water: a modern lake inside its 1960s outline, both on
+    /// land, is water in both; filled in one even-odd pass, the modern lake
+    /// would be a hole (land).
+    func testWaterMaskTakesNestedLakesAsWater() {
+        let grid = GeoGrid(width: 100, height: 100, west: 0, north: 10, pixelWidth: 0.1, pixelHeight: 0.1)
+        func box(_ w: Double, _ s: Double, _ e: Double, _ n: Double) -> GeoPolygon {
+            GeoPolygon(rings: [[GeoPoint(longitude: w, latitude: s), GeoPoint(longitude: e, latitude: s),
+                                GeoPoint(longitude: e, latitude: n), GeoPoint(longitude: w, latitude: n)]])
+        }
+        let land = [box(1, 1, 9, 9)], historic = [box(3, 3, 7, 7)], modern = [box(4, 4, 5, 5), box(5.5, 5.5, 6.5, 6.5)]
+        let water = WaterMask.rasterize(land: land, waters: [modern, historic], on: grid)
+        func at(_ lon: Double, _ lat: Double) -> Float {
+            let p = grid.position(latitudeDegrees: lat, longitudeDegrees: lon)
+            return water.value(Int(p.x), Int(p.y))
+        }
+        XCTAssertEqual(at(0.5, 0.5), 1, "open sea")
+        XCTAssertEqual(at(2, 2), 0, "land")
+        XCTAssertEqual(at(3.5, 3.5), 1, "the 1960s lake")
+        XCTAssertEqual(at(4.5, 4.5), 1, "a modern lake inside it")
+        XCTAssertEqual(at(6, 6), 1, "another")
+        // The one-pass fill this replaces gets the nested lakes wrong.
+        let onePass = PolygonRasterizer.coverage(modern + historic, on: grid)
+        let p = grid.position(latitudeDegrees: 4.5, longitudeDegrees: 4.5)
+        XCTAssertEqual(onePass.value(Int(p.x), Int(p.y)), 0)
+    }
+
+    /// A work raster is reused only when its build finished: an interrupted
+    /// one leaves no file under its name, and a stale .partial is ignored.
+    func testRasterBuildsReuseOnlyCompleteFiles() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("osrastr-build-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let path = dir.appendingPathComponent("bmng-7-0.osrastr").path
+        let grid = GeoGrid(width: 8, height: 4, west: -180, north: 90, pixelWidth: 45, pixelHeight: 45)
+        struct Interrupted: Error {}
+        // Interrupted half-way: rows 0-1 written, then the build stops.
+        XCTAssertThrowsError(try GeoRasterFile.build(path: path, grid: grid, channels: 1, type: .uint8) { r in
+            for x in 0 ..< 8 { r.setRaw(x, 0, 0, 9); r.setRaw(x, 1, 0, 9) }
+            throw Interrupted()
+        })
+        XCTAssertFalse(FileManager.default.fileExists(atPath: path))
+        // A killed run's .partial, half filled, is not taken for a mosaic.
+        let stale = try GeoRasterFile.create(path: path + ".partial", grid: grid, channels: 1, type: .uint8)
+        stale.setRaw(0, 0, 0, 9)
+        var filled = 0
+        let (r, reused) = try GeoRasterFile.build(path: path, grid: grid, channels: 1, type: .uint8) { r in
+            for y in 0 ..< 4 { for x in 0 ..< 8 { r.setRaw(x, y, 0, Float(y * 8 + x)) } }
+            filled += 1
+        }
+        XCTAssertFalse(reused)
+        XCTAssertEqual(filled, 1)
+        XCTAssertEqual(r.raw(7, 3), 31)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: path + ".partial"))
+        // Complete: the next build reuses it without filling.
+        let again = try GeoRasterFile.build(path: path, grid: grid, channels: 1, type: .uint8) { _ in filled += 1 }
+        XCTAssertTrue(again.reused)
+        XCTAssertEqual(filled, 1)
+        XCTAssertEqual(again.raster.raw(7, 3), 31)
+        // Another shape is rebuilt.
+        let other = try GeoRasterFile.build(path: path, grid: grid, channels: 3, type: .uint8) { _ in filled += 1 }
+        XCTAssertFalse(other.reused)
+        XCTAssertEqual(filled, 2)
+    }
+
     func testGeoJSONReadsPolygonsAndMultiPolygonsWithProperties() throws {
         let json = """
         {"type":"FeatureCollection","features":[
@@ -630,6 +694,50 @@ final class PlanetTileResidencyTests: XCTestCase {
             }
         }
         XCTAssertGreaterThan(r.takeCounters().evicted, 0, "the atlas was too big to test eviction")
+    }
+
+    /// A layer stored to level 7 with an inset to 12 over the Cape: refining
+    /// only where tiles are stored keeps the budget for level 7 away from
+    /// the Cape (no bias where unrefined refinement would need one), and
+    /// still goes to 12 over it.
+    func testRefiningOnlyWhereTilesAreStored() {
+        let f = Ellipsoid.wgs84
+        let inset = Set(PlanetTileBuilder.keys(levels: 8 ... 12, region: GeoRegion(south: 28.3, north: 28.85, west: -80.85,
+                                                                                  east: -80.45), figure: f))
+        let parents = Set(inset.compactMap(\.parent))
+        func q(_ refinable: ((TileKey) -> Bool)?) -> PlanetQuadtree {
+            PlanetQuadtree(.init(figure: f, maxLevel: 12, tileBudget: 110, refinable: refinable))
+        }
+        /// 50 km up, looking east along the horizon, or at `target` (lat, lon).
+        func look(lat: Double, lon: Double, at target: (Double, Double)? = nil) -> PlanetQuadtree.View {
+            let p = f.bodyFixed(latitude: lat * deg, longitude: lon * deg, height: 50_000)
+            let up = f.normal(latitude: lat * deg, longitude: lon * deg)
+            let east = Vec3.unitZ.cross(up).normalized
+            let forward = target.map { (f.bodyFixed(latitude: $0.0 * deg, longitude: $0.1 * deg, height: 0) - p).normalized } ?? east
+            let fr = PlanetQuadtree.Frustum(apex: p, forward: forward, up: up, fovY: 50 * deg, aspect: 3024.0 / 1964)
+            return PlanetQuadtree.View(position: p, frustum: fr, pixelAngle: 50 * deg / 1964)
+        }
+        let stored: (TileKey) -> Bool = { $0.level < 7 || parents.contains($0) }
+        // Over the Pacific at 50 km, looking along the horizon.
+        let pacific = look(lat: 5, lon: -150)
+        let everywhere = q(nil).select(pacific), whereStored = q(stored).select(pacific)
+        XCTAssertGreaterThan(everywhere.lodBias, 0, "refining to 12 everywhere overruns the budget")
+        XCTAssertEqual(whereStored.lodBias, 0)
+        XCTAssertEqual(whereStored.tiles.map(\.key.level).max(), 7)
+        // Over the Cape the inset's levels are selected.
+        let cape = q(stored).select(look(lat: 28.6, lon: -81.0, at: (28.6, -80.6)))
+        XCTAssertGreaterThanOrEqual(cape.tiles.map(\.key.level).max() ?? 0, 10)
+        // Deeper than 8 only over the inset or in the balancing ring round it:
+        // within a level-8 tile of it.
+        let inset8 = inset.filter { $0.level == 8 }
+        let deep = cape.tiles.filter { $0.key.level > 8 }
+        XCTAssertFalse(deep.isEmpty)
+        for t in deep {
+            let a = t.key.ancestor(atLevel: 8)
+            let near = inset8.contains(a) || TileKey.Edge.allCases.contains { inset8.contains(a.neighbor($0)) }
+                || (0 ..< 4).contains { c in a.diagonalNeighbor(corner: c).map { inset8.contains($0.key) } ?? false }
+            XCTAssertTrue(near, "\(t.key) away from the inset")
+        }
     }
 
     func testWantsAreCoarseToFineWithAncestors() {

@@ -29,6 +29,8 @@
 # recorded with a matching sha256 is not fetched again. PlanetTiles copies
 # these lines into each tile file's metadata.
 set -euo pipefail
+# Dot decimals for bc and printf, whatever the user's locale.
+export LC_ALL=C
 
 DEST="$HOME/Library/Application Support/OrbitSim/Sources/earth"
 MONTHS="07,12"
@@ -47,7 +49,7 @@ while [ $# -gt 0 ]; do
     --landsat-scene) SCENE="$2"; shift 2 ;;
     --landsat-aws) LANDSAT_AWS=1; shift ;;
     --dry-run) DRY=1; shift ;;
-    -h|--help) sed -n '2,37p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "$0"; exit 0 ;;
     *) echo "fetch_planet_data.sh: unknown option $1 (see --help)" >&2; exit 2 ;;
   esac
 done
@@ -63,8 +65,13 @@ FETCHED=0
 [ $DRY -eq 1 ] || mkdir -p "$RECORDS"
 
 # The size a server reports for a URL (following redirects), empty if none.
+# Only a final 200 counts: a 404 page's length, a timeout or no network
+# give nothing (the caller reports the file NOT FOUND); never fails.
 remote_size() {
-  curl -sIL --max-time 60 "$1" | tr -d '\r' | awk 'tolower($1)=="content-length:" {n=$2} END {if (n != "") print n}'
+  { curl -sIL --max-time 60 "$1" 2>/dev/null || true; } | tr -d '\r' | awk '
+    toupper($1) ~ /^HTTP\// { status = $2; n = "" }
+    tolower($1) == "content-length:" { n = $2 }
+    END { if (status == "200" && n != "") print n }'
 }
 
 # What PlanetTiles changes in a file, for SOURCES.txt.

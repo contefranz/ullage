@@ -188,3 +188,33 @@ public enum PolygonRasterizer {
         return out
     }
 }
+
+/// The water fraction the Earth's water layer holds (M1.6 track E1):
+/// max(1 − land, lakes, historic lakes), each set filled in a pass of its
+/// own. The rasteriser's even-odd rule makes a union only of polygons that
+/// do not overlap, and a modern lake lies inside its 1960s outline: in one
+/// pass the lake would read as a hole, land.
+public enum WaterMask {
+    /// An 8-bit raster on `grid` (255 water, read as a fraction): land's
+    /// coverage inverted, then each of `waters` (sets of non-overlapping
+    /// polygons) laid over it by max.
+    public static func rasterize(land: [GeoPolygon], waters: [[GeoPolygon]], on grid: GeoGrid,
+                                 storage: RasterStorage? = nil) -> GeoRaster {
+        let out = GeoRaster(grid: grid, channels: 1, type: .uint8, storage: storage)
+        out.scale = 1 / 255
+        let w = grid.width
+        let p = out.storage.bytes.assumingMemoryBound(to: UInt8.self)
+        for k in 0 ..< w * grid.height { p[k] = 255 }
+        PolygonRasterizer.rasterize(land, on: grid) { r, cover in
+            for c in 0 ..< w where cover[c] > 0 { p[r * w + c] = UInt8(min(255, ((1 - cover[c]) * 255).rounded())) }
+        }
+        for set in waters {
+            PolygonRasterizer.rasterize(set, on: grid) { r, cover in
+                for c in 0 ..< w where cover[c] > 0 {
+                    p[r * w + c] = max(p[r * w + c], UInt8(min(255, (cover[c] * 255).rounded())))
+                }
+            }
+        }
+        return out
+    }
+}

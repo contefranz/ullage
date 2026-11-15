@@ -24,8 +24,9 @@ public struct PlanetTileSettings: Codable, Equatable {
     public var prefetchSeconds = [0.5, 1.0, 2.0]
     /// Prefetch views are selected every this many frames.
     public var prefetchInterval = 4
-    /// The indirection texture's deepest level (512² entries per face at
-    /// 9); deeper tiles go through its hash table.
+    /// The indirection texture's deepest level at most (512² entries per
+    /// face at 9); a layer's texture stops at the deepest level it stores
+    /// everywhere, and deeper tiles (an inset's) go through its hash table.
     public var maxTextureLevel = 9
     /// Load every wanted tile before drawing (snapshots), instead of
     /// streaming them in over the next frames.

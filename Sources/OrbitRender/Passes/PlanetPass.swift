@@ -101,8 +101,9 @@ public final class PlanetPass: RenderPass {
         let haze = f.textures[.spaceGroundScatter].flatMap { s in f.textures[.spaceGroundTransmittance].map { (s, $0) } }
         enc.setFragmentTexture(haze?.0 ?? fallbackTexture, index: 3)
         enc.setFragmentTexture(haze?.1 ?? fallbackTexture, index: 4)
-        // E2 replaces: the albedo tiles, once any are resident.
-        let albedoTiles = tiles?.layer(.albedo).flatMap { $0.residency.residentCount > 0 ? $0 : nil }
+        // E2 replaces: the albedo tiles, while the setting is on and once any are resident.
+        let albedoTiles = f.settings.planetTile.enabled
+            ? tiles?.layer(.albedo).flatMap { $0.residency.residentCount > 0 ? $0 : nil } : nil
         for body in f.scene.bodies where !body.isSun && !f.drawsPoint(body) {
             let rel = body.position
             let style = Self.style(for: body.id)
