@@ -164,7 +164,7 @@ final class CloudFrameTests: XCTestCase {
                 XCTAssertLessThan(abs(k - k.rounded()), 64 * 7.3e-5 * seconds + 0.01, "\(seconds) s")
             }
         }
-        // A long walk along the ground (1,200 km east, the Sun partly along
+        // A long walk along the ground (1,200 km west, the Sun partly along
         // it) keeps the anchor near the camera, along the Sun too, so the
         // lattice still turns at under a quarter of a texel a minute there
         // (kept off it along the Sun, the anchor drifted away and the lattice
@@ -197,7 +197,9 @@ final class CloudFrameTests: XCTestCase {
         }
     }
 
-    /// The regimes sum to one and cross smoothly as the camera climbs.
+    /// The regimes sum to one and cross smoothly as the camera climbs. The
+    /// renderer reads the far weight (3,000-6,000 km); `near` and `orbit`
+    /// are reported, and the march's own switch at 13 km is the shell's top.
     func testRegimesAreContinuous() {
         var last = CloudFrame.regimes(altitude: 0)
         XCTAssertEqual(last.near, 1)

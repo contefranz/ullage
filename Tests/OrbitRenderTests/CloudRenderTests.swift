@@ -322,8 +322,10 @@ final class CloudRenderTests: XCTestCase {
         for k in 0..<3 { XCTAssertEqual((above.mean / below.mean)[k], 1, accuracy: 0.05, "across 2,000 km, channel \(k)") }
     }
 
-    /// The cirrus draws its cover: 4/10 cirrus seen from orbit has 4/10 of
-    /// the deck's opacity. Cut with the shape's thresholds it drew none.
+    /// The cirrus draws its cover: 4/10 cirrus seen from orbit at 650 m
+    /// footprints, where the deck's mean is drawn, has 4/10 of the deck's
+    /// opacity. The fibres' thresholds (the shape's drew none) are
+    /// testCirrusOpacityHoldsAcrossFootprints' samples at 0.2-0.4 km.
     func testCirrusDrawsItsCover() throws {
         let weather = try Self.uniformWeather(low: 0, high: 0.4)
         var shot = Self.deckShot()
@@ -364,9 +366,10 @@ final class CloudRenderTests: XCTestCase {
     }
 
     /// Through a cirrus re-anchor's fade (the high wind turned 90°) the
-    /// cirrus keeps its opacity: the two frames' depths mix. Mixing their
-    /// fibre values before the threshold thinned partial cirrus to
-    /// 0.17-0.58 of its depth mid-fade.
+    /// cirrus keeps its opacity: each frame's depth is lit on its own and
+    /// the two cross-fade in light and opacity. Mixing their fibre values
+    /// before the threshold thinned partial cirrus to 0.17-0.58 of its depth
+    /// mid-fade, and mixing their depths thickened it by 10 %.
     func testCirrusKeepsItsOpacityThroughAReAnchor() throws {
         // 3/10 cirrus, its fibres alone (130 m footprints).
         let east = try Self.uniformWeather(low: 0, high: 0.3, eastWind: 30)

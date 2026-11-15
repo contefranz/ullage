@@ -62,10 +62,14 @@ In P0, on the command buffer:
    is `.cloudLayer` and `.cloudDepth`.
 
 In P3, R6's half-resolution encoder: **the slot copy** adds the far layers
-and the cirrus per texel of R6's targets, hazes each part at its own mean
-distance through A2's aerial-perspective froxels, orders them by distance,
-cuts the clouds at the scene's depth, and writes R6's clouds layer and its
-front.
+and the cirrus per texel of R6's targets, orders them by distance, hazes
+them, cuts the clouds at the scene's depth, and writes R6's clouds layer
+and its front. The haze: with the camera inside the air, one lookup of
+A2's aerial-perspective froxels at the parts' combined, opacity-weighted
+mean distance; above the air, A2's haze over the ground from space, as
+the ground has it, each part its share by height (the air's mass above
+it). The froxels reach 2,000 km along the ray, not in altitude, so from
+orbit they would leave the disc's outer part unhazed.
 
 ## The regimes
 
@@ -168,12 +172,17 @@ a = b = c = 0.5 a deck of τ 90 had a plane albedo of 0.09 against 0.18 for
 | Cirrus: drawn cover against the cover; in-cloud optical depth against C1's | within 0.04; 8 % (15 % at 0.1) |
 | GPU: a broken low deck marched against the far layer from LEO, cover 0.3 and 0.7 | radiance within 25 %, opacity within 30 % (oblique views see more cloud than the cover) |
 | GPU: 4/10 cirrus from orbit at 650 m footprints (the deck's mean drawn) | 4/10 of the deck's opacity within 20 % |
-| GPU: the cirrus's opacity at 0.2-6 km footprints, 1/10 and 5/10 cover; through a re-anchor's fade | the same within 25 % (35 % at 1/10); within 15 % mid-fade |
+| GPU: the cirrus's opacity at 0.2-6 km footprints, 1/10 and 5/10 cover; through a re-anchor's fade | the same within 25 % (35 % at 1/10); within 10 % mid-fade |
 | GPU: the hand-over at a far weight of 0.16, the march's gaps | the far layer's share shows in over 75 % (none before) |
 | GPU: the shadow map at Apollo 8's dawn, a full deck but a clear pad | over 95 % of the lines crossing it 60-400 km out shaded |
 | GPU: the weather map after another mission | the same as a fresh pass's |
 | GPU: the wind's drift through a warp change | goes on (1 m) |
 | GPU: the hand-over's pixel angle across the march's scale changes | the same |
+| GPU: the pad's horizon 0.3-1.5° up, the far layer against C2's field integrated to convergence (the #73 review's port), 1/10 and 3/10 | within 0.08 (0.76 against 0.73-0.85; 0.99), and no thinner than the march |
+| GPU: the far layers in front of the ground only, from 2.9 km over the ascent | the low layer the same with a 5/10 mid layer behind the Earth (0.07 of it before) |
+| GPU: under a 2.8 km base at 2.2 km, rays 0.3-1° down | no far layer (0.28 opaque before) |
+| GPU: the haze from above the air: at 1,500 km over the disc's outer part, and across 2,000 km | hazed (0.76-0.87 of the bare clouds); the same within 5 % (0.9997) |
+| GPU: the march in its own GPU pass | four encoders, after A2's LUTs |
 | GPU: the resolve after a 2 EV jump | within 2 % of a steady exposure |
 | The cirrus's noise coordinate as the camera moves 400 km; the shadow map's lattice across 20 km | whole periods; whole texels |
 
@@ -271,6 +280,16 @@ scene at the break), so the clouds' own share is the difference:
   clear of the layers it meets), which takes the far layer's step away; the
   reach and the steps still want blending there. `CloudFrame.regimes`'
   near and orbit weights are reported, not used.
+  Out there the march's clear-air steps (4 km at 100 km) find less than
+  the field holds: 0.42 opaque at the pad's horizon at 1/10 where the far
+  layer and the converged field give 0.76-0.79, so above the band the far
+  layer takes (to about 1.2° at 1280 × 800) the clouds thin toward the
+  march's.
+- **The far layer from above at grazing views** keeps the cover overhead
+  (the LEO limb): seen from below it takes the cover along the ray, but the
+  march from orbit sees the deck's shadowed sides at oblique views as well,
+  and scaling the light by the cover along the ray made it 37 % brighter
+  than the march (testMarchAndFarAgreeOnABrokenDeck).
 - **Water paths** (decision 29): not added. The far layer's optical depth
   is the layer model's. ERA5's total column liquid and ice water would vary
   the brightness of thin and thick decks; adding them is two OSCLOUD1
