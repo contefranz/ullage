@@ -121,13 +121,16 @@ final class CloudRenderTests: XCTestCase {
         shot.settings.cloud.regime = regime
         shot.settings.post.exposure.mode = .manual
         shot.settings.post.exposure.ev100 = 14
+        // The slab alone: no air between it and the camera (A2's aerial
+        // perspective is the same for the march and the far layer).
+        shot.settings.atmosphere.enabled = false
         return shot
     }
 
     /// A field of one uniform sky around the parking orbit's epoch: the low,
-    /// mid and high covers, the cloud base 1,000 m up.
+    /// mid and high covers, the cloud base `base` m up (ERA5's 60 m steps).
     static func uniformWeather(low: Double, mid: Double = 0, high: Double = 0, eastWind: Double = 0,
-                               epoch: Epoch = VesselLibrary.apollo11Insertion,
+                               northWind: Double = 0, base: Double = 1_020, epoch: Epoch = VesselLibrary.apollo11Insertion,
                                overrides: [CloudOverride] = []) throws -> CloudWeather {
         let t0 = Int64(((epoch.julianDateUTC - 2_440_587.5) * 86_400).rounded())
         let names = ["lcc", "mcc", "hcc", "cbh", "u850", "v850", "u500", "v500", "u250", "v250"]
@@ -136,9 +139,9 @@ final class CloudRenderTests: XCTestCase {
                              offset: name.hasPrefix("u") || name.hasPrefix("v") ? -50 : 0,
                              scale: name == "cbh" ? 60 : (name.hasPrefix("u") || name.hasPrefix("v") ? 0.5 : 1 / 254))
         }
-        let wind = UInt8(((eastWind + 50) / 0.5).rounded()), calm = UInt8(100)
+        let east = UInt8(((eastWind + 50) / 0.5).rounded()), north = UInt8(((northWind + 50) / 0.5).rounded())
         let values: [UInt8] = [UInt8((low * 254).rounded()), UInt8((mid * 254).rounded()),
-                               UInt8((high * 254).rounded()), 17, wind, calm, wind, calm, wind, calm]
+                               UInt8((high * 254).rounded()), UInt8((base / 60).rounded()), east, north, east, north, east, north]
         let snapshot = zip(planes, values).map { p, v in [UInt8](repeating: v, count: p.count) }
         let field = try CloudField(data: CloudField.encode(planes: planes, utcSeconds: [t0 - 86_400, t0 + 86_400],
                                                            note: "uniform", snapshots: [snapshot, snapshot]))
@@ -179,8 +182,150 @@ final class CloudRenderTests: XCTestCase {
         }
     }
 
-    /// The cirrus draws its cover: 4/10 cirrus seen from orbit has 4/10 of
-    /// the deck's opacity. Cut with the shape's thresholds it drew none.
+    /// The elevation (rad) above the camera's horizontal of the ray through
+    /// each texel of a `width` × `height` target over the frame (row-major),
+    /// and its angle from the nadir; the Earth a sphere about its centre.
+    static func rayAngles(_ frame: Frame, width: Int, height: Int) throws -> [(elevation: Double, offNadir: Double)] {
+        let cam = frame.scene.camera
+        let earth = try XCTUnwrap(frame.scene.bodies.first { $0.id == AtmosphereFrame.planetID })
+        let nadir = earth.position.normalized
+        let viewToWorld = cam.worldToView.transposed
+        let t = tan(cam.fovY / 2), aspect = Double(cam.viewport.width) / Double(cam.viewport.height)
+        return (0..<width * height).map { k in
+            let x = 2 * (Double(k % width) + 0.5) / Double(width) - 1, y = 1 - 2 * (Double(k / width) + 0.5) / Double(height)
+            let d = (viewToWorld * Vec3(x * t * aspect, y * t, -1)).normalized
+            return (-asin(max(-1, min(1, d.dot(nadir)))), acos(max(-1, min(1, d.dot(nadir)))))
+        }
+    }
+
+    /// The pad, looking along the horizon past the stack (320 × 200, fov 30).
+    static func padHorizonShot(regime: String, advance: [String] = []) -> SnapshotSpec.Shot {
+        var shot = deckShot(regime: regime, width: 320, height: 200)
+        shot.name = "c2-pad-horizon"
+        shot.scenario = "as506-pad"
+        shot.advance = advance
+        shot.camera = SnapshotSpec.CameraSpec(yaw: -60, pitch: -3, distance: 300, fov: 30)
+        return shot
+    }
+
+    /// The far layer holds the pad's horizon as C2's own field does. A slant
+    /// ray crosses the deck over 50-150 km of cells there, so a broken deck
+    /// is mostly opaque: the far layer's cover along the ray. C2's field
+    /// integrated to convergence along these rays (the #73 review's port of
+    /// cloud_density) is 0.73-0.85 opaque at 1/10 and 0.98-1.00 at 3/10; the
+    /// march, its clear-air steps 4 km long out there, finds less. Before,
+    /// the far layer drew the cover overhead (0.1 at 1/10).
+    func testFarLayerHoldsThePadsHorizon() throws {
+        for (cover, field) in [(0.1, 0.79), (0.3, 0.99)] {
+            let weather = try Self.uniformWeather(low: cover)
+            var alpha: [String: Double] = [:]
+            for regime in ["march", "far"] {
+                let frame = try render(Self.padHorizonShot(regime: regime), weather: weather)
+                let c = try XCTUnwrap(frame.capture.values(.halfResClouds))
+                let angles = try Self.rayAngles(frame, width: c.width, height: c.height)
+                // 0.3-1.5° up, clear of the stack and the tower (the middle third).
+                var sum = 0.0, n = 0
+                for (k, texel) in c.texels.enumerated() {
+                    let e = angles[k].elevation * 180 / .pi, x = k % c.width
+                    guard e > 0.3, e < 1.5, x < c.width / 3 || x > 2 * c.width / 3 else { continue }
+                    sum += texel[3]
+                    n += 1
+                }
+                XCTAssertGreaterThan(n, 100, "the band is in view")
+                alpha[regime] = sum / Double(max(n, 1))
+            }
+            let march = try XCTUnwrap(alpha["march"]), far = try XCTUnwrap(alpha["far"])
+            print("pad horizon at cover \(cover): march \(march), far \(far)")
+            XCTAssertGreaterThan(march, 2 * cover, "the march sees more than the cover along the horizon")
+            XCTAssertGreaterThanOrEqual(far, march, "no thinner than the march")
+            XCTAssertEqual(far, field, accuracy: 0.08, "the field's opacity at cover \(cover)")
+        }
+    }
+
+    /// The far layers lie in front of the ground or not at all. From 2.9 km
+    /// up the ascent, rays that meet the ground 85-150 km out drew the 4.5 km
+    /// shell's far side beyond the Earth, seen from below; its mean pulled
+    /// the depth cut past the ground and thinned the low layer in front.
+    func testFarLayerStopsAtTheGround() throws {
+        var alpha: [Double: Double] = [:]
+        for mid in [0.0, 0.5] {
+            let frame = try render(Self.padHorizonShot(regime: "far", advance: ["met:44"]),
+                                   weather: try Self.uniformWeather(low: 0.3, mid: mid))
+            let c = try XCTUnwrap(frame.capture.values(.halfResClouds))
+            let angles = try Self.rayAngles(frame, width: c.width, height: c.height)
+            var sum = 0.0
+            for (k, texel) in c.texels.enumerated() where angles[k].elevation < -1.9 * .pi / 180 { sum += texel[3] }
+            alpha[mid] = sum
+        }
+        let alone = try XCTUnwrap(alpha[0]), withMid = try XCTUnwrap(alpha[0.5])
+        print("low layer under the horizon from 2.9 km: alone \(alone), with the mid layer \(withMid)")
+        XCTAssertGreaterThan(alone, 1, "the low layer draws below the horizon")
+        XCTAssertEqual(withMid / alone, 1, accuracy: 0.03, "the mid layer beyond the ground leaves it as it is")
+    }
+
+    /// Under a cloud base above the low layer's 2 km reference shell, the far
+    /// layer is not drawn below the camera: the clouds are above it. Before,
+    /// at 2.2 km under a 2.8 km base, rays 0.3-1° down drew the 2 km shell's
+    /// deck from above.
+    func testFarLayerKeepsToItsSideOfTheShell() throws {
+        let frame = try render(Self.padHorizonShot(regime: "auto", advance: ["met:40"]),
+                               weather: try Self.uniformWeather(low: 0.5, base: 2_820))
+        let c = try XCTUnwrap(frame.capture.values(.halfResClouds))
+        let angles = try Self.rayAngles(frame, width: c.width, height: c.height)
+        var sum = 0.0, n = 0
+        for (k, texel) in c.texels.enumerated() {
+            let e = angles[k].elevation * 180 / .pi, x = k % c.width
+            guard e > -1, e < -0.3, x < c.width / 3 || x > 2 * c.width / 3 else { continue }
+            sum += texel[3]
+            n += 1
+        }
+        XCTAssertGreaterThan(n, 100)
+        print("below the horizon under a 2.8 km base: mean opacity \(sum / Double(max(n, 1)))")
+        XCTAssertLessThan(sum / Double(max(n, 1)), 0.02)
+    }
+
+    /// From above the air the clouds take A2's haze from space, as the
+    /// ground around them does. At 1,500 km the disc's outer part lies
+    /// beyond the froxels' 2,000 km along the ray, and at 2,000 km A2 stops
+    /// them. Before, the clouds there took the froxels' empty last slice (no
+    /// haze), and their haze switched at 2,000 km in one frame.
+    func testCloudsTakeTheHazeFromSpace() throws {
+        let weather = try Self.uniformWeather(low: 0.5)
+        func hazed(altitude: Double, air: Bool) throws -> (mean: SIMD3<Double>, n: Int) {
+            var shot = Self.deckShot(width: 320, height: 320)
+            shot.camera = SnapshotSpec.CameraSpec(target: "body:399", frame: "inertial", yaw: 223.5, pitch: 22.9,
+                                                  distance: 6_378_137 + altitude, fov: 115)
+            shot.settings.atmosphere.enabled = air
+            let frame = try render(shot, weather: weather)
+            let c = try XCTUnwrap(frame.capture.values(.halfResClouds))
+            let angles = try Self.rayAngles(frame, width: c.width, height: c.height)
+            // The disc's outer part: 0.75-0.9 of its angular radius.
+            let disc = asin(6_371_000 / (6_371_000 + altitude))
+            var s = SIMD3<Double>(0, 0, 0), n = 0
+            for (k, texel) in c.texels.enumerated() {
+                let a = angles[k].offNadir / disc
+                guard a > 0.75, a < 0.9, texel[3] > 0.05 else { continue }
+                s += SIMD3(texel[0], texel[1], texel[2])
+                n += 1
+            }
+            return (s / Double(max(n, 1)), n)
+        }
+        let bare = try hazed(altitude: 1_500_000, air: false)
+        let at1500 = try hazed(altitude: 1_500_000, air: true)
+        let below = try hazed(altitude: 1_990_000, air: true), above = try hazed(altitude: 2_010_000, air: true)
+        XCTAssertGreaterThan(bare.n, 500)
+        let r = at1500.mean / bare.mean
+        print("haze at 1,500 km over the disc's outer part (hazed / bare):", r,
+              "across 2,000 km (above / below):", above.mean / below.mean)
+        // The air's transmittance takes a quarter or more of the clouds' blue.
+        XCTAssertGreaterThan(abs(r.z - 1), 0.1, "hazed at 1,500 km")
+        for k in 0..<3 { XCTAssertEqual((above.mean / below.mean)[k], 1, accuracy: 0.05, "across 2,000 km, channel \(k)") }
+    }
+
+    /// The cirrus draws its cover: 4/10 cirrus seen from orbit at 650 m
+    /// footprints, where the deck's mean is drawn, has 4/10 of the deck's
+    /// opacity. The fibres' thresholds (the shape's drew none) are
+    /// testCirrusOpacityHoldsAcrossFootprints' samples at 0.2-0.4 km.
     func testCirrusDrawsItsCover() throws {
         let weather = try Self.uniformWeather(low: 0, high: 0.4)
         var shot = Self.deckShot()
@@ -195,13 +340,14 @@ final class CloudRenderTests: XCTestCase {
     }
 
     /// The cirrus's opacity over a view is the same whatever the footprint:
-    /// fibres at 0.2 km, their blend with the deck's mean, the mean at
-    /// 2-5 km. Sampled at coarser mips the fibres vanished at 0.5-2.5 km
+    /// fibres at 0.2 km, their blend with the deck's mean at 0.3 km (the
+    /// middle of the hand-over), the mean at 0.9-6 km. Sampled at coarser mips the fibres vanished at 0.5-2.5 km
     /// footprints (their thresholds are mip 0's), and blending depth and
     /// cover apart overshot the deck's opacity 3-6 times at low cover.
     func testCirrusOpacityHoldsAcrossFootprints() throws {
-        for (cover, sizes) in [(0.5, [(1_600, 1_000), (400, 250), (160, 100), (64, 40)]),
-                               (0.1, [(400, 250), (160, 100), (64, 40)])] {
+        // 1104 x 690 at fov 20: 320-360 m, the middle of the hand-over (128-512 m).
+        for (cover, sizes) in [(0.5, [(1_600, 1_000), (1_104, 690), (400, 250), (160, 100), (64, 40)]),
+                               (0.1, [(1_104, 690), (400, 250), (160, 100), (64, 40)])] {
             let weather = try Self.uniformWeather(low: 0, high: cover)
             var means: [Double] = []
             for (w, h) in sizes {
@@ -217,6 +363,51 @@ final class CloudRenderTests: XCTestCase {
                 XCTAssertEqual(m / far, 1, accuracy: cover < 0.2 ? 0.35 : 0.25, "cover \(cover), \(w) px wide")
             }
         }
+    }
+
+    /// Through a cirrus re-anchor's fade (the high wind turned 90°) the
+    /// cirrus keeps its opacity: each frame's depth is lit on its own and
+    /// the two cross-fade in light and opacity. Mixing their fibre values
+    /// before the threshold thinned partial cirrus to 0.17-0.58 of its depth
+    /// mid-fade, and mixing their depths thickened it by 10 %.
+    func testCirrusKeepsItsOpacityThroughAReAnchor() throws {
+        // 3/10 cirrus, its fibres alone (130 m footprints).
+        let east = try Self.uniformWeather(low: 0, high: 0.3, eastWind: 30)
+        let north = try Self.uniformWeather(low: 0, high: 0.3, northWind: 30)
+        var shot = Self.deckShot(width: 1_600, height: 1_000)
+        shot.camera = SnapshotSpec.CameraSpec(target: "body:399", frame: "inertial", yaw: 223.5, pitch: 22.9,
+                                              distance: 6_700_000, fov: 12)
+        let s = try snapper()
+        let prepared = try shot.prepare(system: s.system)
+        let capture = Capture()
+        let r = try SceneRenderer(device: s.device, outputFormat: .bgra8Unorm_srgb,
+                                  passes: SceneRenderer.defaultPasses(loadsUserTextures: false) + [capture],
+                                  plan: HDRTargetPlan(outputFormat: .bgra8Unorm_srgb, sampleCount: 4))
+        r.settings = shot.settings
+        let clouds = try XCTUnwrap(r.graph.pass(named: "Clouds") as? CloudPass)
+        let target = try XCTUnwrap(OffscreenTarget(device: s.device, width: shot.width, height: shot.height))
+        var scene = shot.scene(prepared)
+        func mean(_ k: Int, _ w: CloudWeather, _ name: String, realDt: Double) throws -> Double {
+            clouds.weatherOverride = w
+            clouds.weatherOverrideName = name
+            scene.clock.frameIndex = k
+            scene.clock.realDt = realDt
+            scene.clock.temporalReset = k == 1
+            _ = r.renderAndWait(scene, into: target)
+            let c = try XCTUnwrap(capture.values(.halfResClouds))
+            return c.texels.map { $0[3] }.reduce(0, +) / Double(c.texels.count)
+        }
+        let a = try mean(1, east, "east", realDt: 0)
+        let old = try mean(2, north, "north", realDt: 1)      // re-anchored: the old frame at full weight
+        XCTAssertEqual(clouds.cirrus.fade, 1)
+        let mid = try mean(3, north, "north", realDt: 1)      // halfway
+        XCTAssertEqual(clouds.cirrus.fade, 0.5, accuracy: 1e-9)
+        let new = try mean(4, north, "north", realDt: 2)      // the new frame alone
+        XCTAssertEqual(clouds.cirrus.fade, 0)
+        XCTAssertGreaterThan(a, 0.02)
+        XCTAssertEqual(old / a, 1, accuracy: 0.1, "the old frame drawn as before")
+        print("cirrus through a re-anchor: \(a), \(old), \(mid), \(new)")
+        XCTAssertEqual(mid / (0.5 * (old + new)), 1, accuracy: 0.1, "halfway through the fade")
     }
 
     /// In the hand-over band the far layer's share shows where the march
@@ -373,7 +564,7 @@ final class CloudRenderTests: XCTestCase {
             let c = try XCTUnwrap(f.capture.values(.halfResClouds))
             let cam = f.scene.camera
             let slab = CloudSlab(thickness: 1_500)
-            let air = CloudTables.air
+            let air = try XCTUnwrap(AtmosphereTables.shared.tables(wait: true))
             var ratios: [Double] = []
             for (x, y) in [(c.width / 2, c.height / 2), (c.width / 4, 3 * c.height / 4), (3 * c.width / 4, c.height / 2)] {
                 let t = c.texels[y * c.width + x]
@@ -426,6 +617,46 @@ final class CloudRenderTests: XCTestCase {
         print("slab march/far:", (0..<3).map { sa[$0] / sb[$0] }, "worst texel", worst, "texels", n)
         for k in 0..<3 { XCTAssertEqual(sa[k] / sb[k], 1, accuracy: 0.03, "channel \(k)") }
         XCTAssertLessThan(worst, 0.08, "the worst texel")
+    }
+
+    /// The march has a GPU pass of its own: the weather and shadow maps'
+    /// compute encoder, a blit, the march and resolve's, a blit. Apple's
+    /// driver merges consecutive compute encoders, and merged with A2's LUTs,
+    /// which P1 reads, the march held P1 back (LEO 1.2 ms over with A2 on;
+    /// CloudCostTests times it). Counted from the timed frame's encoders,
+    /// which the profiler labels by pass.
+    func testMarchHasAGPUPassOfItsOwn() throws {
+        let s = try snapper()
+        var shot = Self.slabShot(regime: "march")
+        shot.settings.atmosphere.enabled = true
+        let prepared = try shot.prepare(system: s.system)
+        let log = RecordingPass.Log()
+        let spy = RecordingPass("spy", .opaque, log: log)
+        var profile: FrameProfile?
+        spy.onEncode = { f in profile = f.profile }
+        let r = try SceneRenderer(device: s.device, outputFormat: .bgra8Unorm_srgb,
+                                  passes: SceneRenderer.defaultPasses(loadsUserTextures: false) + [spy],
+                                  plan: HDRTargetPlan(outputFormat: .bgra8Unorm_srgb, sampleCount: 4))
+        guard r.profiler.isSupported else { throw XCTSkip("no timestamp counters on this GPU") }
+        r.settings = shot.settings
+        r.profiling = true
+        r.profileInterval = 1
+        let target = try XCTUnwrap(OffscreenTarget(device: s.device, width: shot.width, height: shot.height))
+        var scene = shot.scene(prepared)
+        for k in 0..<2 {
+            scene.clock.frameIndex = k + 1
+            scene.clock.temporalReset = k == 0
+            XCTAssertNil(try XCTUnwrap(r.renderAndWait(scene, into: target)).error)
+        }
+        let p = try XCTUnwrap(profile, "a timed frame")
+        XCTAssertTrue(try XCTUnwrap(r.graph.pass(named: "Clouds") as? CloudPass).lastFrame.drawn)
+        // P0's run of the clouds' encoders, after A2's LUTs (E1's tile
+        // uploads may come between; the slot's copy in P3 carries the
+        // pass's name too).
+        let first = try XCTUnwrap(p.labels.firstIndex(of: "Clouds"), "\(p.labels)")
+        XCTAssertLessThan(try XCTUnwrap(p.labels.firstIndex(of: "Atmosphere LUTs"), "\(p.labels)"), first)
+        let run = p.labels[first...].prefix { $0 == "Clouds" }.count
+        XCTAssertEqual(run, 4, "\(p.labels)")
     }
 }
 
@@ -481,6 +712,11 @@ final class CloudCostTests: XCTestCase {
                 }
                 if let skip = ProcessInfo.processInfo.environment["ORBITSIM_CLOUD_SKIP"] {
                     on.cloud.skip = skip.split(separator: ",").map(String.init)
+                }
+                // ORBITSIM_CLOUD_COST_NO_AIR: A2's atmosphere off in both frames.
+                if ProcessInfo.processInfo.environment["ORBITSIM_CLOUD_COST_NO_AIR"] != nil {
+                    on.atmosphere.enabled = false
+                    off.atmosphere.enabled = false
                 }
                 let target = try XCTUnwrap(OffscreenTarget(device: s.device, width: shot.width, height: shot.height))
                 final class Times: @unchecked Sendable {
@@ -798,7 +1034,7 @@ final class CloudMapTests: XCTestCase {
     /// The cloud uniforms' Swift mirrors have MSL's sizes.
     func testStructLayoutsMatchMSL() throws {
         let device = try XCTUnwrap(RenderDevice.shared)
-        let module = ShaderModule(name: "CloudSizes", headers: [.effectSlots], source: cloudShaderSource + """
+        let module = ShaderModule(name: "CloudSizes", headers: [.effectSlots, .atmosphereCommon], source: cloudShaderSource + """
             kernel void cloud_sizes(device uint *out [[buffer(0)]]) {
                 out[0] = sizeof(CloudUniforms);
                 out[1] = sizeof(CloudWeatherParams);

@@ -122,11 +122,15 @@ public struct CloudLighting: Equatable {
     }
 
     /// The sample's depth in its column, optical depth from the column's
-    /// top: from its height fraction h in the layer, or from the light
-    /// march's optical depth towards the Sun made vertical, the lesser.
+    /// top: from its height fraction h in the layer, or, when the light
+    /// march came out of the cloud (`escaped`: its last sample in clear
+    /// air), from its optical depth towards the Sun made vertical, the
+    /// lesser. A light march that never left the cloud says only that the
+    /// Sun's side is far: then the height decides.
     public func columnDepth(column tau: Double, heightFraction h: Double, sunOpticalDepth: Double,
-                            sunCosine mu0: Double) -> Double {
-        min(tau * (1 - min(max(h, 0), 1)), sunOpticalDepth * max(mu0, minimumSunCosine))
+                            sunCosine mu0: Double, escaped: Bool = true) -> Double {
+        let byHeight = tau * (1 - min(max(h, 0), 1))
+        return escaped ? min(byHeight, sunOpticalDepth * max(mu0, minimumSunCosine)) : byHeight
     }
 
     /// The Sun's light scattered many times towards the eye, per unit solar

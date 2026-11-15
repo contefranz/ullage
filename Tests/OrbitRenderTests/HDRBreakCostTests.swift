@@ -55,6 +55,9 @@ final class HDRBreakCostTests: XCTestCase {
         let target = try XCTUnwrap(OffscreenTarget(device: device, width: w, height: h))
         func set(_ c: Case) {
             var s = shot.settings
+            // R1's break and R6's slab alone: C2's clouds would draw through
+            // R6's slots, so every case would break the scene.
+            s.cloud.enabled = false
             if !c.effect { s.transparency.testEmitters = [] }
             r.settings = s
             breaker.active = c.breaks
