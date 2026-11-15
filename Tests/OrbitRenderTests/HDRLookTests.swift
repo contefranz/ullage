@@ -337,13 +337,18 @@ final class HDRLookTests: XCTestCase {
 
 extension HDRLookTests {
     /// A render-stage pass on the command buffer (`encodesOnCommandBuffer`,
-    /// R6's half-resolution targets) breaks the scene's encoder: the HDR plan
-    /// stores its MSAA samples, and the image is the same, also while timing.
+    /// R6's half-resolution targets) breaks the scene's encoder. In P3 the
+    /// HDR plan, as it ships, resolves the scene there, storing no sample,
+    /// and re-expands it: two more half float roundings, which move some
+    /// pixels by one step of 8-bit sRGB and none by more. While timing it
+    /// keeps the samples, and the image is the same to the bit; so is it with
+    /// a break in P1, which keeps them too.
     func testBreakingTheSceneKeepsThePixels() throws {
         final class Gap: RenderPass {
             let name = "Gap"
-            let stage = PassStage.transparent
+            let stage: PassStage
             let order = 15
+            init(_ stage: PassStage = .transparent) { self.stage = stage }
             var encodesOnCommandBuffer: Bool { true }
             var broke = false
             func encode(_ f: FrameContext, _ e: PassEncoding) {
@@ -361,23 +366,42 @@ extension HDRLookTests {
         let scene = SceneExtractor().extract(sim: sim, camera: camera,
                                              viewport: RenderScene.Viewport(width: 320, height: 200), realTime: 0)
         let stars = try StarCatalog.bundled()
+        var plan: HDRTargetPlan?
+        var timestamps = false
         func image(_ extra: [RenderPass], timing: Bool = false) throws -> [UInt8] {
+            let p = HDRTargetPlan(outputFormat: .bgra8Unorm_srgb, sampleCount: 4)
+            XCTAssertTrue(p.resolvesAtBreaks, "the plan as it ships")
+            plan = p
             let r = try SceneRenderer(device: try device(), outputFormat: .bgra8Unorm_srgb,
-                                      passes: SceneRenderer.defaultPasses(loadsUserTextures: false) + extra,
-                                      plan: HDRTargetPlan(outputFormat: .bgra8Unorm_srgb, sampleCount: 4))
+                                      passes: SceneRenderer.defaultPasses(loadsUserTextures: false) + extra, plan: p)
             XCTAssertEqual(r.failures, [:])
             r.setStars(stars)
             r.profiling = timing
             r.profileInterval = 1
+            timestamps = r.profiler.isSupported
             let target = try XCTUnwrap(OffscreenTarget(device: r.device, width: 320, height: 200))
             r.renderAndWait(scene, into: target)
             return target.bytes()
         }
         let gap = Gap()
         let plain = try image([])
-        XCTAssertEqual(try image([gap]), plain)
+        XCTAssertEqual(plan?.breakStores, [])
+        let steps = zip(try image([gap]), plain).map { abs(Int($0) - Int($1)) }
         XCTAssertTrue(gap.broke, "the plan was told")
+        XCTAssertEqual(plan?.breakStores, [.multisampleResolve], "no sample stored at the break")
+        XCTAssertEqual(plan?.expansions.drawn, 1, "re-expanded")
+        XCTAssertLessThanOrEqual(steps.max() ?? 2, 1, "a step at most")
+        XCTAssertGreaterThan(steps.filter { $0 == 0 }.count, steps.count * 9 / 10)
         XCTAssertEqual(try image([Gap()], timing: true), plain, "while timing")
+        if timestamps, let p = plan {
+            XCTAssertFalse(p.breakStores.isEmpty)
+            XCTAssertTrue(p.breakStores.allSatisfy { $0 == .storeAndMultisampleResolve }, "timing keeps the samples")
+            XCTAssertEqual(p.expansions.timed, 1, "the timed stand-in")
+            XCTAssertEqual(p.expansions.drawn, 1)
+        }
+        XCTAssertEqual(try image([Gap(.opaque)]), plain, "a break in P1")
+        XCTAssertEqual(plan?.breakStores, [.storeAndMultisampleResolve], "P1 keeps the samples")
+        XCTAssertEqual(plan?.expansions.drawn, 0)
     }
 }
 
