@@ -9,14 +9,27 @@ import Metal
 /// against `sceneDepth`. The light in the scene's colour is linear Rec. 709
 /// luminance times the frame's pre-exposure (`FrameUniforms.exposure.x`).
 ///
-/// When the encoders are split for timing, or a render-stage pass encodes on
-/// the command buffer (`FrameContext.breaksScene`), the samples are stored
-/// between encoders in private textures, so the image is the same. Their
-/// store actions are then set as each scene encoder ends (`endScene`): one
-/// the scene resumes after keeps the samples; the scene's end resolves the
-/// colour and the depth (P5 reads it) and stores no samples. A pass that
-/// breaks the scene finds `sceneDepth` resolved as far as the scene has gone;
-/// `hdrColor` is final only in P4 (the resolve's weighting is last).
+/// A render-stage pass on the command buffer (`FrameContext.breaksScene`,
+/// R6's effect slots) ends the scene's encoder, and the scene resumes after
+/// it. A break in P2 or P3 resolves the scene there, with the same
+/// weighting, and the resumed scene is re-expanded in tile memory: its first
+/// draw puts each pixel's resolved light and nearest depth in every sample
+/// (`post_expand_scene`). No sample is stored or loaded; what the break
+/// costs is a 1× resolve and a 1× read. The passes after the break keep
+/// their 4× pipelines and antialias their own edges, but they see the scene
+/// before them resolved: where one draws behind an opaque silhouette, the
+/// edge pixel's nearest depth hides it in the whole pixel. A break in P1,
+/// with opaque passes after it, stores the samples and loads them again.
+/// The pass that breaks the scene finds `sceneDepth` resolved as far as the
+/// scene has gone; `hdrColor` and `sceneDepth` are final only in P4 (the
+/// resumed scene resolves into textures of its own).
+///
+/// When the encoders are split for timing, the samples are stored between
+/// encoders in private textures, and the image is that of a frame that
+/// keeps its samples at every break. The resume after a break in P2 or P3,
+/// which the profile charges to the pass that broke the scene, then does
+/// the plain frame's work on scratch targets (the re-expansion, the
+/// weighting, the 1× resolve), so the timing is the plain frame's.
 @MainActor
 public final class HDRTargetPlan: SceneTargetPlan {
     public static let colorFormat = MTLPixelFormat.rgba16Float
@@ -27,17 +40,49 @@ public final class HDRTargetPlan: SceneTargetPlan {
     private var device: MTLDevice?
     private var memoryless: (color: MTLTexture?, depth: MTLTexture?)
     private(set) var stored: (color: MTLTexture?, depth: MTLTexture?)
-    /// Frames since the last split one: the stored targets go once timing
-    /// has been off for a while.
+    /// Frames since the last one that stored samples: the stored targets go
+    /// once none has for a while.
     private var unsplitFrames = 0
-    /// The render pass last opened (the scene's or the overlay's), for the continuations.
+
+    /// Breaks in P2 and P3 resolve the scene and re-expand it (above); off,
+    /// they keep the samples, as a break in P1 does. For the tests and the
+    /// timings that compare the two.
+    var resolvesAtBreaks = true
+    /// The weighting and the re-expansion the plan draws itself.
+    private var draws: (weight: MTLRenderPipelineState, expand: MTLRenderPipelineState,
+                        depthAlways: MTLDepthStencilState)?
+
+    // The frame's state.
+    /// The stage the graph is in (its last `renderPass(for:)`).
+    private var stage = PassStage.prepare
+    /// The render pass the continuations copy: the scene's last, or the overlay's.
     private var current: MTLRenderPassDescriptor?
-    /// Whether `current` leaves its MSAA store actions to `endScene` (the
-    /// scene's, on a broken or timed frame).
-    private var currentDefers = false
-    /// Whether each render pass handed out this frame defers its stores, in
-    /// order: the graph opens and ends them in that order (`endScene`).
-    private var handedOut: [Bool] = []
+    /// The scene's render passes this frame (kept, so identity holds).
+    private var scenePasses: [MTLRenderPassDescriptor] = []
+    /// The render passes handed out and not yet ended, in order: the graph
+    /// opens and ends them in that order (`endScene`).
+    private var handedOut: [MTLRenderPassDescriptor] = []
+    /// The graph begins the plan's encoders (`beginScene`), as seen on the
+    /// scene's first this frame: the re-expansion needs it.
+    private var begins = false
+    /// How the scene's last encoder ended before a break, until it resumes.
+    private enum Break {
+        /// Its samples stored, in the stage it broke in.
+        case kept(PassStage)
+        /// Resolved into these.
+        case resolved(color: MTLTexture, depth: MTLTexture)
+    }
+    private var broken: Break?
+    /// The render pass that begins with the re-expansion, and what from.
+    private var expansion: (pass: MTLRenderPassDescriptor, color: MTLTexture, depth: MTLTexture)?
+    /// The timed stand-in for a break's re-expansion (split frames).
+    private var measurement: MTLRenderPassDescriptor?
+    /// Re-expansions drawn, and of those the timed stand-ins, for the tests.
+    private(set) var expansions = (drawn: 0, timed: 0)
+    /// This frame's store actions, in order, for the tests: set where a
+    /// scene encoder ended with the scene resuming after it, at a break or,
+    /// in a timed frame, at each split. `.multisampleResolve` stores no sample.
+    private(set) var breakStores: [MTLStoreAction] = []
 
     public init(outputFormat: MTLPixelFormat, sampleCount: Int) {
         self.outputFormat = outputFormat
@@ -51,6 +96,24 @@ public final class HDRTargetPlan: SceneTargetPlan {
     }
 
     public var provides: Set<ResourceID> { [.sceneColor, .sceneDepth, .output, .hdrColor] }
+
+    public func setUp(_ s: PassSetup) throws {
+        draws = nil
+        guard sampleCount > 1 else { return }
+        let library = try s.shaders.library(.post)
+        func pipeline(_ fragment: String) throws -> MTLRenderPipelineState {
+            try PipelineBuilder.make(library, vertex: "post_fullscreen_vertex", fragment: fragment, blend: .opaque,
+                                     color: Self.colorFormat, depth: depthFormat, sampleCount: sampleCount,
+                                     device: s.device)
+        }
+        let d = MTLDepthStencilDescriptor()
+        d.depthCompareFunction = .always
+        d.isDepthWriteEnabled = true
+        guard let always = s.device.makeDepthStencilState(descriptor: d) else { throw Failure.noDepthState }
+        draws = (try pipeline("post_resolve_encode"), try pipeline("post_expand_scene"), always)
+    }
+
+    public enum Failure: Error { case noDepthState }
 
     public func resize(_ size: RenderSize, device: MTLDevice) {
         self.size = size
@@ -81,6 +144,7 @@ public final class HDRTargetPlan: SceneTargetPlan {
     }
 
     public func renderPass(for stage: PassStage, _ f: FrameContext) -> MTLRenderPassDescriptor? {
+        self.stage = stage
         switch stage {
         case .opaque: return scenePass(f)
         case .overlay: return overlayPass(f)
@@ -89,6 +153,15 @@ public final class HDRTargetPlan: SceneTargetPlan {
     }
 
     private func scenePass(_ f: FrameContext) -> MTLRenderPassDescriptor? {
+        scenePasses = []
+        handedOut = []
+        begins = false
+        breakStores = []
+        broken = nil
+        expansion = nil
+        measurement = nil
+        // The samples may be stored: a frame split for timing, or one that
+        // breaks the scene (in P1, or with the re-expansion off).
         let split = f.splitsEncoders || f.breaksScene
         if split {
             unsplitFrames = 0
@@ -98,6 +171,8 @@ public final class HDRTargetPlan: SceneTargetPlan {
             if unsplitFrames > 30, stored.depth != nil { stored = (nil, nil) }
         }
         let multisampled = sampleCount > 1
+        // Its store actions are set as each encoder ends (`endScene`).
+        let deferred = split && multisampled
         guard let hdr = resolveTarget(Self.colorFormat, f), let depth = resolveTarget(depthFormat, f) else { return nil }
         let pass = MTLRenderPassDescriptor()
         let c = pass.colorAttachments[0]!
@@ -106,16 +181,14 @@ public final class HDRTargetPlan: SceneTargetPlan {
         let z = pass.depthAttachment!
         z.loadAction = .clear
         z.clearDepth = 0
-        currentDefers = split && multisampled
-        handedOut = [currentDefers]
         if multisampled {
             c.texture = split ? stored.color : memoryless.color
             c.resolveTexture = hdr
-            c.storeAction = split ? .unknown : .multisampleResolve
+            c.storeAction = deferred ? .unknown : .multisampleResolve
             z.texture = split ? stored.depth : memoryless.depth
             z.resolveTexture = depth
             z.depthResolveFilter = .max
-            z.storeAction = split ? .unknown : .multisampleResolve
+            z.storeAction = deferred ? .unknown : .multisampleResolve
         } else {
             c.texture = hdr
             c.storeAction = .store
@@ -126,6 +199,8 @@ public final class HDRTargetPlan: SceneTargetPlan {
         f.textures[.sceneColor] = hdr
         f.textures[.sceneDepth] = depth
         current = pass
+        scenePasses.append(pass)
+        handedOut.append(pass)
         return pass
     }
 
@@ -143,28 +218,143 @@ public final class HDRTargetPlan: SceneTargetPlan {
         // The depth is this pass's attachment: not a texture it may sample too.
         f.slotTextures[Binding.sceneDepth] = nil
         current = pass
-        currentDefers = false
-        handedOut.append(false)
+        handedOut.append(pass)
         return pass
     }
+
+    private func isScene(_ pass: MTLRenderPassDescriptor) -> Bool { scenePasses.contains { $0 === pass } }
 
     public func continuation(_ f: FrameContext) -> MTLRenderPassDescriptor? {
-        guard let pass = current?.copy() as? MTLRenderPassDescriptor else { return nil }
+        guard let last = current else { return nil }
+        // The scene resumes after a break when none of its encoders is open
+        // (a split's continuation comes while the last one is).
+        let resuming = handedOut.isEmpty && isScene(last) ? broken : nil
+        broken = nil
+        switch resuming {
+        case .resolved(let color, let depth)?:
+            guard let pass = expandedPass(f, publish: true) else { return nil }
+            expansion = (pass, color, depth)
+            current = pass
+            handedOut.append(pass)
+            return pass
+        case .kept(let brokeIn)? where f.splitsEncoders && brokeIn != .opaque && reExpands:
+            // Timing: the plain frame would have resolved and re-expanded
+            // here. That work, on scratch targets; the scene goes on in the
+            // stored samples (`current`) after it.
+            guard let pass = expandedPass(f, publish: false), let color = f.textures[.hdrColor],
+                  let depth = f.textures[.sceneDepth] else { break }
+            pass.colorAttachments[0].storeAction = .multisampleResolve
+            pass.depthAttachment.storeAction = .multisampleResolve
+            expansion = (pass, color, depth)
+            measurement = pass
+            handedOut.append(pass)
+            return pass
+        default:
+            break
+        }
+        guard let pass = last.copy() as? MTLRenderPassDescriptor else { return nil }
         pass.colorAttachments[0].loadAction = .load
         pass.depthAttachment.loadAction = .load
-        handedOut.append(currentDefers)
+        if isScene(last) {
+            current = pass
+            scenePasses.append(pass)
+        }
+        handedOut.append(pass)
         return pass
     }
 
-    /// A scene encoder the scene resumes after keeps the samples (and
-    /// resolves: Metal wants a resolve wherever a resolve texture is
-    /// attached). The scene's end resolves the colour and the depth, which
-    /// P5's overlays read, and stores no samples. The overlay's encoders set
-    /// their stores up front.
+    /// Breaks after P1 may resolve the scene and re-expand it.
+    private var reExpands: Bool { resolvesAtBreaks && draws != nil && begins }
+
+    /// A render pass on the memoryless samples that loads nothing (the
+    /// re-expansion fills them) and resolves into new frame textures,
+    /// published as the scene's when `publish`; its store actions are left
+    /// to `endScene`.
+    private func expandedPass(_ f: FrameContext, publish: Bool) -> MTLRenderPassDescriptor? {
+        guard let hdr = resolveTarget(Self.colorFormat, f), let depth = resolveTarget(depthFormat, f) else { return nil }
+        let pass = MTLRenderPassDescriptor()
+        let c = pass.colorAttachments[0]!
+        c.texture = memoryless.color
+        c.loadAction = .dontCare
+        c.resolveTexture = hdr
+        c.storeAction = .unknown
+        let z = pass.depthAttachment!
+        z.texture = memoryless.depth
+        z.loadAction = .dontCare
+        z.resolveTexture = depth
+        z.depthResolveFilter = .max
+        z.storeAction = .unknown
+        if publish {
+            f.textures[.hdrColor] = hdr
+            f.textures[.sceneColor] = hdr
+            f.textures[.sceneDepth] = depth
+        }
+        scenePasses.append(pass)
+        return pass
+    }
+
+    public func beginScene(_ encoder: MTLRenderCommandEncoder, on pass: MTLRenderPassDescriptor, _ f: FrameContext) {
+        guard isScene(pass) else { return }
+        begins = true
+        guard let x = expansion, x.pass === pass, let draws else { return }
+        expansion = nil
+        expansions.drawn += 1
+        if pass === measurement { expansions.timed += 1 }
+        encoder.pushDebugGroup("HDR scene re-expanded")
+        encoder.setRenderPipelineState(draws.expand)
+        encoder.setDepthStencilState(draws.depthAlways)
+        encoder.setCullMode(.none)
+        encoder.setFragmentTexture(x.color, index: 0)
+        encoder.setFragmentTexture(x.depth, index: 1)
+        encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
+        encoder.setFragmentTexture(nil, index: 0)
+        encoder.setFragmentTexture(nil, index: 1)
+        encoder.popDebugGroup()
+    }
+
+    /// HDRResolvePass's weighting, drawn where a break resolves the scene.
+    private func weight(_ encoder: MTLRenderCommandEncoder, _ f: FrameContext) {
+        guard let draws else { return }
+        encoder.pushDebugGroup("HDR resolve at the break")
+        encoder.setRenderPipelineState(draws.weight)
+        encoder.setDepthStencilState(f.states.noDepth)
+        encoder.setCullMode(.none)
+        encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
+        encoder.popDebugGroup()
+    }
+
     public func endScene(_ encoder: MTLRenderCommandEncoder, resumes: Bool, _ f: FrameContext) {
-        guard !handedOut.isEmpty, handedOut.removeFirst() else { return }
-        let action: MTLStoreAction = resumes ? .storeAndMultisampleResolve : .multisampleResolve
-        encoder.setColorStoreAction(action, index: 0)
-        encoder.setDepthStoreAction(action)
+        guard !handedOut.isEmpty else { return }
+        let pass = handedOut.removeFirst()
+        if pass === measurement {
+            // Its store actions were set up front.
+            weight(encoder, f)
+            measurement = nil
+            return
+        }
+        // The overlay's, and the scene's on a frame that neither breaks nor
+        // is timed, set their store actions up front.
+        guard pass.colorAttachments[0].storeAction == .unknown else { return }
+        // The re-expanded scene's samples cannot be stored.
+        let onTile = pass.colorAttachments[0].texture === memoryless.color
+        let store: MTLStoreAction
+        if !resumes {
+            store = .multisampleResolve
+        } else if onTile || !f.splitsEncoders && stage != .opaque && reExpands,
+                  let c = pass.colorAttachments[0].resolveTexture, let z = pass.depthAttachment.resolveTexture {
+            // A break in P2 or P3: weighted and resolved here, re-expanded
+            // where the scene resumes.
+            weight(encoder, f)
+            store = .multisampleResolve
+            broken = .resolved(color: c, depth: z)
+            breakStores.append(store)
+        } else {
+            // A break in P1, or a split while timing: the samples stay.
+            store = .storeAndMultisampleResolve
+            broken = .kept(stage)
+            breakStores.append(store)
+        }
+        encoder.setColorStoreAction(store, index: 0)
+        encoder.setDepthStoreAction(store)
     }
 }

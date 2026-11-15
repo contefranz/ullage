@@ -19,7 +19,9 @@ final class SnapshotToolTests: XCTestCase {
     static let pad = SnapshotSpec.Shot(name: "pad", scenario: "as506-pad")
 
     /// Timing the passes splits the encoders; the image stays the same, and
-    /// every pass that ran has a time, together near the frame's.
+    /// every pass that ran has a time. That they add up to near the frame's
+    /// is a timing, which other sessions' GPU work disturbs: it is
+    /// `testProfiledPassesAddUpToTheFrame`'s, an opt-in run.
     func testProfilingKeepsThePixels() throws {
         let s = try snapper()
         var shot = Self.pad
@@ -38,7 +40,8 @@ final class SnapshotToolTests: XCTestCase {
         // C2's clouds draw through R6's slots, which break the scene: their
         // half-resolution pass and composite run, and the overhead is
         // measured at the break.
-        XCTAssertEqual(timed.timings.map(\.pass), ["Clouds", "Stars", "Planets", "Vessels", FrameProfile.splitOverhead,
+        XCTAssertEqual(timed.timings.map(\.pass), ["Atmosphere LUTs", "Clouds", "Stars", "Planets", "Vessels",
+                                                   "Atmosphere composite", FrameProfile.splitOverhead,
                                                    "Half-resolution transparents", "Plumes", "Far points",
                                                    "Transparent composite", "HDR resolve", "Post", "Orbit line", "Markers"])
         // Each render pass's vertex and fragment time less what splitting
@@ -46,9 +49,30 @@ final class SnapshotToolTests: XCTestCase {
         for t in timed.timings { XCTAssertGreaterThanOrEqual(t.seconds, 0, t.pass) }
         let overhead = try XCTUnwrap(timed.timings.first { $0.pass == FrameProfile.splitOverhead }).seconds
         XCTAssertGreaterThan(overhead, 0, "the split overhead is measured")
+        XCTAssertGreaterThan(timed.record.gpuMilliseconds, 0)
+    }
+
+    /// The record's GPU time is an unsplit frame's: less than a split
+    /// frame's passes and overhead together, within a factor of 2. A
+    /// performance run, which holds the GPU lock (in the gate, other
+    /// sessions' GPU work made it flake): ORBITSIM_TIMINGS=1
+    /// scripts/test.sh fast --filter testProfiledPassesAddUpToTheFrame.
+    func testProfiledPassesAddUpToTheFrame() throws {
+        guard ProcessInfo.processInfo.environment["ORBITSIM_TIMINGS"] != nil else {
+            throw XCTSkip("a performance run: ORBITSIM_TIMINGS=1")
+        }
+        let lock = GPULock { print("SnapshotToolTests: waiting for the GPU lock") }
+        defer { withExtendedLifetime(lock) {} }
+        let s = try snapper()
+        guard try s.renderer(userTextures: false).profiler.isSupported else {
+            throw XCTSkip("no timestamp counters on this GPU")
+        }
+        var shot = Self.pad
+        shot.width = 320
+        shot.height = 200
+        let timed = try s.render(shot, timingFrames: 3)
+        let overhead = try XCTUnwrap(timed.timings.first { $0.pass == FrameProfile.splitOverhead }).seconds
         let sum = timed.timings.map(\.seconds).reduce(0, +)
-        // The record's GPU time is an unsplit frame's: less than a split
-        // frame's passes and overhead together.
         XCTAssertGreaterThan(timed.record.gpuMilliseconds, 0)
         XCTAssertLessThan(sum, 2 * timed.record.gpuMilliseconds / 1_000 + 2 * overhead, "\(timed.timings)")
     }
