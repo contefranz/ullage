@@ -37,7 +37,7 @@ public enum PadIgnition {
     }
 
     /// The five engines' mean flow fraction at range time `t`: 0 before the
-    /// buildup, 1 once all are at full flow (by T−0.28 s).
+    /// buildup, 1 once all are at full flow (by T−0.20 s).
     public static func thrustFraction(rangeTime t: Double) -> Double {
         engineStarts.indices.reduce(0) { $0 + engineFraction($1, rangeTime: t) } / Double(engineStarts.count)
     }
@@ -51,6 +51,28 @@ public enum PadIgnition {
             return u <= rampTime ? u * u / (2 * rampTime) : u - rampTime / 2
         }
         return engineStarts.reduce(0) { $0 + g($1, t1) - g($1, t0) } / Double(engineStarts.count)
+    }
+}
+
+/// The vehicle's rise off the pad, which a rebuilt history assumes (the
+/// frames before a reset are not kept), as the simulation flies it: straight
+/// up, the tower-clearance yaw's metres aside, uniformly accelerated from
+/// first motion at the S-IC's 34.34 MN at 0.5 s (FER Figure 5-3) on
+/// 2,899,008 kg (Table 20-1) less g, 2.06 m/s² (the simulation starts at
+/// full thrust and has no holddown release taper), until the roll and pitch
+/// programs start once it has risen 137 m (GE504 §4.1.2, the IU's
+/// criterion), 11.5 s on. AS-506 itself, slower off the pad, started them
+/// at T1 + 12.6 s (FER Table 2-2).
+public enum LiftoffRise {
+    public static let acceleration = 34.34e6 / 2_899_008 - 9.79
+    /// The rise at which the pitch program starts, m, and when, s after first motion.
+    public static let programStartRise = 137.0
+    public static let programStart = (2 * programStartRise / acceleration).squareRoot()
+
+    /// The rise `t` s after first motion while the climb is vertical, m.
+    public static func rise(after t: Double) -> Double {
+        let s = max(0, t)
+        return 0.5 * acceleration * s * s
     }
 }
 

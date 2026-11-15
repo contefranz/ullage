@@ -36,9 +36,9 @@ public enum PadExhaust {
     /// The envelope's spreading half-angle below the exits at sea level,
     /// where the overexpanded F-1 plume barely widens (L).
     public static let spreadAngle = 10 * Double.pi / 180
-    /// The climb at which half the exhaust still reaches the ground with
-    /// force, and the climb past which none does (L: "faded out by about
-    /// 100-200 m of climb").
+    /// The fade's scale and the climb past which no exhaust reaches the
+    /// ground with force (L: "faded out by about 100-200 m of climb"): half
+    /// of it still does at about 45 m, 36 % at 60 m, 5 % at 150 m.
     public static let fadeClimb = 60.0
     public static let cutoffClimb = 400.0
 
@@ -68,7 +68,7 @@ public enum PadExhaust {
     }
 
     /// The share of the exhaust that still reaches the ground after `climb`
-    /// m of rise: 1 / (1 + (climb / 60 m)²), tapered to none at 400 m.
+    /// m of rise: 1 / (1 + (climb / 60 m)²), tapered by (1 − climb / 400 m)².
     public static func reaching(climb: Double) -> Double {
         let c = max(0, climb)
         guard c < cutoffClimb else { return 0 }

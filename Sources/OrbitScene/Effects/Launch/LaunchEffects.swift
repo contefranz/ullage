@@ -13,10 +13,17 @@ import OrbitCore
 /// from rates that are functions of time (`emitSlices`). The first frame
 /// after a reset (a scenario opening, a snapshot, a time jump) has no
 /// interval: it rebuilds the history instead, from the thrust buildup at
-/// T−5.3 s (`PadIgnition`) with the vehicle's rise taken as uniformly
-/// accelerated from first motion. So AS-506's pad opens with its 5.6 s of
-/// exhaust already out of the trench, and a snapshot at T+8 s shows the
-/// cloud the frames to it would have made (`LaunchEffectsTests`).
+/// T−5.3 s (`PadIgnition`):
+/// - the pad's sources stay at the pad, the vehicle rising straight up off
+///   it (`LiftoffRise`);
+/// - the F-1s' flow follows the journal's cutoffs (CECO, OECO, an engine
+///   out), not the frame's;
+/// - in flight, the frost's last second follows the vehicle's own motion;
+/// - the trail is rebuilt along the climb and a monotone cubic after the
+///   pitch program starts (`ExhaustTrail`).
+/// So AS-506's pad opens with its 5.6 s of exhaust already out of the
+/// trench, and a snapshot shows about the clouds and trail the frames to
+/// it would have made (`LaunchEffectsTests`).
 public final class LaunchEffects: EffectProducer {
     public let name = "P4 launch effects"
 
@@ -39,6 +46,9 @@ public final class LaunchEffects: EffectProducer {
     private var pad: EffectAnchorID?
     private var carry: [String: Double] = [:]
     private var serial = 0
+    /// The S-IC engines' cutoffs the journal recorded (CECO, OECO, an engine
+    /// out), by thruster name: the flow a rebuilt history follows.
+    private(set) var cutoffs: [String: Epoch] = [:]
 
     public init() {}
 
@@ -51,11 +61,21 @@ public final class LaunchEffects: EffectProducer {
                               trail: (0..<3).map { table.register(LaunchMaterials.trail($0)) })
     }
 
+    /// A journal record: an S-IC engine's cutoff. A new simulation's frame
+    /// delivers every record since the scenario opened, before `update`.
+    public func handle(_ event: EffectEvent, in frame: EffectFrame) {
+        guard case let .cutoff(thruster, part) = event.kind, part == "S-IC", thruster.hasPrefix("S-IC engine") else {
+            return
+        }
+        cutoffs[thruster] = event.epoch
+    }
+
     public func reset() {
         seen = nil
         pad = nil
         carry = [:]
         serial = 0
+        cutoffs = [:]
         trail.reset()
     }
 
@@ -74,8 +94,15 @@ public final class LaunchEffects: EffectProducer {
     public static let vapourDecay = 3.0
     /// Frost is shed from first motion to CECO (`FrostShedding`); a rebuilt
     /// history (a reset in flight) covers at most this much of it, s, since
-    /// the vehicle's path before the frame is only known on the pad.
+    /// the vehicle's path before the frame is known only near the pad.
     public static let rebuiltFrostHistory = 1.0
+    /// The F-1's tail-off after a cutoff, s (AS506's 0.66 s shutdown
+    /// transient, FER §5.4: H impulse, L shape), linear here.
+    public static let tailOff = 0.66
+    /// The producer runs until this long after first motion, s: the S-IC
+    /// has stopped laying the trail by OECO and tail-off (161.6 + 0.7 s,
+    /// past its 40 km ceiling), and its puffs live `ExhaustTrail.lifetime`.
+    public static let window = 170 + ExhaustTrail.lifetime.upperBound
 
     /// Everything the frame's emitters need: the site, its anchor, the
     /// vehicle and the time.
@@ -123,7 +150,7 @@ public final class LaunchEffects: EffectProducer {
         // frames carry on from the last one's epoch, whatever happened in
         // between (a staging's new vessels, a stretch with no vehicle).
         let last = seen
-        guard range >= PadIgnition.thrustBuildup, range < countdown.firstMotion + ExhaustTrail.lifetime.upperBound,
+        guard range >= PadIgnition.thrustBuildup, range < countdown.firstMotion + Self.window,
               let vehicle = Self.vehicle(in: f.scene, site: site)
         else {
             seen = Seen(epoch: now, vessel: nil, climb: 0)
@@ -170,22 +197,26 @@ public final class LaunchEffects: EffectProducer {
     // MARK: Time
 
     /// The five F-1s' flow fraction at `t`: the ignition's before first
-    /// motion, the scene's after.
+    /// motion; after it the scene's on a frame after another, and on a
+    /// rebuilt history the journal's: each engine at full flow until its
+    /// recorded cutoff, tailing off linearly over `tailOff`.
     func flow(_ c: Context, _ t: Epoch) -> Double {
-        t <= c.firstMotion ? PadIgnition.thrustFraction(rangeTime: c.range(t)) : c.vehicle.flow
+        if t <= c.firstMotion { return PadIgnition.thrustFraction(rangeTime: c.range(t)) }
+        guard c.rebuilt else { return c.vehicle.flow }
+        return Self.flow(at: t, cutoffs: Array(cutoffs.values), engines: c.vehicle.exits.count)
     }
 
-    /// AS-506's acceleration off the pad, m/s²: the S-IC's 34.34 MN at 0.5 s
-    /// (FER Figure 5-3, tools/data/fer506_fig5_3_sic_thrust.csv) on
-    /// 2,899,008 kg (Table 20-1) less g (H). It grows by a tenth in the 15 s
-    /// the pad's effects care about.
-    public static let liftoffAcceleration = 34.34e6 / 2_899_008 - 9.79
+    /// `engines` F-1s' mean flow fraction at `t` with `cutoffs`, after first motion.
+    static func flow(at t: Epoch, cutoffs: [Epoch], engines: Int) -> Double {
+        guard engines > 0 else { return 0 }
+        let lost = cutoffs.reduce(0.0) { $0 + min(1, max(0, (t - $1) / tailOff)) }
+        return max(0, Double(engines) - lost) / Double(engines)
+    }
 
     /// The exits' climb at `t`: none before first motion; between the last
     /// frame's and this one's linearly; on a rebuilt history, uniformly
-    /// accelerated from first motion, through this frame's climb while the
-    /// vehicle is still near the pad (12 s) and at the liftoff acceleration
-    /// after.
+    /// accelerated from first motion: through this frame's climb while the
+    /// pitch program has not started, at `LiftoffRise`'s acceleration after.
     func climb(_ c: Context, _ t: Epoch, previous: Double?) -> Double {
         guard t > c.firstMotion else { return 0 }
         let now = c.vehicle.climb
@@ -194,11 +225,11 @@ public final class LaunchEffects: EffectProducer {
             return p + (now - p) * u
         }
         let d = c.now - c.firstMotion, tau = min(t - c.firstMotion, d)
-        guard d > 12 else {
+        guard d > LiftoffRise.programStart else {
             let u = tau / max(d, 1e-9)
             return now * u * u
         }
-        return min(now, 0.5 * Self.liftoffAcceleration * tau * tau)
+        return min(now, LiftoffRise.rise(after: tau))
     }
 
     /// Emits the particles a source gives over `start`...`end` (by default
@@ -309,7 +340,11 @@ public final class LaunchEffects: EffectProducer {
                            let z = PadExhaust.exitHeightOnPad + self.climb(ctx, t, previous: previousClimb)
                            let r0 = max(PadExhaust.envelopeRadius(atDeckFrom: z, radius: ctx.vehicle.clusterRadius),
                                         PadExhaust.openingHalf)
-                           let centre = ctx.vehicle.exits.reduce(Vec3.zero) { $0 + $1.centre } * (1 / Double(ctx.vehicle.exits.count))
+                           // Under the vehicle on a frame after another; on the
+                           // pad's axis in a rebuilt history, where the
+                           // vehicle was while it was low enough to reach.
+                           let centre = ctx.rebuilt ? Vec3.zero
+                               : ctx.vehicle.exits.reduce(Vec3.zero) { $0 + $1.centre } * (1 / Double(ctx.vehicle.exits.count))
                            var r = EmitRequest(anchor: a, material: steam ? m.deluge : m.padExhaust, count: 0)
                            r.origin = ctx.toAnchor * Vec3(centre.x, centre.y, 2)
                            r.axis = up
@@ -327,30 +362,42 @@ public final class LaunchEffects: EffectProducer {
     // MARK: Cold vapour
 
     /// Where a point of the vehicle (body axes from its centre of mass) was
-    /// and how it moved, for a source on it: from the scene's placement on a
-    /// frame after another; on a rebuilt history, on the pad before first
-    /// motion and uniformly accelerated up from it after.
+    /// and how it moved, for a source on it, and the vehicle's axis (body
+    /// +x) in the anchor:
+    /// - before first motion, standing on the pad: the point's height on it
+    ///   above the exits' plane, on the pad's axis;
+    /// - on a frame after another, the scene's placement;
+    /// - on a rebuilt history before the pitch program, uniformly
+    ///   accelerated straight up through this frame's place;
+    /// - on a rebuilt history after it (only its last second is rebuilt),
+    ///   the vehicle's own velocity now (its acceleration is not known on a
+    ///   frame with none before: none is taken).
     struct SourceMotion {
         var origin: Vec3
         var velocity: Vec3
         var acceleration: Vec3
-        var toAnchor: Mat3
+        var axis: Vec3
     }
 
     func motion(_ point: Vec3, _ c: inout Context, before firstMotion: Bool) -> SourceMotion? {
         guard let a = anchor(&c), let p = c.frame.place(point, of: c.vehicle.vessel, in: a) else { return nil }
         let up = c.toAnchor * .unitZ
         if firstMotion {
-            return SourceMotion(origin: p.position - up * c.vehicle.climb, velocity: .zero, acceleration: .zero,
-                                toAnchor: p.toAnchor)
+            let exits = ExhaustTrail.exitCentroid(c.vehicle.vessel) ?? point
+            let height = PadExhaust.exitHeightOnPad + (point.x - exits.x)
+            return SourceMotion(origin: c.toAnchor * Vec3(0, 0, height), velocity: .zero, acceleration: .zero, axis: up)
         }
+        let axis = p.direction(.unitX)
         guard c.rebuilt else {
-            return SourceMotion(origin: p.position, velocity: p.velocity, acceleration: p.acceleration, toAnchor: p.toAnchor)
+            return SourceMotion(origin: p.position, velocity: p.velocity, acceleration: p.acceleration, axis: axis)
         }
         let d = c.now - c.firstMotion
-        guard d > 0 else { return SourceMotion(origin: p.position, velocity: .zero, acceleration: .zero, toAnchor: p.toAnchor) }
+        guard d > 0 else { return SourceMotion(origin: p.position, velocity: .zero, acceleration: .zero, axis: axis) }
+        guard d <= LiftoffRise.programStart else {
+            return SourceMotion(origin: p.position, velocity: p.velocity, acceleration: .zero, axis: axis)
+        }
         let accel = 2 * c.vehicle.climb / (d * d)
-        return SourceMotion(origin: p.position, velocity: up * (accel * d), acceleration: up * accel, toAnchor: p.toAnchor)
+        return SourceMotion(origin: p.position, velocity: up * (accel * d), acceleration: up * accel, axis: axis)
     }
 
     /// The vapour's strength at `t`: steady on the pad, decaying from first
@@ -391,11 +438,11 @@ public final class LaunchEffects: EffectProducer {
                            make: { _, _ in
                                var r = EmitRequest(anchor: a, material: m.coldVapour, count: 0)
                                r.origin = s.origin
-                               r.axis = s.toAnchor * .unitX
+                               r.axis = s.axis
                                r.shape = .band(radius: zone.radius * inch + 0.3, height: length)
                                r.direction = .radial(spread: 0.6)
                                r.speed = 0.2...1.0
-                               r.velocity = s.toAnchor * Vec3(-1.5, 0, 0)
+                               r.velocity = s.axis * -1.5
                                r.sourceVelocity = s.velocity
                                r.sourceAcceleration = s.acceleration
                                r.radius = 0.8...1.6
@@ -488,7 +535,9 @@ public final class LaunchEffects: EffectProducer {
                 // In flight a rebuilt history keeps only its last second:
                 // the path before the frame is not known there.
                 var start = before ? c.from : max(c.from, c.firstMotion)
-                if c.rebuilt && !before && c.now - c.firstMotion > 12 { start = max(start, c.now + -Self.rebuiltFrostHistory) }
+                if c.rebuilt && !before && c.now - c.firstMotion > LiftoffRise.programStart {
+                    start = max(start, c.now + -Self.rebuiltFrostHistory)
+                }
                 for slab in [false, true] {
                     let perKg = slab ? (1 - FrostShedding.flakeShare) * Self.slabsPerKilogram
                         : FrostShedding.flakeShare * Self.flakesPerKilogram
@@ -502,7 +551,7 @@ public final class LaunchEffects: EffectProducer {
                                make: { _, _ in
                                    var r = EmitRequest(anchor: a, material: slab ? m.iceSlab : m.iceFlake, count: 0)
                                    r.origin = s.origin
-                                   r.axis = s.toAnchor * .unitX
+                                   r.axis = s.axis
                                    r.shape = .band(radius: zone.radius * inch + 0.05, height: length)
                                    r.direction = .radial(spread: 0.8)
                                    r.speed = slab ? 0.5...2 : 0.5...3

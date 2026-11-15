@@ -322,6 +322,9 @@ extension FrameGraphTests {
                                       passes: SceneRenderer.defaultPasses(loadsUserTextures: false) + extra,
                                       plan: DirectTargetPlan(colorFormat: .bgra8Unorm_srgb, sampleCount: 4))
             r.setStars(stars)
+            // Without P4's pad smoke: P3's OIT sums it in the GPU's atomic
+            // order, which can move a byte between renderers.
+            r.settings.particle.quality = .off
             r.profiling = timing
             r.profileInterval = 1
             let target = try XCTUnwrap(OffscreenTarget(device: device, width: 320, height: 200))
