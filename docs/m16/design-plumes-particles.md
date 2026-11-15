@@ -289,6 +289,98 @@ All new, in Sources/OrbitCore/Effects/:
 - Condensation (optional).
 The only edits to existing core files are in Simulation.swift and SimulationStaging.swift, in the prep PR.
 
+## P3 API (frozen)
+
+Frozen on 2026-11-15 by track P3 (branch `m16-particles`). P4, P5 and P6 build on it. Where this section and the sections above differ, this one wins: it is what the code does. A change to it is a small PR of P3's, announced to the coordinator first.
+
+WHERE THINGS ARE
+- `Sources/OrbitScene/Effects/` (Linux, tested in OrbitSceneTests): the API the effect tracks write against.
+  - `ParticleMaterial.swift`: `ParticleMaterial`, `ParticleRenderClass`, `ChunkShape`, `ParticleColor`, `ParticleMaterialTable`, `ParticleMaterialID`, and a starting `library` (spark, flash, smoke, soot, steam, ice flake, debris, ice slab).
+  - `EmitRequest.swift`: `EmitRequest`, `EmitShape`, `EmitDirection`, `EmitSampler` (the emit kernel's sampling in Double) and `ParticleRandom` (the PCG hash the GPU uses).
+  - `EffectAnchor.swift`: `EffectAnchor`, `EffectAnchorID`, `StudioAnchor`, `AnchorFrame`.
+  - `EffectTime.swift`: `EffectClock`, `EffectTimeRules`, `FlashHold`, `ContinuousEmission`.
+  - `EffectSession.swift`: `EffectProducer`, `EffectFrame`, `EffectPlacement`, `EffectSession`, `EffectFrameOutput`.
+  - `AirProfile.swift`: the 64-level air table.
+- `Sources/OrbitCore/Effects/ParticlePhysics.swift` (Linux, OrbitCoreTests): buoyancy, drag of grains and gas parcels, entrainment, cooling, exact sublimation, and `advance`, the step the GPU runs. P1's `ParticleKinematics.step` is its drag step.
+- `Sources/OrbitScene/Settings/ParticleSettings.swift`: `ParticleQuality` (the budget), the look-dev `testBursts` and the `studio`.
+- `Sources/OrbitRender/Effects/` (Mac): `EffectDirector` (runs the session each frame and lists the producers), `ParticleSystem` (the GPU buffers and kernels), `EffectAnchors` (anchors to float), `VolumeNoise` (the 128³ noise), `EffectsSelfTest`. `Shaders/ParticleShaders.swift` is the module.
+- Seams added to F0's scene: `RenderScene.Body.gm`, `.j2` and `.air` (an `AirProfile`), and `RenderScene.Vessel.velocity` (ICRF, relative to its reference body). SceneExtractor fills them.
+
+HOW AN EFFECT TRACK PLUGS IN
+1. Write a class adopting `EffectProducer` (OrbitScene types only, so it can live in OrbitScene and be tested on Linux, or in OrbitRender/Effects beside the director).
+2. List it in `EffectDirector.defaultProducers()` (OrbitRender/Effects/EffectDirector.swift), one line per track, in the order P4, P5, P6.
+3. In `registerMaterials(_:)`, register your materials and keep their `ParticleMaterialID`s. Names are unique across tracks: prefix them (`"p4 pad steam"`).
+4. Each frame the director calls `handle(_:in:)` for every journal event (`EffectEvent`) not handled before, oldest first, then `update(_:)`. Neither runs on a frame drawn again (a snapshot's AOV) or while the look-dev studio is on.
+5. `reset()` is called on a scenario change and on a time jump. Forget any state then. Anchor ids you kept no longer resolve.
+6. Never touch the particle shaders: a look the material table cannot express is a request to P3.
+
+ANCHORS (`EffectFrame`)
+- `anchor(_:)` makes one, carried on to the frame's epoch. It returns nil when all 256 are in use; skip the emission then. An anchor lives while particles emitted into it may (their lifetimes, plus 3 frames for a held flash), then its id stops resolving.
+- `freeFallAnchor(for: event)`: at the event's vessel's state at the event. This is the anchor for a staging burst: retros, pyros, debris.
+- `freeFallAnchor(for: vessel)`: at a scene vessel's state now.
+- `vesselAnchor(id, key:)`: one tracking anchor per vessel and key, rebased every 2 s or 500 m; body-fixed while the vessel is landed. Use it for continuous emitters on a vessel: vents, frost, RCS.
+- `bodyFixedAnchor(at: site)`: the pad, before LC's own anchors exist.
+- `.bodyFixed(bodyID:origin:)`: body axes, m from the body's centre.
+- Axes: a body-fixed anchor's are the body's own (rotating), a free-fall anchor's are ICRF, the studio's are the camera target's east, north and up.
+- Gravity: −g down the geodetic normal in a body-fixed anchor, none in a free-fall one (it falls with its particles).
+- The air at a particle: the body's `AirProfile` at its altitude. The wind is east and north at the anchor's origin. In free fall the air turns with the body: ω × r, less the anchor's velocity.
+- `place(point, of: event, in:)` and `place(point, of: vessel, in:)`: a point in vessel body axes from the centre of mass. They give its position, velocity and (for a scene vessel) acceleration in the anchor's axes, and `toAnchor` for directions. For a vessel, `place` gives `origin`, `sourceVelocity` and `sourceAcceleration`.
+
+EMITTING
+- `EmitRequest` fields:
+  - anchor, material, count;
+  - `origin` (anchor axes, m) and `axis`;
+  - `shape`: point, ball, sphere, disc, ring, band or line;
+  - `direction`: `.axis(spread:)` or `.radial(spread:)`, in radians;
+  - `speed` range;
+  - `velocity`, added to every particle, relative to the source;
+  - `sourceVelocity` and `sourceAcceleration`, relative to the anchor;
+  - `radius` and `lifetime` ranges;
+  - `temperature`, in K (0: the air's);
+  - `ages`, stratified: particle i of n is at lower + (i + u)/n × (upper − lower);
+  - `seed`.
+- How a particle is placed: one of age a started at origin − v·a + ½A·a², moving at v − A·a plus its own velocity. The emit kernel then ages it to the frame with `ParticlePhysics.advance`.
+- `emit(r)`: the ages as given.
+- `burst(r, at: epoch)`: a journal burst. Its ages are shifted by frame − epoch. It is dropped if older than its lifetime, unless it is a flash above 10× that ended within this frame.
+- `emitContinuous(key, rate:, r, persistsAtHighWarp:)`: rate × dt particles, carrying the fractions. They cover only the last lifetime (`lifetime.upperBound`) of the frame's interval, with stratified ages. Suspended at 1,000× and above unless `persistsAtHighWarp` (P4's trail). Its count, ages and seed are set for you.
+- Budget:
+  - `ParticleQuality.capacity`: Low 8k, Medium 32k, High 128k (the default), Ultra 256k;
+  - 1,024 requests a frame;
+  - 2,048 chunks drawn;
+  - past the budget the newest particles are dropped, never the frame.
+
+MATERIALS (`ParticleMaterial`; JSON keys are the member names)
+- Look:
+  - `renderClass`: `streak`, `smoke` or `chunk`;
+  - `albedo`;
+  - `emission`, in cd/m², linear Rec. 709, before pre-exposure (the shaders apply `FrameUniforms.exposure.x` and clamp at 6e4, R1's rule);
+  - `emissionTemperature`: the emission follows (T/this)⁴, or is fixed if 0;
+  - `opticalDepth` (smoke), falling as (r0/r)² as the puff grows;
+  - `phaseG`, `fadeIn` and `fadeOut` (fractions of the lifetime), `streakTime`;
+  - `chunkShape`, `chunkAspect` and `spin`.
+- Motion (`ParticlePhysics.Material`):
+  - `density` (0: a gas parcel at its own temperature);
+  - `dragCoefficient`, `buoyancy`, `entrainment` (α), `spreadRate` (m/s), `coolingTime` (s, infinite or left out for none);
+  - `sublimates`.
+- Time and ground: `isFlash` (held at least 3 frames above 10×) and `killedAtGround`.
+- How each render class is drawn and lit:
+  - streaks: emission plus a sunlit glint, albedo × E⊙ × sunlit × HG;
+  - smoke: albedo × (E⊙ × sunlit × HG + sky/π), plus emission, through R6's OIT layer;
+  - chunks: Lambert in P1.
+  - The Sun is the frame's, through the air (A2's transmitted Sun) when the camera is in air, times the anchor's sunlit fraction (`Eclipse`).
+
+TIME (`EffectTimeRules`)
+- The particles advance by the simulation's dt. It is 0 when paused, on the first frame, and on a frame drawn again.
+- On a scenario change (a new simulation, or the extractor's frame index going back) or a time jump (dt < 0 or > 600 s), everything resets.
+- The turbulence clock is real dt × min(warp, 4); the noise runs on it.
+- A flash (`isFlash`) above 10× lives on past its lifetime until drawn on 3 frames, looking as it did at half its life (`FlashHold`).
+- The GPU's integrator takes any dt: up to 16 substeps of the exact linear-drag step, each re-linearised (second order) in speed, radius and temperature.
+
+LOOK-DEV
+- `ParticleSettings.testBursts` are spawned afresh every frame in the studio anchor at the camera's target, at their ages, in place of every producer. With them a shot is deterministic and the same in any scenario.
+- The `studio` gives its gravity and air (e.g. sea level). A burst names a library material or carries a `custom` one.
+- P3's shots are `docs/look/shots/p3.json`; P4-P6 add their own specs the same way.
+
 ## Phasing
 
 P0. Seams (0.75–1 d; core part on Linux, hook on the Mac). Lands first.
