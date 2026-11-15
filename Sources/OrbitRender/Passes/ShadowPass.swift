@@ -13,8 +13,11 @@ import OrbitScene
 ///   clear: about 0.06 ms a 4096² layer on an M3 Pro. (One layered pass
 ///   over the array's slices loses the fast clear: 0.5-0.6 ms for two.)
 /// - **Its memory**: 32 MB a 4096² layer; the atlas grows to the most
-///   layers a frame has used and keeps them. The detail map, 2048² at High,
-///   fills a corner of its layer (`shadowMaps[i].w`, its share of the side).
+///   layers a frame has used and keeps them. The detail and site maps,
+///   2048² at High, fill a corner of their layers (`shadowMaps[i].w`, the
+///   share of the side), each drawn first into a pooled 2048² target of its
+///   own: 8 MB each, 16 MB in a frame with both (the pad seen through a
+///   long lens).
 /// - **Casters**: the vessels' parts as the vessel pass places them, with
 ///   their gimballed nozzles, as positions alone from each part's own mesh
 ///   (`CasterMesh`, not R5's subdivided one), and the sites' elements as the
@@ -24,6 +27,10 @@ import OrbitScene
 ///   Depth is clamped, so casters nearer the Sun than a map still cast.
 /// - It fills the shadow members of `LightingUniforms`, which ShadowCommon's
 ///   `orbit_sunShadow` reads.
+/// - Only lit casters: a vessel in the Earth's shadow (`LegacyLight.sunlit`
+///   0) or a site with the Sun below its horizon casts nothing. With none
+///   lit there are no maps (in eclipse, in LEO's night), and every receiver
+///   returns 1 at once: its Sun term is 0 there anyway.
 /// - Redrawn every frame, so no warp makes the shadows stale.
 ///
 /// Track R4 owns this pass.
@@ -41,6 +48,10 @@ public final class ShadowPass: RenderPass {
     /// made from the part's mesh when the pass first sees it.
     private var vesselCasters: [UUID: VesselCaster] = [:]
     private var partCasters: [ObjectIdentifier: PartCaster] = [:]
+    /// The vessels the casters were last pruned for, and whether a vessel's
+    /// casters were rebuilt since (a new signature).
+    private var castersFor: Set<UUID> = []
+    private var castersRebuilt = false
     /// This frame's maps, in the order of the atlas's layers; the debug
     /// view tints by their level.
     public private(set) var maps: [ShadowMapFit] = []
@@ -76,25 +87,36 @@ public final class ShadowPass: RenderPass {
         let scene = f.scene
         let sites = scene.sites.isEmpty ? nil : SiteMeshes.shared(f.device)
 
-        // The casters: each vessel with a mesh, each site.
+        // The casters: each vessel with a mesh, each site, those the Sun lights.
+        // A dark vessel's casters are made all the same, from its parts' own
+        // meshes before R5's bake replaces them for the vessel pass.
         var casters: [ShadowCaster] = []
         var draws: [Caster] = []
         for v in scene.vessels {
-            guard let mesh = f.meshes.mesh(v.id), let caster = vesselCaster(v, mesh, device: f.device) else { continue }
+            guard let mesh = f.meshes.mesh(v.id), let caster = vesselCaster(v, mesh, device: f.device),
+                  Self.isLit(v) else { continue }
             casters.append(ShadowCaster(kind: .vessel(v.id),
                                         centre: v.position + v.attitude.rotate(v.structureOrigin + caster.centre),
                                         radius: caster.radius))
             draws.append(.vessel(v, caster))
         }
-        if vesselCasters.count > scene.vessels.count + 16 {
-            let live = Set(scene.vessels.map(\.id))
+        // As R2's mesh cache does: whenever the vessels change (a separation,
+        // a scenario loaded) or one is rebuilt, the casters of vessels gone go.
+        // A part's caster goes once its part entry is freed, which can be a
+        // few frames after the cache drops it (a bake or a wire draw held it).
+        let live = Set(scene.vessels.map(\.id))
+        if live != castersFor || castersRebuilt {
             vesselCasters = vesselCasters.filter { live.contains($0.key) }
+            castersFor = live
+            castersRebuilt = false
+        }
+        if partCasters.values.contains(where: { $0.part == nil }) {
             partCasters = partCasters.filter { $0.value.part != nil }
         }
         if let sites {
             let countdown = SiteMeshes.countdown(at: scene.clock.simTime)
             let rangeTime = countdown.rangeTime(at: scene.clock.simTime)
-            for site in scene.sites where site.name == SiteMeshes.name {
+            for site in scene.sites where site.name == SiteMeshes.name && Self.isLit(site, sun: scene.sun) {
                 casters.append(ShadowCaster(kind: .site(site.name), centre: site.origin + site.orientation * sites.centre,
                                             radius: sites.radius))
                 draws.append(.site(site, sites, rangeTime, countdown))
@@ -190,20 +212,42 @@ public final class ShadowPass: RenderPass {
         return atlas
     }
 
+    /// Whether the Sun lights a vessel: its visible share
+    /// (`LegacyLight.sunlit`, the Earth and the Moon as occulters), which the
+    /// vessel pass's Sun term follows. A vessel in the dark casts nothing a
+    /// lit receiver could see.
+    static func isLit(_ v: RenderScene.Vessel) -> Bool { v.light.sunlit > 0 }
+
+    /// Whether the Sun lights a site: its upper limb above the site's
+    /// horizon, as the vessel pass's site lighting has it
+    /// (`StandInLighting.site`).
+    static func isLit(_ site: RenderScene.Site, sun: RenderScene.Sun) -> Bool {
+        let up = site.orientation * Vec3.unitZ
+        return up.dot(sun.direction) > sin(-max(sun.angularRadius, 1e-6))
+    }
+
     /// The vessel's casters, made once per mesh signature.
     private func vesselCaster(_ v: RenderScene.Vessel, _ mesh: VesselMesh, device: MTLDevice) -> VesselCaster? {
         if let c = vesselCasters[v.id], c.signature == mesh.signature { return c }
         let c = VesselCaster(mesh) { partCaster($0, device: device) }
         vesselCasters[v.id] = c
+        castersRebuilt = true
         return c
     }
 
     /// A part's caster, from its mesh as first seen (a part is shared by
     /// the vessels whose parts are alike, and outlives separations).
+    /// Its mesh is the shapes' own until R5's subdivided one swaps in; a
+    /// part first seen after that (the shadows turned on later) is
+    /// tessellated again from its shapes, so the maps never draw R5's.
     private func partCaster(_ entry: PartEntry, device: MTLDevice) -> CasterMesh? {
         let key = ObjectIdentifier(entry)
         if let c = partCasters[key], c.part === entry { return c.mesh }
-        guard let mesh = CasterMesh(entry.mesh, device: device) else { return nil }
+        let made = entry.mesh.subdividedEdge == nil
+            ? CasterMesh(entry.mesh, device: device)
+            : CasterMesh(meshes: entry.part.shapes.map { $0.mesh() }, info: entry.info, label: entry.part.name,
+                         device: device)
+        guard let mesh = made else { return nil }
         partCasters[key] = PartCaster(part: entry, mesh: mesh)
         return mesh
     }
@@ -217,6 +261,9 @@ public final class ShadowPass: RenderPass {
             self.mesh = mesh
         }
     }
+
+    /// The casters kept: vessels' and parts' (for tests).
+    var cachedCasters: (vessels: Int, parts: Int) { (vesselCasters.count, partCasters.count) }
 
     /// The triangles the maps draw of the vessel `id`, once a frame has
     /// drawn it (for tests).
@@ -383,20 +430,22 @@ final class CasterMesh {
         radius = mesh.bounds.radius
     }
 
-    /// A site element's, from its shapes' meshes: the closed shapes first,
-    /// then the open ones.
-    init?(shapes: [VisualShape], label: String, device: MTLDevice) {
+    /// From shapes' own meshes with their places (`PartMesh.ShapeInfo`), in
+    /// the vessel pass's order (`PartMesh.order`): the static closed shapes,
+    /// open ones and wires, each kind in one draw, then each gimballed shape.
+    init?(meshes: [VisualShape.Mesh], info: [PartMesh.ShapeInfo], label: String, device: MTLDevice) {
         var points: [SIMD4<Float>] = [], indices: [UInt32] = [], draws: [Draw] = []
-        for s in shapes.filter({ !$0.twoSided }) + shapes.filter(\.twoSided) {
-            let m = s.mesh(), base = UInt32(points.count), start = indices.count
+        for k in PartMesh.order(info) {
+            let m = meshes[k], base = UInt32(points.count), start = indices.count
             points += m.vertices.map { SIMD4(Float($0.position.x), Float($0.position.y), Float($0.position.z), 1) }
             indices += m.indices.map { $0 + base }
             guard indices.count > start else { continue }
-            let culled = !s.twoSided
-            if let last = draws.last, last.culled == culled {
+            let i = info[k]
+            if i.thruster == nil, let last = draws.last, last.thruster == nil, last.culled == i.culled,
+               last.indices.upperBound == start {
                 draws[draws.count - 1].indices = last.indices.lowerBound..<indices.count
             } else {
-                draws.append(Draw(indices: start..<indices.count, culled: culled, thruster: nil, pivot: .zero))
+                draws.append(Draw(indices: start..<indices.count, culled: i.culled, thruster: i.thruster, pivot: i.pivot))
             }
         }
         guard !indices.isEmpty,
@@ -412,6 +461,15 @@ final class CasterMesh {
         self.draws = draws
         centre = s.centre
         radius = s.radius
+    }
+
+    /// A site element's, from its shapes: the closed ones first, then the
+    /// open ones.
+    convenience init?(shapes: [VisualShape], label: String, device: MTLDevice) {
+        self.init(meshes: shapes.map { $0.mesh() },
+                  info: shapes.map { PartMesh.ShapeInfo(culled: !$0.twoSided, wire: false, thruster: nil, pivot: .zero,
+                                                        material: 0) },
+                  label: label, device: device)
     }
 
     var triangleCount: Int { draws.map(\.indices.count).reduce(0, +) / 3 }

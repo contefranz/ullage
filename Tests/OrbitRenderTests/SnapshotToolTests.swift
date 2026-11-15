@@ -61,7 +61,7 @@ final class SnapshotToolTests: XCTestCase {
     }
 
     /// The record's GPU time is an unsplit frame's: less than a split
-    /// frame's passes and overhead together, within a factor of 2. A
+    /// frame's render stages (P1-P5) and overhead together, within a factor of 2. A
     /// performance run, which holds the GPU lock (in the gate, other
     /// sessions' GPU work made it flake): ORBITSIM_TIMINGS=1
     /// scripts/test.sh fast --filter testProfiledPassesAddUpToTheFrame.
@@ -80,7 +80,11 @@ final class SnapshotToolTests: XCTestCase {
         shot.height = 200
         let timed = try s.render(shot, timingFrames: 3)
         let overhead = try XCTUnwrap(timed.timings.first { $0.pass == FrameProfile.splitOverhead }).seconds
-        let sum = timed.timings.map(\.seconds).reduce(0, +)
+        // P0's passes (A2's tables, C2's clouds, R4's shadow maps) are left
+        // out: their encoders run alongside the scene's first ones, so their
+        // spans overlap the scene's and a sum would count that time twice.
+        let prepare = Set(try s.renderer(userTextures: false).graph.passes.filter { $0.stage == .prepare }.map(\.name))
+        let sum = timed.timings.filter { !prepare.contains($0.pass) }.map(\.seconds).reduce(0, +)
         XCTAssertGreaterThan(timed.record.gpuMilliseconds, 0)
         XCTAssertLessThan(sum, 2 * timed.record.gpuMilliseconds / 1_000 + 2 * overhead, "\(timed.timings)")
     }
