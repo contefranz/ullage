@@ -104,8 +104,10 @@ left alone):
 - **What the composite does not haze:** anything drawn in P1-P3 nearer than
   the far side of the shell (vessels, sites, plumes, particles, the planet).
   Their shaders apply the froxels themselves, as Hillaire's forward path
-  does; the vessel pass (R2) and the plumes (P2) have not yet. Far points
-  (R1's FarPointPass) are not hazed.
+  does. The vessel pass (R2) does, in its shader's one exit (L × a +
+  in-scattered, on the opaque draws and the wires; docs/look/shading.md);
+  the plumes (P2) have not yet. Far points (R1's FarPointPass) are not
+  hazed.
 - **R3's probe:** `AtmosphereCompositePass.encodeProbe(f, on:, formats:,
   viewToWorld:, tanHalfFov:, faceSize:, preExposure:, depth:)` draws the sky
   the camera sees over a face of the probe's cube (radiance + transmittance ×

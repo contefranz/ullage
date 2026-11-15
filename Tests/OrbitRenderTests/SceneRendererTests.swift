@@ -16,7 +16,7 @@ final class SceneRendererTests: XCTestCase {
         XCTAssertEqual(r.failures, [:])
         XCTAssertEqual(r.graph.active.map(\.name), ["Exposure", "Atmosphere LUTs", "Clouds", "Particle simulation",
                                                     "Stars", "Planets", "Vessels", "Effect test opaque",
-                                                    "Particle chunks", "Atmosphere composite",
+                                                    "Particle chunks", "Atmosphere composite", "Vessel wires",
                                                     "Half-resolution transparents", "Plumes", "Far points",
                                                     "Transparent composite", "Effect test sparks", "Particles",
                                                     "HDR resolve", "Post", "Debug view", "Effect slots debug view",

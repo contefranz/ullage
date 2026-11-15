@@ -96,15 +96,18 @@ public final class SceneRenderer {
         let particles = particles ?? ParticleSystem()
         let slots = HalfResTransparentPass(effects: [clouds, ParticleSmokeEffect(system: particles), EffectTestEmitters()])
         let post = PostPass()
+        // R2's vessels, whose thin tubes blend over the sky after A2's composite.
+        let vessels = VesselPass()
+        let tiles = PlanetTilePass(loadsUserTiles: loadsUserTextures)
         return [
             // P0
             post.exposurePass, AtmosphereLUTPass(), clouds, ShadowPass(), EnvironmentProbePass(),
-            ParticleSimulationPass(system: particles),
+            ParticleSimulationPass(system: particles), tiles,
             // P1
-            StarPass(), PlanetPass(loadsUserTextures: loadsUserTextures), VesselPass(), ParticleChunkPass(system: particles),
-            EffectTestOpaquePass(),
+            StarPass(), PlanetPass(loadsUserTextures: loadsUserTextures, tiles: tiles), vessels,
+            ParticleChunkPass(system: particles), EffectTestOpaquePass(),
             // P2
-            AtmosphereCompositePass(),
+            AtmosphereCompositePass(), vessels.wirePass,
             // P3
             slots, PlumePass(), FarPointPass(), TransparentCompositePass(slots: slots), EffectTestSparksPass(),
             ParticleDrawPass(system: particles), EntryPass(), post.resolvePass,
