@@ -24,6 +24,10 @@
      "settings": {"debug": {"view": "sunShadow"}}},
     {"name": "r4-parking-orbit", "scenario": "as506-parking-orbit",
      "camera": {"yaw": -34.4, "pitch": 20, "distance": 45},
-     "settings": {"debug": {"view": "sunShadow"}}}
+     "settings": {"debug": {"view": "sunShadow"}}},
+    {"name": "r4-pad-west-shaded", "scenario": "as506-pad",
+     "camera": {"yaw": -120, "pitch": 30, "distance": 200}},
+    {"name": "r4-ml-deck-shaded", "scenario": "as506-pad",
+     "camera": {"yaw": -100, "pitch": 40, "distance": 75, "lens": "hasselblad80"}}
   ]
 }
