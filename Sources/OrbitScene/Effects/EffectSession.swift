@@ -58,8 +58,21 @@ public struct EffectFrameOutput {
     /// The render classes that may have particles alive: the others cost nothing.
     public var drawn: Set<ParticleRenderClass>
     public var materials: ParticleMaterialTable
-    /// Requests dropped this frame (too old, no anchor, over the budget), and particles in them.
+    /// Requests dropped this frame (too old, no anchor, over the budget).
     public var dropped: Int
+
+    public init(clock: EffectClock, resets: Bool, requests: [EmitRequest], anchors: [(id: EffectAnchorID, frame: AnchorFrame)],
+                airProfiles: [AirProfile], drawn: Set<ParticleRenderClass>, materials: ParticleMaterialTable,
+                dropped: Int = 0) {
+        self.clock = clock
+        self.resets = resets
+        self.requests = requests
+        self.anchors = anchors
+        self.airProfiles = airProfiles
+        self.drawn = drawn
+        self.materials = materials
+        self.dropped = dropped
+    }
 }
 
 /// One frame's handle for the producers: the scene, the clocks, the
