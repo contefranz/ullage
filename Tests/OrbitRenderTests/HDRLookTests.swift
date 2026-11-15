@@ -376,6 +376,9 @@ extension HDRLookTests {
                                       passes: SceneRenderer.defaultPasses(loadsUserTextures: false) + extra, plan: p)
             XCTAssertEqual(r.failures, [:])
             r.setStars(stars)
+            // R1's break alone: C2's clouds would break the scene too,
+            // through R6's slots, and the plain frame would not be plain.
+            r.settings.cloud.enabled = false
             r.profiling = timing
             r.profileInterval = 1
             timestamps = r.profiler.isSupported
