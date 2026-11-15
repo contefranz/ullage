@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import OrbitScene
+import OrbitRender
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -23,6 +24,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 struct OrbitSimApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
     @StateObject private var model = AppModel()
+
+    init() {
+        // `OrbitSim --selftest effects`: run P3's checks, print them and exit.
+        EffectsSelfTest.runIfAsked()
+    }
 
     var body: some Scene {
         // A single window: a second one would add a second renderer ticking the same simulation.
