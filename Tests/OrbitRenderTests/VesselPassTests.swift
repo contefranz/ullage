@@ -233,8 +233,10 @@ final class VesselPassTests: XCTestCase {
     /// Through the air, A2's way (`AtmosphereUniforms` with `radii.w` 1): the
     /// Sun's light per channel is the transmitted colour (unitless, A1's
     /// transmittance; here the pad's 7° Sun, (0.37, 0.18, 0.052)) times
-    /// its illuminance (w, lux), and the sky's irradiance replaces the
-    /// stand-in's. Each channel of white paint against the reference, 1 %.
+    /// its illuminance (w, lux), the sky's irradiance replaces the
+    /// stand-in's, and the ground below is lit by both (the transmitted Sun
+    /// at the disc's mean cosine, A2's sky). Each channel of white paint
+    /// against the reference, 1 %.
     func testSunlightThroughTheAirIsTransmittanceTimesLux() throws {
         let atmosphere = AtmosphereInjection()
         let device = try device()
@@ -260,15 +262,183 @@ final class VesselPassTests: XCTestCase {
                                            reflectance: e.reflectance, n: n, v: v)
         let light = StandInLighting.vessel(scene.vessels[0], in: scene)
         let floor = StandInLighting.floorIlluminance(light.floor, preExposure: Exposure.exposure(ev100: 15))
-        let earth = light.earthRadiance
-        for (c, t, s, b) in [(0, transmittance.0, sky.0, Double(earth.r)), (1, transmittance.1, sky.1, Double(earth.g)),
-                             (2, transmittance.2, sky.2, Double(earth.b))] {
+        // The ground (stand-in): its reflectance times the transmitted Sun
+        // at its mean cosine plus A2's sky.
+        let k = light.earthReflectance, mu = light.earthLitCosine, sunLux = scene.sun.illuminance
+        XCTAssertGreaterThan(mu, 0)
+        let ground = [Double(k.r) * (transmittance.0 * sunLux * mu + sky.0),
+                      Double(k.g) * (transmittance.1 * sunLux * mu + sky.1),
+                      Double(k.b) * (transmittance.2 * sunLux * mu + sky.2)]
+        for (c, t, s, b) in [(0, transmittance.0, sky.0, ground[0]), (1, transmittance.1, sky.1, ground[1]),
+                             (2, transmittance.2, sky.2, ground[2])] {
             let expected = ShadingReference.sun(point, toSun: toSun, rho: scene.sun.angularRadius,
                                                 e: t * scene.sun.illuminance)
                 + ShadingReference.environment(point, bodyDirection: light.earthDirection,
                                                bodySinSigma2: light.earthSinSigma2, bodyRadiance: b, uniform: s + floor)
             XCTAssertEqual(Double(pixels[centre + c]), expected, accuracy: 0.01 * expected, "channel \(c)")
         }
+    }
+
+    // MARK: Through A2's air
+
+    /// The app's renderer at a fixed EV, with no bloom, glare or dither (the
+    /// light as the scene holds it). EV 17 keeps the pre-exposed light small,
+    /// where R1's tone-mapped MSAA weights are nearly even.
+    func airRenderer(ev100: Double = 17) throws -> SceneRenderer {
+        let r = try floatRenderer()
+        var s = r.settings
+        s.post.exposure.ev100 = ev100
+        s.post.bloom = 0
+        s.post.sunGlare = false
+        s.post.dither = false
+        r.settings = s
+        XCTAssertEqual(r.failures, [:])
+        return r
+    }
+
+    /// A2's Apollo 8 dawn pad (the Sun 7° up), from the orbit camera's place
+    /// 400 m from the stack, looking `pitch` degrees above the horizon away
+    /// from the Sun, with the stack and the pad left out; its light for a
+    /// test vessel, and the view's forward, up and right (world).
+    func dawnPad(width: Int, height: Int, fovY: Double, pitch: Double = 10) throws
+        -> (scene: RenderScene, light: LegacyLight, forward: Vec3, up: Vec3, right: Vec3) {
+        let sim = Scenario.apollo8DawnPad.build(Self.system)
+        var camera = OrbitCamera()
+        if let focus = sim.focus { camera.target = .vessel(focus.id) }
+        camera.distance = 400
+        camera.fovY = fovY * Double.pi / 180
+        camera.update(sim: sim)
+        var scene = SceneExtractor().extract(sim: sim, camera: camera,
+                                             viewport: RenderScene.Viewport(width: Double(width), height: Double(height)),
+                                             realTime: 0)
+        let light = try XCTUnwrap(scene.vessels.first { $0.isFocus }).light
+        scene.vessels = []
+        scene.sites = []
+        let earth = try XCTUnwrap(scene.bodies.first { $0.id == 399 })
+        let zenith = (-earth.position).normalized, toSun = scene.sun.direction
+        let away = -(toSun - zenith * toSun.dot(zenith)).normalized
+        let angle = pitch * Double.pi / 180
+        let forward = (away * cos(angle) + zenith * sin(angle)).normalized
+        let right = zenith.cross(-forward).normalized, up = (-forward).cross(right)
+        scene.camera.worldToView = Mat3(rows: right, up, -forward)
+        return (scene, light, forward, up, right)
+    }
+
+    /// A one-part vessel of `shapes` (world axes) at camera-relative
+    /// `position`, lit by `light`.
+    func testVessel(_ shapes: [VisualShape], at position: Vec3, light: LegacyLight) -> RenderScene.Vessel {
+        let part = VesselPart(name: "Test", dryMass: 1, length: 1, radius: 10, shapes: shapes)
+        let vessel = Vessel(name: "Test", parts: [part], reference: Self.system.earth)
+        var v = LookDevScenes.scene(vessel, at: position, attitude: .identity, fovY: 20, width: 8, height: 8).vessels[0]
+        v.light = light
+        return v
+    }
+
+    /// Thin tubes blend over A2's sky at their coverage. A2 draws the sky in
+    /// P2 where the scene has no depth, which a blended wire does not write,
+    /// so the wires wait for it (`VesselWirePass`). At the dawn pad, a dark
+    /// tube 50 m away against the sky 10° up:
+    /// - 0.1 m in radius (1.45 px, coverage 1): each row's pixel on its axis
+    ///   is the same tube drawn opaque, within 2 % (drawn before the sky, it
+    ///   was the sky plus the tube);
+    /// - 1.45 cm (0.21 px, coverage 0.3): what it takes from the sky, summed
+    ///   over 141 rows and 9 columns about its axis, is the opaque tube's
+    ///   scaled by the radii's ratio, within 8 % (before, the wire added its
+    ///   light to the sky's, a dark wire reading brighter than the sky).
+    /// Tilted 5° on screen so the rows sample the pixels' every offset.
+    func testWiresBlendOverTheSkyOfTheAir() throws {
+        let (w, h, fovY) = (128, 256, 20.0)
+        let pad = try dawnPad(width: w, height: h, fovY: fovY)
+        let r = try airRenderer()
+        let distance = 50.0, length = 12.0, tilt = 5 * Double.pi / 180
+        let pixel = 2 * distance * tan(fovY / 2 * Double.pi / 180) / Double(h)
+        let axis = (pad.up * cos(tilt) + pad.right * sin(tilt)).normalized
+        func tube(_ radius: Double) -> VisualShape {
+            var t = VisualShape.frustum(from: axis * (-length / 2), length: length, baseRadius: radius,
+                                        topRadius: radius, axis: axis, color: (0.03, 0.03, 0.03))
+            t.material = .apolloLESTower
+            return t
+        }
+        func light(_ radius: Double?, wires: Bool = true) throws -> [Float] {
+            var scene = pad.scene
+            if let radius {
+                XCTAssertTrue(PartMesh.isWire(tube(radius)))
+                scene.vessels = [testVessel([tube(radius)], at: pad.forward * distance, light: pad.light)]
+            }
+            var s = r.settings
+            s.shading.wireMinimumRadius = wires ? 0.7 : 0
+            r.settings = s
+            return try renderFloat(scene, renderer: r)
+        }
+        let wide = 0.1, thin = 0.3 * 0.7 * pixel
+        XCTAssertGreaterThan(wide / pixel, 1.2, "the wide tube covers its axis's pixels")
+        let sky = try light(nil), opaque = try light(wide, wires: false), wire = try light(wide), faint = try light(thin)
+        let rows = (h / 2 - 70)...(h / 2 + 70)
+        // The axis's column on row y (pixel centres at + 0.5).
+        func axisColumn(_ y: Int) -> Int { Int((Double(w) / 2 + (Double(h) / 2 - Double(y) - 0.5) * tan(tilt)).rounded(.down)) }
+        var worst = 0.0, contrast = [0.0, 0.0, 0.0], taken = [0.0, 0.0, 0.0], expected = [0.0, 0.0, 0.0]
+        for y in rows {
+            let x = axisColumn(y)
+            for c in 0..<3 {
+                let i = 4 * (y * w + x) + c
+                let o = Double(opaque[i]), s = Double(sky[i])
+                worst = max(worst, abs(Double(wire[i]) - o) / max(o, 1e-3 * s))
+                contrast[c] += (s - o) / s / Double(rows.count)
+                for dx in -4...4 {
+                    let j = 4 * (y * w + x + dx) + c
+                    taken[c] += Double(faint[j]) - Double(sky[j])
+                    expected[c] += (thin / wide) * (Double(opaque[j]) - Double(sky[j]))
+                }
+            }
+        }
+        for c in 0..<3 { XCTAssertGreaterThan(contrast[c], 0.3, "the tube is darker than the sky, channel \(c)") }
+        XCTAssertLessThan(worst, 0.02, "at coverage 1 the wire is the opaque tube")
+        for c in 0..<3 {
+            XCTAssertLessThan(expected[c], 0)
+            XCTAssertEqual(taken[c], expected[c], accuracy: 0.08 * abs(expected[c]), "coverage 0.3, channel \(c)")
+        }
+    }
+
+    /// The air between a vessel and the camera (A2's froxels): at the dawn
+    /// pad, a white plate a few kilometres away, at a slice's distance, is
+    /// the same plate 40 m away times the air's transmittance plus its
+    /// in-scattered light, from A2's march to that slice (within 4 %); and
+    /// the air there takes more than a tenth of its light.
+    func testAerialPerspectiveHazesTheVessel() throws {
+        let (w, h, fovY) = (64, 64, 10.0)
+        let pad = try dawnPad(width: w, height: h, fovY: fovY)
+        let r = try airRenderer()
+        let lut = try XCTUnwrap(AtmosphereTables.shared.tables(wait: true))
+        let frame = try XCTUnwrap(AtmosphereFrame(scene: pad.scene, tables: lut,
+                                                  froxelSlices: r.settings.atmosphere.froxelSlices,
+                                                  froxelExponent: r.settings.atmosphere.froxelExponent))
+        let slice = try XCTUnwrap((0..<frame.froxels.count).first { frame.froxels.distance(slice: $0) > 3_000 })
+        let far = frame.froxels.distance(slice: slice), near = 40.0
+        func plate(at d: Double) throws -> [Float] {
+            let k = d / near
+            var p = VisualShape.box(from: pad.forward * (0.05 * k), length: 0.05 * k, width: 2 * k, height: 2 * k,
+                                    axis: -pad.forward, color: (0.8, 0.8, 0.8))
+            p.material = .apolloWhitePaint
+            var scene = pad.scene
+            scene.vessels = [testVessel([p], at: pad.forward * d, light: pad.light)]
+            return try renderFloat(scene, renderer: r)
+        }
+        let close = try plate(at: near), distant = try plate(at: far)
+        let x = w / 2, y = h / 2, i = 4 * (y * w + x)
+        let c = pad.scene.camera, t = tan(c.fovY / 2)
+        let u = (Double(x) + 0.5) / Double(w), v = (Double(y) + 0.5) / Double(h)
+        let d = (c.worldToView.transposed * Vec3((2 * u - 1) * t, (1 - 2 * v) * t, -1)).normalized
+        let m = AtmosphereMarch.froxel(lut, origin: frame.camera, direction: frame.figureDirection(d),
+                                       slices: frame.froxels, slice: slice, steps: r.settings.atmosphere.froxelSteps,
+                                       sun: frame.sun, cosView: d.dot(pad.scene.sun.direction))
+        let scale = frame.solarScale
+        let mean = (m.transmittance.r + m.transmittance.g + m.transmittance.b) / 3
+        let inScattered = [m.radiance.r * scale.r, m.radiance.g * scale.g, m.radiance.b * scale.b]
+        for ch in 0..<3 {
+            let want = Double(close[i + ch]) * mean + inScattered[ch]
+            XCTAssertEqual(Double(distant[i + ch]), want, accuracy: 0.04 * want, "channel \(ch), \(Int(far)) m")
+        }
+        XCTAssertLessThan(mean, 0.9, "the air between takes a tenth of the light")
     }
 
     /// The heat shield's glow is a luminance (R1's grey body,

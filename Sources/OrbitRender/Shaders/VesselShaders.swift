@@ -100,7 +100,7 @@ struct VesselObject {
     float4 sun;             // xyz: unit, to the Sun (world), w: its visible share
     float4 sunDisc;         // x: cos, y: sin of its angular radius, z: 1 area light
     float4 body;            // xyz: unit, to the reference body's centre, w: sin^2 of its angular radius
-    float4 bodyRadiance;    // rgb: its lit disc's radiance (cd/m2)
+    float4 bodyRadiance;    // rgb: its ground's reflectance (albedo x colour / pi), w: the Sun's mean cosine over the disc
     float4 sky;             // rgb: the sky's uniform irradiance (lux), stand-in until A2
     float4 floor_;          // rgb: the night floor (lux; a fixed share of the exposure), stand-in until R3
     float4 glow;            // rgb: heat-shield glow (cd/m2)
@@ -177,6 +177,7 @@ fragment float4 vessel_fragment(VesselOut in [[stage_in]], bool front [[front_fa
                                 texturecube<float> irradianceCube [[texture(ORBIT_TEXTURE_ENV_IRRADIANCE)]],
                                 texture2d<float> dfgLUT [[texture(ORBIT_TEXTURE_DFG_LUT)]],
                                 depth2d_array<float> shadowAtlas [[texture(ORBIT_TEXTURE_SHADOW_ATLAS)]],
+                                texture3d<float> froxels [[texture(ORBIT_TEXTURE_AERIAL_PERSPECTIVE)]],
                                 sampler linear [[sampler(ORBIT_SAMPLER_LINEAR_CLAMP)]],
                                 sampler shadowCompare [[sampler(ORBIT_SAMPLER_SHADOW_COMPARE)]]) {
     VesselSurface s;
@@ -208,10 +209,12 @@ fragment float4 vessel_fragment(VesselOut in [[stage_in]], bool front [[front_fa
                                              object.shading.w > 0.5);
     // The Sun: through the air when A2 gives its transmission. ShaderCommon's
     // `sunTransmitted` is the transmitted colour (rgb, unitless: A1's
-    // transmittance, e.g. (0.37, 0.18, 0.052) for the pad's 7° Sun) and the
-    // illuminance it scales (w, lux): the lux per channel is their product.
-    float3 sunLux = (air.radii.w > 0.5 && air.sunTransmitted.w > 0.0) ? air.sunTransmitted.rgb * air.sunTransmitted.w
-                                                                       : f.sunIlluminance.rgb;
+    // transmittance times R1's 5772 K colour at unit luminance; the
+    // transmittance is (0.37, 0.18, 0.052) for the pad's 7° Sun) and the
+    // illuminance it scales (w, lux above the air): the lux per channel is
+    // their product.
+    bool withAir = air.radii.w > 0.5 && air.sunTransmitted.w > 0.0;
+    float3 sunLux = withAir ? air.sunTransmitted.rgb * air.sunTransmitted.w : f.sunIlluminance.rgb;
     float shadow = orbit_sunShadow(in.world, s.normal, lighting, shadowAtlas, shadowCompare);
     float3 c = orbit_sunLight(p, object.sun.xyz, object.sunDisc.x, object.sunDisc.y, object.sunDisc.z > 0.5,
                               sunLux * (object.sun.w * shadow));
@@ -223,11 +226,27 @@ fragment float4 vessel_fragment(VesselOut in [[stage_in]], bool front [[front_fa
     OrbitStandInEnvironment standIn;
     standIn.bodyDirection = object.body.xyz;
     standIn.bodySinSigma2 = object.body.w;
-    standIn.bodyRadiance = object.bodyRadiance.rgb;
+    // The ground (stand-in until R3): its reflectance times the light on
+    // it, the Sun at the disc's mean cosine and, in air, A2's sky. The Sun
+    // reaches the ground through the air as it reaches the camera while the
+    // camera is in the air (its upper fifth hands over to the Sun above it,
+    // so a crescent lit beyond the camera's night still shows from orbit).
+    float3 groundSun = f.sunIlluminance.rgb, groundSky = float3(0.0);
+    if (withAir) {
+        float height = max(air.radii.y - air.radii.x, 1.0);
+        groundSun = mix(sunLux, f.sunIlluminance.rgb, smoothstep(0.8, 1.0, air.radii.z / height));
+        groundSky = air.skyIrradiance.rgb;
+    }
+    standIn.bodyRadiance = object.bodyRadiance.rgb * (groundSun * object.bodyRadiance.w + groundSky);
     float3 sky = air.radii.w > 0.5 ? air.skyIrradiance.rgb : object.sky.rgb;
     standIn.uniform_ = sky + object.floor_.rgb;
     c += orbit_environmentLight(p, ao, lighting, standIn, specularCube, irradianceCube, linear);
     c += m.emission;
+
+    // A2's aerial perspective: the air between the surface and the camera
+    // dims its light and adds its own (none without air).
+    float4 haze = atmo_aerialPerspective(froxels, linear, in.position.xy * f.viewport.zw, length(in.world), air);
+    c = c * haze.a + haze.rgb;
 
     // Linear light, pre-exposed: R1's resolve weights the samples.
     return float4(orbit_exposed(c, object.shading.x), in.coverage * m.coverage);
@@ -240,7 +259,7 @@ extension ShaderHeader {
 
 extension ShaderModule {
     public static let vessel = ShaderModule(name: "Vessel",
-                                            headers: [.shadowCommon, .lightingCommon, .vesselSurface, .vesselPaint,
-                                                      .vesselMaterial],
+                                            headers: [.shadowCommon, .atmosphereCommon, .lightingCommon,
+                                                      .vesselSurface, .vesselPaint, .vesselMaterial],
                                             source: vesselShaderSource)
 }

@@ -278,14 +278,17 @@ struct AOBakeID: Equatable {
     let settings: AmbientOcclusionSettings
 }
 
-/// A part's identity in the cache: the object, guarded by what it draws (a
-/// new part at a freed part's address is not taken for it).
+/// A part's identity in the cache: the object, guarded by everything it
+/// draws (a new part at a freed part's address is not taken for it unless
+/// it draws the same: its shapes' kinds and sizes too, not only where they
+/// sit).
 struct PartKey: Hashable {
     let id: ObjectIdentifier
     let name: String
     let variant: ApolloVariant?
     let shapes: [Double]
     let materials: [String]
+    let kinds: [String]
 
     init(_ p: VesselGeometry.Part) {
         id = p.id
@@ -294,10 +297,12 @@ struct PartKey: Hashable {
         var shapes: [Double] = []
         for s in p.shapes {
             shapes += [s.origin.x, s.origin.y, s.origin.z, s.axis.x, s.axis.y, s.axis.z, s.length,
-                       s.color.0, s.color.1, s.color.2, s.twoSided ? 1 : 0]
+                       s.reference.x, s.reference.y, s.reference.z, s.color.0, s.color.1, s.color.2,
+                       s.twoSided ? 1 : 0, s.capBase ? 1 : 0, s.capTop ? 1 : 0, s.faceted ? 1 : 0]
         }
         self.shapes = shapes
         materials = p.shapes.map(\.material.rawValue)
+        kinds = p.shapes.map { "\($0.kind) \($0.surfaceFrame) \($0.emissive) \($0.thruster ?? "")" }
     }
 }
 

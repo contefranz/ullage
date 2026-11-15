@@ -76,11 +76,13 @@ final class ShadingStandInTests: XCTestCase {
         XCTAssertEqual(PlumeLights.emissivity(.coldGas, sootIndex: 0), 0)
     }
 
-    /// The vessel stand-in is M1.5's lighting in lux: the Earth disc's
-    /// radiance times the sphere's view factor gives M1.5's
-    /// albedo (R/r)² × lit × cos θ × E⊙, and the sky is M1.5's term times
-    /// E⊙. The night floor stays relative to the exposure: 0.02 of its
-    /// white on a white surface, whatever the exposure.
+    /// The vessel stand-in is M1.5's lighting in lux, with the ground lit
+    /// at the Sun's mean cosine over the disc instead of M1.5's lit share:
+    /// the Earth disc's radiance times the sphere's view factor gives
+    /// albedo (R/r)² × mean cosine × cos θ × R1's Sun, and the sky is
+    /// M1.5's term times E⊙. The night floor stays relative to the
+    /// exposure: 0.02 of its white on a white surface, whatever the
+    /// exposure.
     func testVesselStandInIsTheLegacyLightInLux() throws {
         let s = try scene("as506-parking-orbit")
         let v = try XCTUnwrap(s.vessels.first)
@@ -89,12 +91,16 @@ final class ShadingStandInTests: XCTestCase {
         XCTAssertEqual(l.sunlit, v.light.sunlit)
         XCTAssertGreaterThan(l.earthSinSigma2, 0.9, "the Earth fills most of the lower sky at 185 km")
         XCTAssertLessThan(l.earthSinSigma2, 1)
+        XCTAssertEqual(l.earthLitCosine, StandInLighting.litCosine(toBody: l.earthDirection,
+                                                                   sinSigma2: l.earthSinSigma2, toSun: l.toSun))
+        XCTAssertEqual(Double(l.earthReflectance.g), 0.3 * Double(v.light.earthColor.g) / Double.pi, accuracy: 1e-7)
         // Facing the nadir the whole disc is above the horizon: M1.5's
-        // value. Tilted, the horizon cuts the disc, where M1.5's cos θ
-        // undercounts what stays visible.
+        // value with the mean cosine for the lit share. Tilted, the horizon
+        // cuts the disc, where M1.5's cos θ undercounts what stays visible.
+        let sun = e * Photometry.sunColor.g * l.earthLitCosine
         for theta in [0.0, 0.3, 0.6, 1.4] {
             let fromDisc = Double(l.earthRadiance.g) * BRDF.sphereIrradiance(cosTheta: cos(theta), sinSigma2: l.earthSinSigma2)
-            let legacy = e * v.light.earthStrength * v.light.earthLit * Double(v.light.earthColor.g) * cos(theta)
+            let legacy = sun * v.light.earthStrength * Double(v.light.earthColor.g) * cos(theta)
             if theta == 0 {
                 XCTAssertEqual(fromDisc, legacy, accuracy: 1e-3 * max(legacy, 1))
             } else {
@@ -109,9 +115,9 @@ final class ShadingStandInTests: XCTestCase {
         XCTAssertEqual(l.sky, e * v.light.sky, accuracy: 1e-9 * e)
     }
 
-    /// The pad's light: the Sun's share from its elevation, the ground's
-    /// lit radiance below (albedo 0.3), sea-level sky in daylight; at the
-    /// AS-506 launch the Sun stands well up.
+    /// The pad's light: the Sun's share from its elevation, the ground
+    /// below (albedo 0.3) lit at the Sun's elevation's sine, sea-level sky
+    /// in daylight; at the AS-506 launch the Sun stands well up.
     func testSiteStandIn() throws {
         let s = try scene("as506-pad", sites: [LC39A.placement()])
         let site = try XCTUnwrap(s.sites.first)
@@ -119,7 +125,11 @@ final class ShadingStandInTests: XCTestCase {
         XCTAssertEqual(l.sunlit, 1)
         XCTAssertEqual(l.earthSinSigma2, 1)
         XCTAssertEqual(l.earthDirection.dot(site.orientation.c2), -1, accuracy: 1e-9)
-        XCTAssertEqual(Double(l.earthRadiance.r), s.sun.illuminance * 0.3 * 0.78 / Double.pi, accuracy: 1)
+        let elevation = site.orientation.c2.normalized.dot(s.sun.direction)
+        XCTAssertGreaterThan(elevation, 0.3)
+        XCTAssertEqual(l.earthLitCosine, elevation, accuracy: 1e-9, "flat ground: the Sun's elevation's sine")
+        XCTAssertEqual(Double(l.earthRadiance.r),
+                       s.sun.illuminance * Photometry.sunColor.r * elevation * 0.3 * 0.78 / Double.pi, accuracy: 1)
         XCTAssertGreaterThan(l.sky, 0.1 * s.sun.illuminance, "a clear morning sky")
         // The same site with the Sun turned below its horizon.
         var night = s
@@ -129,9 +139,40 @@ final class ShadingStandInTests: XCTestCase {
         XCTAssertEqual(dark.sky, 0)
         XCTAssertEqual(dark.floor, 0.02, "the night floor stays")
         XCTAssertEqual(Double(dark.earthRadiance.g), 0)
+        XCTAssertEqual(dark.earthLitCosine, 0)
         // A whole lower half-space: π (1 + cos θ) / 2 of its radiance.
         XCTAssertEqual(BRDF.sphereIrradiance(cosTheta: 0, sinSigma2: 1), Double.pi / 2, accuracy: 1e-6)
         XCTAssertEqual(BRDF.sphereIrradiance(cosTheta: 1, sinSigma2: 1), Double.pi, accuracy: 1e-6)
+    }
+
+    /// The Sun's mean cosine over a sphere's disc, against closed forms: on
+    /// the ground the Sun's elevation's sine; from afar the Lambert disc's
+    /// 2/3 at full phase and 2/(3π) at quarter phase, 0 when new; from low
+    /// orbit under a Sun at the zenith, between the cosine at the disc's
+    /// edge, cos γ (γ = acos(R/r) from the centre), and 1.
+    func testLitCosine() {
+        let down = -Vec3.unitZ
+        for elevation in [-0.2, 0.0, 0.12, 0.5, 1.2] {
+            let toSun = Vec3(cos(elevation), 0, sin(elevation))
+            XCTAssertEqual(StandInLighting.litCosine(toBody: down, sinSigma2: 1, toSun: toSun), max(sin(elevation), 0),
+                           accuracy: 1e-12, "ground, elevation \(elevation)")
+        }
+        let far = 1e-6
+        XCTAssertEqual(StandInLighting.litCosine(toBody: down, sinSigma2: far, toSun: .unitZ), 2.0 / 3, accuracy: 0.005)
+        XCTAssertEqual(StandInLighting.litCosine(toBody: down, sinSigma2: far, toSun: .unitX), 2 / (3 * Double.pi),
+                       accuracy: 0.005)
+        XCTAssertEqual(StandInLighting.litCosine(toBody: down, sinSigma2: far, toSun: down), 0, accuracy: 1e-12)
+        let r = 6_556_000.0, radius = 6_371_000.0
+        let leo = StandInLighting.litCosine(toBody: down, sinSigma2: pow(radius / r, 2), toSun: .unitZ)
+        XCTAssertGreaterThan(leo, radius / r)
+        XCTAssertLessThan(leo, 1)
+        // The terminator through the nadir: half the disc lit, the Sun on
+        // the horizon at the nadir and at most γ (14°) up at the disc's
+        // edge, which takes little of the solid angle; M1.5's lit share
+        // gave this ground half the light of a noon one.
+        let terminator = StandInLighting.litCosine(toBody: down, sinSigma2: pow(radius / r, 2), toSun: .unitX)
+        XCTAssertGreaterThan(terminator, 0.005)
+        XCTAssertLessThan(terminator, sin(acos(radius / r)) / Double.pi)
     }
 
     /// Every finish the dressed Apollo vehicles and the pad use has its own

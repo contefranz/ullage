@@ -19,6 +19,12 @@ import OrbitScene
 /// - **Ambient occlusion:** R5's bakes (`AmbientOcclusionBaker`), in the
 ///   background as the app draws, or before the frame
 ///   (`ShadingSettings.waitForAmbientOcclusion`) for snapshots.
+/// - **Air:** A2's aerial perspective (the froxels, slot 30) between each
+///   surface and the camera, in the shader's one exit.
+/// - **Wires:** the thin tubes (phone-wire AA) blend at their coverage over
+///   what is behind them, so they wait for the sky: `wirePass` draws them
+///   in P2 after A2's composite. Without it in the graph they blend at the
+///   end of this pass, over what P1 has drawn.
 /// - **Output:** linear radiance times the frame's pre-exposure (R1's
 ///   `FrameUniforms.exposure.x`); R1's resolve weights the samples.
 @MainActor
@@ -40,8 +46,15 @@ public final class VesselPass: RenderPass {
     /// The renderer's clock at the last frame: while it stands still (a
     /// snapshot, a test) no bake is asked for, since none could fade in.
     private var lastRealTime: Double?
+    /// The frame's wires, handed from this pass to `wirePass`.
+    private let held = HeldWires()
+    /// Draws this pass's wires in P2, over A2's sky (add it to the graph
+    /// with the pass, as `SceneRenderer.defaultPasses` does).
+    public let wirePass: VesselWirePass
 
-    public init() {}
+    public init() {
+        wirePass = VesselWirePass(held)
+    }
 
     deinit {
         // Bakes still queued are dropped; one already running ends unseen
@@ -127,6 +140,7 @@ public final class VesselPass: RenderPass {
         enc.setFragmentBytes(&lights, length: MemoryLayout<LocalLight>.stride * lights.count, index: 5)
         let shading = SIMD4<Float>(f.frame.exposure.x, Float(lightCount), settings.specularAntiAliasing ? 1 : 0,
                                    settings.multipleScattering ? 1 : 0)
+        held.frame = nil
         let draw = Drawing(encoder: enc, opaque: opaque, wire: wire, dummy: dummy,
                            wireRadius: Float(settings.wireMinimumRadius))
         let frustum = Frustum(f.scene.camera)
@@ -164,7 +178,17 @@ public final class VesselPass: RenderPass {
             drawCanopies(of: v, f: f, draw: draw, materials: materials)
         }
         drawSites(f, draw: draw, materials: materials, shading: shading, settings: settings, frustum: frustum)
-        draw.drawWires(depth: f.states.depthReadOnly, then: f.states.depthWrite)
+        let wires = draw.takeWires()
+        if !wires.isEmpty {
+            let frame = HeldWires.Frame(wires: wires, pipeline: wire, materials: materials.buffer, paints: paints,
+                                        lights: lights, dfg: dfg)
+            if held.drawnLater {
+                held.frame = frame
+            } else {
+                frame.draw(on: enc, depth: f.states.depthReadOnly)
+                enc.setDepthStencilState(f.states.depthWrite)
+            }
+        }
         enc.setCullMode(.none)
     }
 
@@ -220,10 +244,12 @@ public final class VesselPass: RenderPass {
                        shading: SIMD4<Float>) -> VesselObjectGPU {
         let rho = scene.sun.angularRadius
         let floor = Float(StandInLighting.floorIlluminance(l.floor, preExposure: Double(shading.x)))
+        let reflectance = l.earthReflectance
         return VesselObjectGPU(sun: SIMD4(l.toSun, Float(l.sunlit)),
                                sunDisc: SIMD4(Float(cos(rho)), Float(sin(rho)), settings.sunDiscAreaLight ? 1 : 0, 0),
                                body: SIMD4(l.earthDirection, Float(l.earthSinSigma2)),
-                               bodyRadiance: SIMD4(SIMD3(l.earthRadiance), 0),
+                               bodyRadiance: SIMD4(reflectance.r, reflectance.g, reflectance.b,
+                                                   Float(l.earthLitCosine)),
                                sky: SIMD4(repeating: Float(l.sky)), floor: SIMD4(repeating: floor),
                                glow: SIMD4(SIMD3(l.glow), 0), flow: SIMD4(l.flowDirection, 0), shading: shading)
     }
@@ -390,9 +416,9 @@ struct Frustum {
     }
 }
 
-/// Draws part meshes with the pass's pipelines and states. Thin tubes wait
-/// until the opaque geometry is down (`drawWires`): they blend over it,
-/// depth-tested, without writing depth.
+/// Draws part meshes with the pass's pipelines and states. Thin tubes are
+/// held back (`takeWires`) to blend over what lies behind them once that
+/// is drawn, depth-tested, without writing depth (`HeldWires`).
 @MainActor
 final class Drawing {
     let encoder: MTLRenderCommandEncoder
@@ -467,17 +493,18 @@ final class Drawing {
         if wireRadius > 0 { wires.append(w) } else { draw(w, pipeline: opaque) }
     }
 
-    /// The wires held back, blended over what is drawn; then the opaque
-    /// state again for the passes after.
-    func drawWires(depth: MTLDepthStencilState, then opaqueDepth: MTLDepthStencilState) {
-        guard !wires.isEmpty else { return }
-        encoder.setDepthStencilState(depth)
-        for w in wires { draw(w, pipeline: wire) }
-        encoder.setDepthStencilState(opaqueDepth)
-        wires = []
+    /// The wires held back this frame, for `HeldWires`.
+    func takeWires() -> [Wire] {
+        defer { wires = [] }
+        return wires
     }
 
     private func draw(_ w: Wire, pipeline: MTLRenderPipelineState) {
+        Self.draw(w, pipeline: pipeline, on: encoder)
+    }
+
+    /// One held draw on `encoder`, with its own uniforms.
+    static func draw(_ w: Wire, pipeline: MTLRenderPipelineState, on encoder: MTLRenderCommandEncoder) {
         var u = w.uniforms, o = w.object
         encoder.setRenderPipelineState(pipeline)
         encoder.setCullMode(w.culled ? .back : .none)
@@ -496,6 +523,68 @@ final class Drawing {
         var r = m
         r.columns.3 = SIMD4(0, 0, 0, 1)
         return r
+    }
+}
+
+/// The vessel pass's wires of one frame, handed from P1 to
+/// `VesselWirePass` with what their draws bind besides their own uniforms.
+@MainActor
+final class HeldWires {
+    struct Frame {
+        var wires: [Drawing.Wire]
+        var pipeline: MTLRenderPipelineState
+        var materials: MTLBuffer
+        var paints: [VesselPaintGPU]
+        var lights: [LocalLight]
+        var dfg: MTLTexture
+
+        /// Blends the wires over what `encoder`'s targets hold, depth-tested
+        /// against the scene without writing depth.
+        @MainActor func draw(on encoder: MTLRenderCommandEncoder, depth: MTLDepthStencilState) {
+            var paints = paints, lights = lights
+            encoder.setFragmentBuffer(materials, offset: 0, index: 0)
+            encoder.setFragmentBytes(&paints, length: MemoryLayout<VesselPaintGPU>.stride * paints.count, index: 3)
+            encoder.setFragmentBytes(&lights, length: MemoryLayout<LocalLight>.stride * lights.count, index: 5)
+            encoder.setFragmentTexture(dfg, index: Binding.dfgLUT)
+            encoder.setDepthStencilState(depth)
+            encoder.setFrontFacing(.counterClockwise)
+            for w in wires { Drawing.draw(w, pipeline: pipeline, on: encoder) }
+            encoder.setCullMode(.none)
+        }
+    }
+
+    /// True once `VesselWirePass` is set up in the graph: the vessel pass
+    /// then leaves its wires to it.
+    var drawnLater = false
+    /// This frame's, from the vessel pass; nil once drawn.
+    var frame: Frame?
+}
+
+/// The vessel pass's wires (the LES truss, struts, risers, the pad's thin
+/// members), drawn in P2 after A2's sky composite (order 0). They blend at
+/// their coverage, c × light + (1 − c) × what is behind, so what is behind
+/// has to be final there: the composite draws the sky only where the scene
+/// has no depth, which a blended wire does not write. Their light passes
+/// through the air by A2's froxels in the vessel shader, as the opaque
+/// draws' does. Track R2's, made by `VesselPass` (`wirePass`).
+@MainActor
+public final class VesselWirePass: RenderPass {
+    public let name = "Vessel wires"
+    public let stage = PassStage.composite
+    public let order = 10
+    private let held: HeldWires
+
+    init(_ held: HeldWires) { self.held = held }
+
+    public func setUp(_ s: PassSetup) throws { held.drawnLater = true }
+
+    /// Runs where the vessel pass may hold wires: a scene with a vessel or a site.
+    public func isActive(in f: FrameContext) -> Bool { !f.scene.vessels.isEmpty || !f.scene.sites.isEmpty }
+
+    public func encode(_ f: FrameContext, _ e: PassEncoding) {
+        guard case .render(let enc) = e, let frame = held.frame else { return }
+        held.frame = nil
+        frame.draw(on: enc, depth: f.states.depthReadOnly)
     }
 }
 
