@@ -186,34 +186,43 @@ steady (reprojecting) and fresh (every texel marched, as at 10× warp):
 
 | Shot | Steady | Fresh |
 |---|---|---|
-| Pad (AS-506) | 3.0 ms | 5.4 ms |
-| Ascent, 60 s | 2.6 ms | 4.4 ms |
-| LEO | 1.9 ms | 4.3 ms |
+| Pad (AS-506) | 2.3-3.0 ms | 5.0-5.4 ms |
+| Ascent, 60 s | 2.0-2.6 ms | 4.2-4.4 ms |
+| LEO | 1.5-1.9 ms | 3.8-4.3 ms |
 | Earth from 22,000 km | under 0.1 ms | under 0.1 ms |
 
 With every default pass (`ORBITSIM_CLOUD_COST_FULL=1`), the clouds add the
-following (steady, two runs). R6's slots cost 0.85-1.1 ms of it whenever
-anything draws through them, even a tiny test slab
-(`ORBITSIM_CLOUD_COST_R6=1`; R1's #70 resolves the scene at the break), so
-the clouds' own share is the difference:
+following (steady; three runs for the pad and LEO, one for the others).
+R6's slots cost 0.85-1.1 ms of it whenever anything draws through them,
+even a tiny test slab (`ORBITSIM_CLOUD_COST_R6=1`; R1's #70 resolves the
+scene at the break), so the clouds' own share is the difference:
 
 | Shot | Clouds added | R6's slots | Clouds' own (budget) |
 |---|---|---|---|
-| Pad | 3.8 ms | 0.9 ms | 2.9 ms (3.0) |
-| Ascent, 60 s | 3.5 ms | 0.85 ms | 2.7 ms |
-| LEO | 3.7-3.8 ms | 1.0-1.1 ms | 2.7 ms (2.0: over) |
-| Earth from 22,000 km | 1.7-1.9 ms | 0.8 ms | 1.0 ms |
+| Pad | 2.4-2.6 ms | 0.9 ms | 1.5-1.7 ms (3.0) |
+| Ascent, 60 s | 2.0 ms | 0.85 ms | 1.2 ms |
+| LEO | 2.6-2.9 ms | 1.0-1.1 ms | 1.5-1.9 ms (2.0) |
+| Earth from 22,000 km | 1.7 ms | 0.8 ms | 0.9 ms |
 
 - Fresh frames add about 1 ms. Run to run the full frame varies by about
-  0.3 ms.
-- **LEO is over its budget with A2 in the frame.** With A2 off in both
-  frames (`ORBITSIM_CLOUD_COST_NO_AIR=1`) the clouds' own share in LEO is
-  1.3-1.5 ms. Their own use of the air does not explain the difference:
-  - their haze (one froxel lookup per texel) measures nothing in LEO and
-    0.3-0.4 ms on the pad (a build with it disabled);
-  - the far layer and the shadow map are 0.1 ms or less there.
-  The rest appears only when both draw; finding it wants a GPU capture
-  (Open).
+  0.3 ms, the P0 pass alone by up to 0.7 ms (the ranges above).
+- LEO is within its budget, but not by much at the top of its range.
+- **The march has a GPU pass of its own.** Apple's driver merges
+  consecutive compute encoders into one GPU pass, and an encoder that
+  depends on any part of it waits for all of it. A Metal System Trace
+  (`xctrace`, the LEO shot) showed A2's LUTs and the march merged into one
+  pass, "Atmosphere LUTs & Clouds". P1's planet pass reads the LUTs, so it
+  waited for the march's 2 ms: the clouds added 1.2 ms more with A2 in the
+  frame than without, for the same GPU work. CloudPass now encodes the
+  weather and shadow maps (which P1 reads through slot 24), then a
+  one-command blit, the march and resolve, and another blit. The march
+  then overlaps P1. The clouds' addition went from 3.7-4.0 ms to 2.6-2.9 ms
+  in LEO, from 3.3-3.8 ms to 2.4-2.6 ms on the pad and from 3.5 ms to
+  2.0 ms in the ascent (`testMarchHasAGPUPassOfItsOwn` keeps the encoders
+  apart).
+- The clouds' haze (one froxel lookup per texel) measures nothing in LEO
+  and 0.3-0.4 ms on the pad (a build with it disabled); the far layer and
+  the shadow map are 0.1 ms or less in LEO.
 - The far layer is evaluated only for rays that meet a layer's shell before
   the ground: under the cloud base, the downward rays used to evaluate it
   over the whole ground (1.4 ms on the pad) only for the depth cut to drop
@@ -252,10 +261,6 @@ the clouds' own share is the difference:
   (`c2-near.json`), the views from between the layers, and the aerial
   perspective (A2's froxels, and beyond their reach A2's haze from space).
   Open: the detail erosion up close wants tuning against photographs.
-- **LEO's cost with A2:** the clouds' marginal cost in LEO is about 2.7 ms
-  with A2 drawing and 1.3-1.5 ms without, against a budget of 2.0 (Cost).
-  Neither the clouds' haze nor their far layer or shadow map accounts for
-  it; a GPU capture of both frames should show where it goes.
 - **The 13 km step:** the march switches from near to orbit at the shell's
   top in one frame. Inside the shell its reach is 150 km, its clear-air
   steps grow with the distance and the far layer takes no ray; above, the

@@ -173,6 +173,8 @@ public final class CloudPass: RenderPass, HalfResEffect {
         let pd = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Uint, width: 1, height: 1, mipmapped: false)
         pd.usage = .shaderRead
         placeholder = s.device.makeTexture(descriptor: pd)
+        mergeBreak = s.device.makeBuffer(length: 16, options: .storageModePrivate)
+        mergeBreak?.label = "Cloud encoder break"
         guard noise != nil, tables != nil, weatherMap != nil, placeholder != nil else {
             throw ShaderLibrary.Failure.missingFunction("cloud textures")
         }
@@ -254,6 +256,9 @@ public final class CloudPass: RenderPass, HalfResEffect {
         let lowWind = sample.lowWind ?? sample.surfaceWind
         detailFrames.update(frame, streak: Self.streak(frame, wind: lowWind), wind: lowWind, dt: dt,
                             realDt: f.scene.clock.realDt, period: Self.shapePeriod)
+        // Two encoders: the weather map and the shadow map, which P1 reads
+        // (slot 24, bound on every render encoder); then the march and the
+        // resolve, which only P3 reads (`breakComputeMerge`).
         guard let enc = f.makeComputeEncoder() else { return }
         // P0: the frame uniforms alone (the shared ones are uploaded after it).
         f.bindFrameUniforms(enc)
@@ -285,6 +290,7 @@ public final class CloudPass: RenderPass, HalfResEffect {
             f.slotTextures[Binding.cloudShadow] = shadowTexture
             if let t = shadowTexture { f.textures[.cloudShadow] = t }
         }
+        enc.endEncoding()
 
         // The march and the resolve.
         let colorD = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba16Float, width: marchSize.width,
@@ -299,7 +305,6 @@ public final class CloudPass: RenderPass, HalfResEffect {
         guard let hc = f.history.pair(Self.historyColor, descriptor: colorD),
               let hd = f.history.pair(Self.historyDepth, descriptor: depthD),
               let freshColor = f.pool.texture(colorD), let freshDepth = f.pool.texture(depthD) else {
-            enc.endEncoding()
             return
         }
         let reprojection = reprojectionMatrix(f, frame: frame)
@@ -316,6 +321,10 @@ public final class CloudPass: RenderPass, HalfResEffect {
 
         var slots = EffectSlotUniforms(size: f.size, scale: scale, layers: .clouds, settings: f.settings.transparency,
                                        reference: 1)
+        breakComputeMerge(f)
+        guard let enc = f.makeComputeEncoder() else { return }
+        f.bindFrameUniforms(enc)
+        enc.setSamplerState(f.states.linearClamp, index: Binding.linearClampSampler)
         enc.setComputePipelineState(p.march)
         enc.setTexture(freshColor, index: 0)
         enc.setTexture(freshDepth, index: 1)
@@ -345,6 +354,7 @@ public final class CloudPass: RenderPass, HalfResEffect {
                                 threadsPerThreadgroup: MTLSize(width: 8, height: 8, depth: 1))
         }
         enc.endEncoding()
+        breakComputeMerge(f)
 
         resolved = (hc.current, hd.current)
         uniformsForSlot = u
@@ -355,6 +365,22 @@ public final class CloudPass: RenderPass, HalfResEffect {
                            regimes: regimes, frame: frame, epoch: f.scene.clock.simTime, sunLight: u.sunLight,
                            scale: scale, footprintAngle: Double(u.footprint.x))
     }
+
+    /// A one-command blit on each side of the march's encoder. Apple's driver
+    /// merges consecutive compute encoders into one GPU pass, and an encoder
+    /// that depends on any part of that pass waits for all of it. Merged with
+    /// A2's LUTs, which P1's planet pass reads, the march (about 2 ms) sat on
+    /// P1's critical path: LEO's frame took 1.2 ms more with A2 on than off.
+    /// In a pass of its own it overlaps P1 (docs/look/clouds.md, Cost). The
+    /// break after it keeps P0's later compute passes (shadows, probes,
+    /// particles) out of the march's pass for the same reason.
+    private func breakComputeMerge(_ f: FrameContext) {
+        guard let mergeBreak, let blit = f.makeBlitEncoder() else { return }
+        blit.fill(buffer: mergeBreak, range: 0..<16, value: 0)
+        blit.endEncoding()
+    }
+
+    private var mergeBreak: MTLBuffer?
 
     // MARK: The slot
 

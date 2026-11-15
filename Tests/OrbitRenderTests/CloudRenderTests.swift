@@ -475,6 +475,45 @@ final class CloudRenderTests: XCTestCase {
         for k in 0..<3 { XCTAssertEqual(sa[k] / sb[k], 1, accuracy: 0.03, "channel \(k)") }
         XCTAssertLessThan(worst, 0.08, "the worst texel")
     }
+
+    /// The march has a GPU pass of its own: the weather and shadow maps'
+    /// compute encoder, a blit, the march and resolve's, a blit. Apple's
+    /// driver merges consecutive compute encoders, and merged with A2's LUTs,
+    /// which P1 reads, the march held P1 back (LEO 1.2 ms over with A2 on;
+    /// CloudCostTests times it). Counted from the timed frame's encoders,
+    /// which the profiler labels by pass.
+    func testMarchHasAGPUPassOfItsOwn() throws {
+        let s = try snapper()
+        var shot = Self.slabShot(regime: "march")
+        shot.settings.atmosphere.enabled = true
+        let prepared = try shot.prepare(system: s.system)
+        let log = RecordingPass.Log()
+        let spy = RecordingPass("spy", .opaque, log: log)
+        var profile: FrameProfile?
+        spy.onEncode = { f in profile = f.profile }
+        let r = try SceneRenderer(device: s.device, outputFormat: .bgra8Unorm_srgb,
+                                  passes: SceneRenderer.defaultPasses(loadsUserTextures: false) + [spy],
+                                  plan: HDRTargetPlan(outputFormat: .bgra8Unorm_srgb, sampleCount: 4))
+        guard r.profiler.isSupported else { throw XCTSkip("no timestamp counters on this GPU") }
+        r.settings = shot.settings
+        r.profiling = true
+        r.profileInterval = 1
+        let target = try XCTUnwrap(OffscreenTarget(device: s.device, width: shot.width, height: shot.height))
+        var scene = shot.scene(prepared)
+        for k in 0..<2 {
+            scene.clock.frameIndex = k + 1
+            scene.clock.temporalReset = k == 0
+            XCTAssertNil(try XCTUnwrap(r.renderAndWait(scene, into: target)).error)
+        }
+        let p = try XCTUnwrap(profile, "a timed frame")
+        XCTAssertTrue(try XCTUnwrap(r.graph.pass(named: "Clouds") as? CloudPass).lastFrame.drawn)
+        // P0's run of the clouds' encoders, after A2's LUTs (the slot's copy
+        // in P3 carries the pass's name too).
+        let first = try XCTUnwrap(p.labels.firstIndex(of: "Clouds"), "\(p.labels)")
+        XCTAssertEqual(first > 0 ? p.labels[first - 1] : nil, "Atmosphere LUTs", "\(p.labels)")
+        let run = p.labels[first...].prefix { $0 == "Clouds" }.count
+        XCTAssertEqual(run, 4, "\(p.labels)")
+    }
 }
 
 /// Track C2's GPU cost (ORBITSIM_CLOUD_COST=1, holding the GPU lock): the
