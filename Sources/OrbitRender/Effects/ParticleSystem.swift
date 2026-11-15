@@ -91,8 +91,7 @@ struct ParticleFrameGPU {
     var counts = SIMD4<UInt32>.zero
     /// Chunks drawn at most, substeps at most, anchors.
     var limits = SIMD4<UInt32>.zero
-    /// 1 culling against the frame's view, pixels per radian at the effect
-    /// targets, the smoke's overdraw budget and the targets' area (texels).
+    /// x: 1 culling against the frame's view.
     var view = SIMD4<Float>.zero
     /// The volume noise's drift, tiles (`EffectTimeRules.noiseDrift`).
     var noise = SIMD4<Float>.zero
@@ -160,10 +159,10 @@ public final class ParticleSystem {
 
     /// The counters' slots.
     enum Counter: Int {
-        case free = 0, aliveA, aliveB, drawStreak, drawSmoke, drawChunk, emitted, dropped, smokeArea, smokeKeep
+        case free = 0, aliveA, aliveB, drawStreak, drawSmoke, drawChunk, emitted, dropped
     }
 
-    static let counterCount = 10
+    static let counterCount = 8
     /// The indirect draws' offsets in `arguments`, by render class.
     static func drawArgumentsOffset(_ c: ParticleRenderClass) -> Int { 16 + 16 * c.index }
 
@@ -266,16 +265,10 @@ public final class ParticleSystem {
         enc.endEncoding()
     }
 
-    /// ParticleFrame's `view` for frame `f`: culling on, the effect targets'
-    /// pixels per radian and area, and the smoke's budget, `smokeOverdraw`
-    /// layers of them.
+    /// ParticleFrame's `view` for frame `f`: culling on unless the settings
+    /// turn it off.
     static func view(_ f: FrameContext, settings: ParticleSettings) -> SIMD4<Float> {
-        let scale = f.settings.transparency.resolution.scale
-        let t = EffectSlots.targetSize(width: f.size.width, height: f.size.height, scale: scale)
-        let texels = Double(t.width * t.height)
-        return SIMD4(1, Float(f.scene.camera.pixelsPerRadian * Double(f.size.height) / max(f.scene.camera.viewport.height, 1)
-                                  / Double(scale)),
-                     Float(settings.smokeOverdraw * texels), Float(texels))
+        SIMD4(settings.culls ? 1 : 0, 0, 0, 0)
     }
 
     /// Encodes `plan` on `enc` with its small buffers from `uploads`. The
@@ -353,9 +346,8 @@ public final class ParticleSystem {
     /// Binds the particles, the draw lists and the frame's anchors,
     /// materials and uniforms (buffers 0-4) on a render encoder.
     func bindDraw(_ enc: MTLRenderCommandEncoder) -> Bool {
-        guard let particles, let drawLists, let counters, let b = bindings else { return false }
+        guard let particles, let drawLists, let b = bindings else { return false }
         enc.setVertexBuffer(particles, offset: 0, index: 0)
-        enc.setVertexBuffer(counters, offset: 0, index: 5)
         enc.setVertexBuffer(drawLists, offset: 0, index: 1)
         enc.setVertexBuffer(b.anchors.buffer, offset: b.anchors.offset, index: 2)
         enc.setVertexBuffer(b.materials.buffer, offset: b.materials.offset, index: 3)

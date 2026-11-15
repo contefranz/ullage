@@ -13,22 +13,20 @@ public struct ParticleSettings: Codable, Equatable {
     public var testBursts: [ParticleTestBurst] = []
     /// The studio's gravity and air.
     public var studio = ParticleStudio()
-    /// The smoke's overdraw budget, in layers of the effect targets: past
-    /// it a seeded share of the puffs is drawn, each denser by as much (the
-    /// design's size LOD, for the pad's thousands of big puffs near the
-    /// camera).
-    public var smokeOverdraw = 6.0
+    /// Particles outside the view, or streaks too faint to see, are not
+    /// drawn (they still move). Off only to check that this changes nothing.
+    public var culls = true
 
     public init() {}
 
-    private enum CodingKeys: String, CodingKey { case quality, testBursts, studio, smokeOverdraw }
+    private enum CodingKeys: String, CodingKey { case quality, testBursts, studio, culls }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         quality = try c.decodeIfPresent(ParticleQuality.self, forKey: .quality) ?? .high
         testBursts = try c.decodeIfPresent([ParticleTestBurst].self, forKey: .testBursts) ?? []
         studio = try c.decodeIfPresent(ParticleStudio.self, forKey: .studio) ?? ParticleStudio()
-        smokeOverdraw = try c.decodeIfPresent(Double.self, forKey: .smokeOverdraw) ?? 6
+        culls = try c.decodeIfPresent(Bool.self, forKey: .culls) ?? true
     }
 }
 

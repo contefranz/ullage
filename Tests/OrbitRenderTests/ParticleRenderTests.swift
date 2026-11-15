@@ -89,8 +89,8 @@ final class ParticleRenderTests: XCTestCase {
     }
 
     /// A spark's light is the same however it moves relative to the line of
-    /// sight: straight at the camera (a round dot), at 45° and across it (a
-    /// streak). The capsule is drawn across the line of sight and its flux
+    /// sight: straight at the camera (a round dot, at the centre and near
+    /// the frame's corner), at 45° and across it (a streak). The capsule is drawn across the line of sight and its flux
     /// spread over what is drawn. (A dim exposure keeps every sample far
     /// below the MSAA resolve's highlight weighting.)
     func testStreakFluxDoesNotDependOnTheViewAngle() throws {
@@ -103,11 +103,20 @@ final class ParticleRenderTests: XCTestCase {
         var across = view.cross(Vec3(0, 0, 1))
         if across.length < 1e-3 { across = view.cross(Vec3(1, 0, 0)) }
         across = across.normalized
+        // Near the frame's corner, moving straight at the camera along its
+        // own line of sight (the dot faces that, not the view's axis).
+        func enu(_ w: Vec3) -> Vec3 { Vec3(w.dot(t.east), w.dot(t.north), w.dot(t.up)) }
+        let right = enu(scene.camera.worldToView.r0), screenUp = enu(scene.camera.worldToView.r1)
+        let reach = 30 * tan(20 * Double.pi / 180) * 0.85
+        let corner = right * (reach * 1.6) + screenUp * reach
+        let lineOfSight = (corner + view * 30).normalized
         var sums: [Double] = []
-        for direction in [-view, (-view + across).normalized, across] {
+        for (direction, at) in [(-view, Vec3.zero), ((-view + across).normalized, .zero), (across, .zero),
+                                (-lineOfSight, corner)] {
             var b = ParticleTestBurst()
             b.material = "spark"
             b.count = 1
+            b.position = [at.x, at.y, at.z]
             b.axis = [direction.x, direction.y, direction.z]
             b.spread = 0
             b.speed = [60, 60]
@@ -118,9 +127,14 @@ final class ParticleRenderTests: XCTestCase {
             sums.append(try totalLight(studioShot([b], from: Vec3(1, 0.3, 0.2), distance: 30, ev: 20)))
         }
         XCTAssertGreaterThan(sums[2], 0)
-        for (angle, sum) in zip([0, 45], sums) {
-            XCTAssertEqual(sum, sums[2], accuracy: 0.1 * sums[2], "at \(angle)° to the line of sight: \(sums)")
+        for (angle, sum) in zip(["0°", "45°"], [sums[0], sums[1]]) {
+            XCTAssertEqual(sum, sums[2], accuracy: 0.1 * sums[2], "at \(angle) to the line of sight: \(sums)")
         }
+        // Off the axis by α a pixel subtends cos³α of the solid angle and the
+        // spark is 1/cos α farther: the same light sums to 1/cos α more. (A
+        // dot facing the view's axis instead would lose cos α of its flux.)
+        let cosAlpha = 30 / (corner + view * 30).length
+        XCTAssertEqual(sums[3] * cosAlpha, sums[2], accuracy: 0.07 * sums[2], "head-on at the corner: \(sums)")
     }
 
     /// Chunks are lit on one side, as the vessels: seen against the Sun,
@@ -142,6 +156,45 @@ final class ParticleRenderTests: XCTestCase {
         let back = try totalLight(studioShot([b], from: -sun, distance: 25, ev: 15))
         XCTAssertGreaterThan(front, 0)
         XCTAssertLessThan(back, 0.2 * front, "backlit \(back) against front-lit \(front)")
+    }
+
+    /// Culling changes nothing on screen: particles straddling the frame's
+    /// edges (plates whose corners reach past their radius, streaks whose
+    /// caps and least width reach past their trail, puffs, faint glinting
+    /// flakes) render the same with it on and off.
+    func testCullingIsNeutral() throws {
+        func burst(_ material: String, _ count: Int, radius: [Double], speed: [Double], seed: Int) -> ParticleTestBurst {
+            var b = ParticleTestBurst()
+            b.material = material
+            b.count = count
+            b.shape = "ball"
+            b.size = 40
+            b.radius = radius
+            b.speed = speed
+            b.lifetime = [100, 100]
+            b.ages = [0.5, 0.5]
+            b.temperature = material == "spark" ? 2_600 : 0
+            b.seed = seed
+            return b
+        }
+        let bursts = [burst("debris", 400, radius: [0.5, 1.5], speed: [0, 1], seed: 1),
+                      burst("spark", 400, radius: [0.003, 0.01], speed: [20, 80], seed: 2),
+                      burst("steam", 150, radius: [2, 5], speed: [0, 1], seed: 3),
+                      burst("ice flake", 2_000, radius: [0.0005, 0.002], speed: [0, 2], seed: 4)]
+        var shot = studioShot(bursts, from: Vec3(1, 0.3, 0.2), distance: 12, ev: 15)
+        let on = try snapper().render(shot), again = try snapper().render(shot)
+        shot.settings.particle.culls = false
+        let off = try snapper().render(shot)
+        // The smoke's and the streaks' sums follow the GPU's append order:
+        // two culled frames already differ by a code or two here and there.
+        func differ(_ a: [UInt8], _ b: [UInt8]) -> (most: Int, over1: Int) {
+            let d = zip(a, b).map { abs(Int($0) - Int($1)) }
+            return (d.max() ?? 0, d.filter { $0 > 1 }.count)
+        }
+        let noise = differ(on.pixels, again.pixels), culling = differ(on.pixels, off.pixels)
+        XCTAssertLessThanOrEqual(culling.most, max(noise.most, 1) + 1, "culling \(culling), run to run \(noise)")
+        XCTAssertLessThanOrEqual(culling.over1, noise.over1 + 16, "culling \(culling), run to run \(noise)")
+        XCTAssertGreaterThan(Set(on.pixels).count, 100, "the particles are drawn")
     }
 
     /// Every look-dev shot's light is finite and not negative, and each

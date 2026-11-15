@@ -187,13 +187,15 @@ public struct AnchorFrame: Equatable {
 
     /// Its particles' environment (`ParticlePhysics.Environment`): the
     /// body's gravity; in free fall the anchor's own fall and velocity,
-    /// ω × r − `airVelocity` with r its radius up (as the GPU takes them).
+    /// ω × r − `airVelocity`, and the turning air's acceleration,
+    /// ω × (ω × r), with r its radius up (as the GPU takes them).
     public var environment: ParticlePhysics.Environment {
         guard fallsFreely else {
             return ParticlePhysics.Environment(gravity: gravity, vacuumIceTemperature: vacuumIceTemperature)
         }
-        return .freeFall(gravity: gravity, velocity: rotation.cross(up * radius) - airVelocity,
-                         vacuumIceTemperature: vacuumIceTemperature)
+        let r = up * radius
+        return .freeFall(gravity: gravity, velocity: rotation.cross(r) - airVelocity,
+                         airAcceleration: rotation.cross(rotation.cross(r)), vacuumIceTemperature: vacuumIceTemperature)
     }
 
     /// The air at `p` (anchor axes) at the frame's epoch, in `profile`

@@ -328,6 +328,7 @@ ANCHORS (`EffectFrame`)
   - their weight is gone, but Archimedes' buoyancy (the static air's pressure gradient) is not;
   - the air accelerates at −g relative to the anchor.
   - So a particle's slip through the air is exactly what it is in a body-fixed anchor: neutral steam stays with the air, and hot smoke rises.
+  - Over a turning body, the still air also accelerates at its centripetal ω × (ω × r). Its pressure gradient carries that too, so the slip feels the turning air's effective gravity, g − ω × (ω × r) (`Environment.airAcceleration`).
   - A free-fall anchor that has fallen below half its body's radius (one left at the ground for some ten minutes) is retired with its particles. Effects that stay near the ground for minutes belong in body-fixed anchors.
 - The air at a particle:
   - the body's `AirProfile` at its altitude, read where the particle was when it met that air: a climbing or falling free-fall anchor was elsewhere earlier in the step (`Environment.frameVelocity`, `AnchorFrame.environment`);
@@ -380,8 +381,13 @@ MATERIALS (`ParticleMaterial`; JSON keys are the member names)
   - smoke: albedo × (E⊙ × sunlit × HG + sky/π), plus emission, through R6's OIT layer;
   - chunks: Lambert in P1, one-sided as the vessels.
 - What is drawn:
-  - every class is culled against the view, in the simulate kernel; streaks too faint to see at the frame's exposure are not drawn (they still move);
-  - smoke has an overdraw budget, `ParticleSettings.smokeOverdraw` (6 layers of the effect targets). Past it, a seeded share of the puffs is drawn, each with its optical depth divided by that share, so the transmittance through the cloud is kept: the design's size LOD for the pad's thousands of big puffs. A dense plume reads puffier for it.
+  - every class is culled against the view in the simulate kernel, by the bound of what it draws:
+    - a streak's capsule: its trail, and its width (at least 3 px) about the head and tail;
+    - a plate chunk's corners, r √(2 + aspect²);
+    - a puff's or a tetrahedron's r.
+  - streaks too faint to see at the frame's exposure (a tenth of sRGB's first 8-bit step) are not drawn; they still move;
+  - `ParticleSettings.culls` turns culling off, to check that it changes nothing (ParticleRenderTests).
+  - Smoke has no LOD of P3's: every live puff in view is drawn. Its overdraw on the pad is R7's to tier.
   - The Sun is the frame's, through the air (A2's transmitted Sun) when the camera is in air, times the anchor's sunlit fraction (`Eclipse`).
 
 TIME (`EffectTimeRules`)

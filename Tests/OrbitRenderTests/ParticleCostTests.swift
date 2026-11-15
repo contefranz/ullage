@@ -155,12 +155,11 @@ final class ParticleCostTests: XCTestCase {
                 return String(format: "%@ %.3f", k, v[v.count / 2])
             }.joined(separator: ", ")
             let alive = system.readCounters()
-            let line = String(format: "%@ (%@, %@): particles %.3f ms (on %.3f, off %.3f ms); alive %d, drawn streaks %d, smoke %d (kept %.0f %%), chunks %d",
+            let line = String(format: "%@ (%@, %@): particles %.3f ms (on %.3f, off %.3f ms); alive %d, drawn streaks %d, smoke %d, chunks %d",
                               shot.name, tier.rawValue, slotsAlways ? "slots running anyway" : "slots for the smoke alone",
                               median(on) - median(off), median(on), median(off),
                               system.current == 0 ? alive[.aliveA] ?? 0 : alive[.aliveB] ?? 0, alive[.drawStreak] ?? 0,
-                              alive[.drawSmoke] ?? 0, Double(alive[.smokeKeep] ?? 0) / 16_777_216 * 100,
-                              alive[.drawChunk] ?? 0)
+                              alive[.drawSmoke] ?? 0, alive[.drawChunk] ?? 0)
             print("ParticleCostTests: \(line)")
             print("ParticleCostTests:   passes (ms, split profiler): \(breakdown)")
             lines.append(line)

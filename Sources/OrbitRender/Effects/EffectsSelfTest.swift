@@ -141,7 +141,8 @@ extension EffectsSelfTest {
         }
 
         struct GoldenAdvanceGPU {
-            var positionRadius, velocityTemperature, air, airVelocity, gravity, frameAcceleration, params: SIMD4<Float>
+            var positionRadius, velocityTemperature, air, airVelocity, gravity, frameAcceleration, airAcceleration,
+                params: SIMD4<Float>
         }
 
         static func tau(_ t: Double) -> Float { t.isFinite ? Float(t) : 1e30 }
@@ -181,6 +182,7 @@ extension EffectsSelfTest {
                                  airVelocity: SIMD4(c.air.velocity, 0),
                                  gravity: SIMD4(c.environment.gravity, Float(c.environment.vacuumIceTemperature)),
                                  frameAcceleration: SIMD4(c.environment.frameAcceleration, 0),
+                                 airAcceleration: SIMD4(c.environment.airAcceleration, 0),
                                  params: SIMD4(Float(c.dt), Float(ParticlePhysics.maxSubsteps), 0, 0))
             }
             let materials = cases.map { c -> ParticleMaterialGPU in

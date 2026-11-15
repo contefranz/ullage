@@ -232,6 +232,28 @@ final class ParticlePhysicsTests: XCTestCase {
         }
     }
 
+    /// Over a turning body still air is held up and carried round by its
+    /// pressure gradient: in a free-fall anchor it accelerates at its
+    /// centripetal ω × (ω × r) less g, and a neutral puff, buoyed by that
+    /// same gradient, rides with it (the equator's 0.034 m/s², over 30 s of
+    /// 1/60 s frames; without it the puff drifts 15 m off the air).
+    func testNeutralSteamRidesTheTurningAirInFreeFall() {
+        let steam = P.Material(density: 0, dragCoefficient: 0.5, entrainment: 0.1, spreadRate: 0.5, coolingTime: 8)
+        let centripetal = Vec3(-0.0337, 0, 0)
+        let env = P.Environment.freeFall(gravity: g, airAcceleration: centripetal)
+        let air = P.Air(density: 1.225, temperature: 288.15, pressure: 101_325)
+        var s = P.State(position: .zero, velocity: .zero, radius: 5, temperature: 288.15)
+        let h = 1.0 / 60
+        for k in 1...1_800 {
+            var moving = air
+            moving.velocity = (centripetal - g) * (Double(k) * h)
+            s = P.advance(s, material: steam, environment: env, dt: h) { _ in moving }
+        }
+        let t = 30.0
+        let airMoved = (centripetal - g) * (0.5 * t * t)
+        XCTAssertLessThan((s.position - airMoved).length, 0.01, "\(s.position) against the air's \(airMoved)")
+    }
+
     /// A gas parcel carried up through US76 cools on the dry adiabat, g/cp =
     /// 9.76 K/km (dry air, cp 1,004.7 J/(kg K)), steeper than the
     /// standard atmosphere's 6.5 K/km; so a parcel thrown up from 1 km in

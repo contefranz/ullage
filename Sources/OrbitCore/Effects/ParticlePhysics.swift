@@ -101,22 +101,31 @@ public enum ParticlePhysics {
         /// elsewhere earlier in the step, so the air a particle met then is
         /// looked up where the particle was, not where the anchor is now.
         public var frameVelocity: Vec3
+        /// The still air's own acceleration in the anchor's (non-rotating)
+        /// frame of reference about a turning body: ω × (ω × r), towards the
+        /// spin axis. The pressure gradient that holds the air up carries it
+        /// round as well, so a particle's slip feels gravity less this, the
+        /// effective gravity of the turning air. Zero in a body-fixed anchor,
+        /// whose `gravity` is the one felt there.
+        public var airAcceleration: Vec3
         public var vacuumIceTemperature: Double
 
         public init(gravity: Vec3, frameAcceleration: Vec3 = .zero, frameVelocity: Vec3 = .zero,
-                    vacuumIceTemperature: Double = 200) {
+                    airAcceleration: Vec3 = .zero, vacuumIceTemperature: Double = 200) {
             self.gravity = gravity
             self.frameAcceleration = frameAcceleration
             self.frameVelocity = frameVelocity
+            self.airAcceleration = airAcceleration
             self.vacuumIceTemperature = vacuumIceTemperature
         }
 
         /// A free-fall anchor's: it falls at the body's gravity, moving at
-        /// `velocity` at the frame's epoch.
-        public static func freeFall(gravity: Vec3, velocity: Vec3 = .zero, vacuumIceTemperature: Double = 200)
-            -> Environment {
+        /// `velocity` at the frame's epoch, the air turning with the body
+        /// at `airAcceleration`.
+        public static func freeFall(gravity: Vec3, velocity: Vec3 = .zero, airAcceleration: Vec3 = .zero,
+                                    vacuumIceTemperature: Double = 200) -> Environment {
             Environment(gravity: gravity, frameAcceleration: gravity, frameVelocity: velocity,
-                        vacuumIceTemperature: vacuumIceTemperature)
+                        airAcceleration: airAcceleration, vacuumIceTemperature: vacuumIceTemperature)
         }
 
         /// Where the anchor was at time `t` (s from the frame's epoch,
@@ -246,13 +255,17 @@ public enum ParticlePhysics {
     /// The air's velocity at time `t` (s, from the frame's epoch: negative
     /// before it) and its acceleration, in the anchor's frame; zero in vacuum.
     static func airMotion(_ a: Air, environment e: Environment, at t: Double) -> (velocity: Vec3, acceleration: Vec3) {
-        a.isVacuum ? (.zero, .zero) : (a.velocity - e.frameAcceleration * t, -e.frameAcceleration)
+        guard !a.isVacuum else { return (.zero, .zero) }
+        let c = e.airAcceleration - e.frameAcceleration
+        return (a.velocity + c * t, c)
     }
 
-    /// The slip's own acceleration: gravity less buoyancy in air; in vacuum,
-    /// where the slip is the velocity, gravity less the frame's fall.
+    /// The slip's own acceleration: the turning air's effective gravity less
+    /// buoyancy in air; in vacuum, where the slip is the velocity, gravity
+    /// less the frame's fall.
     static func slipGravity(_ m: Material, temperature: Double, air a: Air, environment e: Environment) -> Vec3 {
-        a.isVacuum ? e.gravity - e.frameAcceleration : effectiveGravity(m, temperature: temperature, air: a, gravity: e.gravity)
+        a.isVacuum ? e.gravity - e.frameAcceleration
+            : effectiveGravity(m, temperature: temperature, air: a, gravity: e.gravity - e.airAcceleration)
     }
 
     /// The shorter of the drag time and the terminal time at a substep's start.
@@ -402,8 +415,8 @@ public enum ParticlePhysics {
                                     temperature: 90),
              slab, Environment(gravity: g * 0.998), Air(density: 0.25, temperature: 217, pressure: 17_000), 0.5),
             ("steam in free fall", State(position: Vec3(3, 0, -2), velocity: Vec3(1, 0, 4), radius: 5, temperature: 400),
-             steam, .freeFall(gravity: g), Air(density: 1.1, temperature: 290, pressure: 95_000, velocity: Vec3(2, 0, 30)),
-             2.0),
+             steam, .freeFall(gravity: g, velocity: Vec3(0, 0, -30), airAcceleration: Vec3(0.02, -0.01, 0.015)),
+             Air(density: 1.1, temperature: 290, pressure: 95_000, velocity: Vec3(2, 0, 30)), 2.0),
             ("pyro puff at 300 m/s, 100x", State(position: .zero, velocity: Vec3(300, 0, 0), radius: 0.5,
                                                  temperature: 1_500),
              puff, Environment(gravity: g), seaLevel, 1.67),
