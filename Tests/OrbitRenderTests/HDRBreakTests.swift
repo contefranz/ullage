@@ -266,6 +266,23 @@ extension HDRLookTests {
         XCTAssertEqual(on.plan.breakStores, [])
     }
 
+    /// The plan's record of the frame's break stores is the frame's: a frame
+    /// that breaks nothing, after one that broke the scene, records none.
+    func testBreakStoresAreTheFramesOwn() throws {
+        let s = BreakScene()
+        let (r, post) = try renderer(s.passes(breaking: true))
+        let plan = try XCTUnwrap(r.graph.plan as? HDRTargetPlan)
+        r.settings = settings(ev100: 0)
+        _ = try render(r, post, scene(width: BreakScene.w, height: BreakScene.h))
+        XCTAssertEqual(plan.breakStores, [.multisampleResolve])
+        s.breaker.active = false
+        _ = try render(r, post, scene(width: BreakScene.w, height: BreakScene.h))
+        XCTAssertEqual(plan.breakStores, [])
+        s.breaker.active = true
+        _ = try render(r, post, scene(width: BreakScene.w, height: BreakScene.h))
+        XCTAssertEqual(plan.breakStores, [.multisampleResolve])
+    }
+
     /// Two breaks in P3: the scene is resolved and re-expanded twice, and
     /// the light is that of one break, to half float's rounding.
     func testTwoBreaks() throws {

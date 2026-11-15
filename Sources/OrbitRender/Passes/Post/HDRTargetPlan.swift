@@ -79,8 +79,9 @@ public final class HDRTargetPlan: SceneTargetPlan {
     private var measurement: MTLRenderPassDescriptor?
     /// Re-expansions drawn, and of those the timed stand-ins, for the tests.
     private(set) var expansions = (drawn: 0, timed: 0)
-    /// The store action set where a break ended a scene encoder, in order,
-    /// for the tests: `.multisampleResolve` stores no sample.
+    /// This frame's store actions, in order, for the tests: set where a
+    /// scene encoder ended with the scene resuming after it, at a break or,
+    /// in a timed frame, at each split. `.multisampleResolve` stores no sample.
     private(set) var breakStores: [MTLStoreAction] = []
 
     public init(outputFormat: MTLPixelFormat, sampleCount: Int) {
@@ -155,6 +156,7 @@ public final class HDRTargetPlan: SceneTargetPlan {
         scenePasses = []
         handedOut = []
         begins = false
+        breakStores = []
         broken = nil
         expansion = nil
         measurement = nil
