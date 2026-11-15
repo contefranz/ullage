@@ -100,15 +100,19 @@ public final class SceneRenderer {
         // R2's vessels, whose thin tubes blend over the sky after A2's composite.
         let vessels = VesselPass()
         let tiles = PlanetTilePass(loadsUserTiles: loadsUserTextures)
+        // R3's probe draws the planets, A2's sky and C2's far clouds through their passes.
+        let planets = PlanetPass(loadsUserTextures: loadsUserTextures, tiles: tiles)
+        let sky = AtmosphereCompositePass()
         return [
             // P0
-            post.exposurePass, AtmosphereLUTPass(), clouds, shadows, EnvironmentProbePass(),
+            post.exposurePass, AtmosphereLUTPass(), clouds, shadows,
+            EnvironmentProbePass(planets: planets, sky: sky, clouds: clouds),
             ParticleSimulationPass(system: particles), tiles,
             // P1
-            StarPass(), PlanetPass(loadsUserTextures: loadsUserTextures, tiles: tiles), vessels,
+            StarPass(), planets, vessels,
             ParticleChunkPass(system: particles), EffectTestOpaquePass(),
             // P2
-            AtmosphereCompositePass(), vessels.wirePass,
+            sky, vessels.wirePass,
             // P3
             slots, PlumePass(), FarPointPass(), TransparentCompositePass(slots: slots), EffectTestSparksPass(),
             ParticleDrawPass(system: particles), EntryPass(), post.resolvePass,

@@ -265,18 +265,26 @@ struct OrbitStandInEnvironment {
 
 // The environment's light at a fragment (cd/m2), with ambient occlusion
 // `ao`. With R3's probe (lighting.probe.w = its specular mip count): the
-// prefiltered cube read at the lobe's roughness (texture 20, radiance) and
-// the irradiance cube (texture 21, E/pi, in cd/m2). Without it, the
-// stand-in: the body's disc where the reflection meets it, widened by the
-// lobe, blurred to the cosine-weighted value as the surface roughens.
+// prefiltered cube read at the lobe's roughness (texture 20, radiance; mip
+// k prefiltered at perceptual roughness k / (mips - 1), trilinear) and the
+// irradiance cube (texture 21, E/pi, in cd/m2), both scaled by
+// lighting.ambient.w and lifted to the night floor (lighting.ambient.rgb,
+// `orbit_probeNightFloor`). Without it, the stand-in: the body's disc where
+// the reflection meets it, widened by the lobe, blurred to the
+// cosine-weighted value as the surface roughens.
 inline float3 orbit_environmentLight(OrbitShadingPoint p, float ao, constant LightingUniforms &lighting,
                                      OrbitStandInEnvironment standIn, texturecube<float> specularCube,
                                      texturecube<float> irradianceCube, sampler linear) {
     float3 r = reflect(-p.v, p.n);
     float3 prefiltered, irradianceOverPi;
     if (lighting.probe.w > 0.5) {
-        prefiltered = specularCube.sample(linear, r, level(p.roughness * (lighting.probe.w - 1.0))).rgb;
-        irradianceOverPi = irradianceCube.sample(linear, p.n).rgb;
+        // The shared linear sampler has no mip filter: the probe's own.
+        constexpr sampler trilinear(filter::linear, mip_filter::linear, address::clamp_to_edge);
+        float lod = p.roughness * (lighting.probe.w - 1.0);
+        prefiltered = specularCube.sample(trilinear, r, level(lod)).rgb * lighting.ambient.w;
+        irradianceOverPi = irradianceCube.sample(trilinear, p.n, level(0.0)).rgb * lighting.ambient.w;
+        prefiltered = orbit_probeNightFloor(prefiltered, lighting);
+        irradianceOverPi = orbit_probeNightFloor(irradianceOverPi, lighting);
     } else {
         float s2 = standIn.bodySinSigma2;
         float3 u = standIn.uniform_ / ORBIT_PI;

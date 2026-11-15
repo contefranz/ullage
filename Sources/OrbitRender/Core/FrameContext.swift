@@ -167,11 +167,36 @@ public final class FrameContext {
     // MARK: Shared bindings
 
     /// Copies the shared uniforms into the arena; the frame graph does it
-    /// after P0 (and again if a later stage changed them).
+    /// after P0 (and again if a later stage changed them). Then one blit
+    /// writes the members P0 passes computed on the GPU into the uploaded
+    /// lighting uniforms (`copyIntoLighting`), before any render stage reads
+    /// them.
     func uploadShared() {
         guard let f = arena.push(value: frame), let l = arena.push(value: lighting),
               let a = arena.push(value: atmosphere) else { return }
         shared = ((f.buffer, f.offset), (l.buffer, l.offset), (a.buffer, a.offset))
+        guard !lightingCopies.isEmpty else { return }
+        let current = currentPass
+        currentPass = lightingCopies[0].pass
+        if let blit = makeBlitEncoder() {
+            for c in lightingCopies {
+                blit.copy(from: c.buffer, sourceOffset: c.offset, to: l.buffer, destinationOffset: l.offset + c.member,
+                          size: c.length)
+            }
+            blit.endEncoding()
+        }
+        currentPass = current
+    }
+
+    private var lightingCopies: [(pass: String, buffer: MTLBuffer, offset: Int, member: Int, length: Int)] = []
+
+    /// Asks for `length` bytes at `offset` of `buffer`, which a P0 pass
+    /// writes on the GPU, to be copied over `LightingUniforms`' member at
+    /// byte `member` once the shared uniforms are uploaded: the GPU's value
+    /// reaches every later stage this frame (R3's SH9). P0 only.
+    public func copyIntoLighting(from buffer: MTLBuffer, offset: Int, member: Int, length: Int) {
+        precondition(member >= 0 && member + length <= MemoryLayout<LightingUniforms>.size, "inside LightingUniforms")
+        lightingCopies.append((currentPass ?? "lighting", buffer, offset, member, length))
     }
 
     /// Binds the shared uniforms, the reserved texture slots and the shared

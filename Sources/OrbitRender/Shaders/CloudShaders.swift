@@ -1460,6 +1460,70 @@ fragment EffectCloudOut cloud_slot_fragment(CloudSlotOut in [[stage_in]],
     o.front = float4(front < 1e20 && front < scene ? orbit_frontCode(front) : ORBIT_EFFECT_NO_FRONT);
     return o;
 }
+
+// ------------------------------------------------ R3's probe faces ---
+
+struct CloudProbeView {
+    float4x4 viewToWorld;     // the face's view basis (columns: right, up, -forward), tan(fov/2) = 1
+    float4 params;            // x: 1 / pre-exposure (the cloud uniforms' Sun is pre-exposed), y: haze steps, z: face size
+    float4 sunWorld;          // xyz: unit, to the Sun (world), w: its angular radius (rad)
+    float4 solar;             // rgb: the Sun's illuminance above the air (lux)
+};
+
+// R3's probe entry point: the far layers (low and mid, CloudPass's regime
+// for the whole Earth) along one face texel's ray from the camera, in cd/m2,
+// premultiplied over what the face holds (the ground or the sky): the air
+// between them and the probe marched (A2's optics), so the face becomes
+// (1 - a) face + T cloud + a in-scatter, the haze in front of the cloud
+// left whole. No cirrus, no march: the probe wants the clouds' light, not
+// their detail.
+fragment float4 cloud_probe_fragment(CloudSlotOut in [[stage_in]],
+                                     constant CloudUniforms &u [[buffer(0)]],
+                                     constant CloudProbeView &v [[buffer(1)]],
+                                     constant AtmosphereUniforms &air [[buffer(ORBIT_BUFFER_ATMOSPHERE)]],
+                                     texture3d<float> shape [[texture(2)]],
+                                     texture3d<float> detail [[texture(3)]],
+                                     texture2d<float> curl [[texture(4)]],
+                                     texture2d<float> weatherA [[texture(5)]],
+                                     texture2d<float> weatherB [[texture(6)]],
+                                     texture3d<float> slab [[texture(7)]],
+                                     texture2d<float> trans [[texture(8)]],
+                                     texture2d<float> irr [[texture(9)]],
+                                     texture2d<float> profile [[texture(10)]],
+                                     texture2d<float> transmittance [[texture(ORBIT_TEXTURE_TRANSMITTANCE_LUT)]],
+                                     texture2d<float> multiple [[texture(ORBIT_TEXTURE_MULTI_SCATTERING_LUT)]],
+                                     sampler wrap [[sampler(0)]],
+                                     sampler weather [[sampler(1)]],
+                                     sampler linear [[sampler(ORBIT_SAMPLER_LINEAR_CLAMP)]]) {
+    float size = v.params.z;
+    float2 ndc = float2(2.0 * in.position.x / size - 1.0, 1.0 - 2.0 * in.position.y / size);
+    float3 w = normalize((v.viewToWorld * float4(ndc, -1.0, 0.0)).xyz);
+    float3 d = normalize((u.worldToBody * float4(w, 0.0)).xyz);
+    float3 of = u.cameraFigure.xyz, df = cloud_figureDir(d, u);
+    CloudTextures t = {shape, detail, curl, weatherA, weatherB};
+    CloudResult farMid = cloud_farLayer(of, df, d, u.shellMid.x, u.shellMid.w, 1, t, slab, trans, irr, wrap, linear,
+                                        weather, u);
+    CloudResult farLow = cloud_farLayer(of, df, d, u.shell.w, u.shellMid.z, 0, t, slab, trans, irr, wrap, linear,
+                                        weather, u);
+    CloudResult far = farLow.front < farMid.front ? cloud_over(farLow, farMid) : cloud_over(farMid, farLow);
+    float4 c = far.color;
+    if (!(c.a > 0.0) || orbit_isNotFinite(c.rgb) || orbit_isNotFinite(c.a)) { discard_fragment(); }
+    c.rgb *= v.params.x;
+    c.a = clamp(c.a, 0.0, 1.0);
+    if (air.radii.w > 0.5 && far.front < 1e29) {
+        float scale = length(df);
+        float3 dF = df / scale;
+        float3 sunF = normalize(u.sun.xyz * float3(1.0, 1.0, u.cameraFigure.w));
+        float3 seg = atmo_airSegment(of, dF, air.radii.x, air.radii.y);
+        float end = min(seg.y, far.front * scale);
+        if (end > seg.x) {
+            AtmoMarch m = atmo_march(of, dF, seg.x, end, int(v.params.y), sunF, dot(w, v.sunWorld.xyz), v.sunWorld.w,
+                                     air, transmittance, multiple, profile, linear);
+            c.rgb = c.rgb * m.transmittance + c.a * m.radiance * v.solar.rgb;
+        }
+    }
+    return float4(orbit_isNotFinite(c.rgb) ? float3(0.0) : clamp(c.rgb, 0.0, 60000.0), c.a);
+}
 """#
 
 extension ShaderModule {
