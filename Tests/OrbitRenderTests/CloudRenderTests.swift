@@ -771,6 +771,10 @@ final class CloudCostTests: XCTestCase {
                 a.setStars(s.stars)
                 var on = a.settings, off = a.settings
                 off.cloud.enabled = false
+                // P4's pad smoke off on both sides: it would keep R6's slots
+                // running in the off frames too.
+                on.particle.quality = .off
+                off.particle.quality = .off
                 if let json = ProcessInfo.processInfo.environment["ORBITSIM_CLOUD_SETTINGS"] {
                     on.cloud = try JSONDecoder().decode(CloudSettings.self, from: Data(json.utf8))
                 }
