@@ -164,8 +164,13 @@ public struct CloudFrame: Equatable {
         guard let previous, previousExtent == extent else { return groundPoint }
         let d = groundPoint - previous
         if d.length <= extent / 4 { return previous }
-        let (u, v, _) = shadowAxes, texel = extent / Double(texels)
+        let (u, v, s) = shadowAxes, texel = extent / Double(texels)
+        // Along the Sun too: the lattice's lines run along it, so they stay
+        // put, and the anchor stays near the camera (kept off it along the
+        // Sun, it drifted thousands of km away in orbit and the lattice
+        // turned about it at several texels a minute).
         return previous + u * ((d.dot(u) / texel).rounded() * texel) + v * ((d.dot(v) / texel).rounded() * texel)
+            + s * d.dot(s)
     }
 
     // MARK: Regimes
@@ -176,8 +181,9 @@ public struct CloudFrame: Equatable {
     /// about 5,000 km). The renderer reads only `far`, which hands the whole
     /// view to the far layer smoothly; `near` and `orbit` are reported, not
     /// drawn by. The march's own switch from near to orbit is at the shell's
-    /// top (13 km), a step: its reach, its steps and the far layer's footprint
-    /// rule change there (docs/look/clouds.md, Open).
+    /// top (13 km), a step: its reach and its steps change there; the far
+    /// layer's hand-over by footprint is the same on both sides
+    /// (docs/look/clouds.md, Open).
     public static func regimes(altitude h: Double) -> (near: Double, orbit: Double, far: Double) {
         let near = 1 - smoothstep(12_000, 30_000, h)
         let far = smoothstep(3_000_000, 6_000_000, h)

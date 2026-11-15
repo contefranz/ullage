@@ -102,19 +102,46 @@ final class CloudScatteringTests: XCTestCase {
         }
     }
 
+    /// Seen from below, the single scattering converges to its closed
+    /// form; a thick deck seen from below is darker than from above with
+    /// the Sun above it, and its diffuse light is the slab's transmitted
+    /// flux.
+    func testSlabFromBelow() {
+        var lighting = CloudLighting()
+        lighting.lightSamples = 400
+        lighting.lightDistance = 40_000
+        let slab = CloudSlab(thickness: 1_500, lighting: lighting)
+        for (tau, mu0, mu) in [(0.5, 0.9, 0.7), (3.0, 0.5, 0.8), (6.0, 0.6, 0.6)] {
+            let r = slab.march(opticalDepth: tau, mu0: mu0, mu: mu, fromBelow: true, steps: 800)
+            XCTAssertEqual(r.single, slab.singleScatteringClosedFormFromBelow(opticalDepth: tau, mu0: mu0, mu: mu),
+                           accuracy: 0.01 * r.single, "τ \(tau)")
+            XCTAssertEqual(r.transmittance, exp(-tau / mu), accuracy: 1e-9)
+        }
+        let standard = CloudSlab(thickness: CloudLayerModel.lowDepth)
+        let above = standard.march(opticalDepth: 40, mu0: 0.7, mu: 0.8)
+        let below = standard.march(opticalDepth: 40, mu0: 0.7, mu: 0.8, fromBelow: true)
+        // The light under a thick deck: about its transmitted flux over π,
+        // fed by the Sun's flux on the level; against its top's, about T/R.
+        let t = CloudOptics.slabTransmittance(opticalDepth: 40, asymmetry: CloudLayerModel.waterAsymmetry)
+        XCTAssertEqual(below.sunDiffuse / above.sunDiffuse, t / (1 - t), accuracy: 0.25 * t / (1 - t),
+                       "a thick deck's base is dark")
+        XCTAssertEqual(below.sunDiffuse, 0.7 * t / .pi, accuracy: 0.25 * 0.7 * t / .pi)
+    }
+
     func testSlabLUT() {
         let lut = CloudSlabLUT.standard()
-        XCTAssertEqual(lut.texels.count, 4 * 16 * 16 * 24 * 2)
+        XCTAssertEqual(lut.texels.count, 4 * 16 * 16 * 24 * 2 * 2)
         for k in [0, 7, 23] {
             XCTAssertEqual(CloudSlabLUT.depthCoordinate(CloudSlabLUT.depth(k)), Double(k), accuracy: 1e-9)
         }
         XCTAssertEqual(CloudSlabLUT.cosineCoordinate(CloudSlabLUT.cosine(9)), 9, accuracy: 1e-9)
-        // A texel is the march at its grid point; the mid layer's block
-        // follows the low one's.
+        // A texel is the march at its grid point, in its layer's and side's block.
         let (l, k, j, i) = (1, 12, 5, 11)
         let r = lut.slabs[l].march(opticalDepth: CloudSlabLUT.depth(k), mu0: CloudSlabLUT.cosine(j),
-                                   mu: CloudSlabLUT.cosine(i))
-        let at = 4 * (((l * CloudSlabLUT.depths + k) * CloudSlabLUT.cosines + j) * CloudSlabLUT.cosines + i)
+                                   mu: CloudSlabLUT.cosine(i), fromBelow: true)
+        let b = CloudSlabLUT.block(layer: l, fromBelow: true)
+        XCTAssertEqual(b, 3)
+        let at = 4 * (((b * CloudSlabLUT.depths + k) * CloudSlabLUT.cosines + j) * CloudSlabLUT.cosines + i)
         XCTAssertEqual(Double(lut.texels[at]), r.single, accuracy: 1e-6)
         XCTAssertEqual(Double(lut.texels[at + 1]), r.sunDiffuse, accuracy: 1e-6)
         XCTAssertEqual(Double(lut.texels[at + 2]), r.sky, accuracy: 1e-6)

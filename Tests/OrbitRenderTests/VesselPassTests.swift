@@ -293,8 +293,12 @@ final class VesselPassTests: XCTestCase {
         s.post.dither = false
         // The air alone unless asked, as A2's tests have it: C2's clouds
         // change the sky the tests read, and they cover a wire too thin to
-        // write depth (`testCloudsBehindAWireStayBehindIt`).
+        // write depth (`testCloudsBehindAWireStayBehindIt`). Asked, a fixed
+        // sky: C2's look-dev slab, a uniform deck overhead (cover 1, its base
+        // 1 km up), so the wire tests have clouds behind every row of the
+        // tube whatever the day's weather and C2's look.
         s.cloud.enabled = clouds
+        if clouds { s.cloud.lookDev = CloudSettings.LookDevSlab() }
         r.settings = s
         XCTAssertEqual(r.failures, [:])
         return r

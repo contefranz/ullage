@@ -6,9 +6,9 @@ import OrbitScene
 // Track C2: the clouds' textures that do not change from frame to frame.
 // The noise volumes are generated on the GPU at the first frame by
 // CloudShaders' `cloud_noise_*` kernels, which mirror OrbitScene's
-// CloudNoise; the far regime's slab LUT is CloudSlabLUT's bake, and the
-// air's transmittance and sky irradiance are A1's tables (OrbitCore's
-// AtmosphereLUT), uploaded here until A2's AtmosphereContext binds them.
+// CloudNoise; the far regime's slab LUT is CloudSlabLUT's bake; the air's
+// transmittance and sky irradiance are A1's tables as A2 shares them
+// (CloudAir).
 
 /// The noise volumes, made once on the GPU.
 @MainActor
@@ -75,36 +75,19 @@ final class CloudNoiseVolumes {
     }
 }
 
-/// The far LUT and the air's tables, as textures.
+/// The far LUT, as a texture.
 @MainActor
 final class CloudTables {
-    /// CloudSlabLUT: x the view cosine, y the Sun's, z optical depth by layer.
+    /// CloudSlabLUT: x the view cosine, y the Sun's, z optical depth by layer
+    /// and side (from above, from below).
     let slab: MTLTexture
-    /// A1's transmittance (256×64) and sky irradiance (64×16), rgba32Float.
-    let transmittance: MTLTexture
-    let irradiance: MTLTexture
-    /// The top of A1's air above the ground, m.
-    let airTop: Double
 
-    /// The bakes, once per process (CPU, a fraction of a second in Release).
+    /// The bake, once per process (CPU, a fraction of a second in Release).
     static let slabLUT = CloudSlabLUT.standard()
-    /// A1's tables at a coarser quadrature than A2's (the clouds need the
-    /// transmittance at its full size and the sky's irradiance only roughly).
-    static let air: AtmosphereLUT = {
-        var r = AtmosphereLUT.Resolution()
-        r.multipleScatteringSize = 16
-        r.multipleScatteringZenithNodes = 8
-        r.multipleScatteringAzimuths = 8
-        r.multipleScatteringSteps = 12
-        r.irradianceZenithNodes = 8
-        r.irradianceAzimuths = 8
-        r.irradianceSteps = 16
-        return AtmosphereLUT(resolution: r)
-    }()
 
     init?(device: MTLDevice) {
         let lut = Self.slabLUT
-        let n = CloudSlabLUT.cosines, depth = CloudSlabLUT.depths * lut.slabs.count
+        let n = CloudSlabLUT.cosines, depth = CloudSlabLUT.depths * lut.slabs.count * 2
         let d = MTLTextureDescriptor()
         d.textureType = .type3D
         d.pixelFormat = .rgba32Float
@@ -119,25 +102,61 @@ final class CloudTables {
                          withBytes: b.baseAddress!, bytesPerRow: 16 * n, bytesPerImage: 16 * n * n)
         }
         slab.label = "Cloud slab LUT"
-        func table(_ t: AtmosphereLUT.Table, _ label: String) -> MTLTexture? {
-            let td = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba32Float, width: t.width,
-                                                              height: t.height, mipmapped: false)
-            td.usage = .shaderRead
-            td.storageMode = .shared
-            guard let tex = device.makeTexture(descriptor: td) else { return nil }
-            t.texels.withUnsafeBytes { b in
-                tex.replace(region: MTLRegionMake2D(0, 0, t.width, t.height), mipmapLevel: 0,
-                            withBytes: b.baseAddress!, bytesPerRow: 16 * t.width)
-            }
-            tex.label = label
-            return tex
-        }
-        let air = Self.air
-        guard let transmittance = table(air.transmittance, "Cloud air transmittance (A1)"),
-              let irradiance = table(air.irradiance, "Cloud sky irradiance (A1)") else { return nil }
         self.slab = slab
-        self.transmittance = transmittance
-        self.irradiance = irradiance
-        airTop = air.topRadius - air.bottomRadius
+    }
+}
+
+/// A1's transmittance (256×64) and sky irradiance (64×16) as A2 shares
+/// them: its LUT pass's textures when it ran this frame (P0, before the
+/// clouds), else its tables (`AtmosphereTables`, the same settings' key)
+/// uploaded here once, so the clouds draw with the atmosphere off too.
+@MainActor
+final class CloudAir {
+    struct Tables {
+        let transmittance: MTLTexture
+        let irradiance: MTLTexture
+        /// The top of the air above the ground, m.
+        let top: Double
+    }
+
+    private let device: MTLDevice
+    private var own: (key: AtmosphereTables.Key, transmittance: MTLTexture, irradiance: MTLTexture)?
+
+    init(device: MTLDevice) { self.device = device }
+
+    /// Starts A2's build of the tables for `settings`.
+    func request(_ settings: AtmosphereSettings) { AtmosphereTables.shared.request(AtmosphereTables.Key(settings)) }
+
+    /// The tables for this frame; nil while they are being built and the
+    /// settings do not wait for them.
+    func tables(_ f: FrameContext) -> Tables? {
+        let settings = f.settings.atmosphere
+        let key = AtmosphereTables.Key(settings)
+        guard let lut = AtmosphereTables.shared.tables(key, wait: settings.waitForTables) else { return nil }
+        let top = lut.topRadius - lut.bottomRadius
+        if let t = f.textures[.atmosphereLUTs], let i = f.textures[.atmosphereIrradiance] {
+            return Tables(transmittance: t, irradiance: i, top: top)
+        }
+        if own?.key != key {
+            guard let t = Self.upload(lut.transmittance, "Cloud air transmittance (A1)", device: device),
+                  let i = Self.upload(lut.irradiance, "Cloud sky irradiance (A1)", device: device) else { return nil }
+            own = (key, t, i)
+        }
+        guard let own else { return nil }
+        return Tables(transmittance: own.transmittance, irradiance: own.irradiance, top: top)
+    }
+
+    private static func upload(_ t: AtmosphereLUT.Table, _ label: String, device: MTLDevice) -> MTLTexture? {
+        let td = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba32Float, width: t.width,
+                                                          height: t.height, mipmapped: false)
+        td.usage = .shaderRead
+        td.storageMode = .shared
+        guard let tex = device.makeTexture(descriptor: td) else { return nil }
+        t.texels.withUnsafeBytes { b in
+            tex.replace(region: MTLRegionMake2D(0, 0, t.width, t.height), mipmapLevel: 0,
+                        withBytes: b.baseAddress!, bytesPerRow: 16 * t.width)
+        }
+        tex.label = label
+        return tex
     }
 }

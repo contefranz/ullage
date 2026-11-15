@@ -51,23 +51,37 @@ public struct CloudSlab: Equatable {
         return tau
     }
 
-    /// The march down through a slab of optical depth `tau`, Sun at cosine
-    /// `mu0` from the zenith, eye above at cosine `mu`, in `steps` equal
-    /// steps of depth, each integrated as the shader does: the step's light
-    /// times (1 − e^{−σΔ}) (Hillaire 2016), then the transmittance.
-    public func march(opticalDepth tau: Double, mu0: Double, mu: Double, steps: Int = 96) -> Response {
+    /// Whether the light march's last sample from `depth` m below the top
+    /// is out of the slab.
+    public func lightEscapes(depth: Double, mu0: Double) -> Bool {
+        let ends = lighting.lightSegmentEnds, k = lighting.lightSamples
+        return lighting.lightDistance * 0.5 * (ends[k - 1] + ends[k]) * mu0 >= depth
+    }
+
+    /// The march through a slab of optical depth `tau`, Sun at cosine `mu0`
+    /// from the zenith, the eye at cosine `mu` from the zenith above it (or,
+    /// `fromBelow`, from the nadir below it, looking up), in `steps` equal
+    /// steps of depth from the eye's side, each integrated as the shader
+    /// does: the step's light times (1 − e^{−σΔ}) (Hillaire 2016), then the
+    /// transmittance.
+    public func march(opticalDepth tau: Double, mu0: Double, mu: Double, fromBelow: Bool = false,
+                      steps: Int = 96) -> Response {
         let sigma = tau / thickness, mu = max(mu, 1e-4), mu0 = max(mu0, 1e-4)
         let dz = thickness / Double(steps), dl = dz / mu
         let stepOpacity = 1 - exp(-sigma * dl)
+        // The light's upward cosine towards the eye.
+        let muUp = fromBelow ? -mu : mu
         var r = Response(single: 0, sunDiffuse: 0, sky: 0, transmittance: 1)
         for m in 0..<steps {
-            let depth = (Double(m) + 0.5) * dz, h = 1 - depth / thickness
+            let fromEye = (Double(m) + 0.5) * dz
+            let depth = fromBelow ? thickness - fromEye : fromEye, h = 1 - depth / thickness
             let tauSun = sunOpticalDepth(depth: depth, sigma: sigma, mu0: mu0)
-            let t = lighting.columnDepth(column: tau, heightFraction: h, sunOpticalDepth: tauSun, sunCosine: mu0)
+            let t = lighting.columnDepth(column: tau, heightFraction: h, sunOpticalDepth: tauSun, sunCosine: mu0,
+                                         escaped: lightEscapes(depth: depth, mu0: mu0))
             let w = r.transmittance * stepOpacity
             r.single += w * exp(-tauSun)
-            r.sunDiffuse += w * lighting.sunDiffuse(depth: t, column: tau, sunCosine: mu0, muUp: mu)
-            r.sky += w * lighting.skyDiffuse(column: tau, heightFraction: h, muUp: mu)
+            r.sunDiffuse += w * lighting.sunDiffuse(depth: t, column: tau, sunCosine: mu0, muUp: muUp)
+            r.sky += w * lighting.skyDiffuse(column: tau, heightFraction: h, muUp: muUp)
             r.transmittance *= exp(-sigma * dl)
         }
         return r
@@ -88,6 +102,15 @@ public struct CloudSlab: Equatable {
     public func singleScatteringClosedForm(opticalDepth tau: Double, mu0: Double, mu: Double) -> Double {
         let k = 1 / mu0 + 1 / mu
         return (1 - exp(-tau * k)) / (mu * k)
+    }
+
+    /// The same seen from below, the eye at cosine `mu` from the nadir:
+    /// (e^{−τ/μ0} − e^{−τ/μ}) / (μ (1/μ − 1/μ0)), whose limit where μ = μ0
+    /// is τ e^{−τ/μ}/μ.
+    public func singleScatteringClosedFormFromBelow(opticalDepth tau: Double, mu0: Double, mu: Double) -> Double {
+        let k = 1 / mu - 1 / mu0
+        if abs(k) < 1e-9 { return tau * exp(-tau / mu) / mu }
+        return (exp(-tau / mu0) - exp(-tau / mu)) / (mu * k)
     }
 
     /// The plane albedo for the Sun at `mu0`, ∫ L μ dω / μ0 over the upward
@@ -129,25 +152,32 @@ public struct CloudSlabLUT: Equatable {
     public let slabs: [CloudSlab]
     /// RGBA per texel: the march's single scattering (without phase), the
     /// Sun's diffuse light, the sky's, and the transmittance along the view.
-    /// x the view cosine, y the Sun's, z the optical depth within each
-    /// layer's block, the layers' blocks stacked in z.
+    /// x the view cosine, y the Sun's, z the optical depth within a block;
+    /// the blocks stacked in z as layer 0 from above, layer 0 from below,
+    /// layer 1 from above, layer 1 from below (`block(layer:fromBelow:)`).
     public let texels: [Float]
+
+    /// The block of a layer and a side, in z.
+    public static func block(layer: Int, fromBelow: Bool) -> Int { 2 * layer + (fromBelow ? 1 : 0) }
 
     public init(slabs: [CloudSlab]) {
         self.slabs = slabs
         let n = Self.cosines, d = Self.depths
-        var texels = [Float](repeating: 0, count: 4 * n * n * d * slabs.count)
+        var texels = [Float](repeating: 0, count: 4 * n * n * d * 2 * slabs.count)
         for (l, slab) in slabs.enumerated() {
-            for k in 0..<d {
-                let tau = Self.depth(k)
-                for j in 0..<n {
-                    for i in 0..<n {
-                        let r = slab.march(opticalDepth: tau, mu0: Self.cosine(j), mu: Self.cosine(i))
-                        let at = 4 * (((l * d + k) * n + j) * n + i)
-                        texels[at] = Float(r.single)
-                        texels[at + 1] = Float(r.sunDiffuse)
-                        texels[at + 2] = Float(r.sky)
-                        texels[at + 3] = Float(r.transmittance)
+            for below in [false, true] {
+                let b = Self.block(layer: l, fromBelow: below)
+                for k in 0..<d {
+                    let tau = Self.depth(k)
+                    for j in 0..<n {
+                        for i in 0..<n {
+                            let r = slab.march(opticalDepth: tau, mu0: Self.cosine(j), mu: Self.cosine(i), fromBelow: below)
+                            let at = 4 * (((b * d + k) * n + j) * n + i)
+                            texels[at] = Float(r.single)
+                            texels[at + 1] = Float(r.sunDiffuse)
+                            texels[at + 2] = Float(r.sky)
+                            texels[at + 3] = Float(r.transmittance)
+                        }
                     }
                 }
             }
