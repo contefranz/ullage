@@ -168,7 +168,49 @@ extension ShaderHeader {
     public static let planetTileCommon = ShaderHeader(name: "PlanetTileCommon", source: planetTileCommonSource)
 }
 
+// E2 replaces: E1's albedo hook. The planet module with the tile store:
+// planetShaderSource (E2's, unchanged) with the tile arguments added after
+// its sampler and the tile lookup before its grid, so the plain `.planet`
+// module, which every draw without tiles uses, is exactly what it was. If
+// the planet shader no longer has those anchors the module carries an
+// #error: ShaderCompileTests says so, and the Earth keeps its fallback look.
+let planetTiledShaderSource: String = {
+    let arguments = "                                       sampler smp [[sampler(0)]],\n"
+    let lookup = "    if (u.options.x > 0.5) {"
+    guard planetShaderSource.contains(arguments), planetShaderSource.contains(lookup) else {
+        return "#error \"E1's tile hook: planet_fragment's anchors moved (PlanetTileShaders.swift)\"\n"
+    }
+    return planetShaderSource
+        .replacingOccurrences(of: arguments, with: arguments + """
+                                       texture2d_array<float> tileAtlas [[texture(5)]],
+                                       texture2d_array<uint, access::read> tileIndirection [[texture(6)]],
+                                       const device uint4 *tileDeep [[buffer(1)]],
+                                       constant PlanetTileLayer &tileLayer [[buffer(2)]],
+                                       sampler tileSampler [[sampler(1)]],
+
+        """)
+        .replacingOccurrences(of: lookup, with: """
+            {
+                // E1's albedo tiles at the hit's figure direction, filtered
+                // by its screen footprint.
+                float3 dirF = normalize(p);
+                float2 uv;
+                uint face = planet_tile_face(dirF, uv);
+                float2 dx = planet_tile_uv_delta(face, dirF, dfdx(dirF)), dy = planet_tile_uv_delta(face, dirF, dfdy(dirF));
+                PlanetTileHit tile = planet_tile_find(tileIndirection, tileDeep, tileLayer, face, uv,
+                                                      planet_tile_level(tileLayer, dx, dy, 0.0));
+                if (tile.found) { albedo = planet_tile_sample(tileAtlas, tileSampler, tile, dx, dy).rgb; }
+            }
+
+        """ + lookup)
+}()
+
 extension ShaderModule {
+    /// E2 replaces: the planet shader with E1's albedo tiles, for the tiled Earth.
+    public static let planetTiled = ShaderModule(name: "PlanetTiled",
+                                                 headers: [.shadowCommon, .atmosphereCommon, .planetTileCommon],
+                                                 source: planetTiledShaderSource)
+
     /// The tile lookup's probe kernel (the GPU tests, `PlanetTileCache.probe`).
     public static let planetTiles = ShaderModule(name: "PlanetTiles", headers: [.planetTileCommon],
                                                  source: planetTileProbeSource)

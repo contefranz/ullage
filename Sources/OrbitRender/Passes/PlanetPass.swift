@@ -21,16 +21,18 @@ public final class PlanetPass: RenderPass {
     // when P0 wrote them this frame, as `.skyView` is through its slot.)
 
     private var pipeline: MTLRenderPipelineState?
+    // E2 replaces: E1's tile hook. The tiled Earth's pipeline (the
+    // `.planetTiled` module); every other draw uses `pipeline`, the plain
+    // planet module, as without the tile store.
+    private var tiledPipeline: MTLRenderPipelineState?
     private var textures: [Int: MTLTexture] = [:]
     private var fallbackTexture: MTLTexture?
     /// Load the user's planet textures (Application Support); off for
     /// snapshots that must not depend on them.
     public var loadsUserTextures: Bool
-    /// E1's tile store: the Earth's albedo comes from its albedo layer once
-    /// that is live, else from earth.jpg or the plain colour. (E1's minimal
-    /// hook, for E2 to replace with the full surface.)
+    /// E2 replaces: E1's tile store, whose albedo layer gives the Earth's
+    /// albedo once any of it is resident.
     public let tiles: PlanetTilePass?
-    private var tileFallbacks: (atlas: MTLTexture, indirection: MTLTexture, deep: MTLBuffer)?
 
     public init(loadsUserTextures: Bool = true, tiles: PlanetTilePass? = nil) {
         self.loadsUserTextures = loadsUserTextures
@@ -40,26 +42,15 @@ public final class PlanetPass: RenderPass {
     public func setUp(_ s: PassSetup) throws {
         pipeline = try PipelineBuilder.scene(try s.shaders.library(.planet), vertex: "planet_vertex",
                                              fragment: "planet_fragment", blend: .premultiplied, setup: s)
+        // E2 replaces: a tile module that does not compile leaves the Earth untiled.
+        tiledPipeline = tiles == nil ? nil : try? PipelineBuilder.scene(try s.shaders.library(.planetTiled),
+                                                                       vertex: "planet_vertex", fragment: "planet_fragment",
+                                                                       blend: .premultiplied, setup: s)
         let td = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Unorm, width: 1, height: 1, mipmapped: false)
         fallbackTexture = s.device.makeTexture(descriptor: td)
         var white: [UInt8] = [255, 255, 255, 255]
         fallbackTexture?.replace(region: MTLRegionMake2D(0, 0, 1, 1), mipmapLevel: 0, withBytes: &white, bytesPerRow: 4)
         textures = loadsUserTextures ? Self.loadTextures(device: s.device) : [:]
-        // Bound in place of a tile layer when there is none.
-        let ad = MTLTextureDescriptor()
-        ad.textureType = .type2DArray
-        ad.pixelFormat = .rgba8Unorm
-        ad.width = 1
-        ad.height = 1
-        let id = MTLTextureDescriptor()
-        id.textureType = .type2DArray
-        id.pixelFormat = .r32Uint
-        id.width = 1
-        id.height = 1
-        if let a = s.device.makeTexture(descriptor: ad), let i = s.device.makeTexture(descriptor: id),
-           let d = s.device.makeBuffer(length: 64, options: .storageModeShared) {
-            tileFallbacks = (a, i, d)
-        }
     }
 
     /// The textures loaded, by NAIF id.
@@ -110,6 +101,7 @@ public final class PlanetPass: RenderPass {
         let haze = f.textures[.spaceGroundScatter].flatMap { s in f.textures[.spaceGroundTransmittance].map { (s, $0) } }
         enc.setFragmentTexture(haze?.0 ?? fallbackTexture, index: 3)
         enc.setFragmentTexture(haze?.1 ?? fallbackTexture, index: 4)
+        // E2 replaces: the albedo tiles, once any are resident.
         let albedoTiles = tiles?.layer(.albedo).flatMap { $0.residency.residentCount > 0 ? $0 : nil }
         for body in f.scene.bodies where !body.isSun && !f.drawsPoint(body) {
             let rel = body.position
@@ -126,18 +118,14 @@ public final class PlanetPass: RenderPass {
             let altitude = figure.geodetic(cameraBody).height
             let worldToBody = orientation.icrfToBody
             let texture = textures[body.id]
-            // The Earth's albedo from the tile store (E1), when live.
+            // E2 replaces: the tiled Earth draws with the tile pipeline.
             let tiled = body.id == AtmosphereFrame.planetID ? albedoTiles : nil
-            if let tiled {
+            if let tiled, let tiledPipeline {
+                enc.setRenderPipelineState(tiledPipeline)
                 tiled.bindFragment(enc, atlas: 5, indirection: 6, deep: 1, uniforms: 2)
                 enc.setFragmentSamplerState(tiled.sampler, index: 1)
-            } else if let fb = tileFallbacks {
-                enc.setFragmentTexture(fb.atlas, index: 5)
-                enc.setFragmentTexture(fb.indirection, index: 6)
-                enc.setFragmentBuffer(fb.deep, offset: 0, index: 1)
-                var none = PlanetTileLayerUniforms(atlas: .zero, levels: .zero, value: .zero)
-                enc.setFragmentBytes(&none, length: MemoryLayout<PlanetTileLayerUniforms>.stride, index: 2)
-                enc.setFragmentSamplerState(f.states.linearClamp, index: 1)
+            } else {
+                enc.setRenderPipelineState(pipeline)
             }
             var u = PlanetUniforms(
                 viewToWorld: simd_float4x4(rotation: cam.worldToView.transposed),
@@ -147,7 +135,7 @@ public final class PlanetPass: RenderPass {
                 sunDir: SIMD4(body.toSun, body.isSun ? 1 : 0),
                 baseColor: SIMD4(style.color.x, style.color.y, style.color.z, texture == nil ? 0 : 1),
                 atmosphere: SIMD4(air && body.id == AtmosphereFrame.planetID ? 1 : 0, groundSteps, haze == nil ? 0 : 1, 0),
-                options: SIMD4(texture == nil && tiled == nil ? 1 : 0, 0.015, tiled == nil ? 0 : 1, 0),
+                options: SIMD4(texture == nil && tiled == nil ? 1 : 0, 0.015, 0, 0),
                 origin: SIMD4(origin, Float(c)),
                 figure: SIMD4(Float(stretch), 0, 0, 0))
             enc.setFragmentBytes(&u, length: MemoryLayout<PlanetUniforms>.stride, index: 0)

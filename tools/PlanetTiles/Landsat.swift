@@ -232,6 +232,9 @@ enum Landsat {
         let meta = paths.sourcesFile.metadata(
             for: scene.files, tool: toolLine("earth cape --scene \(id) --match-month \(month)"),
             extra: ["layer": "albedo inset", "scene": id, "matched to": String(format: "BMNG 2004-%02d", month),
+                    "note": "Altered: pan-sharpened to 15 m (Brovey); the Shuttle Landing Facility painted out by cloning "
+                        + "scrub beside it (tools/data/cape_paintout.json); colours matched to BMNG by a per-channel gain "
+                        + "and offset; feathered into BMNG over 2 km at the region's edge and where the scene has no data",
                     "region": "\(region.south)...\(region.north) N, \(region.west)...\(region.east) E",
                     "painted out": paint.strips.map(\.name).joined(separator: "; ")])
         try writeLayer(EarthTileFiles.capeInset, out: paths.out,

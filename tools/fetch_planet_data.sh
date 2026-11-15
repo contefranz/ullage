@@ -19,11 +19,15 @@
 #                       from LandsatLook while signed in to USGS ERS, then checks them on the next run
 #   --dry-run           print each file's URL and size, and the total; download nothing
 #
-# Downloads resume (curl -C -) and land under DIR/<dataset>/. Each file is
-# checked against its size and recorded in DIR/SOURCES.txt with its URL,
-# date, licence, credit and sha256; a file already recorded with a matching
-# sha256 is not fetched again. PlanetTiles copies these lines into each tile
-# file's metadata.
+# It first lists every file, asks the servers their sizes, and prints how
+# much it will download and how much space the disk has; it stops if the
+# download would not fit, and warns if building the tiles afterwards (up to
+# 15 GB of scratch, about 3 GB of tiles) would not. Downloads resume (curl
+# -C -) and land under DIR/<dataset>/. Each file is checked against its size
+# and recorded in DIR/SOURCES.txt with its URL, date, licence, credit and
+# sha256, and a note of what PlanetTiles changes in it; a file already
+# recorded with a matching sha256 is not fetched again. PlanetTiles copies
+# these lines into each tile file's metadata.
 set -euo pipefail
 
 DEST="$HOME/Library/Application Support/OrbitSim/Sources/earth"
@@ -43,7 +47,7 @@ while [ $# -gt 0 ]; do
     --landsat-scene) SCENE="$2"; shift 2 ;;
     --landsat-aws) LANDSAT_AWS=1; shift ;;
     --dry-run) DRY=1; shift ;;
-    -h|--help) sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,37p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "fetch_planet_data.sh: unknown option $1 (see --help)" >&2; exit 2 ;;
   esac
 done
@@ -63,6 +67,16 @@ remote_size() {
   curl -sIL --max-time 60 "$1" | tr -d '\r' | awk 'tolower($1)=="content-length:" {n=$2} END {if (n != "") print n}'
 }
 
+# What PlanetTiles changes in a file, for SOURCES.txt.
+note_for() {
+  case "$1" in
+    bmng/*) echo "PlanetTiles paints the late-1950s Aral Sea and early-1960s Lake Chad (Natural Earth historic lakes) into this month's mosaic, in the colour of each lake's own 2004 water, before tiling it as JPEG." ;;
+    landsat/*) echo "PlanetTiles pan-sharpens this scene to 15 m (Brovey), paints out the Shuttle Landing Facility (runway 15/33 and its overruns, tools/data/cape_paintout.json) by cloning scrub 500 m beside it, matches its colours to the BMNG month by a per-channel gain and offset, and feathers it into BMNG over 2 km at the inset's edge (28.30-28.85 N, 80.85-80.45 W)." ;;
+    etopo/*) echo "PlanetTiles takes surface normals from these heights, flat over water." ;;
+    natural-earth/*) echo "PlanetTiles rasterises the water (not land, lakes, and the historic Aral Sea and Lake Chad only)." ;;
+  esac
+}
+
 # record PATH URL DATASET LICENCE CREDIT: the file's block for SOURCES.txt.
 record() {
   local rel="$1" url="$2" dataset="$3" licence="$4" credit="$5"
@@ -76,6 +90,7 @@ record() {
     echo "  URL: $url"
     echo "  Licence: $licence"
     echo "  Credit: $credit"
+    echo "  Note: $(note_for "$rel")"
     echo "  Retrieved: $TODAY"
     echo "  Size: $size"
     echo "  sha256: $sha"
@@ -93,29 +108,18 @@ recorded_ok() {
   [ "$(shasum -a 256 "$file" | awk '{print $1}')" = "$sha" ]
 }
 
-# fetch PATH URL DATASET LICENCE CREDIT
-fetch() {
-  local rel="$1" url="$2" dataset="$3" licence="$4" credit="$5"
+# The files to fetch, in order: plan PATH URL DATASET LICENCE CREDIT.
+P_REL=(); P_URL=(); P_DATASET=(); P_LICENCE=(); P_CREDIT=(); P_SIZE=()
+plan() { P_REL+=("$1"); P_URL+=("$2"); P_DATASET+=("$3"); P_LICENCE+=("$4"); P_CREDIT+=("$5"); P_SIZE+=(""); }
+
+# download I: fetch the planned file I (its size already asked) and record it.
+download() {
+  local i=$1
+  local rel="${P_REL[$i]}" url="${P_URL[$i]}" expected="${P_SIZE[$i]}"
   local file="$DEST/$rel"
-  if [ $DRY -eq 1 ]; then
-    local size
-    size=$(remote_size "$url")
-    if [ -z "$size" ]; then
-      printf '  %-58s  NOT FOUND  %s\n' "$rel" "$url"
-      MISSING=$((MISSING + 1))
-    else
-      printf '  %-58s %8.1f MB  %s\n' "$rel" "$(echo "$size / 1000000" | bc -l)" "$url"
-      TOTAL=$((TOTAL + size))
-    fi
-    return
-  fi
-  if recorded_ok "$rel"; then
-    echo "  $rel: already here, sha256 checked"
-    return
-  fi
+  # Checked when sizing.
+  [ "$expected" = recorded ] && return
   mkdir -p "$(dirname "$file")"
-  local expected
-  expected=$(remote_size "$url")
   if [ ! -f "$file" ] || { [ -n "$expected" ] && [ "$(stat -f %z "$file")" != "$expected" ]; }; then
     echo "  $rel: fetching ($([ -n "$expected" ] && echo "$((expected / 1000000)) MB" || echo "size unknown"))"
     curl -fL --retry 3 --retry-delay 5 -C - -o "$file.partial" "$url"
@@ -126,15 +130,21 @@ fetch() {
     mv "$file.partial" "$file"
     FETCHED=$((FETCHED + 1))
   fi
-  record "$rel" "$url" "$dataset" "$licence" "$credit"
+  record "$rel" "$url" "${P_DATASET[$i]}" "${P_LICENCE[$i]}" "${P_CREDIT[$i]}"
   echo "  $rel: $(awk '$1=="sha256:" {print $2}' "$RECORDS/$rel.txt")"
 }
 
-if [ $DRY -eq 1 ]; then echo "Dry run: nothing is downloaded. Destination: $DEST"; else echo "Destination: $DEST"; fi
+# Free space (bytes) on the disk that holds DIR, or its nearest existing parent.
+free_bytes() {
+  local d="$1"
+  while [ ! -d "$d" ]; do d=$(dirname "$d"); done
+  df -Pk "$d" | awk 'NR==2 {print $4 * 1024}'
+}
+
+if [ $DRY -eq 1 ]; then echo "Dry run: sizes only. Destination: $DEST"; else echo "Destination: $DEST"; fi
 
 # --- NASA Blue Marble Next Generation, 500 m (15"), monthly 2004 ------------
 if wants bmng; then
-  echo "BMNG 2004, months $MONTHS ($BMNG_FORMAT)"
   BMNG="https://assets.science.nasa.gov/content/dam/science/esd/eo/images/bmng/bmng-base"
   for m in $(echo "$MONTHS" | tr ',' ' '); do
     case "$m" in
@@ -148,7 +158,7 @@ if wants bmng; then
       esac
       case "$t" in *1) lat="90-0 N" ;; *2) lat="0-90 S" ;; esac
       if [ "$BMNG_FORMAT" = tif ]; then f="world.2004$m.3x21600x21600.${t}_geo.tif"; else f="world.2004$m.3x21600x21600.$t.jpg"; fi
-      fetch "bmng/$f" "$BMNG/$name/$f" \
+      plan "bmng/$f" "$BMNG/$name/$f" \
         "NASA Blue Marble: Next Generation, base map (world), $name 2004, 500 m, tile $t ($lat, $lon)" \
         "Public domain (NASA imagery; NASA media usage guidelines)" \
         "NASA Earth Observatory (Reto Stöckli, NASA GSFC)"
@@ -158,10 +168,9 @@ fi
 
 # --- Natural Earth 1:10m land, lakes and historic lakes ---------------------
 if wants natural-earth; then
-  echo "Natural Earth 1:10m (the commit tools/make_landmask.py used)"
   NE="https://raw.githubusercontent.com/nvkelso/natural-earth-vector/ca96624a56bd078437bca8184e78163e5039ad19/geojson"
   for f in ne_10m_land ne_10m_lakes ne_10m_lakes_historic; do
-    fetch "natural-earth/$f.geojson" "$NE/$f.geojson" \
+    plan "natural-earth/$f.geojson" "$NE/$f.geojson" \
       "Natural Earth 1:10m physical vectors, $f (version 5.2.0-pre, commit ca96624)" \
       "Public domain (Natural Earth)" "Made with Natural Earth"
   done
@@ -169,13 +178,53 @@ fi
 
 # --- NOAA ETOPO 2022 30" surface elevation ----------------------------------
 if wants etopo; then
-  echo "ETOPO 2022"
   f="ETOPO_2022_v1_30s_N90W180_surface.tif"
-  fetch "etopo/$f" "https://www.ngdc.noaa.gov/mgg/global/relief/ETOPO2022/data/30s/30s_surface_elev_gtif/$f" \
+  plan "etopo/$f" "https://www.ngdc.noaa.gov/mgg/global/relief/ETOPO2022/data/30s/30s_surface_elev_gtif/$f" \
     "NOAA ETOPO 2022 Global Relief Model, 30 arc-second surface elevation (GeoTIFF)" \
     "Public domain (US Government work, NOAA NCEI)" \
     "NOAA National Centers for Environmental Information, 2022: ETOPO 2022 Global Relief Model, doi:10.25921/fd45-gt74"
 fi
+
+# --- Sizes first: what will come, and whether it fits ----------------------
+NEEDED=0
+for i in "${!P_REL[@]}"; do
+  rel="${P_REL[$i]}"
+  if [ $DRY -eq 0 ] && recorded_ok "$rel"; then
+    printf '  %-58s  already here, sha256 checked\n' "$rel"
+    P_SIZE[$i]=recorded
+    continue
+  fi
+  size=$(remote_size "${P_URL[$i]}")
+  P_SIZE[$i]="$size"
+  if [ -z "$size" ]; then
+    printf '  %-58s  NOT FOUND  %s\n' "$rel" "${P_URL[$i]}"
+    MISSING=$((MISSING + 1))
+    continue
+  fi
+  have=0
+  [ -f "$DEST/$rel.partial" ] && have=$(stat -f %z "$DEST/$rel.partial")
+  printf '  %-58s %8.1f MB  %s\n' "$rel" "$(echo "$size / 1000000" | bc -l)" "${P_URL[$i]}"
+  TOTAL=$((TOTAL + size))
+  NEEDED=$((NEEDED + size - have))
+done
+FREE=$(free_bytes "$DEST")
+gb() { echo "$1 / 1000000000" | bc -l | xargs printf '%.2f'; }
+echo "To download: $(gb $NEEDED) GB (of $(gb $TOTAL) GB listed; the Landsat scene, about 0.45 GB, comes by hand)."
+echo "Free on that disk: $(gb $FREE) GB. Building the tiles afterwards needs up to 15 GB of scratch and about 3 GB for the tiles."
+if [ $MISSING -gt 0 ]; then echo "$MISSING URL(s) not found: nothing fetched." >&2; exit 1; fi
+if [ $DRY -eq 1 ]; then
+  wants landsat && echo "Landsat $SCENE: B2, B3, B4, B8 and MTL from LandsatLook (USGS ERS sign-in) or, with --landsat-aws, s3://usgs-landsat."
+  echo "Dry run: nothing downloaded."
+  exit 0
+fi
+if [ "$FREE" -lt $((NEEDED + 500000000)) ]; then
+  echo "Not enough space: $(gb $NEEDED) GB to download, $(gb $FREE) GB free. Nothing fetched." >&2
+  exit 1
+fi
+if [ "$FREE" -lt $((NEEDED + 18000000000)) ]; then
+  echo "Warning: after the download about $(gb $((FREE - NEEDED))) GB will be free; PlanetTiles earth all needs up to 18 GB." >&2
+fi
+for i in "${!P_REL[@]}"; do download "$i"; done
 
 # --- Landsat 8/9 Collection 2 Level-1 scene of the Cape ---------------------
 if wants landsat; then
@@ -191,10 +240,6 @@ if wants landsat; then
     if [ $b = MTL ]; then f="${SCENE}_MTL.txt"; else f="${SCENE}_$b.TIF"; fi
     rel="landsat/$f"
     look="https://landsatlook.usgs.gov/data/$key/$f"
-    if [ $DRY -eq 1 ]; then
-      printf '  %-58s  sign-in needed (USGS ERS)  %s\n' "$rel" "$look"
-      continue
-    fi
     if recorded_ok "$rel"; then echo "  $rel: already here, sha256 checked"; continue; fi
     mkdir -p "$DEST/landsat"
     if [ $LANDSAT_AWS -eq 1 ]; then
@@ -212,12 +257,6 @@ if wants landsat; then
   if [ $DRY -eq 0 ] && [ $MISSING -gt 0 ] && [ $LANDSAT_AWS -eq 0 ]; then
     echo "  Put the files above in $DEST/landsat/ and run this again (or use --landsat-aws)."
   fi
-fi
-
-if [ $DRY -eq 1 ]; then
-  printf 'Total: %.2f GB to download (Landsat, about 0.45 GB, not counted)\n' "$(echo "$TOTAL / 1000000000" | bc -l)"
-  [ $MISSING -eq 0 ] || echo "$MISSING URL(s) not found" >&2
-  exit 0
 fi
 
 # SOURCES.txt from the records, in path order.

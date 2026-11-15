@@ -26,7 +26,7 @@ E2 (the Earth's surface and ocean) reads the cache. Until E2 lands, the planet p
 | `Sources/OrbitRender/Planet/PlanetTileCache/PlanetTileCache.swift` | OrbitRender | the atlas, indirection and deep table on the GPU; streaming |
 | `Sources/OrbitRender/Planet/PlanetTileCache/PlanetTileLoader.swift` | OrbitRender | ImageIO decodes and Metal IO loads off the main thread |
 | `Sources/OrbitRender/Planet/PlanetTileCache/PlanetTilePass.swift` | OrbitRender | the P0 pass: layers, selection, prefetch, updates, status |
-| `Sources/OrbitRender/Planet/PlanetTileCache/PlanetTileShaders.swift` | OrbitRender | `PlanetTileCommon` (the MSL lookup) and the probe kernel |
+| `Sources/OrbitRender/Planet/PlanetTileCache/PlanetTileShaders.swift` | OrbitRender | `PlanetTileCommon` (the MSL lookup), the probe kernel, and `.planetTiled`, the planet shader with the albedo tiles |
 
 ## Fetching (owner-run)
 
@@ -45,8 +45,12 @@ What it fetches, into `~/Library/Application Support/OrbitSim/Sources/earth`:
 | Landsat 9 OLI C2 L1, LC09_L1TP_016040_20221209_20230318_02_T1 (9 Dec 2022, 0.08 % cloud over land) | B2, B3, B4, B8, MTL | about 0.45 GB | public domain (USGS) |
 
 - July and December come by default, 6.48 GB; adding October (`--months 07,10,12`) makes 8.97 GB. The Landsat scene comes on top.
+- First the script lists every file and asks its size. It prints the total and the disk's free space, stops if the download would not fit, and warns if building the tiles (up to 18 GB more) would not.
 - Downloads resume. A file already recorded with a matching sha256 is skipped.
-- SOURCES.txt gets one block per file: dataset, URL, licence, credit, date, size, sha256.
+- SOURCES.txt gets one block per file: dataset, URL, licence, credit, date, size, sha256, and a note of what PlanetTiles changes in it.
+  - BMNG: the 1960s Aral Sea and Lake Chad painted in.
+  - Landsat: pan-sharpened, the SLF cloned out, colour-matched, feathered.
+  - The Cape tile file's own metadata says the same.
 - Landsat Collection 2 Level-1 needs a USGS ERS sign-in: the LandsatLook URLs redirect to ers.cr.usgs.gov, and `s3://usgs-landsat` is requester-pays. The script lists the five files to download while signed in and checks them on its next run. `--landsat-aws` fetches them with your AWS credentials instead.
 
 ## Building the tiles
@@ -116,7 +120,15 @@ The MSL side is `ShaderHeader.planetTileCommon`:
 - `planet_tile_sample`, and `planet_tile_sample_level` for an explicit mip.
 - A layer is bound with `PlanetTileCache.bindFragment` or `bindCompute`: atlas, indirection, deep table and `PlanetTileLayer` uniforms.
 
-Until E2, `PlanetPass` takes the Earth's albedo from the albedo layer once anything is resident, in place of earth.jpg. Without tile files the pass does nothing: the Earth keeps today's look (earth.jpg, else the plain ocean), and the console says why and how to make the tiles (`PlanetTilePass.status`).
+Until E2, `PlanetPass` takes the Earth's albedo from the albedo layer once anything is resident, in place of earth.jpg. This is a minimal hook, marked `E2 replaces`:
+- The tiled Earth draws with `ShaderModule.planetTiled`: E2's `planetShaderSource` with the tile arguments inserted after its sampler and the lookup before its grid.
+- Every other draw (no tile files, the Moon, the user's textures off) uses the plain `.planet` module. PlanetShaders.swift is unchanged from main.
+- If the planet shader loses those two anchors, the tiled module carries an `#error`. ShaderCompileTests says so, and the Earth stays untiled.
+
+Without tile files the tile pass does nothing, and the console says why and how to make the tiles (`PlanetTilePass.status`). Every image is byte-identical to main's:
+- orbitsnap at main 231113f and on this branch, with an empty tile directory, render the golden specs' 57 shots to identical PNG and PFM files;
+- `PlanetTileFallbackTests` renders four planet shots through the default passes with an empty tile directory and through the same passes without the store, and requires the same bytes;
+- a planet module compiled with the tile code switched off by a function constant did *not* give identical images: it moved a few dozen fp16 samples on 20 shots. Hence the separate module.
 
 ### Cost
 
@@ -177,7 +189,8 @@ The tile pass itself takes 0.00 ms on frames that upload nothing.
   - the deep hash table against a dictionary; the indirection against a brute-force finest resident ancestor, through insertions and removals;
   - residency: parents first, leaves out, quarantine, pinned levels, current over prefetch; a simulated flight at 30× with the GPU two frames behind, which never reuses a slot an in-flight frame could read;
   - the wanted order; track prediction in orbit and on the pad; catalogs of base plus inset, orphans dropped; month discovery; texel mips.
-- GPU (OrbitRenderTests `PlanetTileCacheTests`):
+- GPU (OrbitRenderTests `PlanetTileCacheTests`, `PlanetTileFallbackTests`):
+  - without tile files, the frame is byte for byte the one without the store; the plain planet module has nothing of it;
   - the probe kernel's lookup (indirection and deep table) and texel against the CPU mirror, through Metal's IO queue and by copy;
   - JPEG colour tiles upright in the sRGB atlas;
   - a camera crossing face edges with a 48-slot atlas and three frames in flight, every frame's probes finding that frame's tiles while slots churn;
