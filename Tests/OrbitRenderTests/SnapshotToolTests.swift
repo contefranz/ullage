@@ -48,7 +48,7 @@ final class SnapshotToolTests: XCTestCase {
         // half-resolution pass and composite run, and the overhead is
         // measured at the break.
         XCTAssertEqual(timed.timings.map(\.pass), ["Atmosphere LUTs", "Clouds", "Stars", "Planets", "Vessels",
-                                                   "Atmosphere composite", FrameProfile.splitOverhead,
+                                                   "Atmosphere composite", "Vessel wires", FrameProfile.splitOverhead,
                                                    "Half-resolution transparents", "Plumes", "Far points",
                                                    "Transparent composite", "HDR resolve", "Post", "Orbit line", "Markers"])
         // Each render pass's vertex and fragment time less what splitting
