@@ -42,8 +42,12 @@ public final class PlanetTilePass: RenderPass {
     private var statsWindow = StatsWindow()
     private var announced = false
 
-    /// The default directory: ~/Library/Application Support/OrbitSim/Tiles.
+    /// The default directory: ~/Library/Application Support/OrbitSim/Tiles,
+    /// or `ORBITSIM_TILES_DIR` (tests, harness flights on demo tiles).
     public static var defaultDirectory: URL {
+        if let dir = ProcessInfo.processInfo.environment["ORBITSIM_TILES_DIR"], !dir.isEmpty {
+            return URL(fileURLWithPath: (dir as NSString).expandingTildeInPath, isDirectory: true)
+        }
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return support.appendingPathComponent("OrbitSim/Tiles", isDirectory: true)
     }

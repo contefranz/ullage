@@ -45,6 +45,9 @@ public struct TIFFImage {
     public let pixelScale: [Double]?
     /// GDAL_NODATA, if given.
     public let noData: Double?
+    /// GeoTIFF's raster type (GTRasterTypeGeoKey): true when the tie point
+    /// is a pixel's centre (PixelIsPoint), false for its corner (PixelIsArea).
+    public let pixelIsPoint: Bool
 
     public init(data: Data, inflate: Inflate? = nil) throws {
         guard data.count >= 8 else { throw Failure.notTIFF }
@@ -141,6 +144,15 @@ public struct TIFFImage {
         tiePoint = tags[33922]
         pixelScale = tags[33550]
         noData = ascii[42113].flatMap { Double($0.trimmingCharacters(in: .whitespaces)) }
+        // GeoKeyDirectory: a header of four shorts, then (key, location, count, value).
+        var point = false
+        if let keys = tags[34735], keys.count >= 4 {
+            let n = Int(keys[3])
+            for k in 0 ..< n where 4 + 4 * k + 3 < keys.count {
+                if Int(keys[4 + 4 * k]) == 1025, Int(keys[4 + 4 * k + 1]) == 0 { point = Int(keys[4 + 4 * k + 3]) == 2 }
+            }
+        }
+        pixelIsPoint = point
         bigEndian = big
         self.data = data
         self.inflate = inflate
@@ -152,11 +164,15 @@ public struct TIFFImage {
     public var bytesPerSample: Int { bitsPerSample / 8 }
     public var bytesPerPixel: Int { bytesPerSample * samplesPerPixel }
 
-    /// The grid of a GeoTIFF on latitude and longitude (degrees; the tie
-    /// point at pixel (0, 0)'s corner, PixelIsArea), nil without one.
+    /// The grid of a GeoTIFF in its own units (degrees of latitude and
+    /// longitude, or a projection's metres: then `GeoGrid`'s west and north
+    /// are the easting and northing of the grid's edges), from its tie point
+    /// and pixel scale; nil without them.
     public var geoGrid: GeoGrid? {
         guard let t = tiePoint, t.count >= 6, let s = pixelScale, s.count >= 2 else { return nil }
-        return GeoGrid(width: width, height: height, west: t[3] - t[0] * s[0], north: t[4] + t[1] * s[1],
+        // PixelIsPoint ties a pixel's centre: the grid's edge is half a pixel out.
+        let half = pixelIsPoint ? 0.5 : 0
+        return GeoGrid(width: width, height: height, west: t[3] - (t[0] + half) * s[0], north: t[4] + (t[1] + half) * s[1],
                        pixelWidth: s[0], pixelHeight: s[1])
     }
 
@@ -235,9 +251,19 @@ public struct TIFFImage {
     /// Copies the whole image into `raster`'s rows (same width and height,
     /// samples per pixel and sample size), decoding blocks in parallel.
     public func read(into raster: GeoRaster) throws {
-        guard raster.grid.width == width, raster.grid.height == height, raster.channels == samplesPerPixel,
-              raster.type.size == bytesPerSample else { throw Failure.unsupported("raster shape") }
-        let dst = raster.storage.bytes, rowBytes = width * bytesPerPixel
+        guard raster.grid.width == width, raster.grid.height == height else { throw Failure.unsupported("raster shape") }
+        try read(into: raster, column: 0, row: 0)
+    }
+
+    /// Copies the image into `raster` with its top-left pixel at (`column`,
+    /// `row`): one of BMNG's eight tiles into the whole globe. The raster
+    /// must hold it and match its samples per pixel and sample size.
+    public func read(into raster: GeoRaster, column x0: Int, row y0: Int) throws {
+        guard raster.channels == samplesPerPixel, raster.type.size == bytesPerSample,
+              x0 >= 0, y0 >= 0, x0 + width <= raster.grid.width, y0 + height <= raster.grid.height else {
+            throw Failure.unsupported("raster shape")
+        }
+        let dst = raster.storage.bytes, rowBytes = raster.bytesPerRow
         var failure: Error?
         let lock = NSLock()
         DispatchQueue.concurrentPerform(iterations: blockCount) { index in
@@ -247,7 +273,7 @@ public struct TIFFImage {
                 let w = min(blockWidth, width - bx), rows = min(blockHeight, height - by)
                 b.withUnsafeBytes { src in
                     for r in 0 ..< rows {
-                        (dst + (by + r) * rowBytes + bx * bytesPerPixel)
+                        (dst + (y0 + by + r) * rowBytes + (x0 + bx) * bytesPerPixel)
                             .copyMemory(from: src.baseAddress! + r * blockWidth * bytesPerPixel, byteCount: w * bytesPerPixel)
                     }
                 }

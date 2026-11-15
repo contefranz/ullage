@@ -1,0 +1,14 @@
+{
+  "note": "Features of the Cape inset's Landsat scene that did not exist in 1968-72, painted out by `PlanetTiles earth cape` with ground cloned from beside them. Coordinates WGS 84, degrees. The Shuttle Landing Facility (built 1974-76): runway 15/33, 15,000 x 300 ft with 1,000 ft overruns at both ends; the runway ends are the FAA's (KTTS, runway 15 at 28.6328 N 80.7061 W, runway 33 at 28.5970 N 80.6827 W, from FAA airport data as SkyVector, FlightAware and AirportGuide list it, consistent to 1e-4 deg; 4.59 km apart at 150 deg true, as the 15,000 ft runway is). The half-width of 75 m takes in the 300 ft runway and its shoulders; the clone offset of 500 m is towards 240 deg, off the runway's south-west side. The apron, the mate-demate device site and the tow-way to the VAB are to be added once the preview (`--preview FILE`) of the fetched scene shows where they lie.",
+  "strips": [
+    {
+      "name": "Shuttle Landing Facility runway 15/33 with its overruns",
+      "from": [28.6328, -80.7061],
+      "to": [28.5970, -80.6827],
+      "extend": 305,
+      "halfWidth": 75,
+      "feather": 40,
+      "clone": [-433, -250]
+    }
+  ]
+}

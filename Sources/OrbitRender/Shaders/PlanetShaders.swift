@@ -17,7 +17,8 @@ struct PlanetUniforms {
     float4 baseColor;         // rgb: base albedo (linear), w: 1 if a texture is bound
     float4 atmosphere;        // x: 1 when lit through the atmosphere (AtmosphereUniforms: A2), y: march steps from
                               // space, z: 1 with A2's haze from space bound (textures 3, 4)
-    float4 options;           // x: draw lat/lon grid, y: night floor (relative to the exposure)
+    float4 options;           // x: draw lat/lon grid, y: night floor (relative to the exposure),
+                              // z: 1 with E1's albedo tiles bound (textures 5, 6, buffers 1, 2, sampler 1)
     float4 origin;            // xyz: camera relative to the centre in figure coordinates, w: |xyz|^2 - a^2 (CPU, double)
     float4 figure;            // x: s = a/b
 };
@@ -70,6 +71,11 @@ fragment DepthColorOut planet_fragment(FullscreenOut in [[stage_in]],
                                        texture2d<float> spaceScatter [[texture(3)]],
                                        texture2d<float> spaceTransmittance [[texture(4)]],
                                        sampler smp [[sampler(0)]],
+                                       texture2d_array<float> tileAtlas [[texture(5)]],
+                                       texture2d_array<uint, access::read> tileIndirection [[texture(6)]],
+                                       const device uint4 *tileDeep [[buffer(1)]],
+                                       constant PlanetTileLayer &tileLayer [[buffer(2)]],
+                                       sampler tileSampler [[sampler(1)]],
                                        constant FrameUniforms &frame [[buffer(ORBIT_BUFFER_FRAME)]],
                                        constant AtmosphereUniforms &air [[buffer(ORBIT_BUFFER_ATMOSPHERE)]],
                                        texture2d<float> transmittance [[texture(ORBIT_TEXTURE_TRANSMITTANCE_LUT)]],
@@ -106,6 +112,17 @@ fragment DepthColorOut planet_fragment(FullscreenOut in [[stage_in]],
     float3 albedo = u.baseColor.rgb;
     if (u.baseColor.w > 0.5) {
         albedo = sampleEquirect(tex, smp, lon, lat).rgb;
+    }
+    if (u.options.z > 0.5) {
+        // E1's tile store (E2 replaces this with the full surface): the
+        // figure direction of the hit, filtered by its screen footprint.
+        float3 dirF = normalize(p);
+        float2 uv;
+        uint face = planet_tile_face(dirF, uv);
+        float2 dx = planet_tile_uv_delta(face, dirF, dfdx(dirF)), dy = planet_tile_uv_delta(face, dirF, dfdy(dirF));
+        PlanetTileHit tile = planet_tile_find(tileIndirection, tileDeep, tileLayer, face, uv,
+                                              planet_tile_level(tileLayer, dx, dy, 0.0));
+        if (tile.found) { albedo = planet_tile_sample(tileAtlas, tileSampler, tile, dx, dy).rgb; }
     }
     if (u.options.x > 0.5) {
         float gridStep = M_PI_F / 12.0;      // 15 degree grid
@@ -171,6 +188,6 @@ fragment DepthColorOut planet_fragment(FullscreenOut in [[stage_in]],
 """#
 
 extension ShaderModule {
-    public static let planet = ShaderModule(name: "Planet", headers: [.shadowCommon, .atmosphereCommon],
+    public static let planet = ShaderModule(name: "Planet", headers: [.shadowCommon, .atmosphereCommon, .planetTileCommon],
                                             source: planetShaderSource)
 }

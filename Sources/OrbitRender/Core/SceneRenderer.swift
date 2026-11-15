@@ -100,7 +100,7 @@ public final class SceneRenderer {
             post.exposurePass, AtmosphereLUTPass(), CloudPass(), ShadowPass(), EnvironmentProbePass(),
             ParticleSimulationPass(), tiles,
             // P1
-            StarPass(), PlanetPass(loadsUserTextures: loadsUserTextures), VesselPass(), EffectTestOpaquePass(),
+            StarPass(), PlanetPass(loadsUserTextures: loadsUserTextures, tiles: tiles), VesselPass(), EffectTestOpaquePass(),
             // P2
             AtmosphereCompositePass(),
             // P3

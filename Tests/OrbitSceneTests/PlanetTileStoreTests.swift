@@ -701,3 +701,82 @@ final class PlanetTileResidencyTests: XCTestCase {
         XCTAssertNil(p.velocity)
     }
 }
+
+/// A layer's files as one catalog (PlanetTileCatalog), and finding the
+/// Earth's layers in a directory.
+final class PlanetTileCatalogTests: XCTestCase {
+    var dir: URL!
+
+    override func setUp() {
+        dir = FileManager.default.temporaryDirectory.appendingPathComponent("catalog-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    }
+
+    override func tearDown() { try? FileManager.default.removeItem(at: dir) }
+
+    @discardableResult
+    func write(_ name: String, keys: [TileKey], maxLevel: Int, value: Int, tileSize: Int = 4) throws -> PlanetTileFile {
+        let layout = PlanetTileLayout(format: .uint8, tileSize: tileSize, border: 1, maxLevel: maxLevel, bodyID: 399, figure: .wgs84)
+        let url = dir.appendingPathComponent(name)
+        let w = try PlanetTileWriter(url: url, layout: layout, metadata: ["source": name])
+        for k in keys { try w.add(k, rawSamples: [Int](repeating: value, count: (tileSize + 2) * (tileSize + 2))) }
+        try w.finish()
+        return try PlanetTileFile(contentsOf: url)
+    }
+
+    func testInsetOverBaseAndOrphansDropped() throws {
+        let base = try write("base", keys: PlanetTileBuilder.keys(levels: 0 ... 2, figure: .wgs84), maxLevel: 2, value: 1)
+        let lc39 = Ellipsoid.wgs84.figureDirection(latitude: 28.6 * .pi / 180, longitude: -80.6 * .pi / 180)
+        let deep3 = TileKey.containing(lc39, level: 3), deep4 = TileKey.containing(lc39, level: 4)
+        // An orphan: a level-4 tile elsewhere, its level-3 parent stored nowhere.
+        let orphan = TileKey.containing(Vec3(1, 0.2, 0.1).normalized, level: 4)
+        let inset = try write("inset", keys: [deep3, deep4, orphan, TileKey.roots[3]], maxLevel: 4, value: 2)
+        let c = try PlanetTileCatalog(files: [("base", base), ("inset", inset)])
+        XCTAssertEqual(c.maxLevel, 4)
+        XCTAssertEqual(c.finestAvailable(deep4.children[0]), deep4)
+        XCTAssertNil(c.entry(orphan), "dropped")
+        XCTAssertTrue(c.notes.contains { $0.contains("1 tiles") })
+        // The later file wins where both hold a tile.
+        XCTAssertEqual(c.entry(TileKey.roots[3])?.file, 1)
+        XCTAssertEqual(c.entry(TileKey.roots[2])?.file, 0)
+        XCTAssertEqual(c.payload(deep3)?.first, 2)
+        // A file of another shape is left out.
+        let other = try write("other", keys: [TileKey.roots[0]], maxLevel: 0, value: 3, tileSize: 8)
+        let d = try PlanetTileCatalog(files: [("base", base), ("other", other)])
+        XCTAssertEqual(d.files.count, 1)
+        XCTAssertTrue(d.notes.contains { $0.contains("other") })
+    }
+
+    func testEarthLayersFindTheNearestMonthAndTheirFiles() throws {
+        let keys = PlanetTileBuilder.keys(levels: 0 ... 1, figure: .wgs84)
+        try write(EarthTileFiles.albedo(month: 7), keys: keys, maxLevel: 1, value: 7)
+        try write(EarthTileFiles.albedo(month: 12), keys: keys, maxLevel: 1, value: 12)
+        try write(EarthTileFiles.water, keys: keys, maxLevel: 1, value: 0)
+        try Data("not a tile file".utf8).write(to: dir.appendingPathComponent(EarthTileFiles.relief))
+        let oct = PlanetTileCatalog.earthLayers(in: dir, month: 10)
+        XCTAssertEqual(oct.month, 12, "October is nearer December than July")
+        XCTAssertEqual(oct.layers[.albedo]?.payload(TileKey.roots[0])?.first, 12)
+        XCTAssertNotNil(oct.layers[.water])
+        XCTAssertNil(oct.layers[.relief])
+        XCTAssertTrue(oct.problems.contains { $0.hasPrefix(EarthTileFiles.relief) })
+        XCTAssertEqual(PlanetTileCatalog.earthLayers(in: dir, month: 8).month, 7)
+        XCTAssertEqual(EarthTileFiles.nearestMonth(to: 1, available: [7, 12]), 12, "round the year")
+        XCTAssertNil(EarthTileFiles.nearestMonth(to: 3, available: []))
+        let empty = PlanetTileCatalog.earthLayers(in: dir.appendingPathComponent("none"), month: 7)
+        XCTAssertTrue(empty.layers.isEmpty)
+    }
+
+    func testTexelMipsAverageInLinearLightForColour() {
+        // A 4-texel RGBA tile, half black and half white: sRGB mips average light, not codes.
+        var t = [UInt8](repeating: 0, count: TileTexelMips.totalSize(across: 4, channels: 4, levels: 3))
+        for y in 0 ..< 4 { for x in 0 ..< 4 { for c in 0 ..< 4 { t[(y * 4 + x) * 4 + c] = x % 2 == 0 ? 255 : 0 } } }
+        t.withUnsafeMutableBytes { TileTexelMips.generate($0.baseAddress!, across: 4, channels: 4, levels: 3, srgb: true) }
+        let mip1 = 4 * 4 * 4
+        XCTAssertEqual(t[mip1], 188, "half of the light is sRGB 188")
+        XCTAssertEqual(t[mip1 + 3], 128, "alpha as it is")
+        var d = [UInt8](repeating: 0, count: TileTexelMips.totalSize(across: 4, channels: 1, levels: 2))
+        for x in 0 ..< 16 { d[x] = x % 2 == 0 ? 200 : 100 }
+        d.withUnsafeMutableBytes { TileTexelMips.generate($0.baseAddress!, across: 4, channels: 1, levels: 2, srgb: false) }
+        XCTAssertEqual(d[16], 150)
+    }
+}

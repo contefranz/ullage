@@ -15,6 +15,12 @@ public struct TileTexel {
     /// The span of its corners in latitude and longitude, rad.
     public var dLatitude: Double
     public var dLongitude: Double
+
+    public init(column: Int, row: Int, direction: Vec3, latitude: Double, longitude: Double, dLatitude: Double,
+                dLongitude: Double) {
+        self.column = column; self.row = row; self.direction = direction
+        self.latitude = latitude; self.longitude = longitude; self.dLatitude = dLatitude; self.dLongitude = dLongitude
+    }
 }
 
 /// A box of latitude and longitude, degrees (west may exceed east across

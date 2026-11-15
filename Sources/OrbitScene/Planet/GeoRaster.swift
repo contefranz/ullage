@@ -140,34 +140,103 @@ public final class GeoRaster {
 
     public var bytesPerRow: Int { grid.width * channels * type.size }
 
+    /// The samples as a value: what hot loops on many threads read, with
+    /// no reference counting (the raster must outlive it).
+    public var view: RasterView {
+        RasterView(bytes: storage.bytes, grid: grid, channels: channels, type: type, scale: scale, noData: noData)
+    }
+
     /// The raw sample of pixel (column, row), channel `channel`.
-    @inlinable public func raw(_ column: Int, _ row: Int, _ channel: Int = 0) -> Float {
-        let k = (row * grid.width + column) * channels + channel
-        let p = storage.bytes
+    public func raw(_ column: Int, _ row: Int, _ channel: Int = 0) -> Float { view.raw(column, row, channel) }
+
+    /// The sample's value: raw × scale, NaN for no data.
+    public func value(_ column: Int, _ row: Int, _ channel: Int = 0) -> Float { view.value(column, row, channel) }
+
+    /// Writes a raw sample, rounded and clamped to the type's range.
+    public func setRaw(_ column: Int, _ row: Int, _ channel: Int, _ v: Float) { view.setRaw(column, row, channel, v) }
+
+    /// Bilinear values at a fractional pixel position (`RasterView.bilinear`).
+    public func bilinear(x: Double, y: Double) -> SIMD4<Float> { view.bilinear(x: x, y: y) }
+
+    /// The raster halved by averaging 2 × 2 blocks (no-data samples left
+    /// out), in a new heap raster, or in `storage` when given. `linearize`
+    /// maps samples to the space they are averaged in and `delinearize`
+    /// back (sRGB colour is averaged in linear light).
+    public func halved(storage: RasterStorage? = nil, linearize: ((Float) -> Float)? = nil,
+                       delinearize: ((Float) -> Float)? = nil) -> GeoRaster {
+        let g = grid.halved
+        let out = GeoRaster(grid: g, channels: channels, type: type, storage: storage)
+        out.scale = scale
+        out.noData = noData
+        let w = grid.width, h = grid.height
+        let src = view, dst = out.view, noData = self.noData
+        DispatchQueue.concurrentPerform(iterations: g.height) { r in
+            for c in 0 ..< g.width {
+                for ch in 0 ..< channels {
+                    var sum: Float = 0, n: Float = 0
+                    for dy in 0 ..< 2 {
+                        let y = 2 * r + dy
+                        guard y < h else { continue }
+                        for dx in 0 ..< 2 {
+                            let x = 2 * c + dx
+                            guard x < w else { continue }
+                            let v = src.raw(x, y, ch)
+                            if let noData, v == noData { continue }
+                            sum += linearize?(v) ?? v
+                            n += 1
+                        }
+                    }
+                    let v = n > 0 ? sum / n : (noData ?? 0)
+                    dst.setRaw(c, r, ch, n > 0 ? (delinearize?(v) ?? v) : v)
+                }
+            }
+        }
+        return out
+    }
+}
+
+/// A raster's samples as a plain value: a pointer, its shape and how to
+/// read it. Copying it costs nothing and touches no reference count, so
+/// sampling loops on many threads do not contend (the raster it came from
+/// must stay alive).
+public struct RasterView {
+    public let bytes: UnsafeMutableRawPointer
+    public let grid: GeoGrid
+    public let channels: Int
+    public let type: GeoSampleType
+    public let scale: Float
+    public let noData: Float?
+    let width: Int, height: Int, wraps: Bool
+
+    public init(bytes: UnsafeMutableRawPointer, grid: GeoGrid, channels: Int, type: GeoSampleType, scale: Float, noData: Float?) {
+        self.bytes = bytes; self.grid = grid; self.channels = channels; self.type = type; self.scale = scale
+        self.noData = noData
+        width = grid.width; height = grid.height; wraps = grid.wrapsLongitude
+    }
+
+    @inline(__always) public func raw(_ column: Int, _ row: Int, _ channel: Int = 0) -> Float {
+        let k = (row * width + column) * channels + channel
         switch type {
-        case .uint8: return Float(p.load(fromByteOffset: k, as: UInt8.self))
-        case .uint16: return Float(p.load(fromByteOffset: 2 * k, as: UInt16.self))
-        case .int16: return Float(p.load(fromByteOffset: 2 * k, as: Int16.self))
-        case .float32: return p.load(fromByteOffset: 4 * k, as: Float.self)
+        case .uint8: return Float(bytes.load(fromByteOffset: k, as: UInt8.self))
+        case .uint16: return Float(bytes.load(fromByteOffset: 2 * k, as: UInt16.self))
+        case .int16: return Float(bytes.load(fromByteOffset: 2 * k, as: Int16.self))
+        case .float32: return bytes.load(fromByteOffset: 4 * k, as: Float.self)
         }
     }
 
-    /// The sample's value: raw × scale, NaN for no data.
-    @inlinable public func value(_ column: Int, _ row: Int, _ channel: Int = 0) -> Float {
+    @inline(__always) public func value(_ column: Int, _ row: Int, _ channel: Int = 0) -> Float {
         let r = raw(column, row, channel)
         if let noData, r == noData { return .nan }
         return r * scale
     }
 
-    /// Writes a raw sample, rounded and clamped to the type's range.
     public func setRaw(_ column: Int, _ row: Int, _ channel: Int, _ v: Float) {
-        let k = (row * grid.width + column) * channels + channel
-        let p = storage.bytes
+        let k = (row * width + column) * channels + channel
         switch type {
-        case .uint8: p.storeBytes(of: UInt8(clamping: Int(v.isFinite ? v.rounded() : 0)), toByteOffset: k, as: UInt8.self)
-        case .uint16: p.storeBytes(of: UInt16(clamping: Int(v.isFinite ? v.rounded() : 0)), toByteOffset: 2 * k, as: UInt16.self)
-        case .int16: p.storeBytes(of: Int16(clamping: Int(v.isFinite ? v.rounded() : 0)), toByteOffset: 2 * k, as: Int16.self)
-        case .float32: p.storeBytes(of: v, toByteOffset: 4 * k, as: Float.self)
+        case .uint8: bytes.storeBytes(of: UInt8(clamping: Int(v.isFinite ? v.rounded() : 0)), toByteOffset: k, as: UInt8.self)
+        case .uint16: bytes.storeBytes(of: UInt16(clamping: Int(v.isFinite ? v.rounded() : 0)), toByteOffset: 2 * k, as: UInt16.self)
+        case .int16: bytes.storeBytes(of: Int16(clamping: Int(v.isFinite ? v.rounded() : 0)), toByteOffset: 2 * k, as: Int16.self)
+        case .float32: bytes.storeBytes(of: v, toByteOffset: 4 * k, as: Float.self)
         }
     }
 
@@ -177,13 +246,13 @@ public final class GeoRaster {
     /// no-data neighbour is left out and the weights renormalised; with none
     /// left the value is NaN.
     public func bilinear(x: Double, y: Double) -> SIMD4<Float> {
-        let w = grid.width, h = grid.height
+        let w = width, h = height
         let fx = x - 0.5, fy = y - 0.5
         let fx0 = fx.rounded(.down), fy0 = fy.rounded(.down)
         let tx = Float(fx - fx0), ty = Float(fy - fy0)
         var x0 = Int(fx0), y0 = Int(fy0)
         var x1 = x0 + 1, y1 = y0 + 1
-        if grid.wrapsLongitude {
+        if wraps {
             x0 = ((x0 % w) + w) % w; x1 = ((x1 % w) + w) % w
         } else {
             x0 = min(max(x0, 0), w - 1); x1 = min(max(x1, 0), w - 1)
@@ -203,41 +272,6 @@ public final class GeoRaster {
             if v01.isFinite { sum += v01 * w01; weight += w01 }
             if v11.isFinite { sum += v11 * w11; weight += w11 }
             out[c] = weight > 0 ? sum / weight : .nan
-        }
-        return out
-    }
-
-    /// The raster halved by averaging 2 × 2 blocks (no-data samples left
-    /// out), in a new heap raster, or in `storage` when given. `linearize`
-    /// maps samples to the space they are averaged in and `delinearize`
-    /// back (sRGB colour is averaged in linear light).
-    public func halved(storage: RasterStorage? = nil, linearize: ((Float) -> Float)? = nil,
-                       delinearize: ((Float) -> Float)? = nil) -> GeoRaster {
-        let g = grid.halved
-        let out = GeoRaster(grid: g, channels: channels, type: type, storage: storage)
-        out.scale = scale
-        out.noData = noData
-        let w = grid.width, h = grid.height
-        DispatchQueue.concurrentPerform(iterations: g.height) { r in
-            for c in 0 ..< g.width {
-                for ch in 0 ..< channels {
-                    var sum: Float = 0, n: Float = 0
-                    for dy in 0 ..< 2 {
-                        let y = 2 * r + dy
-                        guard y < h else { continue }
-                        for dx in 0 ..< 2 {
-                            let x = 2 * c + dx
-                            guard x < w else { continue }
-                            let v = raw(x, y, ch)
-                            if let noData, v == noData { continue }
-                            sum += linearize?(v) ?? v
-                            n += 1
-                        }
-                    }
-                    let v = n > 0 ? sum / n : (noData ?? 0)
-                    out.setRaw(c, r, ch, n > 0 ? (delinearize?(v) ?? v) : v)
-                }
-            }
         }
         return out
     }
@@ -325,10 +359,15 @@ public enum GeoRasterFile {
 public final class GeoRasterPyramid {
     /// Level 0 the full raster, each next one halved.
     public let levels: [GeoRaster]
+    /// Their samples, read without reference counting.
+    let views: [RasterView]
+    let base: GeoGrid
 
     public init(levels: [GeoRaster]) {
         precondition(!levels.isEmpty)
         self.levels = levels
+        views = levels.map(\.view)
+        base = levels[0].grid
     }
 
     /// A pyramid of in-memory halvings down to `minimumWidth` pixels.
@@ -341,7 +380,7 @@ public final class GeoRasterPyramid {
         self.init(levels: levels)
     }
 
-    public var channels: Int { levels[0].channels }
+    public var channels: Int { views[0].channels }
 
     /// The values (one lane per channel) at geodetic `latitude`,
     /// `longitude` (rad) averaged over a footprint `dLatitude` ×
@@ -349,7 +388,7 @@ public final class GeoRasterPyramid {
     /// shorter side, interpolated with the next (trilinear), with taps
     /// spread along the longer side. NaN where only no data is found.
     public func sample(latitude: Double, longitude: Double, dLatitude: Double, dLongitude: Double) -> SIMD4<Float> {
-        let base = levels[0].grid
+        let base = self.base
         let toDeg = 180 / Double.pi
         let lat = latitude * toDeg, lon = longitude * toDeg
         let fLat = abs(dLatitude) * toDeg, fLon = abs(dLongitude) * toDeg
@@ -357,13 +396,12 @@ public final class GeoRasterPyramid {
         let minor = min(pxLat, pxLon), major = max(pxLat, pxLon)
         let taps = min(16, max(1, Int((major / max(minor, 1)).rounded(.up))))
         let lod = max(0, log2(max(minor, 1)))
-        let l0 = min(Int(lod), levels.count - 1), l1 = min(l0 + 1, levels.count - 1)
+        let l0 = min(Int(lod), views.count - 1), l1 = min(l0 + 1, views.count - 1)
         let t = Float(min(max(lod - Double(l0), 0), 1))
         let alongLatitude = pxLat > pxLon
-        func at(_ level: Int, _ la: Double, _ lo: Double) -> SIMD4<Float> {
-            let r = levels[level]
-            let p = r.grid.position(latitudeDegrees: la, longitudeDegrees: lo)
-            return r.bilinear(x: p.x, y: p.y)
+        let v0 = views[l0], v1 = views[l1]
+        @inline(__always) func at(_ r: RasterView, _ la: Double, _ lo: Double) -> SIMD4<Float> {
+            r.bilinear(x: (lo - r.grid.west) / r.grid.pixelWidth, y: (r.grid.north - la) / r.grid.pixelHeight)
         }
         var acc = SIMD4<Float>(repeating: 0), n: Float = 0
         let lanes = min(channels, 4)
@@ -371,8 +409,8 @@ public final class GeoRasterPyramid {
             let f = taps == 1 ? 0 : (Double(k) + 0.5) / Double(taps) - 0.5
             let la = min(max(alongLatitude ? lat + f * fLat : lat, -90), 90)
             let lo = alongLatitude ? lon : lon + f * fLon
-            var v = at(l0, la, lo)
-            if t > 0 && l1 != l0 { v = v + (at(l1, la, lo) - v) * t }
+            var v = at(v0, la, lo)
+            if t > 0 && l1 != l0 { v = v + (at(v1, la, lo) - v) * t }
             var finite = true
             for c in 0 ..< lanes where !v[c].isFinite { finite = false }
             if finite { acc += v; n += 1 }
