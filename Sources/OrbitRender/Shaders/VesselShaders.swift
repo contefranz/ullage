@@ -252,9 +252,10 @@ fragment float4 vessel_fragment(VesselOut in [[stage_in]], bool front [[front_fa
     return float4(orbit_exposed(c, object.shading.x), in.coverage * m.coverage);
 }
 
-// A wire's depth where it covers half its width or more, drawn after its
-// colour (VesselWirePass): what lies behind it there is hidden from the
-// passes after, as by opaque geometry. Thinner, it stays depthless.
+// A wire's depth where its coverage is 0.5 or more (its own radius at
+// least half the radius it is drawn at), after its colour
+// (VesselWirePass): what lies behind it there is hidden from the passes
+// after, as by opaque geometry. Below that it stays depthless.
 fragment void vessel_wireDepth(VesselOut in [[stage_in]]) {
     if (in.coverage < 0.5) { discard_fragment(); }
 }

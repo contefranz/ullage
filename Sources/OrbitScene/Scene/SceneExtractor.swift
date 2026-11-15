@@ -47,6 +47,20 @@ public final class SceneExtractor {
     private var geometry: [UUID: VesselGeometry] = [:]
     /// The journal's sequence the next scene reads from.
     private var journalCursor = 0
+    /// Each atmosphere's air profile for the particles (P3), sampled once.
+    /// The atmosphere is held, so its identifier is not reused while here.
+    private var airProfiles: [ObjectIdentifier: (atmosphere: Atmosphere, profile: AirProfile)] = [:]
+
+    /// An atmosphere's air at 64 altitudes (`AirProfile`), nil without one.
+    /// The scene passes the one the simulation flies through
+    /// (`Simulation.atmosphere(of:)`: a launch day's sounding and its winds).
+    func airProfile(_ atmosphere: Atmosphere?) -> AirProfile? {
+        guard let a = atmosphere else { return nil }
+        if let p = airProfiles[ObjectIdentifier(a)] { return p.profile }
+        let p = AirProfile(a)
+        airProfiles[ObjectIdentifier(a)] = (a, p)
+        return p
+    }
 
     public init() {}
 
@@ -93,7 +107,8 @@ public final class SceneExtractor {
         let bodies = ordered.map { body in
             RenderScene.Body(id: body.id, name: body.name, position: snap.position(body) - cam.position,
                              orientation: snap.orientation(body), figure: body.figure, radius: body.radius,
-                             isSun: body === sim.system.sun, toSun: (sunPos - snap.position(body)).normalized)
+                             isSun: body === sim.system.sun, toSun: (sunPos - snap.position(body)).normalized,
+                             gm: body.gm, j2: body.j2, air: airProfile(sim.atmosphere(of: body)))
         }
 
         // Vessels, their emitters and canopies.
@@ -114,7 +129,8 @@ public final class SceneExtractor {
                 structureOrigin: v.structureOrigin, boundingRadius: v.boundingRadius, geometry: geo, thrusters: poses,
                 light: LegacyLighting.light(v, snapshot: snap, system: sim.system, sun: sunPos),
                 glow: heatShieldGlow(v, time: snap.time), flowDirection: LegacyLighting.flowDirection(v, snapshot: snap),
-                farPointStyle: tinted.map(PlumeStyle.init), heatFlux: v.heatFlux, heatLoad: v.heatLoad))
+                farPointStyle: tinted.map(PlumeStyle.init), heatFlux: v.heatFlux, heatLoad: v.heatLoad,
+                velocity: v.velocity))
             emitters += Self.emitters(of: v, geometry: geo, at: rel)
             canopies += CanopyGeometry.canopies(of: v, at: rel, snapshot: snap)
         }

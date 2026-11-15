@@ -89,11 +89,12 @@ public final class SceneRenderer {
     /// Every slot P0-P5, in order: R1's exposure, stars, plumes and far
     /// points, resolve and post; today's planets, vessels, orbit line and
     /// markers; and each track's stub.
-    public static func defaultPasses(loadsUserTextures: Bool = true) -> [RenderPass] {
+    public static func defaultPasses(loadsUserTextures: Bool = true, particles: ParticleSystem? = nil) -> [RenderPass] {
         // The effects drawn at half resolution, in order: clouds (C2),
         // plumes (P2), smoke (P3), then R6's test emitters.
         let clouds = CloudPass()
-        let slots = HalfResTransparentPass(effects: [clouds, EffectTestEmitters()])
+        let particles = particles ?? ParticleSystem()
+        let slots = HalfResTransparentPass(effects: [clouds, ParticleSmokeEffect(system: particles), EffectTestEmitters()])
         let post = PostPass()
         let shadows = ShadowPass()
         // R2's vessels, whose thin tubes blend over the sky after A2's composite.
@@ -102,14 +103,15 @@ public final class SceneRenderer {
         return [
             // P0
             post.exposurePass, AtmosphereLUTPass(), clouds, shadows, EnvironmentProbePass(),
-            ParticleSimulationPass(), tiles,
+            ParticleSimulationPass(system: particles), tiles,
             // P1
-            StarPass(), PlanetPass(loadsUserTextures: loadsUserTextures, tiles: tiles), vessels, EffectTestOpaquePass(),
+            StarPass(), PlanetPass(loadsUserTextures: loadsUserTextures, tiles: tiles), vessels,
+            ParticleChunkPass(system: particles), EffectTestOpaquePass(),
             // P2
             AtmosphereCompositePass(), vessels.wirePass,
             // P3
             slots, PlumePass(), FarPointPass(), TransparentCompositePass(slots: slots), EffectTestSparksPass(),
-            ParticleDrawPass(), EntryPass(), post.resolvePass,
+            ParticleDrawPass(system: particles), EntryPass(), post.resolvePass,
             // P4
             post, DebugViewPass(), EffectDebugViewPass(slots: slots), ShadowDebugPass(shadows: shadows),
             // P5

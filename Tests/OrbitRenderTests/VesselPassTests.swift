@@ -300,13 +300,14 @@ final class VesselPassTests: XCTestCase {
         return r
     }
 
-    /// A2's Apollo 8 dawn pad (the Sun 7° up), from the orbit camera's place
-    /// 400 m from the stack, looking `pitch` degrees above the horizon away
-    /// from the Sun, with the stack and the pad left out; its light for a
-    /// test vessel, and the view's forward, up and right (world).
-    func dawnPad(width: Int, height: Int, fovY: Double, pitch: Double = 10) throws
+    /// A2's Apollo 8 dawn pad (the Sun 7° up), or `scenario`'s pad, from the
+    /// orbit camera's place 400 m from the stack, looking `pitch` degrees
+    /// above the horizon away from the Sun, with the stack and the pad left
+    /// out; its light for a test vessel, and the view's forward, up and
+    /// right (world).
+    func dawnPad(width: Int, height: Int, fovY: Double, pitch: Double = 10, scenario: Scenario = .apollo8Pad) throws
         -> (scene: RenderScene, light: LegacyLight, forward: Vec3, up: Vec3, right: Vec3) {
-        let sim = Scenario.apollo8Pad.build(Self.system)
+        let sim = scenario.build(Self.system)
         var camera = OrbitCamera()
         if let focus = sim.focus { camera.target = .vessel(focus.id) }
         camera.distance = 400
@@ -384,7 +385,7 @@ final class VesselPassTests: XCTestCase {
         }
     }
 
-    /// A dark tube against the dawn pad's sky 10° up (`dawnPad`, 128 × 256
+    /// A dark tube against a pad's sky 10° up (`dawnPad`, 128 × 256
     /// pixels, 20°), 50 m along the view, 12 m long, tilted 5° on screen so
     /// that the rows sample the pixels' every offset.
     struct PadTube {
@@ -395,6 +396,11 @@ final class VesselPassTests: XCTestCase {
         /// Metres per pixel at the tube.
         var pixel: Double { 2 * Self.distance * tan(Self.fovY / 2 * Double.pi / 180) / Double(Self.h) }
         var axis: Vec3 { (pad.up * cos(Self.tilt) + pad.right * sin(Self.tilt)).normalized }
+
+        /// Pixel (x, y)'s light summed over red, green and blue.
+        static func sum(_ p: [Float], _ x: Int, _ y: Int) -> Double {
+            (0..<3).reduce(0.0) { $0 + Double(p[4 * (y * w + x) + $1]) }
+        }
 
         /// The axis's column on row y (pixel centres at + 0.5).
         static func axisColumn(_ y: Int) -> Int {
@@ -435,10 +441,11 @@ final class VesselPassTests: XCTestCase {
     ///
     /// The halo is the opaque silhouette's: after R1's break each pixel's
     /// nearest depth stands for all its samples, so the clouds leave the
-    /// whole of a pixel the tube touches, and no pixel loses half its
-    /// clouds more than a pixel beyond the tube's edge (0.33 px measured).
-    /// R6's upsample takes up to a third of the clouds from a few pixels
-    /// 1-2.5 px beyond it, for the opaque tube as for the wire.
+    /// whole of a pixel the tube touches. For this tube (coverage 1, 1.45 px
+    /// in radius) no pixel loses half its clouds more than a pixel beyond
+    /// its edge (0.33 px measured), and R6's upsample takes up to a third of
+    /// them from some pixels 0.5-2.5 px beyond it, for the opaque tube as
+    /// for the wire. A thinner wire's halo is not measured here.
     func testCloudsBehindAWireStayBehindIt() throws {
         let t = try PadTube(pad: dawnPad(width: PadTube.w, height: PadTube.h, fovY: PadTube.fovY))
         let r = try airRenderer(clouds: true)
@@ -476,6 +483,43 @@ final class VesselPassTests: XCTestCase {
         XCTAssertGreaterThan(edges, 20, "edge pixels in front of clouds")
         XCTAssertLessThan(worst, 0.02, "the wire and its halo are the opaque tube's")
         XCTAssertLessThanOrEqual(reach, 1.0, "no pixel loses half its clouds more than a pixel beyond the tube's edge")
+    }
+
+    /// Where a wire starts to hide the clouds behind it: at coverage 0.5
+    /// (`vessel_wireDepth`). At Apollo 11's pad under its launch-day 9/10
+    /// cirrostratus, the clouds' change at each pixel on the tube's axis,
+    /// (wire − the wire without clouds) / (sky − the sky without clouds),
+    /// on rows where the clouds change the sky by a tenth or more:
+    /// - coverage 0.3 (a radius of 0.21 px, drawn at 0.7 px) writes no
+    ///   depth: the clouds lie over the wire and change it as they change
+    ///   the sky (1.16 measured);
+    /// - coverage 0.7 (0.49 px) writes its depth: the clouds leave the
+    ///   pixels it touches (0.000).
+    /// Deleting the discard, or moving the threshold past either, fails it.
+    func testWireDepthStartsAtHalfCoverage() throws {
+        let t = try PadTube(pad: dawnPad(width: PadTube.w, height: PadTube.h, fovY: PadTube.fovY, scenario: .saturnVPad))
+        let r = try airRenderer(clouds: true)
+        let clear = try airRenderer(clouds: false)
+        let cloudy = try tubeLight(t, r, radius: nil), sky = try tubeLight(t, clear, radius: nil)
+        func kept(coverage: Double) throws -> (mean: Double, rows: Int) {
+            let radius = coverage * 0.7 * t.pixel
+            let wire = try tubeLight(t, r, radius: radius), wireClear = try tubeLight(t, clear, radius: radius)
+            var total = 0.0, rows = 0
+            for y in PadTube.rows {
+                let x = PadTube.axisColumn(y)
+                let added = PadTube.sum(cloudy, x, y) - PadTube.sum(sky, x, y)
+                guard abs(added) > 0.1 * PadTube.sum(sky, x, y) else { continue }
+                total += (PadTube.sum(wire, x, y) - PadTube.sum(wireClear, x, y)) / added
+                rows += 1
+            }
+            return (total / Double(max(rows, 1)), rows)
+        }
+        let thin = try kept(coverage: 0.3), half = try kept(coverage: 0.7)
+        print(String(format: "R2 wire depth: coverage 0.3 keeps %.3f of the clouds (%d rows), 0.7 keeps %.3f (%d rows)",
+                     thin.mean, thin.rows, half.mean, half.rows))
+        XCTAssertGreaterThan(thin.rows, 20, "clouds behind the tube on 20 rows or more")
+        XCTAssertGreaterThan(thin.mean, 0.5, "at coverage 0.3 the clouds lie over the wire")
+        XCTAssertLessThan(half.mean, 0.05, "at coverage 0.7 the wire hides the clouds behind it")
     }
 
     /// The air between a vessel and the camera (A2's froxels): at the dawn

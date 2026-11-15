@@ -176,9 +176,16 @@ public struct RenderScene {
         public var isSun: Bool
         /// Unit vector from its centre to the Sun's.
         public var toSun: Vec3
+        /// Its gravity: GM (m³/s²) and the unnormalised J2 about `radius`, for
+        /// the particles' free-fall anchors (P3).
+        public var gm: Double
+        public var j2: Double
+        /// Its air at 64 altitudes, sampled from the simulation's atmosphere;
+        /// nil without one (P3).
+        public var air: AirProfile?
 
         public init(id: Int, name: String, position: Vec3, orientation: BodyOrientation, figure: Ellipsoid,
-                    radius: Double, isSun: Bool, toSun: Vec3) {
+                    radius: Double, isSun: Bool, toSun: Vec3, gm: Double = 0, j2: Double = 0, air: AirProfile? = nil) {
             self.id = id
             self.name = name
             self.position = position
@@ -187,6 +194,9 @@ public struct RenderScene {
             self.radius = radius
             self.isSun = isSun
             self.toSun = toSun
+            self.gm = gm
+            self.j2 = j2
+            self.air = air
         }
 
         public var distance: Double { position.length }
@@ -229,11 +239,15 @@ public struct RenderScene {
         /// W/m² and J/m² at the stagnation point.
         public var heatFlux: Double
         public var heatLoad: Double
+        /// Relative to its reference body's centre, ICRF, m/s: the particles'
+        /// anchors take it (P3).
+        public var velocity: Vec3
 
         public init(id: UUID, name: String, isFocus: Bool, status: VesselStatus, isLanded: Bool, referenceBodyID: Int,
                     position: Vec3, attitude: Quat, structureOrigin: Vec3, boundingRadius: Double,
                     geometry: VesselGeometry, thrusters: [ThrusterKey: ThrusterPose], light: LegacyLight, glow: RGB,
-                    flowDirection: Vec3, farPointStyle: PlumeStyle?, heatFlux: Double, heatLoad: Double) {
+                    flowDirection: Vec3, farPointStyle: PlumeStyle?, heatFlux: Double, heatLoad: Double,
+                    velocity: Vec3 = .zero) {
             self.id = id
             self.name = name
             self.isFocus = isFocus
@@ -252,6 +266,7 @@ public struct RenderScene {
             self.farPointStyle = farPointStyle
             self.heatFlux = heatFlux
             self.heatLoad = heatLoad
+            self.velocity = velocity
         }
 
         /// Its size on screen, pixels across its bounding radius.
