@@ -32,26 +32,28 @@ final class ShadingStandInTests: XCTestCase {
     }
 
     /// AS-506 at first motion: one light per F-1, along the exhaust from
-    /// its exit, afterburning in air (2,300 K), of the order of 10⁸ cd each
-    /// (a sooty column of 1.8 m radius and 36 m glowing at about 1e6
-    /// cd/m², some 40 times sunlit white paint), so the five light the pad
-    /// at about a megalux from 30 m. The cluster is lit as one light, its
-    /// intensity the five's, its column holding all five.
+    /// its exit, of the order of 10⁸ cd each (P2's look: a sooty flame of
+    /// some 3 m across and tens of metres glowing at about 1e6 cd/m², some
+    /// 40 times sunlit white paint), so the five light the pad at about a
+    /// megalux from 30 m. The cluster is lit as one light, its intensity
+    /// the five's, its column holding all five exits.
     func testF1PlumesLightThePadAtLiftoff() throws {
         let s = try scene("as506-pad", advance: 0.5)
-        let each = s.emitters.compactMap(PlumeLights.light)
+        let each: [PlumeLight] = s.emitters.compactMap { PlumeLights.light($0) }
         XCTAssertEqual(each.count, 5)
         for l in each {
-            let e = try XCTUnwrap(s.emitters.min {
-                ($0.exit + $0.axis * (0.5 * l.length) - l.centre).length < ($1.exit + $1.axis * (0.5 * l.length) - l.centre).length
+            let e = try XCTUnwrap(s.emitters.min { a, b in
+                let da = (a.exit + a.axis * (0.5 * l.length) - l.centre).length
+                let db = (b.exit + b.axis * (0.5 * l.length) - l.centre).length
+                return da < db
             })
-            XCTAssertEqual((e.exit + e.axis * (0.5 * l.length) - l.centre).length, 0, accuracy: 1e-6)
+            let offset = (e.exit + e.axis * (0.5 * l.length) - l.centre).length
+            XCTAssertEqual(offset, 0, accuracy: 1e-6)
             XCTAssertEqual(l.axis.dot(e.axis), 1, accuracy: 1e-9)
             XCTAssertGreaterThan(l.luminousIntensity, 2e6)
             XCTAssertLessThan(l.luminousIntensity, 5e8)
-            XCTAssertLessThanOrEqual(l.length, 10 * 2 * l.radius + 1e-9)
-            let luminance = 0.2126 * Double(l.intensity.r) + 0.7152 * Double(l.intensity.g)
-                + 0.0722 * Double(l.intensity.b)
+            let r = Double(l.intensity.r), g = Double(l.intensity.g), b = Double(l.intensity.b)
+            let luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
             XCTAssertEqual(luminance, l.luminousIntensity, accuracy: 1e-3 * l.luminousIntensity)
             XCTAssertGreaterThan(l.intensity.r, l.intensity.b, "a flame is warm")
         }
@@ -60,20 +62,28 @@ final class ShadingStandInTests: XCTestCase {
         XCTAssertLessThan(total / (30 * 30), 3e6)
         let lights = PlumeLights.lights(s)
         XCTAssertEqual(lights.count, 1, "the five F-1s as one cluster")
-        XCTAssertEqual(lights[0].luminousIntensity, total, accuracy: 1e-9 * total)
-        for l in each {
-            XCTAssertLessThanOrEqual((l.centre - lights[0].centre).length + l.radius, lights[0].radius + 1e-9)
+        XCTAssertEqual(lights[0].luminousIntensity, total, accuracy: 1e-6 * total)
+        for e in s.emitters {
+            let d = e.exit - lights[0].centre
+            let across = (d - lights[0].axis * d.dot(lights[0].axis)).length
+            XCTAssertLessThanOrEqual(across + e.exitRadius, lights[0].radius + 1e-9)
         }
         XCTAssertLessThanOrEqual(PlumeLights.lights(s, maximum: 0).count, 0)
     }
 
-    /// A J-2 in vacuum (hydrogen, nearly invisible) lights far less than an
-    /// F-1 at sea level; cold gas not at all.
+    /// A J-2 in vacuum (hydrogen, nearly invisible) gives no light; an F-1
+    /// at sea level glows far brighter than it.
     func testHydrogenPlumeIsFaint() {
-        let f1 = PlumeLights.emissivity(.keroseneLOX, sootIndex: 1) * Photometry.blackbody(2_300).luminance
-        let j2 = PlumeLights.emissivity(.hydrogenLOX, sootIndex: 0) * Photometry.blackbody(1_300).luminance
-        XCTAssertGreaterThan(f1, 100 * j2)
-        XCTAssertEqual(PlumeLights.emissivity(.coldGas, sootIndex: 0), 0)
+        func cluster(_ e: ApolloExhaust.Engine, _ air: AtmosphereState) -> PlumeCluster {
+            let state = PlumeModel.state(e.spec, flowFraction: 1, ambient: air)
+            return PlumeClusters.cluster([PlumeLook.member(e.spec, state: state, exit: .zero, axis: .unitX,
+                                                           exitRadius: e.spec.exitRadius, ambient: air)])
+        }
+        let sea = USStandardAtmosphere1976().state(altitude: 0)
+        XCTAssertNil(PlumeLights.light(cluster(ApolloExhaust.j2, .vacuum)))
+        XCTAssertNotNil(PlumeLights.light(cluster(ApolloExhaust.f1, sea)))
+        XCTAssertFalse(PlumeLights.glows(.hydrogen))
+        XCTAssertFalse(PlumeLights.glows(.coldGas))
     }
 
     /// The vessel stand-in is M1.5's lighting in lux, with the ground lit

@@ -141,7 +141,7 @@ public enum PlumeModel {
     /// to 25-28 km, greying from 28 to 40 km, grey above.
     static let afterburningFull = 1_616.1, afterburningGone = 287.14   // Pa
     /// The afterburning flame's temperature and the visible limit, K (L).
-    static let flameTemperature = 2_300.0, visibleTemperature = 1_000.0
+    public static let flameTemperature = 2_300.0, visibleTemperature = 1_000.0
     /// Knudsen numbers bounding the transitional regime.
     static let continuumKnudsen = 0.01, freeMolecularKnudsen = 1.0
 
