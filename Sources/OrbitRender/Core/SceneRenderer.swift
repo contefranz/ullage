@@ -91,13 +91,14 @@ public final class SceneRenderer {
     /// markers; and each track's stub.
     public static func defaultPasses(loadsUserTextures: Bool = true) -> [RenderPass] {
         // The effects drawn at half resolution, in order: clouds (C2),
-        // plumes (P2), smoke (P3); R6's test emitters first.
-        let slots = HalfResTransparentPass(effects: [EffectTestEmitters()])
+        // plumes (P2), smoke (P3), then R6's test emitters.
+        let clouds = CloudPass()
+        let slots = HalfResTransparentPass(effects: [clouds, EffectTestEmitters()])
         let post = PostPass()
         let tiles = PlanetTilePass(loadsUserTiles: loadsUserTextures)
         return [
             // P0
-            post.exposurePass, AtmosphereLUTPass(), CloudPass(), ShadowPass(), EnvironmentProbePass(),
+            post.exposurePass, AtmosphereLUTPass(), clouds, ShadowPass(), EnvironmentProbePass(),
             ParticleSimulationPass(), tiles,
             // P1
             StarPass(), PlanetPass(loadsUserTextures: loadsUserTextures, tiles: tiles), VesselPass(), EffectTestOpaquePass(),
