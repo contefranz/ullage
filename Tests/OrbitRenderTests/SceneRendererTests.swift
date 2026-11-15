@@ -8,18 +8,19 @@ import OrbitScene
 final class SceneRendererTests: XCTestCase {
     static let system = try! SolarSystem.bundled()
 
-    /// Today's passes, R1's and A2's are set up and active, every track's stub is off.
-    /// R6's effect slots are set up too; they run only on frames an effect
-    /// draws in.
+    /// Today's passes, R1's, A2's and C2's clouds are set up and active, every
+    /// track's stub is off. R6's effect slots are set up too; they run only on
+    /// frames an effect draws in.
     func testDefaultPasses() throws {
         let r = try SceneRenderer(device: try XCTUnwrap(RenderDevice.shared), loadsUserTextures: false)
         XCTAssertEqual(r.failures, [:])
-        XCTAssertEqual(r.graph.active.map(\.name), ["Exposure", "Atmosphere LUTs", "Particle simulation", "Stars",
-                                                    "Planets", "Vessels", "Effect test opaque", "Particle chunks",
-                                                    "Atmosphere composite", "Half-resolution transparents", "Plumes",
-                                                    "Far points", "Transparent composite", "Effect test sparks",
-                                                    "Particles", "HDR resolve", "Post", "Debug view",
-                                                    "Effect slots debug view", "Orbit line", "Markers"])
+        XCTAssertEqual(r.graph.active.map(\.name), ["Exposure", "Atmosphere LUTs", "Clouds", "Particle simulation",
+                                                    "Stars", "Planets", "Vessels", "Effect test opaque",
+                                                    "Particle chunks", "Atmosphere composite",
+                                                    "Half-resolution transparents", "Plumes", "Far points",
+                                                    "Transparent composite", "Effect test sparks", "Particles",
+                                                    "HDR resolve", "Post", "Debug view", "Effect slots debug view",
+                                                    "Orbit line", "Markers"])
         XCTAssertEqual(Set(r.graph.passes.map(\.name)).count, r.graph.passes.count, "pass names are unique")
         for stage in PassStage.allCases {
             XCTAssertTrue(r.graph.passes.contains { $0.stage == stage }, "a pass in every slot, \(stage)")
@@ -43,6 +44,9 @@ final class SceneRendererTests: XCTestCase {
         func image() throws -> [UInt8] {
             let r = try SceneRenderer(device: try XCTUnwrap(RenderDevice.shared), loadsUserTextures: false)
             r.setStars(try StarCatalog.bundled())
+            // The sky without its clouds (C2): Apollo 11's 9/10 cirrostratus
+            // would grey it.
+            r.settings.cloud.enabled = false
             let target = try XCTUnwrap(OffscreenTarget(device: r.device, width: 320, height: 200))
             r.renderAndWait(scene, into: target)
             return target.bytes()

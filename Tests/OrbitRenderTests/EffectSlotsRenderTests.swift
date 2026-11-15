@@ -499,6 +499,8 @@ final class EffectSlotsRenderTests: XCTestCase {
         var shot = SnapshotToolTests.pad
         shot.width = 160
         shot.height = 100
+        // No effect at all: C2's clouds off too.
+        shot.settings.cloud.enabled = false
         let with = try render(shot)
         XCTAssertNil(with.capture.images[.halfResDepth], "the slots did not run")
         let s = try snapper()
@@ -511,6 +513,7 @@ final class EffectSlotsRenderTests: XCTestCase {
         let r = try SceneRenderer(device: s.device, outputFormat: .bgra8Unorm_srgb, passes: passes,
                                   plan: DirectTargetPlan(colorFormat: .bgra8Unorm_srgb, sampleCount: 4))
         r.setStars(s.stars)
+        r.settings = shot.settings
         let target = try XCTUnwrap(OffscreenTarget(device: s.device, width: 160, height: 100))
         r.renderAndWait(shot.scene(prepared), into: target)
         XCTAssertEqual(target.bytes(), with.pixels)
