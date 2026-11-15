@@ -521,6 +521,56 @@ final class ShadowPassTests: XCTestCase {
                      t32 / Double(points.count) * 3024 * 1964 * 1e3))
     }
 
+    // MARK: Dark casters
+
+    /// Casters the Sun does not light cast nothing, as the vessel pass lights
+    /// them: on the pad, the stack in the Earth's shadow (its Sun share 0)
+    /// leaves only the site's map; with the Sun also 2° below the site's
+    /// horizon there are no maps: the pass draws nothing and leaves
+    /// `shadowParams.x` at 0, so every receiver returns 1 at once (LEO's
+    /// night, a night on the pad).
+    func testDarkCastersDrawNoMaps() throws {
+        var scene = try Self.padScene()
+        let (r, pass) = try shadowRenderer()
+        try draw(scene, r)
+        XCTAssertEqual(pass.maps.map(\.level), [.cluster, .cluster], "the vehicle's map and the site's")
+
+        for i in scene.vessels.indices { scene.vessels[i].light.sunlit = 0 }
+        try draw(scene, r)
+        XCTAssertEqual(pass.maps.count, 1, "the site's map alone")
+        XCTAssertEqual(pass.maps.first?.casters.count, 1, "the site alone casts")
+
+        let site = try XCTUnwrap(scene.sites.first)
+        let up = site.orientation * Vec3.unitZ, toSun = scene.sun.direction
+        let level = (toSun - up * up.dot(toSun)).normalized, dip = -2 * Double.pi / 180
+        scene.sun.direction = level * cos(dip) + up * sin(dip)
+        scene.sun.position = scene.sun.direction * scene.sun.distance
+        XCTAssertFalse(ShadowPass.isLit(site, sun: scene.sun))
+        try draw(scene, r)
+        XCTAssertTrue(pass.maps.isEmpty)
+        XCTAssertNil(pass.lastAtlas, "no atlas drawn: the frame's shadowParams.x stays 0")
+    }
+
+    // MARK: Caster caches
+
+    /// The casters follow the vessels, as R2's mesh cache does: a fresh
+    /// vessel in place of the last (new parts, as a scenario loaded again)
+    /// leaves only its own vessel and part casters, however often it
+    /// happens, so no freed geometry stays alive.
+    func testCasterCachesFollowTheVessels() throws {
+        let (r, pass) = try shadowRenderer()
+        for k in 0..<6 {
+            let shapes = [VisualShape.box(from: .zero, length: 2, width: 2, height: 2, axis: .unitZ, color: Self.white),
+                          VisualShape.box(from: Vec3(0, 0, 4 + Double(k)), length: 0.2, width: 3, height: 3,
+                                          axis: .unitZ, color: Self.white)]
+            let v = Self.vessel(shapes, position: Vec3(0, 0, -20))
+            try draw(Self.scene([v], toSun: Vec3(0.3, 0.2, 1)), r)
+            XCTAssertNotNil(pass.casterTriangles(of: v.id))
+            XCTAssertEqual(pass.cachedCasters.vessels, 1, "vessel casters after load \(k)")
+            XCTAssertEqual(pass.cachedCasters.parts, 1, "part casters after load \(k)")
+        }
+    }
+
     // MARK: The pad
 
     /// AS-506 on LC-39A at Apollo 11's launch (the Sun 36° up in the east),

@@ -208,23 +208,27 @@ final class ShadowReceiverTests: XCTestCase {
     /// the pass's split-profile time and the unsplit frame's GPU time, with
     /// the maps and without (`ShadowSettings.enabled`), in alternating
     /// blocks of 5 frames, medians of 25 each; R2's cameras
-    /// (`VesselPassTests.testPassTimeReport`). A report (ORBITSIM_SHADOW_COST=1;
+    /// (`VesselPassTests.testPassTimeReport`), and the stack in the Earth's
+    /// shadow. A report (ORBITSIM_SHADOW_COST=1;
     /// it holds the GPU lock).
     func testReceiverCostReport() throws {
         guard ProcessInfo.processInfo.environment["ORBITSIM_SHADOW_COST"] == "1" else { throw XCTSkip("cost report") }
         let lock = GPULock()
         defer { withExtendedLifetime(lock) {} }
         let (w, h) = (3024, 1964)
-        let cases: [(String, String, (Double, Double, Double, Double))] = [
-            ("pad, stack and LC-39A", "as506-pad", (-1.2, 0.12, 190, 50)),
-            ("pad, the base close", "as506-pad", (-0.6, -0.03, 62, 62)),
-            ("LEO, the stack", "as506-parking-orbit", (-0.6, 0.35, 70, 50)),
+        // The last case is the stack in the Earth's shadow: the same view
+        // with its Sun share 0 (`LegacyLight.sunlit`).
+        let cases: [(String, String, (Double, Double, Double, Double), Bool)] = [
+            ("pad, stack and LC-39A", "as506-pad", (-1.2, 0.12, 190, 50), false),
+            ("pad, the base close", "as506-pad", (-0.6, -0.03, 62, 62), false),
+            ("LEO, the stack", "as506-parking-orbit", (-0.6, 0.35, 70, 50), false),
+            ("LEO, the stack in eclipse", "as506-parking-orbit", (-0.6, 0.35, 70, 50), true),
         ]
         let r = try SceneRenderer(device: try XCTUnwrap(RenderDevice.shared), loadsUserTextures: false)
         r.setStars(try StarCatalog.bundled())
         r.settings.shading.waitForAmbientOcclusion = true
         let target = try XCTUnwrap(OffscreenTarget(device: r.device, width: w, height: h))
-        for (label, id, view) in cases {
+        for (label, id, view, eclipse) in cases {
             let scenario = try XCTUnwrap(Scenario.named(id))
             let sim = scenario.build(Self.system)
             var camera = OrbitCamera()
@@ -232,9 +236,10 @@ final class ShadowReceiverTests: XCTestCase {
             (camera.yaw, camera.pitch, camera.distance) = (view.0, view.1, view.2)
             camera.fovY = view.3 * Double.pi / 180
             camera.update(sim: sim)
-            let scene = SceneExtractor().extract(sim: sim, camera: camera,
+            var scene = SceneExtractor().extract(sim: sim, camera: camera,
                                                  viewport: RenderScene.Viewport(width: Double(w), height: Double(h)),
                                                  realTime: 0)
+            if eclipse { for i in scene.vessels.indices { scene.vessels[i].light.sunlit = 0 } }
             for _ in 0..<3 { r.renderAndWait(scene, into: target) }
             var vessels: [Bool: [Double]] = [:], shadows: [Bool: [Double]] = [:], frames: [Bool: [Double]] = [:]
             for block in 0..<10 {
@@ -269,13 +274,16 @@ final class ShadowReceiverTests: XCTestCase {
 
     /// The maps keep drawing a part's own mesh once R5's subdivided one has
     /// swapped in for the vessel pass (the same surface, its edges bisected):
-    /// the same triangles, the same shadows.
+    /// the same triangles, the same shadows. The first frame's shadow pass
+    /// (P0) sees the part's own mesh, and the vessel pass (P1) then bakes and
+    /// swaps in R5's; the second frame's shadow pass sees R5's.
     func testCastersKeepThePartsOwnMesh() throws {
         let r = try renderer()
         r.settings.shading.waitForAmbientOcclusion = true
         r.settings.ambientOcclusion.maxEdge = 0.5
         let scene = ShadowLookDevTests.scene(distance: 34, width: 64, height: 40)
         let v = scene.vessels[0]
+        _ = try luminance(scene, shadows: true, renderer: r)
         _ = try luminance(scene, shadows: true, renderer: r)
         let entry = try XCTUnwrap(r.meshes.mesh(v.id)?.parts.first)
         XCTAssertEqual(entry.mesh.subdividedEdge, 0.5, "R5's mesh drawn by the vessel pass")
