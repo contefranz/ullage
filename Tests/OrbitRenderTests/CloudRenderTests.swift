@@ -128,9 +128,9 @@ final class CloudRenderTests: XCTestCase {
     }
 
     /// A field of one uniform sky around the parking orbit's epoch: the low,
-    /// mid and high covers, the cloud base 1,000 m up.
+    /// mid and high covers, the cloud base `base` m up (ERA5's 60 m steps).
     static func uniformWeather(low: Double, mid: Double = 0, high: Double = 0, eastWind: Double = 0,
-                               northWind: Double = 0, epoch: Epoch = VesselLibrary.apollo11Insertion,
+                               northWind: Double = 0, base: Double = 1_020, epoch: Epoch = VesselLibrary.apollo11Insertion,
                                overrides: [CloudOverride] = []) throws -> CloudWeather {
         let t0 = Int64(((epoch.julianDateUTC - 2_440_587.5) * 86_400).rounded())
         let names = ["lcc", "mcc", "hcc", "cbh", "u850", "v850", "u500", "v500", "u250", "v250"]
@@ -141,7 +141,7 @@ final class CloudRenderTests: XCTestCase {
         }
         let east = UInt8(((eastWind + 50) / 0.5).rounded()), north = UInt8(((northWind + 50) / 0.5).rounded())
         let values: [UInt8] = [UInt8((low * 254).rounded()), UInt8((mid * 254).rounded()),
-                               UInt8((high * 254).rounded()), 17, east, north, east, north, east, north]
+                               UInt8((high * 254).rounded()), UInt8((base / 60).rounded()), east, north, east, north, east, north]
         let snapshot = zip(planes, values).map { p, v in [UInt8](repeating: v, count: p.count) }
         let field = try CloudField(data: CloudField.encode(planes: planes, utcSeconds: [t0 - 86_400, t0 + 86_400],
                                                            note: "uniform", snapshots: [snapshot, snapshot]))
@@ -180,6 +180,146 @@ final class CloudRenderTests: XCTestCase {
             // cover, which the far layer (cover times the slab) does not.
             XCTAssertEqual(sums.alphaFar / sums.alphaMarch, 1, accuracy: 0.3, "its opacity at cover \(cover)")
         }
+    }
+
+    /// The elevation (rad) above the camera's horizontal of the ray through
+    /// each texel of a `width` × `height` target over the frame (row-major),
+    /// and its angle from the nadir; the Earth a sphere about its centre.
+    static func rayAngles(_ frame: Frame, width: Int, height: Int) throws -> [(elevation: Double, offNadir: Double)] {
+        let cam = frame.scene.camera
+        let earth = try XCTUnwrap(frame.scene.bodies.first { $0.id == AtmosphereFrame.planetID })
+        let nadir = earth.position.normalized
+        let viewToWorld = cam.worldToView.transposed
+        let t = tan(cam.fovY / 2), aspect = Double(cam.viewport.width) / Double(cam.viewport.height)
+        return (0..<width * height).map { k in
+            let x = 2 * (Double(k % width) + 0.5) / Double(width) - 1, y = 1 - 2 * (Double(k / width) + 0.5) / Double(height)
+            let d = (viewToWorld * Vec3(x * t * aspect, y * t, -1)).normalized
+            return (-asin(max(-1, min(1, d.dot(nadir)))), acos(max(-1, min(1, d.dot(nadir)))))
+        }
+    }
+
+    /// The pad, looking along the horizon past the stack (320 × 200, fov 30).
+    static func padHorizonShot(regime: String, advance: [String] = []) -> SnapshotSpec.Shot {
+        var shot = deckShot(regime: regime, width: 320, height: 200)
+        shot.name = "c2-pad-horizon"
+        shot.scenario = "as506-pad"
+        shot.advance = advance
+        shot.camera = SnapshotSpec.CameraSpec(yaw: -60, pitch: -3, distance: 300, fov: 30)
+        return shot
+    }
+
+    /// The far layer holds the pad's horizon as C2's own field does. A slant
+    /// ray crosses the deck over 50-150 km of cells there, so a broken deck
+    /// is mostly opaque: the far layer's cover along the ray. C2's field
+    /// integrated to convergence along these rays (the #73 review's port of
+    /// cloud_density) is 0.73-0.85 opaque at 1/10 and 0.98-1.00 at 3/10; the
+    /// march, its clear-air steps 4 km long out there, finds less. Before,
+    /// the far layer drew the cover overhead (0.1 at 1/10).
+    func testFarLayerHoldsThePadsHorizon() throws {
+        for (cover, field) in [(0.1, 0.79), (0.3, 0.99)] {
+            let weather = try Self.uniformWeather(low: cover)
+            var alpha: [String: Double] = [:]
+            for regime in ["march", "far"] {
+                let frame = try render(Self.padHorizonShot(regime: regime), weather: weather)
+                let c = try XCTUnwrap(frame.capture.values(.halfResClouds))
+                let angles = try Self.rayAngles(frame, width: c.width, height: c.height)
+                // 0.3-1.5° up, clear of the stack and the tower (the middle third).
+                var sum = 0.0, n = 0
+                for (k, texel) in c.texels.enumerated() {
+                    let e = angles[k].elevation * 180 / .pi, x = k % c.width
+                    guard e > 0.3, e < 1.5, x < c.width / 3 || x > 2 * c.width / 3 else { continue }
+                    sum += texel[3]
+                    n += 1
+                }
+                XCTAssertGreaterThan(n, 100, "the band is in view")
+                alpha[regime] = sum / Double(max(n, 1))
+            }
+            let march = try XCTUnwrap(alpha["march"]), far = try XCTUnwrap(alpha["far"])
+            print("pad horizon at cover \(cover): march \(march), far \(far)")
+            XCTAssertGreaterThan(march, 2 * cover, "the march sees more than the cover along the horizon")
+            XCTAssertGreaterThanOrEqual(far, march, "no thinner than the march")
+            XCTAssertEqual(far, field, accuracy: 0.08, "the field's opacity at cover \(cover)")
+        }
+    }
+
+    /// The far layers lie in front of the ground or not at all. From 2.9 km
+    /// up the ascent, rays that meet the ground 85-150 km out drew the 4.5 km
+    /// shell's far side beyond the Earth, seen from below; its mean pulled
+    /// the depth cut past the ground and thinned the low layer in front.
+    func testFarLayerStopsAtTheGround() throws {
+        var alpha: [Double: Double] = [:]
+        for mid in [0.0, 0.5] {
+            let frame = try render(Self.padHorizonShot(regime: "far", advance: ["met:44"]),
+                                   weather: try Self.uniformWeather(low: 0.3, mid: mid))
+            let c = try XCTUnwrap(frame.capture.values(.halfResClouds))
+            let angles = try Self.rayAngles(frame, width: c.width, height: c.height)
+            var sum = 0.0
+            for (k, texel) in c.texels.enumerated() where angles[k].elevation < -1.9 * .pi / 180 { sum += texel[3] }
+            alpha[mid] = sum
+        }
+        let alone = try XCTUnwrap(alpha[0]), withMid = try XCTUnwrap(alpha[0.5])
+        print("low layer under the horizon from 2.9 km: alone \(alone), with the mid layer \(withMid)")
+        XCTAssertGreaterThan(alone, 1, "the low layer draws below the horizon")
+        XCTAssertEqual(withMid / alone, 1, accuracy: 0.03, "the mid layer beyond the ground leaves it as it is")
+    }
+
+    /// Under a cloud base above the low layer's 2 km reference shell, the far
+    /// layer is not drawn below the camera: the clouds are above it. Before,
+    /// at 2.2 km under a 2.8 km base, rays 0.3-1° down drew the 2 km shell's
+    /// deck from above.
+    func testFarLayerKeepsToItsSideOfTheShell() throws {
+        let frame = try render(Self.padHorizonShot(regime: "auto", advance: ["met:40"]),
+                               weather: try Self.uniformWeather(low: 0.5, base: 2_820))
+        let c = try XCTUnwrap(frame.capture.values(.halfResClouds))
+        let angles = try Self.rayAngles(frame, width: c.width, height: c.height)
+        var sum = 0.0, n = 0
+        for (k, texel) in c.texels.enumerated() {
+            let e = angles[k].elevation * 180 / .pi, x = k % c.width
+            guard e > -1, e < -0.3, x < c.width / 3 || x > 2 * c.width / 3 else { continue }
+            sum += texel[3]
+            n += 1
+        }
+        XCTAssertGreaterThan(n, 100)
+        print("below the horizon under a 2.8 km base: mean opacity \(sum / Double(max(n, 1)))")
+        XCTAssertLessThan(sum / Double(max(n, 1)), 0.02)
+    }
+
+    /// From above the air the clouds take A2's haze from space, as the
+    /// ground around them does. At 1,500 km the disc's outer part lies
+    /// beyond the froxels' 2,000 km along the ray, and at 2,000 km A2 stops
+    /// them. Before, the clouds there took the froxels' empty last slice (no
+    /// haze), and their haze switched at 2,000 km in one frame.
+    func testCloudsTakeTheHazeFromSpace() throws {
+        let weather = try Self.uniformWeather(low: 0.5)
+        func hazed(altitude: Double, air: Bool) throws -> (mean: SIMD3<Double>, n: Int) {
+            var shot = Self.deckShot(width: 320, height: 320)
+            shot.camera = SnapshotSpec.CameraSpec(target: "body:399", frame: "inertial", yaw: 223.5, pitch: 22.9,
+                                                  distance: 6_378_137 + altitude, fov: 115)
+            shot.settings.atmosphere.enabled = air
+            let frame = try render(shot, weather: weather)
+            let c = try XCTUnwrap(frame.capture.values(.halfResClouds))
+            let angles = try Self.rayAngles(frame, width: c.width, height: c.height)
+            // The disc's outer part: 0.75-0.9 of its angular radius.
+            let disc = asin(6_371_000 / (6_371_000 + altitude))
+            var s = SIMD3<Double>(0, 0, 0), n = 0
+            for (k, texel) in c.texels.enumerated() {
+                let a = angles[k].offNadir / disc
+                guard a > 0.75, a < 0.9, texel[3] > 0.05 else { continue }
+                s += SIMD3(texel[0], texel[1], texel[2])
+                n += 1
+            }
+            return (s / Double(max(n, 1)), n)
+        }
+        let bare = try hazed(altitude: 1_500_000, air: false)
+        let at1500 = try hazed(altitude: 1_500_000, air: true)
+        let below = try hazed(altitude: 1_990_000, air: true), above = try hazed(altitude: 2_010_000, air: true)
+        XCTAssertGreaterThan(bare.n, 500)
+        let r = at1500.mean / bare.mean
+        print("haze at 1,500 km over the disc's outer part (hazed / bare):", r,
+              "across 2,000 km (above / below):", above.mean / below.mean)
+        // The air's transmittance takes a quarter or more of the clouds' blue.
+        XCTAssertGreaterThan(abs(r.z - 1), 0.1, "hazed at 1,500 km")
+        for k in 0..<3 { XCTAssertEqual((above.mean / below.mean)[k], 1, accuracy: 0.05, "across 2,000 km, channel \(k)") }
     }
 
     /// The cirrus draws its cover: 4/10 cirrus seen from orbit has 4/10 of

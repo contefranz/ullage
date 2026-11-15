@@ -635,7 +635,10 @@ inline CloudResult cloud_farLayer(float3 of, float3 df, float3 d, float c, float
     CloudResult r = {float4(0.0), 1e30, 1e30, 1e30};
     float2 hit = cloud_shell(of, df, c);
     float th = hit.x >= 0.0 ? hit.x : hit.y;
-    if (th < 0.0) { return r; }
+    // None where the ray meets the ground first (the shell's far side
+    // beyond the Earth).
+    float2 ground = cloud_shell(of, df, u.shell.x);
+    if (th < 0.0 || (ground.x >= 0.0 && ground.x < th)) { return r; }
     float3 pf = of + df * th;
     float3 up = normalize(float3(pf.x, pf.y, pf.z * u.cameraFigure.w));
     // Seen from above (the eye's cosine from the zenith) or from below
@@ -665,6 +668,18 @@ inline CloudResult cloud_farLayer(float3 of, float3 df, float3 d, float c, float
         beta = u.extinction.y;
     }
     if (cover <= 0.002) { return r; }
+    // Seen from below, the cover along the ray: a slant ray crosses the
+    // layer over a span of thickness × tan θ, and sees through only where
+    // the gaps of every cell on the way line up, 1 − (1 − c)^(1 + span /
+    // cell), the cells a quarter of the layer's shape period. At the pad's
+    // horizon (1° up) 1/10 cover is 0.76 opaque, as C2's own field
+    // integrates (0.73-0.85); overhead it is the cover. From above the
+    // cover itself: the deck's lit tops, as the march draws them from orbit
+    // (testMarchAndFarAgreeOnABrokenDeck), whose oblique views see their
+    // shadowed sides as well.
+    float cell = 0.25 * (layer == 0 ? u.noiseLow.w : u.noiseMid.w);
+    float span = thickness * sqrt(max(1.0 - mu * mu, 0.0)) / mu;
+    float seen = below ? 1.0 - pow(1.0 - min(cover, 1.0), 1.0 + span / cell) : cover;
     // C1's in-cloud optical depth, the march's own (its extinction averages
     // C1's where there is cloud), times farDensity.
     float tau = u.lookDev.x > 0.5 ? u.lookDev.z : beta * u.extinction.w * thickness * u.regime.w;
@@ -675,7 +690,7 @@ inline CloudResult cloud_farLayer(float3 of, float3 df, float3 d, float c, float
     float3 sky = u.sunLight.rgb * cloud_skyIrradiance(top, mu0, irr, linear, u);
     (void)href;
     float3 L = sun * (v.r * cloud_mie(dot(d, u.sun.xyz), u) + v.g) + sky * v.b;
-    r.color = float4(L * cover, cover * (1.0 - v.a));
+    r.color = float4(L * seen, seen * (1.0 - v.a));
     r.front = th;
     r.entry = th;
     r.mean = th + 0.5 * thickness / mu;
@@ -1007,14 +1022,20 @@ inline CloudRay cloud_ray(float2 px, constant CloudUniforms &u, constant FrameUn
     // In the shell, the far layer only where the camera is clear of the
     // layers the ray meets: under the cloud base, over the mid layer, or
     // between the low layer's top and the mid layer's base looking down
-    // (such a ray meets the low layer only, from above). Inside a layer the
-    // march is everything.
+    // (such a ray meets the low layer only, from above). The far layers lie
+    // at their reference shells (2 and 4.5 km), so the camera must be on the
+    // same side of those as of the weather's layers: under a base above 2 km
+    // the low shell would be seen from above, over a fog's top under 2 km
+    // from below. Inside a layer the march is everything.
     float hc = u.radii.y, lowBase = u.lut2.z, lowTop = u.lut2.w;
+    float lowRef = u.shellMid.z, midRef = u.shellMid.w;
     float3 upCamera = normalize(float3(r.of.x, r.of.y, r.of.z * u.cameraFigure.w));
-    float below = 1.0 - cloud_smoothstep(lowBase - 300.0, lowBase - 50.0, hc);
+    float below = (1.0 - cloud_smoothstep(lowBase - 300.0, lowBase - 50.0, hc))
+        * (1.0 - cloud_smoothstep(lowRef - 300.0, lowRef - 50.0, hc));
     float above = cloud_smoothstep(u.layers.y + 50.0, u.layers.y + 500.0, hc);
     float between = dot(r.d, upCamera) < 0.0
         ? cloud_smoothstep(lowTop + 50.0, lowTop + 300.0, hc) * (1.0 - cloud_smoothstep(u.layers.x - 100.0, u.layers.x + 50.0, hc))
+          * cloud_smoothstep(lowRef + 50.0, lowRef + 300.0, hc) * (1.0 - cloud_smoothstep(midRef - 300.0, midRef - 50.0, hc))
         : 0.0;
     float clear = r.inside ? max(below, max(above, between)) : 1.0;
     // A ray that meets the ground before the low layer's shell (going down
@@ -1257,19 +1278,13 @@ vertex CloudSlotOut cloud_slot_vertex(uint vid [[vertex_id]]) {
     return o;
 }
 
-// The frame's clouds at this texel of R6's targets: the march's (its
-// target filtered when coarser: colour bilinear, depths the nearest of the
-// four texels around), the far layers by their weight, and the cirrus, at
-// R6's resolution, in order of distance; cut where the scene's depth (R6's
-// test depth) lies in front of or within them: the optical depth before
-// the scene, as a fraction of the way from the cloud's entry to twice its
-// mean depth beyond it. Its front for R6's composite, where it has one.
-// The air between the camera and a cloud result (A2's aerial perspective
-// at its opacity-weighted mean distance, screen uv): its light dimmed by the
-// air's transmittance, and the air's own light in front of it where it is
-// opaque. Premultiplied and pre-exposed, as the result. One lookup for the
-// parts together: each at its own distance cost 0.5-1 ms more at 3024 ×
-// 1964 for a difference seen only where the cirrus shows between clouds.
+// The air between a camera inside it and a cloud result (A2's aerial
+// perspective at its opacity-weighted mean distance, screen uv): its light
+// dimmed by the air's transmittance, and the air's own light in front of it
+// where it is opaque. Premultiplied and pre-exposed, as the result. One
+// lookup for the parts together: each at its own distance cost 0.5-1 ms
+// more at 3024 × 1964 for a difference seen only where the cirrus shows
+// between clouds.
 inline void cloud_haze(thread CloudResult &r, float2 uv, texture3d<float> froxels, sampler s,
                        constant AtmosphereUniforms &air, float exposure) {
     if (r.color.a <= 0.0 || r.mean > 1e29) { return; }
@@ -1277,10 +1292,13 @@ inline void cloud_haze(thread CloudResult &r, float2 uv, texture3d<float> froxel
     r.color.rgb = r.color.rgb * ap.a + r.color.a * ap.rgb * exposure;
 }
 
-// Beyond the froxels' reach (the camera over 2,000 km): A2's haze over the
-// ground from space (its in-scatter, cd/m², and transmittance along the
-// pixel's ray to the ground), for a cloud at height h the share of it from
-// the air above the cloud, the air's mass above h: e^(-h / 8 km).
+// The camera above the air: A2's haze over the ground from space, as the
+// ground has it (its in-scatter, cd/m², and transmittance along the pixel's
+// ray to the ground), for a cloud at height h the share of it from the air
+// above the cloud, the air's mass above h: e^(-h / 8 km). Not the froxels:
+// they reach 2,000 km along the ray (none of the air on the disc's outer
+// part from 1,000 km up), and from orbit their slices, 40-125 km apart
+// within the air, place a cloud's haze by distance, not height.
 inline void cloud_hazeFromSpace(thread CloudResult &r, float2 uv, float h, texture2d<float> scatter,
                                 texture2d<float> transmittance, sampler s, float exposure) {
     if (r.color.a <= 0.0) { return; }
@@ -1290,6 +1308,13 @@ inline void cloud_hazeFromSpace(thread CloudResult &r, float2 uv, float h, textu
     r.color.rgb = r.color.rgb * t + r.color.a * inscatter * exposure;
 }
 
+// The frame's clouds at this texel of R6's targets: the march's (its
+// target filtered when coarser: colour bilinear, depths the nearest of the
+// four texels around), the far layers by their weight, and the cirrus, at
+// R6's resolution, in order of distance; cut where the scene's depth (R6's
+// test depth) lies in front of or within them: the optical depth before
+// the scene, as a fraction of the way from the cloud's entry to twice its
+// mean depth beyond it. Its front for R6's composite, where it has one.
 fragment EffectCloudOut cloud_slot_fragment(CloudSlotOut in [[stage_in]],
                                             constant FrameUniforms &frame [[buffer(ORBIT_BUFFER_FRAME)]],
                                             constant EffectSlotUniforms &e [[buffer(ORBIT_EFFECT_BUFFER_SLOTS)]],
@@ -1334,12 +1359,13 @@ fragment EffectCloudOut cloud_slot_fragment(CloudSlotOut in [[stage_in]],
     float k = ray.depthPerMetre;
     CloudResult result = {c, cloud_decodeDepth(z.x) / k, cloud_decodeDepth(z.y) / k, cloud_decodeDepth(z.z) / k};
     CloudTextures t = {shape, detail, curl, weatherA, weatherB};
-    // The air in front: A2's froxels at the clouds' combined mean distance
-    // (below), or beyond their reach A2's haze from space, each part at its
-    // height (none without air).
+    // The air in front: with the camera above the air (A2's haze from space
+    // bound, as the ground has it) that haze, each part at its height;
+    // inside the air A2's froxels at the clouds' combined mean distance
+    // (below); none without air.
     float2 screen = in.position.xy * e.target.zw;
     float exposure = frame.exposure.x;
-    bool froxelsOn = air.aerialPerspective.x >= 1.0, fromSpace = !froxelsOn && scale.y > 0.5;
+    bool fromSpace = scale.y > 0.5, froxelsOn = !fromSpace && air.aerialPerspective.x >= 1.0;
     if (fromSpace) {
         cloud_hazeFromSpace(result, screen, u.shellMid.z, spaceScatter, spaceTransmittance, linear, exposure);
     }
