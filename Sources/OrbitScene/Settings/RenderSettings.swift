@@ -108,6 +108,13 @@ public enum DebugView: String, Codable, CaseIterable {
     case normals
     /// The image's luminance in false colour, one band per stop.
     case luminance
+    /// R6: the effect slots' half-resolution test depth, as `depth`, with
+    /// texels whose quad spans an edge in magenta (the checkerboard shows).
+    case effectDepth
+    /// R6: each effect layer's coverage: red clouds, green volumes, blue OIT.
+    case effectLayers
+    /// R6: the nearest effect front's depth, tinted by its layer.
+    case effectFront
     /// The Sun's visible share from the shadow maps on every surface, tinted
     /// by the map that served it (R4's `ShadowDebugPass`).
     case sunShadow

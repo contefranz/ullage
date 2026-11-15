@@ -30,7 +30,8 @@ public struct Scenario: Identifiable {
     /// The scenario with this `id`, nil if there is none.
     public static func named(_ id: String) -> Scenario? { all.first { $0.id == id } }
 
-    public static let all: [Scenario] = [pad39A, saturnVPad, earthOrbitReturn, apollo11ParkingOrbit, apollo13, sICEngine1Out,
+    public static let all: [Scenario] = [pad39A, saturnVPad, apollo8Pad, earthOrbitReturn, apollo11ParkingOrbit, apollo13,
+                                  sICEngine1Out,
                                   apollo7Deorbit, apollo7EntryInterface, lowEarthOrbit, lunarOrbit]
 
     /// Launch Complex 39A, Kennedy Space Center, where Apollo 11 stood:
@@ -72,6 +73,36 @@ public struct Scenario: Identifiable {
         summary: "Apollo 11 at first motion, 16 July 1969, 13:32:00.3 UTC, paused: P releases the hold-down arms. The IU flies the ascent: tower-clearance yaw, roll and pitch programs, staging, and iterative guidance (IGM) through the S-II and S-IVB burns to a 100 n mi parking orbit. MET is Apollo 11's GET.",
         missionClockZero: VesselLibrary.apollo11RangeZero,
         build: { system in apollo11(system) })
+
+    /// Apollo 8's range zero, 1968-12-21 12:51:00 UTC (AS-503's liftoff,
+    /// TM X-64796 Table 1).
+    public static let apollo8RangeZero = Epoch(utcYear: 1968, month: 12, day: 21, hour: 12, minute: 51)
+
+    /// A look-development stand-in for Apollo 8 on the pad: `saturnVPad`'s
+    /// AS-506 stack, its physics and IU program unchanged, at Apollo 8's
+    /// range zero (first motion 0.30 s after it, as AS-506's), dressed as
+    /// AS-503 with CSM-103 and LTA-B (`ApolloVariant.apollo8`; only the look
+    /// reads it). It gives the renderer Apollo 8's day: the Sun about 7° up,
+    /// TM X-64796's 4/10 cirrus, the mission's ERA5 field. M2 builds AS-503
+    /// itself; until then its ascent is Apollo 11's, flown on Apollo 8's day.
+    public static let apollo8Pad = Scenario(
+        id: "apollo8-pad",
+        name: "Apollo 8's day, AS-506 stand-in (look development)",
+        summary: "Look-development stand-in until M2 builds AS-503: AS-506's flight-calibrated Saturn V (physics and IU unchanged), dressed as AS-503 with CSM-103 and LTA-B, on LC-39A at Apollo 8's range zero, 21 December 1968, 12:51:00 UTC, paused at first motion: P releases the hold-down arms. Apollo 8's sky (the Sun 7° up, 4/10 cirrus), but Apollo 11's ascent. MET is from Apollo 8's range zero.",
+        missionClockZero: apollo8RangeZero,
+        build: { system in apollo8OnPad(system) })
+
+    /// `apollo11`'s stack at Apollo 8's first motion, dressed as Apollo 8.
+    public static func apollo8OnPad(_ system: SolarSystem) -> Simulation {
+        let firstMotion = VesselLibrary.apollo11FirstMotion - VesselLibrary.apollo11RangeZero
+        let sim = Simulation(system: system, time: apollo8RangeZero + firstMotion)
+        let v = VesselLibrary.apollo11OnPad(in: sim, program: SaturnIU.as506())
+        for p in v.parts { p.appearance = .apollo8 }
+        VesselLibrary.dressApollo(v)
+        v.mainThrottle = 1
+        sim.paused = true
+        return sim
+    }
 
     /// Apollo 11 from the pad back to the ground without leaving Earth
     /// orbit, as if translunar injection were no-go: the same stack and IU
@@ -200,6 +231,12 @@ public struct Scenario: Identifiable {
         return sim
     }
 
+    /// The Saturn V on LC-39A at Apollo 8's range zero, 21 December 1968,
+    /// 12:51:00 UTC (07:51 EST; FER-503 Table 2-2), the Sun about 7° up in
+    /// the east-southeast: a look at the dawn light through the atmosphere
+    /// (M1.6 track A2, shot 1). The stack is AS-506's, standing as Apollo
+    /// 11's did, until AS-503's is built; it has no flight program and
+    /// stays on the pad.
     public static let lowEarthOrbit = Scenario(
         id: "leo",
         name: "Capsule in low Earth orbit",

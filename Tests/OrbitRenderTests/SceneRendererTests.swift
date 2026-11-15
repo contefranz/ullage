@@ -8,12 +8,17 @@ import OrbitScene
 final class SceneRendererTests: XCTestCase {
     static let system = try! SolarSystem.bundled()
 
-    /// Today's passes and R1's are set up and active, every track's stub is off.
+    /// Today's passes, R1's, A2's, C2's clouds and R4's shadows are set up and active, every
+    /// track's stub is off. R6's effect slots are set up too; they run only on
+    /// frames an effect draws in.
     func testDefaultPasses() throws {
         let r = try SceneRenderer(device: try XCTUnwrap(RenderDevice.shared), loadsUserTextures: false)
         XCTAssertEqual(r.failures, [:])
-        XCTAssertEqual(r.graph.active.map(\.name), ["Exposure", "Shadows", "Stars", "Planets", "Vessels", "Plumes",
-                                                    "Far points", "HDR resolve", "Post", "Debug view", "Sun-shadow view",
+        XCTAssertEqual(r.graph.active.map(\.name), ["Exposure", "Atmosphere LUTs", "Clouds", "Shadows", "Stars", "Planets",
+                                                    "Vessels", "Effect test opaque", "Atmosphere composite", "Vessel wires",
+                                                    "Half-resolution transparents", "Plumes", "Far points",
+                                                    "Transparent composite", "Effect test sparks", "HDR resolve", "Post",
+                                                    "Debug view", "Effect slots debug view", "Sun-shadow view",
                                                     "Orbit line", "Markers"])
         XCTAssertEqual(Set(r.graph.passes.map(\.name)).count, r.graph.passes.count, "pass names are unique")
         for stage in PassStage.allCases {
@@ -38,6 +43,9 @@ final class SceneRendererTests: XCTestCase {
         func image() throws -> [UInt8] {
             let r = try SceneRenderer(device: try XCTUnwrap(RenderDevice.shared), loadsUserTextures: false)
             r.setStars(try StarCatalog.bundled())
+            // The sky without its clouds (C2): Apollo 11's 9/10 cirrostratus
+            // would grey it.
+            r.settings.cloud.enabled = false
             let target = try XCTUnwrap(OffscreenTarget(device: r.device, width: 320, height: 200))
             r.renderAndWait(scene, into: target)
             return target.bytes()
@@ -48,7 +56,8 @@ final class SceneRendererTests: XCTestCase {
             return (Int(pixels[i]), Int(pixels[i + 1]), Int(pixels[i + 2]))
         }
         let sky = pixel(20, 10), ground = pixel(20, 190), vehicle = pixel(160, 100)
-        XCTAssertGreaterThan(sky.b, sky.r + 40, "blue sky at the top: \(sky)")
+        // A2's sky over AOD 0.1 of aerosol, through AgX: blue, if paler than M1.5's.
+        XCTAssertGreaterThan(sky.b, sky.r + 20, "blue sky at the top: \(sky)")
         XCTAssertLessThan(ground.b + ground.g + ground.r, sky.b + sky.g + sky.r, "darker ground below: \(ground)")
         XCTAssertGreaterThan(vehicle.r + vehicle.g + vehicle.b, 300, "the white stack in the middle: \(vehicle)")
         XCTAssertEqual(try image(), pixels, "deterministic")

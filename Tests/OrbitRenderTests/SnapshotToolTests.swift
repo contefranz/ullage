@@ -19,7 +19,9 @@ final class SnapshotToolTests: XCTestCase {
     static let pad = SnapshotSpec.Shot(name: "pad", scenario: "as506-pad")
 
     /// Timing the passes splits the encoders; the image stays the same, and
-    /// every pass that ran has a time, together near the frame's.
+    /// every pass that ran has a time. That they add up to near the frame's
+    /// is a timing, which other sessions' GPU work disturbs: it is
+    /// `testProfiledPassesAddUpToTheFrame`'s, an opt-in run.
     func testProfilingKeepsThePixels() throws {
         let s = try snapper()
         var shot = Self.pad
@@ -29,27 +31,56 @@ final class SnapshotToolTests: XCTestCase {
         let timed = try s.render(shot, timingFrames: 3)
         XCTAssertEqual(timed.pixels, plain.pixels)
         // A split frame: every pass in its own encoder, the MSAA samples
-        // stored and loaded between them, resolved each time.
-        XCTAssertEqual(try XCTUnwrap(timed.profiledPixels), plain.pixels, "a profiled frame has the same pixels")
+        // stored and loaded between them, resolved each time. C2's clouds
+        // break the scene (R6's slots), where a plain frame resolves the scene
+        // and re-expands it while a timed one keeps the samples (R1's #70): two
+        // half float roundings apart, a step of 8-bit sRGB at most
+        // (HDRLookTests.testBreakingTheSceneKeepsThePixels).
+        let profiled = try XCTUnwrap(timed.profiledPixels)
+        let steps = zip(profiled, plain.pixels).map { abs(Int($0) - Int($1)) }
+        XCTAssertLessThanOrEqual(steps.max() ?? 2, 1, "a profiled frame has the same pixels, to a step")
+        XCTAssertGreaterThan(steps.filter { $0 == 0 }.count, steps.count * 9 / 10)
         guard try s.renderer(userTextures: false).profiler.isSupported else {
             throw XCTSkip("no timestamp counters on this GPU")
         }
         // The overhead is measured where the scene's encoders end, before post.
-        XCTAssertEqual(timed.timings.map(\.pass), ["Shadows", "Stars", "Planets", "Vessels", "Plumes", "Far points",
-                                                   "HDR resolve", FrameProfile.splitOverhead, "Post", "Orbit line",
-                                                   "Markers"])
+        // C2's clouds draw through R6's slots, which break the scene: their
+        // half-resolution pass and composite run, and the overhead is
+        // measured at the break.
+        XCTAssertEqual(timed.timings.map(\.pass), ["Atmosphere LUTs", "Clouds", "Shadows", "Stars", "Planets",
+                                                   "Vessels", "Atmosphere composite", "Vessel wires",
+                                                   FrameProfile.splitOverhead,
+                                                   "Half-resolution transparents", "Plumes", "Far points",
+                                                   "Transparent composite", "HDR resolve", "Post", "Orbit line", "Markers"])
         // Each render pass's vertex and fragment time less what splitting
         // costs (an empty encoder's time): small passes may read 0.
         for t in timed.timings { XCTAssertGreaterThanOrEqual(t.seconds, 0, t.pass) }
         let overhead = try XCTUnwrap(timed.timings.first { $0.pass == FrameProfile.splitOverhead }).seconds
         XCTAssertGreaterThan(overhead, 0, "the split overhead is measured")
-        // The record's GPU time is an unsplit frame's: less than a split
-        // frame's render stages and overhead together. P0's passes (the
-        // shadow maps) are left out: their encoders run alongside the
-        // scene's first ones, so their spans overlap the scene's and a sum
-        // would count that time twice.
-        let prepare = Set(try s.renderer(userTextures: false).graph.passes.filter { $0.stage == .prepare }.map(\.name))
-        let sum = timed.timings.filter { !prepare.contains($0.pass) }.map(\.seconds).reduce(0, +)
+        XCTAssertGreaterThan(timed.record.gpuMilliseconds, 0)
+    }
+
+    /// The record's GPU time is an unsplit frame's: less than a split
+    /// frame's passes and overhead together, within a factor of 2. A
+    /// performance run, which holds the GPU lock (in the gate, other
+    /// sessions' GPU work made it flake): ORBITSIM_TIMINGS=1
+    /// scripts/test.sh fast --filter testProfiledPassesAddUpToTheFrame.
+    func testProfiledPassesAddUpToTheFrame() throws {
+        guard ProcessInfo.processInfo.environment["ORBITSIM_TIMINGS"] != nil else {
+            throw XCTSkip("a performance run: ORBITSIM_TIMINGS=1")
+        }
+        let lock = GPULock { print("SnapshotToolTests: waiting for the GPU lock") }
+        defer { withExtendedLifetime(lock) {} }
+        let s = try snapper()
+        guard try s.renderer(userTextures: false).profiler.isSupported else {
+            throw XCTSkip("no timestamp counters on this GPU")
+        }
+        var shot = Self.pad
+        shot.width = 320
+        shot.height = 200
+        let timed = try s.render(shot, timingFrames: 3)
+        let overhead = try XCTUnwrap(timed.timings.first { $0.pass == FrameProfile.splitOverhead }).seconds
+        let sum = timed.timings.map(\.seconds).reduce(0, +)
         XCTAssertGreaterThan(timed.record.gpuMilliseconds, 0)
         XCTAssertLessThan(sum, 2 * timed.record.gpuMilliseconds / 1_000 + 2 * overhead, "\(timed.timings)")
     }
@@ -229,13 +260,14 @@ final class SnapshotToolTests: XCTestCase {
         let png = try AppSnapshot.write(scene, renderer: r)
         let second = try AppSnapshot.write(scene, renderer: r)
         XCTAssertNotEqual(second, png, "a second snapshot in the same second does not overwrite the first")
-        for suffix in [".png", ".pfm", ".depth.png", ".normals.png", ".luminance.png", ".sunShadow.png", ".json"] {
+        let suffixes = [".png", ".pfm", ".json"] + DebugView.allCases.filter { $0 != .none }.map { ".\($0.rawValue).png" }
+        XCTAssertTrue(suffixes.contains(".luminance.png"))
+        for suffix in suffixes {
             try FileManager.default.removeItem(at: dir.appendingPathComponent(second.deletingPathExtension().lastPathComponent + suffix))
         }
         let stem = png.deletingPathExtension().lastPathComponent
         let files = Set(try FileManager.default.contentsOfDirectory(atPath: dir.path))
-        XCTAssertEqual(files, [stem + ".png", stem + ".pfm", stem + ".depth.png", stem + ".normals.png",
-                               stem + ".luminance.png", stem + ".sunShadow.png", stem + ".json"])
+        XCTAssertEqual(files, Set(suffixes.map { stem + $0 }))
         let back = try ImageFiles.readPNG(png)
         XCTAssertEqual([back.width, back.height], [160, 100])
         XCTAssertEqual(r.settings, RenderSettings(), "the renderer's settings are put back")

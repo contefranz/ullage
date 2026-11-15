@@ -5,30 +5,47 @@ import simd
 import OrbitCore
 import OrbitScene
 
-/// The bodies, farthest first, ray-traced on a full-screen triangle each,
-/// with today's sky and haze (P1). Small ones are left to the far points,
-/// and the Sun to R1's star pass.
+/// The bodies, farthest first, ray-traced on a full-screen triangle each
+/// (P1), in photometric units: Lambert grounds under the Sun, the Earth's
+/// lit and hazed through A2's atmosphere when it is drawn (its sky is A2's
+/// composite, P2). Small ones are left to the far points, and the Sun to
+/// R1's star pass.
 /// Track E2 owns this pass and the planet module.
 @MainActor
 public final class PlanetPass: RenderPass {
     public let name = "Planets"
     public let stage = PassStage.opaque
     public let order = 10
+    public var reads: Set<ResourceID> { [.atmosphereIrradiance, .atmosphereProfile] }
+    // (A2's `.spaceGroundScatter` and `.spaceGroundTransmittance` are used
+    // when P0 wrote them this frame, as `.skyView` is through its slot.)
 
     private var pipeline: MTLRenderPipelineState?
+    // E2 replaces: E1's tile hook. The tiled Earth's pipeline (the
+    // `.planetTiled` module); every other draw uses `pipeline`, the plain
+    // planet module, as without the tile store.
+    private var tiledPipeline: MTLRenderPipelineState?
     private var textures: [Int: MTLTexture] = [:]
     private var fallbackTexture: MTLTexture?
     /// Load the user's planet textures (Application Support); off for
     /// snapshots that must not depend on them.
     public var loadsUserTextures: Bool
+    /// E2 replaces: E1's tile store, whose albedo layer gives the Earth's
+    /// albedo once any of it is resident.
+    public let tiles: PlanetTilePass?
 
-    public init(loadsUserTextures: Bool = true) {
+    public init(loadsUserTextures: Bool = true, tiles: PlanetTilePass? = nil) {
         self.loadsUserTextures = loadsUserTextures
+        self.tiles = tiles
     }
 
     public func setUp(_ s: PassSetup) throws {
         pipeline = try PipelineBuilder.scene(try s.shaders.library(.planet), vertex: "planet_vertex",
                                              fragment: "planet_fragment", blend: .premultiplied, setup: s)
+        // E2 replaces: a tile module that does not compile leaves the Earth untiled.
+        tiledPipeline = tiles == nil ? nil : try? PipelineBuilder.scene(try s.shaders.library(.planetTiled),
+                                                                       vertex: "planet_vertex", fragment: "planet_fragment",
+                                                                       blend: .premultiplied, setup: s)
         let td = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Unorm, width: 1, height: 1, mipmapped: false)
         fallbackTexture = s.device.makeTexture(descriptor: td)
         var white: [UInt8] = [255, 255, 255, 255]
@@ -76,6 +93,17 @@ public final class PlanetPass: RenderPass {
         enc.setRenderPipelineState(pipeline)
         enc.setDepthStencilState(f.states.depthWrite)
         enc.setFragmentSamplerState(f.states.equirectSampler, index: 0)
+        enc.setFragmentTexture(f.textures[.atmosphereIrradiance] ?? fallbackTexture, index: 1)
+        enc.setFragmentTexture(f.textures[.atmosphereProfile] ?? fallbackTexture, index: 2)
+        let air = f.atmosphere.radii.w > 0.5 && f.textures[.atmosphereProfile] != nil
+        let groundSteps = Float(f.settings.atmosphere.groundSteps)
+        // From space, A2's haze over the ground at a reduced resolution.
+        let haze = f.textures[.spaceGroundScatter].flatMap { s in f.textures[.spaceGroundTransmittance].map { (s, $0) } }
+        enc.setFragmentTexture(haze?.0 ?? fallbackTexture, index: 3)
+        enc.setFragmentTexture(haze?.1 ?? fallbackTexture, index: 4)
+        // E2 replaces: the albedo tiles, while the setting is on and once any are resident.
+        let albedoTiles = f.settings.planetTile.enabled
+            ? tiles?.layer(.albedo).flatMap { $0.residency.residentCount > 0 ? $0 : nil } : nil
         for body in f.scene.bodies where !body.isSun && !f.drawsPoint(body) {
             let rel = body.position
             let style = Self.style(for: body.id)
@@ -91,6 +119,15 @@ public final class PlanetPass: RenderPass {
             let altitude = figure.geodetic(cameraBody).height
             let worldToBody = orientation.icrfToBody
             let texture = textures[body.id]
+            // E2 replaces: the tiled Earth draws with the tile pipeline.
+            let tiled = body.id == AtmosphereFrame.planetID ? albedoTiles : nil
+            if let tiled, let tiledPipeline {
+                enc.setRenderPipelineState(tiledPipeline)
+                tiled.bindFragment(enc, atlas: 5, indirection: 6, deep: 1, uniforms: 2)
+                enc.setFragmentSamplerState(tiled.sampler, index: 1)
+            } else {
+                enc.setRenderPipelineState(pipeline)
+            }
             var u = PlanetUniforms(
                 viewToWorld: simd_float4x4(rotation: cam.worldToView.transposed),
                 worldToBody: simd_float4x4(rotation: worldToBody),
@@ -98,8 +135,8 @@ public final class PlanetPass: RenderPass {
                 params: SIMD4(Float(altitude), Float(tanY) * aspect, Float(tanY), near),
                 sunDir: SIMD4(body.toSun, body.isSun ? 1 : 0),
                 baseColor: SIMD4(style.color.x, style.color.y, style.color.z, texture == nil ? 0 : 1),
-                atmosphere: SIMD4(style.sky.x, style.sky.y, style.sky.z, style.scaleHeight),
-                options: SIMD4(texture == nil ? 1 : 0, 0.015, 0, 0),
+                atmosphere: SIMD4(air && body.id == AtmosphereFrame.planetID ? 1 : 0, groundSteps, haze == nil ? 0 : 1, 0),
+                options: SIMD4(texture == nil && tiled == nil ? 1 : 0, 0.015, 0, 0),
                 origin: SIMD4(origin, Float(c)),
                 figure: SIMD4(Float(stretch), 0, 0, 0))
             enc.setFragmentBytes(&u, length: MemoryLayout<PlanetUniforms>.stride, index: 0)
@@ -110,14 +147,14 @@ public final class PlanetPass: RenderPass {
 
     struct BodyStyle {
         var color: SIMD3<Float>
-        var sky: SIMD3<Float> = .zero
-        var scaleHeight: Float = 0
     }
 
     static func style(for id: Int) -> BodyStyle {
         switch id {
         case 10: return BodyStyle(color: SIMD3(1.0, 0.95, 0.85))
-        case 399: return BodyStyle(color: SIMD3(0.05, 0.16, 0.45), sky: SIMD3(0.30, 0.55, 1.0), scaleHeight: 9_000)
+        // Untextured, the Earth is an ocean: the open sea's albedo, about
+        // 0.06 (its blue is the air's, A2's).
+        case 399: return BodyStyle(color: SIMD3(0.04, 0.06, 0.08))
         case 301: return BodyStyle(color: SIMD3(0.35, 0.34, 0.32))
         case 499: return BodyStyle(color: SIMD3(0.7, 0.35, 0.2))
         case 299: return BodyStyle(color: SIMD3(0.9, 0.85, 0.7))

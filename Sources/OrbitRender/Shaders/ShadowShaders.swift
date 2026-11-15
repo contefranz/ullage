@@ -5,8 +5,8 @@ let shadowShaderSource = #"""
 
 // Casters, drawn into a layer of the atlas with depth clamped (pancaked):
 // positions only, from any vertex layout that starts with a float4 position
-// (the shadow pass's own position buffers, MeshVertex, VertexV2), `stride`
-// float4s apart.
+// (the shadow pass's own position buffers, VertexV2), `stride` float4s
+// apart.
 struct ShadowCasterOut {
     float4 position [[position]];
 };
@@ -26,8 +26,7 @@ vertex ShadowCasterOut shadow_caster_vertex(uint vid [[vertex_id]],
 // surface, grey from 12% (umbra) to white (lit) as displayed, a little
 // darker as the Sun grazes the face, tinted by the map that served it
 // (ShadowDebugUniforms); a face turned from the Sun dark blue; a surface no
-// map holds pale red. The planet and the vessels come from the resolved
-// scene depth; the sites, which P1 does not draw yet, are drawn here.
+// map holds pale red. Every surface comes from the resolved scene depth.
 
 struct ShadowDebugUniforms {
     float4 tint[ORBIT_MAX_SHADOW_MAPS];   // rgb: per map
@@ -119,41 +118,6 @@ fragment ShadowDebugOut shadow_debug_deferred(ShadowFullscreenOut in [[stage_in]
     return o;
 }
 
-// The sites: their meshes (MeshVertex, `stride` float4s apart) shaded with
-// their own normals.
-struct ShadowSiteUniforms {
-    float4x4 viewProjection;               // camera-relative world -> clip
-    float4x4 model;                        // the element's frame -> camera-relative world
-};
-
-struct ShadowSiteOut {
-    float4 position [[position]];
-    float3 world;
-    float3 normal;
-};
-
-vertex ShadowSiteOut shadow_debug_site_vertex(uint vid [[vertex_id]],
-                                              const device float4 *verts [[buffer(0)]],
-                                              constant ShadowSiteUniforms &u [[buffer(1)]],
-                                              constant uint &stride [[buffer(2)]]) {
-    float4 p = u.model * float4(verts[vid * stride].xyz, 1.0);
-    ShadowSiteOut o;
-    o.position = u.viewProjection * p;
-    o.world = p.xyz;
-    o.normal = (u.model * float4(verts[vid * stride + 1].xyz, 0.0)).xyz;
-    return o;
-}
-
-fragment float4 shadow_debug_site(ShadowSiteOut in [[stage_in]], bool front [[front_facing]],
-                                  constant ShadowDebugUniforms &u [[buffer(0)]],
-                                  constant LightingUniforms &lighting [[buffer(ORBIT_BUFFER_LIGHTING)]],
-                                  depth2d_array<float> atlas [[texture(ORBIT_TEXTURE_SHADOW_ATLAS)]],
-                                  sampler compare [[sampler(ORBIT_SAMPLER_SHADOW_COMPARE)]]) {
-    float3 n = normalize(in.normal);
-    if (!front) { n = -n; }
-    return float4(shadow_debugColor(orbit_sunShadowAndMap(in.world, n, lighting, atlas, compare),
-                                    shadow_debugIncidence(n, lighting), u), 1.0);
-}
 """#
 
 extension ShaderModule {

@@ -15,8 +15,9 @@ import OrbitScene
 /// - **Its memory**: 32 MB a 4096² layer; the atlas grows to the most
 ///   layers a frame has used and keeps them. The detail map, 2048² at High,
 ///   fills a corner of its layer (`shadowMaps[i].w`, its share of the side).
-/// - **Casters**: the vessels' meshes with their gimballed nozzles, as
-///   positions alone, welded (`CasterMesh`), and the sites' elements as the
+/// - **Casters**: the vessels' parts as the vessel pass places them, with
+///   their gimballed nozzles, as positions alone from each part's own mesh
+///   (`CasterMesh`, not R5's subdivided one), and the sites' elements as the
 ///   countdown moves them (`SiteMeshes`). Open shapes are drawn two-sided;
 ///   a closed shape's faces turned from the Sun are culled, which changes
 ///   no depth (its Sun-side faces are nearer) and halves the pad's fill.
@@ -36,7 +37,10 @@ public final class ShadowPass: RenderPass {
     private var pipeline: MTLRenderPipelineState?
     private var depthState: MTLDepthStencilState?
     private var atlas: MTLTexture?
-    private var casterMeshes: [UUID: CasterMesh] = [:]
+    /// Each vessel's casters, by its mesh's signature, and each part's,
+    /// made from the part's mesh when the pass first sees it.
+    private var vesselCasters: [UUID: VesselCaster] = [:]
+    private var partCasters: [ObjectIdentifier: PartCaster] = [:]
     /// This frame's maps, in the order of the atlas's layers; the debug
     /// view tints by their level.
     public private(set) var maps: [ShadowMapFit] = []
@@ -76,15 +80,16 @@ public final class ShadowPass: RenderPass {
         var casters: [ShadowCaster] = []
         var draws: [Caster] = []
         for v in scene.vessels {
-            guard let mesh = f.meshes.mesh(v.id), let caster = casterMesh(v, mesh, device: f.device) else { continue }
+            guard let mesh = f.meshes.mesh(v.id), let caster = vesselCaster(v, mesh, device: f.device) else { continue }
             casters.append(ShadowCaster(kind: .vessel(v.id),
                                         centre: v.position + v.attitude.rotate(v.structureOrigin + caster.centre),
                                         radius: caster.radius))
             draws.append(.vessel(v, caster))
         }
-        if casterMeshes.count > scene.vessels.count + 16 {
+        if vesselCasters.count > scene.vessels.count + 16 {
             let live = Set(scene.vessels.map(\.id))
-            casterMeshes = casterMeshes.filter { live.contains($0.key) }
+            vesselCasters = vesselCasters.filter { live.contains($0.key) }
+            partCasters = partCasters.filter { $0.value.part != nil }
         }
         if let sites {
             let countdown = SiteMeshes.countdown(at: scene.clock.simTime)
@@ -185,21 +190,44 @@ public final class ShadowPass: RenderPass {
         return atlas
     }
 
-    /// Whether every vessel's caster mesh is welded yet (for tests).
-    var isWelded: Bool { casterMeshes.values.allSatisfy { $0.welded != nil } }
-
-    /// The vessel's caster mesh, made from its mesh once per signature.
-    private func casterMesh(_ v: RenderScene.Vessel, _ mesh: VesselMesh, device: MTLDevice) -> CasterMesh? {
-        if let c = casterMeshes[v.id], c.signature == mesh.signature { return c }
-        let c = CasterMesh(mesh, device: device)
-        casterMeshes[v.id] = c
+    /// The vessel's casters, made once per mesh signature.
+    private func vesselCaster(_ v: RenderScene.Vessel, _ mesh: VesselMesh, device: MTLDevice) -> VesselCaster? {
+        if let c = vesselCasters[v.id], c.signature == mesh.signature { return c }
+        let c = VesselCaster(mesh) { partCaster($0, device: device) }
+        vesselCasters[v.id] = c
         return c
+    }
+
+    /// A part's caster, from its mesh as first seen (a part is shared by
+    /// the vessels whose parts are alike, and outlives separations).
+    private func partCaster(_ entry: PartEntry, device: MTLDevice) -> CasterMesh? {
+        let key = ObjectIdentifier(entry)
+        if let c = partCasters[key], c.part === entry { return c.mesh }
+        guard let mesh = CasterMesh(entry.mesh, device: device) else { return nil }
+        partCasters[key] = PartCaster(part: entry, mesh: mesh)
+        return mesh
+    }
+
+    /// A part's caster, kept while its part lives.
+    private final class PartCaster {
+        weak var part: PartEntry?
+        let mesh: CasterMesh
+        init(part: PartEntry, mesh: CasterMesh) {
+            self.part = part
+            self.mesh = mesh
+        }
+    }
+
+    /// The triangles the maps draw of the vessel `id`, once a frame has
+    /// drawn it (for tests).
+    func casterTriangles(of id: UUID) -> Int? {
+        vesselCasters[id].map { $0.parts.map(\.mesh.triangleCount).reduce(0, +) }
     }
 
     /// What a caster draws.
     @MainActor
     private enum Caster {
-        case vessel(RenderScene.Vessel, CasterMesh)
+        case vessel(RenderScene.Vessel, VesselCaster)
         case site(RenderScene.Site, SiteMeshes, Double, LC39A.Countdown)
 
         /// Draws it into `map`'s layer: closed shapes with the faces turned
@@ -210,35 +238,20 @@ public final class ShadowPass: RenderPass {
                 enc.setVertexBytes(&m, length: MemoryLayout<simd_float4x4>.stride, index: 1)
             }
             switch self {
-            case let .vessel(v, mesh):
-                let welded = mesh.welded
-                enc.setVertexBuffer(welded?.positions ?? mesh.positions, offset: 0, index: 0)
-                for (i, (rotation, translation, range)) in VesselPlacement.groups(v, mesh.groups).enumerated() {
-                    enc.setCullMode(mesh.groups[i].culled ? .back : .none)
-                    clip(rotation, translation)
-                    if let welded {
-                        let r = welded.ranges[i]
-                        enc.drawIndexedPrimitives(type: .triangle, indexCount: r.count, indexType: .uint32,
-                                                  indexBuffer: welded.indices,
-                                                  indexBufferOffset: r.lowerBound * MemoryLayout<UInt32>.stride)
-                    } else {
-                        enc.drawPrimitives(type: .triangle, vertexStart: range.lowerBound, vertexCount: range.count)
-                    }
+            case let .vessel(v, caster):
+                for (mesh, offset) in caster.parts {
+                    mesh.draw(into: enc, place: {
+                        VesselPlacement.frame(v, offset: offset, thruster: $0.thruster, pivot: $0.pivot)
+                    }, clip: clip)
                 }
             case let .site(site, meshes, t, countdown):
                 for element in meshes.elements {
                     let (rotation, translation) = element.placement(in: site, at: t, countdown)
                     // Only the elements that reach the map.
-                    let c = translation + rotation * element.centre - map.centre
-                    let reach = map.halfWidth + element.radius
+                    let c = translation + rotation * element.mesh.centre - map.centre
+                    let reach = map.halfWidth + element.mesh.radius
                     guard abs(map.basis.r0.dot(c)) <= reach, abs(map.basis.r1.dot(c)) <= reach else { continue }
-                    clip(rotation, translation)
-                    enc.setVertexBuffer(element.positions, offset: 0, index: 0)
-                    for (range, culled) in [(0..<element.closedCount, true),
-                                            (element.closedCount..<element.vertexCount, false)] where !range.isEmpty {
-                        enc.setCullMode(culled ? .back : .none)
-                        enc.drawPrimitives(type: .triangle, vertexStart: range.lowerBound, vertexCount: range.count)
-                    }
+                    element.mesh.draw(into: enc, place: { _ in (rotation, translation) }, clip: clip)
                 }
             }
         }
@@ -249,10 +262,8 @@ public final class ShadowPass: RenderPass {
 /// every surface, grey from umbra to lit, tinted by the map that served it:
 /// blue the detail map, white the camera target's cluster, green and amber
 /// the others; a face turned from the Sun dark blue, a surface no map holds
-/// pale red. The planet and the vessels come from the resolved scene depth;
-/// the sites, which no pass draws yet, are drawn here with their own
-/// normals. It proves ShadowCommon's receivers until R2 and E2 sample it in
-/// shading. Track R4 owns this pass.
+/// pale red. Every surface comes from the resolved scene depth, its normal
+/// from the depth's slope. Track R4 owns this pass.
 @MainActor
 public final class ShadowDebugPass: RenderPass {
     public let name = "Sun-shadow view"
@@ -262,7 +273,6 @@ public final class ShadowDebugPass: RenderPass {
 
     private let shadows: ShadowPass
     private var deferred: MTLRenderPipelineState?
-    private var site: MTLRenderPipelineState?
     private var always: MTLDepthStencilState?
     private var output = MTLPixelFormat.invalid
 
@@ -282,9 +292,6 @@ public final class ShadowDebugPass: RenderPass {
         deferred = try PipelineBuilder.make(library, vertex: "shadow_debug_fullscreen", fragment: "shadow_debug_deferred",
                                             blend: .opaque, color: output, depth: .depth32Float, sampleCount: 1,
                                             device: s.device)
-        site = try PipelineBuilder.make(library, vertex: "shadow_debug_site_vertex", fragment: "shadow_debug_site",
-                                        blend: .opaque, color: output, depth: .depth32Float, sampleCount: 1,
-                                        device: s.device)
         let z = MTLDepthStencilDescriptor()
         z.depthCompareFunction = .always
         z.isDepthWriteEnabled = true
@@ -292,7 +299,7 @@ public final class ShadowDebugPass: RenderPass {
     }
 
     public func encode(_ f: FrameContext, _ e: PassEncoding) {
-        guard let deferred, let site, let always, let depth = f.textures[.sceneDepth] else { return }
+        guard let deferred, let always, let depth = f.textures[.sceneDepth] else { return }
         let zd = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .depth32Float, width: f.size.width,
                                                           height: f.size.height, mipmapped: false)
         zd.usage = .renderTarget
@@ -320,173 +327,162 @@ public final class ShadowDebugPass: RenderPass {
         }
         enc.setFragmentBytes(&tints, length: MemoryLayout<SIMD4<Float>>.stride * tints.count, index: 0)
 
-        // What P1 drew, from its depth (which it writes again, for the sites).
+        // What the scene drew, from its depth.
         enc.setRenderPipelineState(deferred)
         enc.setDepthStencilState(always)
         enc.setFragmentTexture(depth, index: 0)
         enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
-
-        // The sites.
-        if !f.scene.sites.isEmpty, let meshes = SiteMeshes.shared(f.device) {
-            enc.setRenderPipelineState(site)
-            enc.setDepthStencilState(f.states.depthWrite)
-            enc.setCullMode(.none)
-            enc.setFrontFacing(.counterClockwise)
-            var stride = UInt32(MemoryLayout<MeshVertex>.stride / MemoryLayout<SIMD4<Float>>.stride)
-            enc.setVertexBytes(&stride, length: MemoryLayout<UInt32>.size, index: 2)
-            let countdown = SiteMeshes.countdown(at: f.scene.clock.simTime)
-            let t = countdown.rangeTime(at: f.scene.clock.simTime)
-            for s in f.scene.sites where s.name == SiteMeshes.name {
-                for element in meshes.elements {
-                    let (rotation, translation) = element.placement(in: s, at: t, countdown)
-                    var u = ShadowSiteUniforms(viewProjection: f.viewProjection,
-                                               model: simd_float4x4(rotation: rotation, translation: translation))
-                    enc.setVertexBuffer(element.buffer, offset: 0, index: 0)
-                    enc.setVertexBytes(&u, length: MemoryLayout<ShadowSiteUniforms>.stride, index: 1)
-                    enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: element.vertexCount)
-                }
-            }
-        }
         enc.endEncoding()
     }
 }
 
-/// ShadowShaders' `ShadowSiteUniforms`.
-struct ShadowSiteUniforms {
-    var viewProjection: simd_float4x4
-    var model: simd_float4x4
-}
-
-/// A vessel's mesh groups placed for the frame, as the vessel pass places
-/// them: the construction frame on the vessel, each gimballed nozzle turned
-/// about its pivot with the thrust.
-enum VesselPlacement {
-    static func groups(_ v: RenderScene.Vessel, _ groups: [VesselMesh.Group]) -> [(Mat3, Vec3, Range<Int>)] {
-        let attitude = v.attitude.matrix
-        let translation = v.position + v.attitude.rotate(v.structureOrigin)
-        return groups.map { g in
-            if let key = g.thruster, let t = v.thrusters[key] {
-                let r = Mat3.rotation(from: t.direction, to: t.thrustDirection)
-                return (attitude * r, translation + attitude * (g.pivot - r * g.pivot), g.range)
-            }
-            return (attitude, translation, g.range)
-        }
-    }
-}
-
-/// A vessel's mesh as a caster: its positions alone (a quarter of the
-/// vertex fetch of the mesh's), in the mesh's groups, and its sphere in the
-/// construction frame, widened by 2% and 0.25 m for the nozzles'
-/// gimballing.
+/// A vessel's part or a site's element as a caster, in its own frame: its
+/// positions alone (float4, a quarter of a VertexV2's fetch), the
+/// triangles' indices, and its draws: closed shapes with the faces turned
+/// from the Sun culled, open ones two-sided, each gimballed shape alone.
 @MainActor
 final class CasterMesh {
-    /// The positions welded: each distinct one once (66,152 of the Saturn
-    /// V's 376,782 vertices), the triangles' indices into them, and each
-    /// group's index range, in `VesselMesh.groups`' order.
-    struct Welded {
-        let positions: MTLBuffer
-        let indices: MTLBuffer
-        let ranges: [Range<Int>]
+    struct Draw {
+        /// Index range (in indices, not bytes).
+        var indices: Range<Int>
+        var culled: Bool
+        /// The gimballed thruster that turns it, and its position (part frame).
+        var thruster: RenderScene.ThrusterKey?
+        var pivot: Vec3
     }
 
-    /// The mesh's positions alone (float4), in its order: drawn until
-    /// `welded` is ready.
     let positions: MTLBuffer
-    /// Welded on a background queue (about 25 ms for the Saturn V), so a
-    /// staging does not wait for it.
-    private(set) var welded: Welded?
-    let groups: [VesselMesh.Group]
-    let signature: VesselGeometry.Signature
+    let indices: MTLBuffer
+    let draws: [Draw]
+    /// A sphere holding every vertex, its own frame (m).
     let centre: Vec3
     let radius: Double
 
-    init?(_ mesh: VesselMesh, device: MTLDevice) {
-        let count = mesh.groups.map(\.range.upperBound).max() ?? 0
-        let stride = MemoryLayout<MeshVertex>.stride / MemoryLayout<SIMD4<Float>>.stride
-        guard count > 0, mesh.buffer.length >= count * MemoryLayout<MeshVertex>.stride else { return nil }
-        let source = mesh.buffer.contents().bindMemory(to: SIMD4<Float>.self, capacity: count * stride)
-        let points = (0..<count).map { source[$0 * stride] }
-        guard let s = ShadowFitting.boundingSphere(points.lazy.map { Vec3(Double($0.x), Double($0.y), Double($0.z)) }),
-              let positions = device.makeBuffer(bytes: points, length: count * MemoryLayout<SIMD4<Float>>.stride,
+    /// A vessel part's, from its mesh as the vessel pass draws it: the
+    /// shapes' own meshes until R5's subdivided one swaps in. Those only
+    /// bisect the shapes' edges, so the surface the vessel pass shades
+    /// stays the one that casts, at a sixth of the triangles (the Saturn V's
+    /// 898k). The indices are the mesh's own buffer.
+    init?(_ mesh: PartMesh, device: MTLDevice) {
+        let stride = MemoryLayout<VertexV2>.stride / MemoryLayout<SIMD4<Float>>.stride
+        let n = mesh.vertexCount
+        guard n > 0, mesh.vertices.length >= n * MemoryLayout<VertexV2>.stride else { return nil }
+        let source = mesh.vertices.contents().bindMemory(to: SIMD4<Float>.self, capacity: n * stride)
+        let points = (0..<n).map { i -> SIMD4<Float> in
+            var p = source[i * stride]
+            p.w = 1
+            return p
+        }
+        guard let positions = device.makeBuffer(bytes: points, length: n * MemoryLayout<SIMD4<Float>>.stride,
                                                 options: .storageModeShared) else { return nil }
         positions.label = "Shadow caster positions"
         self.positions = positions
-        groups = mesh.groups
-        signature = mesh.signature
-        centre = s.centre
-        radius = s.radius * 1.02 + 0.25
-        let job = WeldJob(positions: positions, ranges: mesh.groups.map(\.range), device: device)
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let welded = job.run()
-            Task { @MainActor in self?.welded = welded }
-        }
+        indices = mesh.indices
+        draws = mesh.draws.map { Draw(indices: $0.indices, culled: $0.culled, thruster: $0.thruster, pivot: $0.pivot) }
+        centre = mesh.bounds.centre
+        radius = mesh.bounds.radius
     }
 
-    /// Welding, off the main thread: the positions buffer is read only.
-    private struct WeldJob: @unchecked Sendable {
-        let positions: MTLBuffer
-        let ranges: [Range<Int>]
-        let device: MTLDevice
-
-        /// A position's bits, so equal positions weld.
-        struct Key: Hashable {
-            let x: UInt32, y: UInt32, z: UInt32
-        }
-
-        func run() -> Welded? {
-            let source = positions.contents().bindMemory(to: SIMD4<Float>.self,
-                                                         capacity: positions.length / MemoryLayout<SIMD4<Float>>.stride)
-            var points: [SIMD4<Float>] = [], indices: [UInt32] = [], out: [Range<Int>] = []
-            indices.reserveCapacity(ranges.map(\.count).reduce(0, +))
-            for range in ranges {
-                // Within its group: a gimballed group turns on its own.
-                var seen: [Key: UInt32] = [:]
-                seen.reserveCapacity(range.count / 3)
-                let start = indices.count
-                for i in range {
-                    let p = source[i]
-                    let key = Key(x: p.x.bitPattern, y: p.y.bitPattern, z: p.z.bitPattern)
-                    if let k = seen[key] {
-                        indices.append(k)
-                    } else {
-                        let k = UInt32(points.count)
-                        seen[key] = k
-                        points.append(p)
-                        indices.append(k)
-                    }
-                }
-                out.append(start..<indices.count)
+    /// A site element's, from its shapes' meshes: the closed shapes first,
+    /// then the open ones.
+    init?(shapes: [VisualShape], label: String, device: MTLDevice) {
+        var points: [SIMD4<Float>] = [], indices: [UInt32] = [], draws: [Draw] = []
+        for s in shapes.filter({ !$0.twoSided }) + shapes.filter(\.twoSided) {
+            let m = s.mesh(), base = UInt32(points.count), start = indices.count
+            points += m.vertices.map { SIMD4(Float($0.position.x), Float($0.position.y), Float($0.position.z), 1) }
+            indices += m.indices.map { $0 + base }
+            guard indices.count > start else { continue }
+            let culled = !s.twoSided
+            if let last = draws.last, last.culled == culled {
+                draws[draws.count - 1].indices = last.indices.lowerBound..<indices.count
+            } else {
+                draws.append(Draw(indices: start..<indices.count, culled: culled, thruster: nil, pivot: .zero))
             }
-            guard !points.isEmpty,
-                  let p = device.makeBuffer(bytes: points, length: points.count * MemoryLayout<SIMD4<Float>>.stride,
-                                            options: .storageModeShared),
-                  let i = device.makeBuffer(bytes: indices, length: indices.count * MemoryLayout<UInt32>.stride,
-                                            options: .storageModeShared) else { return nil }
-            p.label = "Shadow caster positions, welded"
-            i.label = "Shadow caster indices"
-            return Welded(positions: p, indices: i, ranges: out)
+        }
+        guard !indices.isEmpty,
+              let s = ShadowFitting.boundingSphere(points.lazy.map { Vec3(Double($0.x), Double($0.y), Double($0.z)) }),
+              let p = device.makeBuffer(bytes: points, length: points.count * MemoryLayout<SIMD4<Float>>.stride,
+                                        options: .storageModeShared),
+              let i = device.makeBuffer(bytes: indices, length: indices.count * MemoryLayout<UInt32>.stride,
+                                        options: .storageModeShared) else { return nil }
+        p.label = label
+        i.label = label
+        positions = p
+        self.indices = i
+        self.draws = draws
+        centre = s.centre
+        radius = s.radius
+    }
+
+    var triangleCount: Int { draws.map(\.indices.count).reduce(0, +) / 3 }
+
+    /// Draws it with `clip(rotation, translation)` setting the clip matrix
+    /// of its frame, `place` giving each draw's frame (camera-relative).
+    func draw(into enc: MTLRenderCommandEncoder, place: (Draw) -> (Mat3, Vec3),
+              clip: (Mat3, Vec3) -> Void) {
+        enc.setVertexBuffer(positions, offset: 0, index: 0)
+        var last: (Mat3, Vec3)?
+        for d in draws {
+            let frame = place(d)
+            if last.map({ $0.0 != frame.0 || $0.1 != frame.1 }) ?? true {
+                clip(frame.0, frame.1)
+                last = frame
+            }
+            enc.setCullMode(d.culled ? .back : .none)
+            enc.drawIndexedPrimitives(type: .triangle, indexCount: d.indices.count, indexType: .uint32,
+                                      indexBuffer: indices, indexBufferOffset: d.indices.lowerBound * MemoryLayout<UInt32>.stride)
         }
     }
 }
 
-/// LC-39A's elements as meshes (MeshVertex), tessellated once per device:
-/// the shadow pass's casters and the sun-shadow view's receivers until the
-/// vessel pass (R2) draws sites. Each element is in its own frame, the
-/// site's axes about its pivot (`LC39A.Element`).
+/// A vessel's casters: its parts' at their offsets in the construction
+/// frame, and their sphere there, widened by 2% and 0.25 m for the
+/// nozzles' gimballing.
+@MainActor
+struct VesselCaster {
+    let signature: VesselGeometry.Signature
+    let parts: [(mesh: CasterMesh, offset: Vec3)]
+    let centre: Vec3
+    let radius: Double
+
+    init?(_ mesh: VesselMesh, caster: (PartEntry) -> CasterMesh?) {
+        var parts: [(mesh: CasterMesh, offset: Vec3)] = []
+        for (entry, offset) in zip(mesh.parts, mesh.offsets) {
+            if let c = caster(entry) { parts.append((c, offset)) }
+        }
+        guard let s = ShadowFitting.enclosing(parts.map { ($0.offset + $0.mesh.centre, $0.mesh.radius) }) else {
+            return nil
+        }
+        signature = mesh.signature
+        self.parts = parts
+        centre = s.centre
+        radius = s.radius * 1.02 + 0.25
+    }
+}
+
+/// A vessel's draws placed for the frame, as the vessel pass places them:
+/// the construction frame on the vessel, each part at its offset, each
+/// gimballed nozzle turned about its pivot with the thrust.
+enum VesselPlacement {
+    static func frame(_ v: RenderScene.Vessel, offset: Vec3, thruster: RenderScene.ThrusterKey?,
+                      pivot: Vec3) -> (Mat3, Vec3) {
+        let attitude = v.attitude.matrix
+        let translation = v.position + v.attitude.rotate(v.structureOrigin)
+        if let key = thruster, let t = v.thrusters[key] {
+            let r = Mat3.rotation(from: t.direction, to: t.thrustDirection)
+            return (attitude * r, translation + attitude * (offset + pivot - r * pivot))
+        }
+        return (attitude, translation + attitude * offset)
+    }
+}
+
+/// LC-39A's elements as casters, tessellated once per device. Each element
+/// is in its own frame, the site's axes about its pivot (`LC39A.Element`).
 @MainActor
 final class SiteMeshes {
     struct Element {
         let element: LC39A.Element
-        /// MeshVertex, for the sun-shadow view; and its positions alone, for the maps.
-        let buffer: MTLBuffer
-        let positions: MTLBuffer
-        let vertexCount: Int
-        /// The closed shapes' vertices come first (drawn with back faces
-        /// culled into the maps), then the open, two-sided ones'.
-        let closedCount: Int
-        /// Its own sphere, element frame.
-        let centre: Vec3
-        let radius: Double
+        let mesh: CasterMesh
 
         /// Its frame to camera-relative world at range time `t`: rotation
         /// and translation.
@@ -524,24 +520,13 @@ final class SiteMeshes {
     private init?(device: MTLDevice) {
         var elements: [Element] = [], spheres: [(centre: Vec3, radius: Double)] = []
         for e in LC39A.elements {
-            let closed = e.shapes.filter { !$0.twoSided }.flatMap { VesselMesh.vertices($0, offset: .zero) }
-            let verts = closed + e.shapes.filter(\.twoSided).flatMap { VesselMesh.vertices($0, offset: .zero) }
-            let points = verts.map(\.position)
-            guard !verts.isEmpty,
-                  let s = ShadowFitting.boundingSphere(points.map { Vec3(Double($0.x), Double($0.y), Double($0.z)) }),
-                  let buffer = device.makeBuffer(bytes: verts, length: verts.count * MemoryLayout<MeshVertex>.stride,
-                                                 options: .storageModeShared),
-                  let positions = device.makeBuffer(bytes: points, length: points.count * MemoryLayout<SIMD4<Float>>.stride,
-                                                    options: .storageModeShared) else { continue }
-            buffer.label = e.name
-            positions.label = e.name
-            elements.append(Element(element: e, buffer: buffer, positions: positions, vertexCount: verts.count,
-                                    closedCount: closed.count, centre: s.centre, radius: s.radius))
+            guard let mesh = CasterMesh(shapes: e.shapes, label: e.name, device: device) else { continue }
+            elements.append(Element(element: e, mesh: mesh))
             // A moving element sweeps a sphere about its pivot.
             if case .fixed = e.motion {
-                spheres.append((e.pivot + s.centre, s.radius))
+                spheres.append((e.pivot + mesh.centre, mesh.radius))
             } else {
-                spheres.append((e.pivot, s.centre.length + s.radius))
+                spheres.append((e.pivot, mesh.centre.length + mesh.radius))
             }
         }
         guard let all = ShadowFitting.enclosing(spheres) else { return nil }

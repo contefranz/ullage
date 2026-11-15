@@ -400,9 +400,10 @@ final class ShadowPassTests: XCTestCase {
     /// A scenario's focus vessel seen from `distance` (m; OrbitCamera keeps
     /// the camera 1.2 bounding radii out, 66 m for the Saturn V) with a
     /// vertical field of view `fovY` (rad, the external camera's 50° by
-    /// default), at 3024×1964.
-    func padScene(distance: Double = 170, yaw: Double? = nil, pitch: Double? = nil, fovY: Double? = nil,
-                  scenario name: String = "as506-pad", advance: [String] = []) throws -> RenderScene {
+    /// default), at 3024×1964 unless `viewport` says otherwise.
+    static func padScene(distance: Double = 170, yaw: Double? = nil, pitch: Double? = nil, fovY: Double? = nil,
+                  scenario name: String = "as506-pad", advance: [String] = [],
+                  viewport: RenderScene.Viewport = RenderScene.Viewport(width: 3024, height: 1964)) throws -> RenderScene {
         let scenario = try XCTUnwrap(Scenario.named(name))
         let sim = scenario.build(Self.system)
         try ScenarioScript(advance).run(on: sim, missionClockZero: scenario.missionClockZero) { _ in }
@@ -414,8 +415,7 @@ final class ShadowPassTests: XCTestCase {
         if let pitch { camera.pitch = pitch * Double.pi / 180 }
         if let fovY { camera.fovY = fovY }
         camera.update(sim: sim)
-        return SceneExtractor().extract(sim: sim, camera: camera, viewport: RenderScene.Viewport(width: 3024, height: 1964),
-                                        realTime: 0)
+        return SceneExtractor().extract(sim: sim, camera: camera, viewport: viewport, realTime: 0)
     }
 
     /// The shadow pass's GPU time per scene, with the GPU lock
@@ -431,11 +431,11 @@ final class ShadowPassTests: XCTestCase {
         let lock = GPULock()
         defer { withExtendedLifetime(lock) {} }
         let lens = OrbitCamera.hasselblad250mm
-        let scenes = [("pad 170 m", try padScene()),
-                      ("pad 70 m, 250 mm", try padScene(distance: 70, pitch: 40, fovY: lens)),
-                      ("liftoff 8 s", try padScene(distance: 160, advance: ["met:8"])),
-                      ("LEO 70 m", try padScene(distance: 70, scenario: "as506-parking-orbit")),
-                      ("LEO 25 m, 250 mm", try padScene(distance: 25, fovY: lens, scenario: "as506-parking-orbit"))]
+        let scenes = [("pad 170 m", try Self.padScene()),
+                      ("pad 70 m, 250 mm", try Self.padScene(distance: 70, pitch: 40, fovY: lens)),
+                      ("liftoff 8 s", try Self.padScene(distance: 160, advance: ["met:8"])),
+                      ("LEO 70 m", try Self.padScene(distance: 70, scenario: "as506-parking-orbit")),
+                      ("LEO 25 m, 250 mm", try Self.padScene(distance: 25, fovY: lens, scenario: "as506-parking-orbit"))]
         for (name, scene) in scenes {
             let (r, pass) = try shadowRenderer()
             try draw(scene, r)
@@ -462,7 +462,7 @@ final class ShadowPassTests: XCTestCase {
         guard ProcessInfo.processInfo.environment["ORBITSIM_SHADOW_COST"] == "1" else { throw XCTSkip("cost report") }
         let lock = GPULock()
         defer { withExtendedLifetime(lock) {} }
-        let scene = try padScene()
+        let scene = try Self.padScene()
         let (r, pass) = try shadowRenderer()
         try draw(scene, r)
         let site = try XCTUnwrap(scene.sites.first)
@@ -531,7 +531,7 @@ final class ShadowPassTests: XCTestCase {
     /// - the pad on itself: the ML deck in the LUT's shadow west of it, and
     ///   lit east of it.
     func testThePadsShadows() throws {
-        let scene = try padScene()
+        let scene = try Self.padScene()
         let (r, pass) = try shadowRenderer()
         try draw(scene, r)
         XCTAssertEqual(pass.maps.map(\.level), [.cluster, .cluster], "the vehicle's map and the site's")
@@ -566,20 +566,13 @@ final class ShadowPassTests: XCTestCase {
         XCTAssertLessThan(deck[0].0, 0.1, "the deck west of the LUT")
         XCTAssertGreaterThan(deck[1].0, 0.95, "the deck east of it")
 
-        // The vehicle's welded caster mesh (ready a moment later) draws the
-        // same shadows as its plain positions did.
-        let points = (0..<400).map { k in vessel.position + axis * (Double(k % 20) * 4 - 40) + across * 5.6
-            + up.cross(axis).normalized * (Double(k / 20) * 0.6 - 6) }
-        let normals = Array(repeating: across, count: points.count)
-        let weldedAlready = pass.isWelded
-        let plain = try probe.run(points, normals: normals, pass: pass)
-        let deadline = Date().addingTimeInterval(5)
-        while !pass.isWelded, Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
-        XCTAssertTrue(pass.isWelded)
-        try draw(scene, r)
-        let welded = try probe.run(points, normals: normals, pass: pass)
-        XCTAssertEqual(plain.map(\.0), welded.map(\.0))
-        if weldedAlready { print("note: the weld finished before the first frame; plain and welded not compared") }
+        // The maps draw each part's own mesh (the shadow-only renderer's
+        // parts are never subdivided), not R5's 898k triangles.
+        let parts = try XCTUnwrap(r.meshes.mesh(vessel.id)).parts
+        XCTAssertTrue(parts.allSatisfy { $0.mesh.subdividedEdge == nil })
+        let triangles = parts.map { $0.mesh.indexCount / 3 }.reduce(0, +)
+        XCTAssertEqual(pass.casterTriangles(of: vessel.id), triangles)
+        XCTAssertLessThan(triangles, 200_000)
     }
 
 }

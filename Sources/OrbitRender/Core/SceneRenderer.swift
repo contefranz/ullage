@@ -90,20 +90,28 @@ public final class SceneRenderer {
     /// points, resolve and post; today's planets, vessels, orbit line and
     /// markers; and each track's stub.
     public static func defaultPasses(loadsUserTextures: Bool = true) -> [RenderPass] {
+        // The effects drawn at half resolution, in order: clouds (C2),
+        // plumes (P2), smoke (P3), then R6's test emitters.
+        let clouds = CloudPass()
+        let slots = HalfResTransparentPass(effects: [clouds, EffectTestEmitters()])
         let post = PostPass()
         let shadows = ShadowPass()
+        // R2's vessels, whose thin tubes blend over the sky after A2's composite.
+        let vessels = VesselPass()
+        let tiles = PlanetTilePass(loadsUserTiles: loadsUserTextures)
         return [
             // P0
-            post.exposurePass, AtmosphereLUTPass(), CloudPass(), shadows, EnvironmentProbePass(),
-            ParticleSimulationPass(),
+            post.exposurePass, AtmosphereLUTPass(), clouds, shadows, EnvironmentProbePass(),
+            ParticleSimulationPass(), tiles,
             // P1
-            StarPass(), PlanetPass(loadsUserTextures: loadsUserTextures), VesselPass(),
+            StarPass(), PlanetPass(loadsUserTextures: loadsUserTextures, tiles: tiles), vessels, EffectTestOpaquePass(),
             // P2
-            AtmosphereCompositePass(),
+            AtmosphereCompositePass(), vessels.wirePass,
             // P3
-            PlumePass(), FarPointPass(), HalfResTransparentPass(), ParticleDrawPass(), EntryPass(), post.resolvePass,
+            slots, PlumePass(), FarPointPass(), TransparentCompositePass(slots: slots), EffectTestSparksPass(),
+            ParticleDrawPass(), EntryPass(), post.resolvePass,
             // P4
-            post, DebugViewPass(), ShadowDebugPass(shadows: shadows),
+            post, DebugViewPass(), EffectDebugViewPass(slots: slots), ShadowDebugPass(shadows: shadows),
             // P5
             OrbitLinePass(), MarkerPass(),
         ]
