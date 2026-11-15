@@ -188,34 +188,36 @@ a = b = c = 0.5 a deck of τ 90 had a plane albedo of 0.09 against 0.18 for
 
 ## Cost
 
-M3 Pro, 3024 × 1964, GPU lock held, on main with A2 (#67) and R1's #70.
+M3 Pro, 3024 × 1964, GPU lock held, on main 8f17bc3 (A2's air, R1's breaks,
+E1's tiles, R2's vessel pass) with this follow-up's fixes.
 One queue, clouds on and off on alternate frames; difference of the
 medians (`CloudCostTests`, `ORBITSIM_CLOUD_COST=1`). The P0 pass alone,
 steady (reprojecting) and fresh (every texel marched, as at 10× warp):
 
 | Shot | Steady | Fresh |
 |---|---|---|
-| Pad (AS-506) | 2.3-3.0 ms | 5.0-5.4 ms |
-| Ascent, 60 s | 2.0-2.6 ms | 4.2-4.4 ms |
-| LEO | 1.5-1.9 ms | 3.8-4.3 ms |
+| Pad (AS-506) | 2.3 ms | 4.7 ms |
+| Ascent, 60 s | 2.1 ms | 4.3 ms |
+| LEO | 1.5 ms | 3.9 ms |
 | Earth from 22,000 km | under 0.1 ms | under 0.1 ms |
 
 With every default pass (`ORBITSIM_CLOUD_COST_FULL=1`), the clouds add the
-following (steady; three runs for the pad and LEO, one for the others).
-R6's slots cost 0.85-1.1 ms of it whenever anything draws through them,
+following (steady, two runs). R6's slots cost 0.8-0.9 ms of it whenever
+anything draws through them,
 even a tiny test slab (`ORBITSIM_CLOUD_COST_R6=1`; R1's #70 resolves the
 scene at the break), so the clouds' own share is the difference:
 
 | Shot | Clouds added | R6's slots | Clouds' own (budget) |
 |---|---|---|---|
-| Pad | 2.4-2.6 ms | 0.9 ms | 1.5-1.7 ms (3.0) |
-| Ascent, 60 s | 2.0 ms | 0.85 ms | 1.2 ms |
-| LEO | 2.6-2.9 ms | 1.0-1.1 ms | 1.5-1.9 ms (2.0) |
+| Pad | 2.1-2.2 ms | 0.9 ms | 1.2-1.3 ms (3.0) |
+| Ascent, 60 s | 2.0 ms | 0.8 ms | 1.2 ms |
+| LEO | 2.0-2.9 ms | 0.9 ms | 1.1-2.0 ms (2.0) |
 | Earth from 22,000 km | 1.7 ms | 0.8 ms | 0.9 ms |
 
 - Fresh frames add about 1 ms. Run to run the full frame varies by about
-  0.3 ms, the P0 pass alone by up to 0.7 ms (the ranges above).
-- LEO is within its budget, but not by much at the top of its range.
+  0.3 ms, the P0 pass alone by up to 0.7 ms, and LEO's addition by up to
+  0.9 ms (2.0-2.9 ms over five runs since the split).
+- LEO is within its budget, at the top of its range only just.
 - **The march has a GPU pass of its own.** Apple's driver merges
   consecutive compute encoders into one GPU pass, and an encoder that
   depends on any part of it waits for all of it. A Metal System Trace
