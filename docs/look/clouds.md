@@ -44,8 +44,12 @@ In P0, on the command buffer:
    `CloudLayerModel`, line for line). Assembled again only when a weight
    moves by 1/500.
 3. **The cloud shadow map**, 256² along the Sun around the camera's ground
-   point (100 km on the ground, growing to 1,000 km from orbit), snapped to
-   whole texels of a lattice through the Earth's centre. Each texel holds
+   point (100 km on the ground, growing to 1,000 km from orbit on a ladder
+   of 100, 200, 400 and 800 km, so its texel changes at four heights only),
+   snapped to whole texels of a lattice through an anchor near the camera,
+   moved by whole texels when the camera is a quarter of the map away (it
+   turns about the anchor with the Sun, a quarter of a texel a minute).
+   Each texel holds
    the optical depth along its line towards the Sun above 0, 2, 6 and 10 km,
    the cirrus included, marched on the curved Earth with the weather where
    the line crosses the layers (refetched every 4 km).
@@ -104,7 +108,10 @@ front.
   wind, the old frame fading over 2 s), warped by the curl in that frame's
   tangent plane. Lit as a thin slab: the Sun scattered once in closed form,
   and the slab's diffuse streams scattered towards the eye as the march
-  does, with ice's phase (g 0.75); averaging out by footprint.
+  does, with ice's phase (g 0.75). The fibres are drawn from the shape's
+  mip 0 or 1 (their thresholds are mip 0's) and hand over to the deck's mean
+  (its in-cloud depth over the cover's share) over 128-512 m footprints,
+  the two blended in light and opacity, each lit at its own depth.
 - **Profiles:** the low layer rises fast from its base and tapers above 0.4
   of its depth (flat bases, domed tops). The mid layer's profile peaks at
   0.35 and rounds off both ways, so a patch of altocumulus is a lens as
@@ -231,17 +238,21 @@ the whole ground (1.4 ms on the pad) only for the depth cut to drop it.
 
 ## Open
 
-- **Near field** (merges after the far and orbit regimes): done are the
-  horizon from below (the far layer seen from below), the ascent under,
-  inside and over a deck (`c2-near.json`), the aerial perspective, and the
-  views from between the layers. Open:
-  - The cirrus barely shows from the ground (Apollo 8's 4/10 at dawn): its
-    fibres are cut by the coverage table fitted to the shape's
-    Perlin-Worley, not to the Worley octaves they use.
-  - The detail erosion up close wants tuning against photographs.
-  - Above 2,000 km A2 has no froxels: the clouds are unhazed while A2
-    hazes the ground from space (`.spaceGroundScatter`), so the far
-    regime's clouds look dull beside it.
+- **Near field** (this follow-up): done are the horizon from below (the far
+  layer seen from below), the ascent under, inside and over a deck
+  (`c2-near.json`), the views from between the layers, and the aerial
+  perspective (A2's froxels, and beyond their reach A2's haze from space).
+  Open: the detail erosion up close wants tuning against photographs.
+- **The 13 km step:** the march switches from near to orbit at the shell's
+  top in one frame. Inside the shell its reach is 150 km, its clear-air
+  steps grow with the distance and the far layer takes no ray; above, the
+  ray spans the shell to the horizon in uniform steps and the far layer
+  takes it by footprint. As the camera climbs through 13 km a band 3-7°
+  below the horizon changes at once. This follow-up hands rays
+  to the far layer by footprint from the ground up (wherever the camera is
+  clear of the layers it meets), which takes the far layer's step away; the
+  reach and the steps still want blending there. `CloudFrame.regimes`'
+  near and orbit weights are reported, not used.
 - **Water paths** (decision 29): not added. The far layer's optical depth
   is the layer model's. ERA5's total column liquid and ice water would vary
   the brightness of thin and thick decks; adding them is two OSCLOUD1

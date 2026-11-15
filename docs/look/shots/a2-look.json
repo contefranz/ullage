@@ -1,11 +1,11 @@
 {
   "goldens": "lookdev",
   "shots": [
-    {"name": "a2-dawn-sun", "scenario": "apollo8-dawn-pad", "showOrbit": false,
+    {"name": "a2-dawn-sun", "scenario": "apollo8-pad", "showOrbit": false,
      "reference": "AS-503 launch-morning photographs, 21 Dec 1968",
      "camera": {"yaw": -60, "pitch": 1, "distance": 6000, "fov": 60},
      "settings": {"cloud": {"enabled": false}, "post": {"exposure": {"mode": "manual", "ev100": 14}, "bloom": 0, "sunGlare": false}}},
-    {"name": "a2-dawn-antisun", "scenario": "apollo8-dawn-pad", "showOrbit": false,
+    {"name": "a2-dawn-antisun", "scenario": "apollo8-pad", "showOrbit": false,
      "camera": {"yaw": 120, "pitch": 1, "distance": 6000, "fov": 60},
      "settings": {"cloud": {"enabled": false}, "post": {"exposure": {"mode": "manual", "ev100": 13.5}, "bloom": 0, "sunGlare": false}}},
     {"name": "a2-limb-day", "scenario": "as506-parking-orbit", "showOrbit": false,

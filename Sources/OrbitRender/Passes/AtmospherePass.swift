@@ -21,8 +21,9 @@ extension ResourceID {
     /// The sky-view LUT (rgba32Float, cd/m²), also in texture slot 29.
     public static let skyView = ResourceID("skyView")
     /// From above the air, the haze over the ground for each pixel's ray at
-    /// a reduced resolution (rgba16Float): in-scattered luminance (cd/m²)
-    /// and the transmittance, to the ground (`atmosphere_spaceGround`).
+    /// a reduced resolution: in-scattered luminance (rgba32Float, cd/m²)
+    /// and the transmittance (rgba16Float), to the ground
+    /// (`atmosphere_spaceGround`).
     public static let spaceGroundScatter = ResourceID("spaceGroundScatter")
     public static let spaceGroundTransmittance = ResourceID("spaceGroundTransmittance")
 }
@@ -259,7 +260,9 @@ public final class AtmosphereLUTPass: RenderPass {
         if let froxels, froxels.width == n, froxels.depth == slices { return froxels }
         let d = MTLTextureDescriptor()
         d.textureType = .type3D
-        d.pixelFormat = .rgba16Float
+        // Not half float: toward a low Sun the aerosol's forward lobe passes
+        // 65,504 cd/m² (docs/look/atmosphere.md, "Storage").
+        d.pixelFormat = .rgba32Float
         d.width = n
         d.height = n
         d.depth = slices
@@ -283,8 +286,8 @@ public final class AtmosphereLUTPass: RenderPass {
         let k = max(divisor, 1)
         let w = max((size.width + k - 1) / k, 2), h = max((size.height + k - 1) / k, 2)
         if let g = spaceGround, g.scatter.width == w, g.scatter.height == h { return g }
-        func make(_ label: String) -> MTLTexture? {
-            let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba16Float, width: w, height: h,
+        func make(_ label: String, _ format: MTLPixelFormat) -> MTLTexture? {
+            let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: format, width: w, height: h,
                                                              mipmapped: false)
             d.usage = [.shaderRead, .shaderWrite]
             d.storageMode = .private
@@ -292,7 +295,11 @@ public final class AtmosphereLUTPass: RenderPass {
             t?.label = label
             return t
         }
-        guard let scatter = make("Ground haze from space"), let t = make("Ground transmittance from space") else {
+        // The haze in float: at the silhouette under a Sun a few degrees
+        // above the limb it passes half float's 65,504 cd/m²; the
+        // transmittance (0-1) fits half float.
+        guard let scatter = make("Ground haze from space", .rgba32Float),
+              let t = make("Ground transmittance from space", .rgba16Float) else {
             return nil
         }
         spaceGround = (scatter, t)

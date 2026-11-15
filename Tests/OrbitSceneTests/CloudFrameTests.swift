@@ -97,45 +97,78 @@ final class CloudFrameTests: XCTestCase {
         XCTAssertEqual(frames.fade, 0.5, accuracy: 1e-12)
         frames.update(f, streak: f.eastNorth.north, wind: nil, dt: 1, realDt: 1, period: period)
         XCTAssertNil(frames.previous)
+        // A frame gone stale while the last one still fades waits: the fading
+        // one fades on (replaced, it dropped out at once).
+        frames.update(f, streak: east, wind: nil, dt: 1, realDt: 1, period: period)
+        let fading = frames.previous
+        XCTAssertEqual(frames.fade, 1)
+        frames.update(f, streak: f.eastNorth.north, wind: nil, dt: 1, realDt: 0.5, period: period)
+        XCTAssertEqual(frames.fade, 0.75, accuracy: 1e-12)
+        XCTAssertEqual(frames.previous, fading)
+        XCTAssertEqual(frames.current?.along.dot(east) ?? 0, 1, accuracy: 1e-9, "the stale one waits")
+        frames.update(f, streak: f.eastNorth.north, wind: nil, dt: 1, realDt: 2, period: period)
+        XCTAssertEqual(frames.current?.along.dot(f.eastNorth.north) ?? 0, 1, accuracy: 1e-5, "then it is replaced")
     }
 
     func testShadowMapFrame() {
         let f = frame(height: 300)
-        let map = f.shadowMap(texels: 512)
-        XCTAssertEqual(map.extent, 101_200, accuracy: 1e-6)
+        let anchor0 = f.shadowAnchor(previous: nil, previousExtent: nil, texels: 256)
+        let map = f.shadowMap(texels: 256, anchor: anchor0)
+        XCTAssertEqual(map.extent, 100_000, accuracy: 1e-6)
         XCTAssertEqual(map.u.dot(map.v), 0, accuracy: 1e-12)
         XCTAssertEqual(map.u.dot(map.sun), 0, accuracy: 1e-12)
         XCTAssertEqual(map.u.cross(map.v).dot(map.sun), 1, accuracy: 1e-12)
         // The camera's ground point is within half a texel of the centre.
         let ground = f.cameraBody.normalized * f.radius
         let c = map.coordinates(ground)
-        XCTAssertEqual(c.u, 0.5, accuracy: 0.5 / 512 + 1e-9)
-        XCTAssertEqual(c.v, 0.5, accuracy: 0.5 / 512 + 1e-9)
+        XCTAssertEqual(c.u, 0.5, accuracy: 0.5 / 256 + 1e-9)
+        XCTAssertEqual(c.v, 0.5, accuracy: 0.5 / 256 + 1e-9)
         let back = map.point(u: c.u, v: c.v, along: c.along)
         XCTAssertEqual((back - ground).length, 0, accuracy: 1e-6)
-        // A move of the camera leaves the snapped centre where it was, or
-        // moves it by whole texels: 13 m, and 20 km (across the 8 km cells
-        // whose anchor once jumped the grid by a fraction of a texel).
-        let lat = 28.6 * Double.pi / 180, lon = -80.6 * Double.pi / 180, texel = map.extent / 512
-        for (dLat, dLon) in [(2e-6, -3e-6), (1.8e-3, -2.1e-3)] {
-            let p = Ellipsoid.wgs84.bodyFixed(latitude: lat + dLat, longitude: lon + dLon, height: 300)
-            let moved = CloudFrame(earth: earth(center: Mat3.rotZ(0.3).transposed * (p * -1), angle: 0.3))
-                .shadowMap(texels: 512)
-            let shift = moved.center - map.center
+        // Moves and climbs within an extent leave the lattice where it was:
+        // the centre moves by whole texels, also when the anchor moves (past
+        // a quarter of the map) and as the camera climbs (the extent once
+        // grew every frame, sliding the lattice a texel or two).
+        let lat = 28.6 * Double.pi / 180, lon = -80.6 * Double.pi / 180, texel = map.extent / 256
+        func at(_ dLat: Double, _ dLon: Double, _ h: Double, angle: Double = 0.3) -> CloudFrame {
+            let p = Ellipsoid.wgs84.bodyFixed(latitude: lat + dLat, longitude: lon + dLon, height: h)
+            return CloudFrame(earth: earth(center: Mat3.rotZ(angle).transposed * (p * -1), angle: angle))
+        }
+        var anchor = anchor0, extent = map.extent
+        for (dLat, dLon, h) in [(2e-6, -3e-6, 300.0), (1.8e-3, -2.1e-3, 300), (5.4e-3, -6.3e-3, 1_300),
+                                (5.4e-3, -6.3e-3, 20_000)] {
+            let g = at(dLat, dLon, h)
+            anchor = g.shadowAnchor(previous: anchor, previousExtent: extent, texels: 256)
+            let m = g.shadowMap(texels: 256, anchor: anchor)
+            extent = m.extent
+            XCTAssertEqual(m.extent, 100_000, accuracy: 1e-6)
             for axis in [map.u, map.v] {
-                let k = shift.dot(axis) / texel
-                XCTAssertEqual(k, k.rounded(), accuracy: 1e-6, "a move of \(dLat), \(dLon) rad")
+                let k = (m.center - map.center).dot(axis) / texel
+                XCTAssertEqual(k, k.rounded(), accuracy: 1e-6, "a move of \(dLat), \(dLon) rad to \(h) m")
             }
         }
-        // A frame of the Sun's turning about the Earth (7.3e-5 rad/s, 1/60 s)
-        // moves the grid by a small fraction of a texel (modulo whole ones).
-        let turned = frame(height: 300, angle: 0.3 + 7.3e-5 / 60).shadowMap(texels: 512)
-        for axis in [map.u, map.v] {
-            let k = (turned.center - map.center).dot(axis) / texel
-            XCTAssertLessThan(abs(k - k.rounded()), 0.05)
+        // The Sun's turning about the Earth (7.3e-5 rad/s) turns the lattice
+        // about the anchor, here 20 km off: a quarter of the map's texels
+        // times the turn at most, a quarter of a texel a minute. (Through
+        // the Earth's centre it slid more than a texel a second.)
+        let off = at(1.8e-3, -2.1e-3, 300)
+        let anchorOff = off.shadowAnchor(previous: nil, previousExtent: nil, texels: 256)
+        let still = f.shadowMap(texels: 256, anchor: f.shadowAnchor(previous: anchorOff, previousExtent: 100_000, texels: 256))
+        for seconds in [1.0, 2, 5, 10, 60] {
+            let turned = frame(height: 300, angle: 0.3 + 7.3e-5 * seconds)
+            let a = turned.shadowAnchor(previous: anchorOff, previousExtent: 100_000, texels: 256)
+            XCTAssertEqual((a - anchorOff).length, 0, "the anchor holds")
+            let m = turned.shadowMap(texels: 256, anchor: a)
+            for axis in [still.u, still.v] {
+                let k = (m.center - still.center).dot(axis) / texel
+                XCTAssertLessThan(abs(k - k.rounded()), 64 * 7.3e-5 * seconds + 0.01, "\(seconds) s")
+            }
         }
-        XCTAssertEqual(CloudFrame.shadowExtent(altitude: 185_000), 840_000, accuracy: 1e-6)
-        XCTAssertEqual(CloudFrame.shadowExtent(altitude: 1e8), 1_000_000, accuracy: 1e-6)
+        // The extent's ladder: the texel's size changes at four heights.
+        for (h, e) in [(300.0, 100_000.0), (24_000, 100_000), (30_000, 200_000), (100_000, 400_000), (185_000, 800_000),
+                       (300_000, 1_000_000), (1e8, 1_000_000)] {
+            XCTAssertEqual(CloudFrame.shadowExtent(altitude: h), e, accuracy: 1e-6, "\(h) m")
+        }
     }
 
     /// The regimes sum to one and cross smoothly as the camera climbs.

@@ -86,6 +86,11 @@ public final class CloudPass: RenderPass, HalfResEffect {
     private var previous: CloudFrame?
     private(set) var advection = CloudAdvection(tile: FrameContext.noiseTile)
     private(set) var cirrus = CirrusFrames()
+    /// The low layer's detail curl's own frame (CirrusFrame, its wind the
+    /// low layer's).
+    private(set) var detailFrames = CirrusFrames()
+    /// The shadow map's lattice anchor and the extent it was set for.
+    private(set) var shadowAnchor: (point: Vec3, extent: Double)?
     /// The last frame's epoch, to tell a jump in time from a frame's step.
     private var lastEpoch: Epoch?
     /// This frame's resolved clouds and uniforms, for the slots' copy; nil
@@ -233,6 +238,8 @@ public final class CloudPass: RenderPass, HalfResEffect {
         if clock.frameIndex <= 1 || jump {
             advection = CloudAdvection(tile: FrameContext.noiseTile)
             cirrus = CirrusFrames()
+            detailFrames = CirrusFrames()
+            shadowAnchor = nil
         }
         lastEpoch = clock.simTime
 
@@ -244,6 +251,9 @@ public final class CloudPass: RenderPass, HalfResEffect {
         advection.advance(frame, winds: [sample.lowWind ?? sample.surfaceWind, sample.midWind, sample.highWind], dt: dt)
         cirrus.update(frame, streak: Self.streak(frame, wind: sample.highWind), wind: sample.highWind, dt: dt,
                       realDt: f.scene.clock.realDt, period: Self.shapePeriod)
+        let lowWind = sample.lowWind ?? sample.surfaceWind
+        detailFrames.update(frame, streak: Self.streak(frame, wind: lowWind), wind: lowWind, dt: dt,
+                            realDt: f.scene.clock.realDt, period: Self.shapePeriod)
         guard let enc = f.makeComputeEncoder() else { return }
         // P0: the frame uniforms alone (the shared ones are uploaded after it).
         f.bindFrameUniforms(enc)
@@ -501,7 +511,13 @@ public final class CloudPass: RenderPass, HalfResEffect {
             shadowTexture?.label = "Cloud shadow"
         }
         guard let shadowTexture, frame.sunBody.dot(frame.cameraBody.normalized) > -0.2 else { return false }
-        let shadowMap = frame.shadowMap(texels: texels)
+        // The lattice runs through an anchor near the camera, moved by whole
+        // texels (CloudFrame.shadowAnchor), so it holds still as the camera
+        // and the Sun move.
+        let anchor = frame.shadowAnchor(previous: shadowAnchor?.point, previousExtent: shadowAnchor?.extent,
+                                        texels: texels)
+        let shadowMap = frame.shadowMap(texels: texels, anchor: anchor)
+        shadowAnchor = (anchor, shadowMap.extent)
         let center = shadowMap.center - frame.cameraBody
         u.shadow = SIMD4(Float(shadowMap.extent), Float(texels), 1, 32)
         u.shadowCenter = SIMD4(center, 0)
@@ -569,6 +585,8 @@ public final class CloudPass: RenderPass, HalfResEffect {
         }
         set(cirrus.current, &u.cirrusAlong, &u.cirrusAcross, &u.cirrusUp, &u.cirrusOrigin, weight: cirrus.fade)
         set(cirrus.previous, &u.cirrusAlong2, &u.cirrusAcross2, &u.cirrusUp2, &u.cirrusOrigin2, weight: 0)
+        var detailUp = SIMD4<Float>.zero
+        set(detailFrames.current, &u.detailAlong, &u.detailAcross, &detailUp, &u.detailOrigin, weight: 0)
         u.windHigh = SIMD4(u.cirrusAlong.x, u.cirrusAlong.y, u.cirrusAlong.z, Float(Self.curlPeriod))
         let layers = CloudLayerModel.layers(CloudSample(low: 1, mid: 1, high: 1))
         u.extinction = SIMD4(Float(layers[0].extinction), Float(layers[1].extinction), Float(layers[2].extinction),
@@ -695,6 +713,9 @@ struct CloudUniforms {
     var cirrusAcross2 = SIMD4<Float>.zero
     var cirrusUp2 = SIMD4<Float>.zero
     var cirrusOrigin2 = SIMD4<Float>.zero
+    var detailAlong = SIMD4<Float>.zero
+    var detailAcross = SIMD4<Float>.zero
+    var detailOrigin = SIMD4<Float>.zero
     var extinction = SIMD4<Float>.zero
     var layers = SIMD4<Float>.zero
     var march = SIMD4<Float>.zero

@@ -76,12 +76,36 @@ final class AtmosphereProbeTestPass: RenderPass {
     /// RGBA of froxel (x, y, z).
     func froxel(_ x: Int, _ y: Int, _ z: Int) -> SIMD4<Float>? {
         guard let t = froxels else { return nil }
-        var h = [UInt16](repeating: 0, count: 4)
-        h.withUnsafeMutableBytes {
-            t.getBytes($0.baseAddress!, bytesPerRow: 8 * t.width, bytesPerImage: 8 * t.width * t.height,
-                       from: MTLRegionMake3D(x, y, z, 1, 1, 1), mipmapLevel: 0, slice: 0)
+        let v = read(t, MTLRegionMake3D(x, y, z, 1, 1, 1))
+        return SIMD4(v[0], v[1], v[2], v[3])
+    }
+
+    /// Every froxel's RGBA, x fastest, then y, then z.
+    func allFroxels() -> [Float]? {
+        guard let t = froxels else { return nil }
+        return read(t, MTLRegionMake3D(0, 0, 0, t.width, t.height, t.depth))
+    }
+
+    private func read(_ t: MTLTexture, _ region: MTLRegion) -> [Float] {
+        let n = 4 * region.size.width * region.size.height * region.size.depth
+        switch t.pixelFormat {
+        case .rgba32Float:
+            var f = [Float](repeating: 0, count: n)
+            f.withUnsafeMutableBytes {
+                t.getBytes($0.baseAddress!, bytesPerRow: 16 * region.size.width,
+                           bytesPerImage: 16 * region.size.width * region.size.height, from: region, mipmapLevel: 0,
+                           slice: 0)
+            }
+            return f
+        default:
+            var h = [UInt16](repeating: 0, count: n)
+            h.withUnsafeMutableBytes {
+                t.getBytes($0.baseAddress!, bytesPerRow: 8 * region.size.width,
+                           bytesPerImage: 8 * region.size.width * region.size.height, from: region, mipmapLevel: 0,
+                           slice: 0)
+            }
+            return h.map { Float(Float16(bitPattern: $0)) }
         }
-        return SIMD4(h.map { Float(Float16(bitPattern: $0)) })
     }
 }
 
@@ -242,7 +266,7 @@ final class AtmospherePassTests: XCTestCase {
         let r = try renderer()
         var checked = 0
         for (azimuth, elevation) in [(0.0, 30.0), (180, 30), (90, 15), (270, 50)] {
-            let scene = self.scene(.apollo8DawnPad) { s in
+            let scene = self.scene(.apollo8Pad) { s in
                 let earth = s.bodies.first { $0.id == 399 }!
                 let up = (-earth.position).normalized
                 let toSun = (s.sun.direction - up * s.sun.direction.dot(up)).normalized
@@ -278,7 +302,7 @@ final class AtmospherePassTests: XCTestCase {
     func testWhatIsBehindTheAirIsTransmitted() throws {
         let background = BackgroundTestPass()
         let r = try renderer([background])
-        let scene = self.scene(.apollo8DawnPad, width: 64, height: 64, fovY: 8) { $0.sun.direction }
+        let scene = self.scene(.apollo8Pad, width: 64, height: 64, fovY: 8) { $0.sun.direction }
         let frame = try XCTUnwrap(AtmosphereFrame(scene: scene, tables: lut))
         let without = try light(r, scene)
         let l: Float = 1e6
@@ -314,7 +338,7 @@ final class AtmospherePassTests: XCTestCase {
     /// away (a camera on the dawn pad's service structure height, 120 m).
     func testGroundFromThePadMatchesTheMarch() throws {
         let r = try renderer()
-        let scene = self.scene(.apollo8DawnPad, distance: 300, width: 96, height: 64, fovY: 30) { s in
+        let scene = self.scene(.apollo8Pad, distance: 300, width: 96, height: 64, fovY: 30) { s in
             let earth = s.bodies.first { $0.id == 399 }!
             let up = (-earth.position).normalized
             let toSun = (s.sun.direction - up * s.sun.direction.dot(up)).normalized
@@ -361,7 +385,7 @@ final class AtmospherePassTests: XCTestCase {
     /// per channel, about A1's (0.37, 0.18, 0.052) at 7°.
     func testTheSunsDiscIsTransmitted() throws {
         let r = try renderer(ev100: 27)
-        let scene = self.scene(.apollo8DawnPad, width: 64, height: 64, fovY: 1.2) { $0.sun.direction }
+        let scene = self.scene(.apollo8Pad, width: 64, height: 64, fovY: 1.2) { $0.sun.direction }
         let frame = try XCTUnwrap(AtmosphereFrame(scene: scene, tables: lut))
         let light = try self.light(r, scene)
         let d = direction(scene, x: 32, y: 32)
@@ -457,6 +481,113 @@ final class AtmospherePassTests: XCTestCase {
         XCTAssertGreaterThan(ground, 50)
     }
 
+    /// The view's direction through (u, v) of the frame (0...1, top first),
+    /// as the atmosphere module's kernels compute it.
+    func direction(_ scene: RenderScene, u: Double, v: Double) -> Vec3 {
+        let c = scene.camera, t = tan(c.fovY / 2), aspect = c.viewport.width / c.viewport.height
+        return (c.worldToView.transposed * Vec3((2 * u - 1) * t * aspect, (1 - 2 * v) * t, -1)).normalized
+    }
+
+    /// Low orbit with the Sun `range` degrees above the limb (its elevation
+    /// over the horizontal plus the horizon's dip), the minute or so before
+    /// an orbital sunset or after a sunrise.
+    func orbitSim(sunAboveTheLimb range: ClosedRange<Double>) throws -> Simulation {
+        let sim = Scenario.lowEarthOrbit.build(Self.system)
+        for _ in 0..<400 {
+            let s = scene(.lowEarthOrbit, at: sim, look: nil)
+            if let f = AtmosphereFrame(scene: s, tables: lut) {
+                let above = (asin(f.cosSunZenith) + acos(f.bottomRadius / f.cameraRadius)) * 180 / .pi
+                if range.contains(above) { return sim }
+            }
+            sim.advance(by: 15)
+        }
+        throw XCTSkip("the Sun never stood \(range)° above the limb")
+    }
+
+    /// Toward a Sun 6-8° above the limb from low orbit, A1's aerosol
+    /// scatters forward along the grazing rays at the silhouette: the haze
+    /// over the ground there passes 65,504 cd/m² (half float's largest
+    /// value) in red, and P0's quarter-resolution haze must hold it. The
+    /// ground along the silhouette is the march's (bilinear between P0's
+    /// texels, as the planet samples them) within 3 %: neither black (an
+    /// overflow to +∞, which the planet shader zeroes) nor clipped.
+    func testTheGroundUnderALowSunFromOrbitIsNeitherBlackNorClipped() throws {
+        let sim = try orbitSim(sunAboveTheLimb: 6...8)
+        let r = try renderer()
+        let settings = AtmosphereSettings()
+        let (width, height) = (96, 64)
+        var scene = self.scene(.lowEarthOrbit, at: sim, distance: 30, width: width, height: height, fovY: 3) { s in
+            let earth = s.bodies.first { $0.id == 399 }!
+            let up = (-earth.position).normalized
+            let dip = acos(earth.figure.equatorialRadius / earth.position.length)
+            let toSun = (s.sun.direction - up * s.sun.direction.dot(up)).normalized
+            return toSun * cos(dip) - up * sin(dip)
+        }
+        scene.vessels = []
+        let frame = try XCTUnwrap(AtmosphereFrame(scene: scene, tables: lut))
+        XCTAssertFalse(frame.isInside)
+        let light = try self.light(r, scene)
+        let exposure = Exposure.exposure(ev100: 15)
+        let s = frame.solarScale, solar = Spectrum3(s.r, s.g, s.b)
+        // P0's haze, texel by texel, as atmosphere_spaceGround marches it.
+        let k = settings.spaceGroundDivisor
+        let (tw, th) = ((width + k - 1) / k, (height + k - 1) / k)
+        var haze = [[AtmosphereMarch.Result]](repeating: [], count: th)
+        var brightest = 0.0
+        for j in 0..<th {
+            for i in 0..<tw {
+                let d = direction(scene, u: (Double(i) + 0.5) / Double(tw), v: (Double(j) + 0.5) / Double(th))
+                let m = AtmosphereMarch.spaceGround(lut, origin: frame.camera, direction: frame.figureDirection(d),
+                                                    steps: settings.groundSteps, sun: frame.sun,
+                                                    cosView: d.dot(scene.sun.direction))
+                brightest = max(brightest, m.radiance.r * s.r)
+                haze[j].append(m)
+            }
+        }
+        XCTAssertGreaterThan(brightest, 65_504, "the haze passes half float's range here")
+        func bilinear(_ u: Double, _ v: Double, _ f: (AtmosphereMarch.Result) -> Spectrum3) -> Spectrum3 {
+            let x = u * Double(tw) - 0.5, y = v * Double(th) - 0.5
+            let x0 = Int(x.rounded(.down)), y0 = Int(y.rounded(.down))
+            let fx = x - Double(x0), fy = y - Double(y0)
+            func at(_ i: Int, _ j: Int) -> Spectrum3 { f(haze[min(max(j, 0), th - 1)][min(max(i, 0), tw - 1)]) }
+            return at(x0, y0) * ((1 - fx) * (1 - fy)) + at(x0 + 1, y0) * (fx * (1 - fy))
+                + at(x0, y0 + 1) * ((1 - fx) * fy) + at(x0 + 1, y0 + 1) * (fx * fy)
+        }
+        func ground(_ x: Int, _ y: Int) -> (t: Double, d: Vec3)? {
+            let d = direction(scene, x: x, y: y)
+            guard let seg = AtmosphereMarch.airSegment(origin: frame.camera, direction: frame.figureDirection(d),
+                                                       bottomRadius: frame.bottomRadius, topRadius: frame.topRadius),
+                  seg.ground else { return nil }
+            return (seg.t1, d)
+        }
+        var checked = 0, rows = Set<Int>()
+        for y in 1..<(height - 1) {
+            for x in stride(from: 1, to: width, by: 4) {
+                // The ground, a pixel clear of the silhouette (MSAA blends
+                // the limb into the pixels on it).
+                guard let g = ground(x, y), ground(x, y - 1) != nil else { continue }
+                let dF = frame.figureDirection(g.d)
+                let p = frame.camera + dF * g.t
+                let nb = Vec3(p.x, p.y, p.z * frame.stretch).normalized
+                let n = frame.planet.orientation.toInertial(nb)
+                let muS = p.normalized.dot(frame.sun)
+                let sunlight = lut.transmittanceToSun(radius: frame.bottomRadius, cosSun: muS)
+                    * max(n.dot(scene.sun.direction), 0) + lut.skyIrradiance(radius: frame.bottomRadius, cosSun: muS)
+                let albedo = Spectrum3(0.04, 0.06, 0.08)
+                let lit = albedo * sunlight * solar * (1 / Double.pi) + albedo * (0.015 / exposure)
+                let u = (Double(x) + 0.5) / Double(width), v = (Double(y) + 0.5) / Double(height)
+                let want = lit * bilinear(u, v) { $0.transmittance } + bilinear(u, v) { $0.radiance * solar }
+                let got = rgb(light, y * width + x)
+                XCTAssertTrue(got.0.isFinite && got.1.isFinite && got.2.isFinite, "px \(x),\(y)")
+                assertClose(got, want, 0.03, floor: 0.5, "ground px \(x),\(y), \(Int(g.t / 1_000)) km away")
+                checked += 1
+                rows.insert(y)
+            }
+        }
+        XCTAssertGreaterThan(rows.count, 20, "rows of ground below the silhouette")
+        XCTAssertGreaterThan(checked, 200)
+    }
+
     // MARK: What other passes read
 
     /// `AtmosphereUniforms` as R2's vessel pass, C2 and R3 read it, at the
@@ -467,7 +598,7 @@ final class AtmospherePassTests: XCTestCase {
     func testUniformsOtherPassesRead() throws {
         let readback = AtmosphereProbeTestPass()
         let r = try renderer([readback])
-        let pad = scene(.apollo8DawnPad, look: { $0.sun.direction })
+        let pad = scene(.apollo8Pad, look: { $0.sun.direction })
         _ = try light(r, pad)
         let a = try XCTUnwrap(readback.uniforms)
         let frame = try XCTUnwrap(AtmosphereFrame(scene: pad, tables: lut))
@@ -504,7 +635,7 @@ final class AtmospherePassTests: XCTestCase {
     func testFroxelsMatchTheMarch() throws {
         let readback = AtmosphereProbeTestPass()
         let r = try renderer([readback])
-        let scene = self.scene(.apollo8DawnPad, width: 64, height: 64) { s in
+        let scene = self.scene(.apollo8Pad, width: 64, height: 64) { s in
             let earth = s.bodies.first { $0.id == 399 }!
             let up = (-earth.position).normalized
             let toSun = (s.sun.direction - up * s.sun.direction.dot(up)).normalized
@@ -531,6 +662,40 @@ final class AtmospherePassTests: XCTestCase {
         }
     }
 
+    /// Toward the Sun 7° up at the dawn pad, A1's aerosol scatters forward
+    /// up to about 1.5e5 cd/m² in red beyond the aerosol's layer, past half
+    /// float's 65,504: every froxel is finite, and the columns toward the
+    /// Sun are the march's within 2 %.
+    func testFroxelsTowardALowSunHoldTheirLight() throws {
+        let readback = AtmosphereProbeTestPass()
+        let r = try renderer([readback])
+        let scene = self.scene(.apollo8Pad, width: 64, height: 64) { $0.sun.direction }
+        _ = try light(r, scene)
+        let frame = try XCTUnwrap(AtmosphereFrame(scene: scene, tables: lut))
+        let all = try XCTUnwrap(readback.allFroxels())
+        XCTAssertEqual(all.count, 4 * 32 * 32 * 32)
+        XCTAssertFalse(all.contains { !$0.isFinite }, "every froxel is finite")
+        let s = frame.solarScale
+        var brightest = 0.0
+        for (x, y) in [(16, 16), (15, 15), (17, 15), (16, 19), (12, 16)] {
+            let c = scene.camera, t = tan(c.fovY / 2)
+            let u = (Double(x) + 0.5) / 32, v = (Double(y) + 0.5) / 32
+            let d = (c.worldToView.transposed * Vec3((2 * u - 1) * t, (1 - 2 * v) * t, -1)).normalized
+            for z in [0, 5, 12, 20, 31] {
+                let got = try XCTUnwrap(readback.froxel(x, y, z))
+                let m = AtmosphereMarch.froxel(lut, origin: frame.camera, direction: frame.figureDirection(d),
+                                               slices: frame.froxels, slice: z, steps: AtmosphereSettings().froxelSteps,
+                                               sun: frame.sun, cosView: d.dot(scene.sun.direction))
+                let want = Spectrum3(m.radiance.r * s.r, m.radiance.g * s.g, m.radiance.b * s.b)
+                brightest = max(brightest, want.r)
+                assertClose((got.x, got.y, got.z), want, 0.02, floor: 0.05, "froxel \(x),\(y),\(z)")
+                let mean = (m.transmittance.r + m.transmittance.g + m.transmittance.b) / 3
+                XCTAssertEqual(Double(got.w), mean, accuracy: 3e-3, "froxel \(x),\(y),\(z)")
+            }
+        }
+        XCTAssertGreaterThan(brightest, 65_504, "the froxels toward the Sun pass half float's range")
+    }
+
     // MARK: R3's probe
 
     /// The probe entry point draws the sky the view sees: a face with the
@@ -546,7 +711,7 @@ final class AtmospherePassTests: XCTestCase {
                                   plan: HDRTargetPlan(outputFormat: .bgra8Unorm_srgb, sampleCount: 4))
         r.settings = settings()
         XCTAssertEqual(r.failures, [:])
-        let scene = self.scene(.apollo8DawnPad, width: 48, height: 48, fovY: 60) { s in
+        let scene = self.scene(.apollo8Pad, width: 48, height: 48, fovY: 60) { s in
             let earth = s.bodies.first { $0.id == 399 }!
             let up = (-earth.position).normalized
             return (s.sun.direction.cross(up) + up).normalized
@@ -577,7 +742,7 @@ final class AtmospherePassTests: XCTestCase {
     func testNoNaNAlongTheFlight() throws {
         let r = try renderer()
         var scenes: [(String, RenderScene)] = [
-            ("pad", scene(.apollo8DawnPad, look: nil)),
+            ("pad", scene(.apollo8Pad, look: nil)),
             ("leo", scene(.lowEarthOrbit, look: nil)),
             ("entry", scene(.apollo7EntryInterface, distance: 30, look: nil)),
         ]

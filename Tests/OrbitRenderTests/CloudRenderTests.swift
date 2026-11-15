@@ -182,17 +182,44 @@ final class CloudRenderTests: XCTestCase {
         }
     }
 
-    /// The cirrus draws its cover: 4/10 cirrus seen from orbit, close enough
-    /// that the fibres are drawn, covers about 4/10 of the view. Cut with the
-    /// shape's thresholds it drew none.
+    /// The cirrus draws its cover: 4/10 cirrus seen from orbit has 4/10 of
+    /// the deck's opacity. Cut with the shape's thresholds it drew none.
     func testCirrusDrawsItsCover() throws {
         let weather = try Self.uniformWeather(low: 0, high: 0.4)
         var shot = Self.deckShot()
         shot.camera = SnapshotSpec.CameraSpec(target: "body:399", frame: "inertial", yaw: 223.5, pitch: 22.9,
                                               distance: 6_700_000, fov: 6)
         let c = try XCTUnwrap(render(shot, weather: weather).capture.values(.halfResClouds))
-        let drawn = Double(c.texels.filter { $0[3] > 0.02 }.count) / Double(c.texels.count)
-        XCTAssertEqual(drawn, 0.4, accuracy: 0.15)
+        // At this footprint (650 m) the fibres have averaged out: everywhere
+        // 4/10 of the deck at its in-cloud optical depth, C1's through 1.8 km.
+        let tau = CloudLayerModel.layers(CloudSample(low: 0, mid: 0, high: 1))[2].extinction * CloudPass.cirrusThickness
+        let mean = c.texels.map { $0[3] }.reduce(0, +) / Double(c.texels.count)
+        XCTAssertEqual(mean, 0.4 * (1 - exp(-tau)), accuracy: 0.2 * 0.4 * (1 - exp(-tau)))
+    }
+
+    /// The cirrus's opacity over a view is the same whatever the footprint:
+    /// fibres at 0.2 km, their blend with the deck's mean, the mean at
+    /// 2-5 km. Sampled at coarser mips the fibres vanished at 0.5-2.5 km
+    /// footprints (their thresholds are mip 0's), and blending depth and
+    /// cover apart overshot the deck's opacity 3-6 times at low cover.
+    func testCirrusOpacityHoldsAcrossFootprints() throws {
+        for (cover, sizes) in [(0.5, [(1_600, 1_000), (400, 250), (160, 100), (64, 40)]),
+                               (0.1, [(400, 250), (160, 100), (64, 40)])] {
+            let weather = try Self.uniformWeather(low: 0, high: cover)
+            var means: [Double] = []
+            for (w, h) in sizes {
+                var shot = Self.deckShot(width: w, height: h)
+                shot.camera = SnapshotSpec.CameraSpec(target: "body:399", frame: "inertial", yaw: 223.5, pitch: 22.9,
+                                                      distance: 6_700_000, fov: 20)
+                let c = try XCTUnwrap(render(shot, weather: weather).capture.values(.halfResClouds))
+                means.append(c.texels.map { $0[3] }.reduce(0, +) / Double(c.texels.count))
+            }
+            let far = try XCTUnwrap(means.last)
+            XCTAssertGreaterThan(far, 0.01, "cover \(cover)")
+            for (m, (w, _)) in zip(means, sizes) {
+                XCTAssertEqual(m / far, 1, accuracy: cover < 0.2 ? 0.35 : 0.25, "cover \(cover), \(w) px wide")
+            }
+        }
     }
 
     /// In the hand-over band the far layer's share shows where the march
