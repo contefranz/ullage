@@ -1,0 +1,14 @@
+{
+  "goldens": "lookdev",
+  "shots": [
+    {"name": "p4-pad-ignition", "scenario": "as506-pad", "showOrbit": false,
+     "camera": {"yaw": 90, "pitch": 2, "distance": 380, "fov": 50},
+     "settings": {"post": {"exposure": {"mode": "manual", "ev100": 15}}, "cloud": {"enabled": false}}},
+    {"name": "p4-liftoff", "scenario": "as506-pad", "showOrbit": false, "advance": ["met:8"],
+     "camera": {"yaw": 90, "pitch": 4, "distance": 480, "fov": 50},
+     "settings": {"post": {"exposure": {"mode": "manual", "ev100": 15}}, "cloud": {"enabled": false}}},
+    {"name": "p4-trail-chase", "scenario": "as506-pad", "showOrbit": false, "advance": ["met:75"],
+     "camera": {"yaw": 20, "pitch": -8, "distance": 2500, "fov": 50},
+     "settings": {"post": {"exposure": {"mode": "manual", "ev100": 15}}, "cloud": {"enabled": false}}}
+  ]
+}

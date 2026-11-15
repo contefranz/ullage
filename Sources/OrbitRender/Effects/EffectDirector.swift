@@ -29,7 +29,7 @@ public final class EffectDirector {
     /// staging and spacecraft effects, P6's entry and recovery effects. Each
     /// track adds its own line here.
     public nonisolated static func defaultProducers() -> [EffectProducer] {
-        []
+        [LaunchEffects()]
     }
 
     /// The director with `producers`, or the default ones.
