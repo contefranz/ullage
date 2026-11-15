@@ -64,8 +64,13 @@ what the tracks that come after R2 plug into. The code is the reference:
   half-resolution depth and its composite see the wire, after R1's break),
   P3's full-resolution passes and P5's overlays. A thinner wire stays
   depthless, and a P3 or P5 draw behind it covers it (it is under half a
-  pixel wide). `VesselPassTests.testCloudsBehindAWireStayBehindIt` checks
-  the pad with C2's cirrus on.
+  pixel wide). The halo is an opaque silhouette's: after R1's break each
+  pixel's nearest depth stands for all its samples, so the clouds leave
+  the whole of a pixel the wire touches (none loses half its clouds more
+  than 0.33 px beyond the edge), and R6's upsample takes up to a third of
+  them from a few pixels 1-2.5 px beyond it, as for opaque geometry.
+  `VesselPassTests.testCloudsBehindAWireStayBehindIt` checks the pad with
+  C2's cirrus on: the wire is the opaque tube within 2 % across ±6 px.
 - Tests (Linux): `BRDFTests` (GGX normalisation, Heitz's projected-area
   identity, Schlick's mirror limit, the table against direct quadrature, the
   white furnace ≥ 0.98, Rakić's aluminium F0 0.914, the filter, the Sun disc,

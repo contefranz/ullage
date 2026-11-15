@@ -424,35 +424,58 @@ final class VesselPassTests: XCTestCase {
     }
 
     /// C2's clouds behind a wire stay behind it. At Apollo 8's pad with its
-    /// 4/10 cirrus on, the 0.1 m tube (coverage 1) against the cloudy sky:
-    /// each row's pixel on its axis is the same tube drawn opaque, within
-    /// 2 %, where the clouds change the sky behind it. The clouds draw in P3
-    /// through R6's slots, after R1's break, against the depth the wire
-    /// writes (`VesselWirePass`'s depth-only draw, where c ≥ 0.5): R6's
-    /// half-resolution depth and its composite see it. Without that draw
-    /// they covered the wire (it read 2.5 times off).
+    /// 4/10 cirrus on, the 0.1 m tube (1.45 px, coverage 1) against the
+    /// cloudy sky is the same tube drawn opaque, within 2 %, at every pixel
+    /// of its rows from 6 px left of its axis to 6 px right. The clouds
+    /// draw in P3 through R6's slots, after R1's break, against the depth
+    /// the wire writes (`VesselWirePass`'s depth-only draw, where c ≥ 0.5):
+    /// R6's half-resolution depth and its composite see it as they see the
+    /// opaque tube. Without that draw the clouds covered the wire (on its
+    /// axis it read 2.5 times off).
+    ///
+    /// The halo is the opaque silhouette's: after R1's break each pixel's
+    /// nearest depth stands for all its samples, so the clouds leave the
+    /// whole of a pixel the tube touches, and no pixel loses half its
+    /// clouds more than a pixel beyond the tube's edge (0.33 px measured).
+    /// R6's upsample takes up to a third of the clouds from a few pixels
+    /// 1-2.5 px beyond it, for the opaque tube as for the wire.
     func testCloudsBehindAWireStayBehindIt() throws {
         let t = try PadTube(pad: dawnPad(width: PadTube.w, height: PadTube.h, fovY: PadTube.fovY))
         let r = try airRenderer(clouds: true)
         let clear = try airRenderer(clouds: false)
-        let wide = 0.1
-        XCTAssertGreaterThan(wide / t.pixel, 1.2, "coverage 1 on its axis")
+        let wide = 0.1, radius = wide / t.pixel, w = PadTube.w
+        XCTAssertGreaterThan(radius, 1.2, "coverage 1 on its axis")
         let cloudy = try tubeLight(t, r, radius: nil), sky = try tubeLight(t, clear, radius: nil)
         let opaque = try tubeLight(t, r, radius: wide, wires: false), wire = try tubeLight(t, r, radius: wide)
-        var worst = 0.0, clouded = 0
+        let wireClear = try tubeLight(t, clear, radius: wide)
+        func sum(_ p: [Float], _ x: Int, _ y: Int) -> Double { (0..<3).reduce(0.0) { $0 + Double(p[4 * (y * w + x) + $1]) } }
+        var worst = 0.0, clouded = 0, reach = 0.0, edges = 0
         for y in PadTube.rows {
             let x = PadTube.axisColumn(y)
+            let axis = Double(w) / 2 + (Double(PadTube.h) / 2 - Double(y) - 0.5) * tan(PadTube.tilt)
             var differs = false
-            for c in 0..<3 {
-                let i = 4 * (y * PadTube.w + x) + c
-                let o = Double(opaque[i])
-                worst = max(worst, abs(Double(wire[i]) - o) / max(o, 1e-3 * Double(sky[i])))
-                if abs(Double(cloudy[i]) - Double(sky[i])) > 0.1 * Double(sky[i]) { differs = true }
+            for px in (x - 6)...(x + 6) {
+                for c in 0..<3 {
+                    let i = 4 * (y * w + px) + c
+                    let o = Double(opaque[i])
+                    worst = max(worst, abs(Double(wire[i]) - o) / max(o, 1e-3 * Double(sky[i])))
+                    if px == x, abs(Double(cloudy[i]) - Double(sky[i])) > 0.1 * Double(sky[i]) { differs = true }
+                }
+                // The share of its clouds the pixel keeps, where they change
+                // the sky by a tenth or more.
+                let added = sum(cloudy, px, y) - sum(sky, px, y)
+                guard abs(added) > 0.1 * sum(sky, px, y) else { continue }
+                let kept = (sum(wire, px, y) - sum(wireClear, px, y)) / added
+                let beyond = abs(Double(px) + 0.5 - axis) * cos(PadTube.tilt) - radius
+                if beyond > 0, beyond < 1 { edges += 1 }
+                if kept < 0.5 { reach = max(reach, beyond) }
             }
             if differs { clouded += 1 }
         }
         XCTAssertGreaterThan(clouded, PadTube.rows.count / 4, "clouds lie behind the tube on a quarter of its rows")
-        XCTAssertLessThan(worst, 0.02, "the wire hides the clouds behind it as the opaque tube does")
+        XCTAssertGreaterThan(edges, 20, "edge pixels in front of clouds")
+        XCTAssertLessThan(worst, 0.02, "the wire and its halo are the opaque tube's")
+        XCTAssertLessThanOrEqual(reach, 1.0, "no pixel loses half its clouds more than a pixel beyond the tube's edge")
     }
 
     /// The air between a vessel and the camera (A2's froxels): at the dawn
