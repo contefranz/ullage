@@ -286,11 +286,12 @@ extension EffectsSelfTest {
             let profile = AirProfile(constant: Self.air, windEast: Self.air.velocity.x, windNorth: Self.air.velocity.y)
             var epoch = Epoch(tdbSecondsPastJ2000: 0)
 
-            func run(_ requests: [EmitRequest], dt: Double, warp: Double = 1, resets: Bool = false,
+            func run(_ requests: [EmitRequest], dt: Double, warp: Double = 1, resets: Bool = false, anchored: Bool = true,
                      drawn: Set<ParticleRenderClass> = [.smoke, .streak]) -> (alive: Int, free: Int, emitted: Int, dropped: Int) {
                 epoch = epoch + dt
                 let clock = EffectClock(epoch: epoch, dt: dt, realDt: dt / warp, warp: warp)
-                let out = EffectFrameOutput(clock: clock, resets: resets, requests: requests, anchors: [(id, Self.anchor())],
+                let out = EffectFrameOutput(clock: clock, resets: resets, requests: requests,
+                                            anchors: anchored ? [(id, Self.anchor())] : [],
                                             airProfiles: [profile], drawn: drawn, materials: materials)
                 guard let cb = queue.makeCommandBuffer(), let enc = cb.makeComputeCommandEncoder() else { return (-1, -1, -1, -1) }
                 system.encode(system.makePlan(out, settings: ParticleSettings()), uploads: uploads, encoder: enc)
@@ -381,6 +382,12 @@ extension EffectsSelfTest {
             checks.append(Check(name: "budget", passed: full.alive == capacity && full.free == 0 && over.alive == capacity
                                     && over.dropped == 100,
                                 detail: "\(full.alive) alive of \(capacity); 100 more: \(over.dropped) dropped"))
+
+            // 5. Particles whose anchor is gone go with it.
+            let kept = run([more], dt: 0.1, resets: true).alive
+            let gone = run([], dt: 0.1, anchored: false).alive
+            checks.append(Check(name: "anchor gone", passed: kept == 100 && gone == 0,
+                                detail: "alive \(kept) with the anchor, \(gone) without"))
             _ = run([], dt: 0, resets: true)
             return checks
         }

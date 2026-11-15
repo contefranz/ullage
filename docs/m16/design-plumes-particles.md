@@ -378,8 +378,22 @@ TIME (`EffectTimeRules`)
 
 LOOK-DEV
 - `ParticleSettings.testBursts` are spawned afresh every frame in the studio anchor at the camera's target, at their ages, in place of every producer. With them a shot is deterministic and the same in any scenario.
-- The `studio` gives its gravity and air (e.g. sea level). A burst names a library material or carries a `custom` one.
-- P3's shots are `docs/look/shots/p3.json`; P4-P6 add their own specs the same way.
+  - A frame drawn again (a snapshot's AOVs and timing frames) keeps them, so `--timings` measures the steady state.
+- The studio:
+  - `ParticleSettings.studio` gives its gravity and its air, e.g. sea level;
+  - it is lit by the Sun above any air (`AnchorFrame.sunAboveAir`), whatever the scenario's eclipse.
+- A burst names a library material or carries a `custom` one.
+- P3's shots:
+  - `docs/look/shots/p3.json`: look-dev goldens at a manual EV 15;
+  - `p3-cost.json`: the cost shots at 3024×1964, contact sheet only.
+- P4-P6 add their own specs the same way.
+
+KNOWN LIMITS (ask P3 rather than work around them)
+- A body-fixed anchor's ground is the reference surface (sea level). There is no terrain or pad-deck height yet.
+- Streaks are stretched by their motion relative to their anchor, not to the camera.
+- Coriolis is neglected in body-fixed anchors, and tides in free-fall ones (their particles stay within kilometres).
+- The GPU advance takes at most 16 substeps. A grain thrown fast and aged a minute in one frame lands about 1.5 % short of fine steps (ParticlePhysicsTests).
+- Smoke has no self-shadowing (option 6, deferred). Thick puffs are lit by a diffuse wrap, thin ones by single scattering.
 
 ## Phasing
 

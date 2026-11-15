@@ -416,7 +416,13 @@ kernel void particle_simulate(device Particle *particles [[buffer(0)]],
     if (id >= count) { return; }
     uint index = aliveIn[id];
     Particle p = particles[index];
-    uint mi = particle_materialIndex(p.packed), ai = min(particle_anchorIndex(p.packed), max(pf.limits.z, 1u) - 1u);
+    // An anchor past this frame's table is gone: so is its particle.
+    if (particle_anchorIndex(p.packed) >= pf.limits.z) {
+        uint k = atomic_fetch_add_explicit(&counters[PARTICLE_COUNTER_FREE], 1u, memory_order_relaxed);
+        freeList[k] = index;
+        return;
+    }
+    uint mi = particle_materialIndex(p.packed), ai = particle_anchorIndex(p.packed);
     device const ParticleMaterial &m = materials[mi];
     device const ParticleAnchor &an = anchors[ai];
     ParticleState s;
@@ -465,7 +471,8 @@ kernel void particle_emit(device Particle *particles [[buffer(0)]],
     device const ParticleRequest &r = requests[lo];
     uint i = id - r.ids.w;
     if (float(i) >= r.ages.y) { return; }
-    uint mi = r.ids.x, ai = min(r.ids.y, max(pf.limits.z, 1u) - 1u);
+    if (r.ids.y >= pf.limits.z) { return; }
+    uint mi = r.ids.x, ai = r.ids.y;
     device const ParticleMaterial &m = materials[mi];
     device const ParticleAnchor &an = anchors[ai];
     if (an.origin.w < 0.5) { return; }
