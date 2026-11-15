@@ -77,6 +77,20 @@ Checks in `Tests/OrbitSceneTests/PhotometryTests.swift`: the 1948 candela
   1 / (1 + its brightest channel), weight in alpha, so the hardware's
   average is a weighted mean and edges against the Sun or a plume do not
   alias. Passes before it blend in linear light.
+- **Breaks**: a render-stage pass on the command buffer (R6's effect slots)
+  ends the scene's encoder. A break in P2 or P3 resolves the scene there,
+  with the same weighting, and the scene resumes re-expanded in tile memory:
+  its first draw gives every sample of a pixel the pixel's resolved light
+  and nearest depth. No 4× sample is stored or loaded, and P3's passes keep
+  their 4× pipelines and antialias their own edges. A glow behind an opaque
+  silhouette is hidden in the whole edge pixel, and a break moves some
+  pixels by a step of 8-bit sRGB (two more half-float roundings). A break in
+  P1 keeps the samples. At 3024×1964 on an M3 Pro, a break costs 0.28 ms
+  this way and 1.17 ms with the samples kept; R6's test slab with it,
+  0.86 ms against 1.62 ms (`HDRBreakCostTests`). While timing, the samples
+  are kept and the resume after a P2 or P3 break, charged to the pass that
+  broke the scene, re-expands into scratch targets, so the profile shows
+  the plain frame's cost.
 - **Bloom**: six levels from half resolution, rgba16Float (rg11b10Float's
   short mantissas lost 3 % of the light), 13-tap down (the first level from
   each 6×6 neighbourhood of decoded texels, shared in threadgroups) and tent
@@ -95,11 +109,14 @@ Checks in `Tests/OrbitSceneTests/PhotometryTests.swift`: the 1948 candela
 - **Dither**: ±1 step of the 8-bit output (within about 20 %), triangular,
   from a 64² blue noise moving each frame.
 
-## The transition (until A2, E2, R2 and P2)
+## The transition (until R2 and P2)
 
-Today's planet, vessel and plume shaders compute light relative to a white
+Today's vessel and plume shaders compute light relative to a white
 Lambert surface facing the Sun; they multiply it by P · E⊙/π. Their ambient
-floors (0.015 for the planets, 0.02 for the vessels) instead stay as they
-were on screen, a night floor relative to the exposure, so that the night
-side is dark under any exposure. The Sun is drawn by the star pass, not the
+floors (0.02 for the vessels) instead stay as they were on screen, a night
+floor relative to the exposure, so that the night side is dark under any
+exposure. The planets are photometric since A2 (docs/look/atmosphere.md):
+Lambert grounds under the Sun's colour, the Earth's lit and hazed through the
+air, its sky drawn by the atmosphere's composite; their night floor (0.015)
+stays relative to the exposure. The Sun is drawn by the star pass, not the
 planet pass. The orbit line and markers draw after tone mapping.

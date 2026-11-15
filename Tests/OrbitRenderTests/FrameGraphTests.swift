@@ -511,6 +511,8 @@ extension FrameGraphTests {
     /// breaks too: in P3, in P1, before the scene's first encoder and in P5
     /// (its overlay), plain and timed. Its scene encoders take their stores
     /// as they end; its overlay's keep theirs (the validation layer checks).
+    /// A break in P3 resolves the scene and re-expands it in the plain frame,
+    /// which moves some pixels by a step of 8-bit sRGB (HDRBreakTests).
     func testBreakingTheSceneOnTheShippingPlanKeepsThePixels() throws {
         final class Gap: RenderPass {
             let name = "Gap"
@@ -533,11 +535,13 @@ extension FrameGraphTests {
         let scene = SceneExtractor().extract(sim: sim, camera: camera,
                                              viewport: RenderScene.Viewport(width: 320, height: 200), realTime: 0)
         let stars = try StarCatalog.bundled()
+        var plan: HDRTargetPlan?
         func image(_ extra: [RenderPass], timing: Bool = false) throws -> [UInt8] {
             let device = try device()
+            let p = HDRTargetPlan(outputFormat: .bgra8Unorm_srgb, sampleCount: 4)
+            plan = p
             let r = try SceneRenderer(device: device, outputFormat: .bgra8Unorm_srgb,
-                                      passes: SceneRenderer.defaultPasses(loadsUserTextures: false) + extra,
-                                      plan: HDRTargetPlan(outputFormat: .bgra8Unorm_srgb, sampleCount: 4))
+                                      passes: SceneRenderer.defaultPasses(loadsUserTextures: false) + extra, plan: p)
             r.setStars(stars)
             r.profiling = timing
             r.profileInterval = 1
@@ -548,7 +552,15 @@ extension FrameGraphTests {
         let plain = try image([])
         XCTAssertGreaterThan(plain.filter { $0 != 0 }.count, plain.count / 2, "a frame with something in it")
         for (stage, order) in [(PassStage.transparent, 15), (.opaque, 15), (.opaque, -5), (.overlay, 100)] {
-            XCTAssertEqual(try image([Gap(stage, order)]), plain, "a break in \(stage) at \(order)")
+            let broken = try image([Gap(stage, order)])
+            if stage == .transparent {
+                let steps = zip(broken, plain).map { abs(Int($0) - Int($1)) }
+                XCTAssertLessThanOrEqual(steps.max() ?? 2, 1, "a break in \(stage) at \(order)")
+                XCTAssertEqual(plan?.breakStores, [.multisampleResolve], "re-expanded: no sample stored")
+                XCTAssertEqual(plan?.expansions.drawn, 1)
+            } else {
+                XCTAssertEqual(broken, plain, "a break in \(stage) at \(order)")
+            }
             XCTAssertEqual(try image([Gap(stage, order)], timing: true), plain, "a break in \(stage) at \(order), timed")
         }
     }
@@ -597,5 +609,79 @@ extension FrameGraphTests {
                                  RecordingPass("composite", .transparent, 1, log: log), NoopPost(),
                                  RecordingPass("marker", .overlay, log: log)]),
                        ["resume", "end", "end"])
+    }
+}
+
+extension FrameGraphTests {
+    /// The plan sets up once, before the passes, and an error of its own is
+    /// listed under `FrameGraph.planName` and disables no pass. It hears
+    /// every encoder the graph opens on one of its render passes, with that
+    /// pass, before anything draws in it: the scene's, the resume after a
+    /// break, and while timing each split and the overhead's.
+    func testThePlanSetsUpAndBeginsEachEncoder() throws {
+        final class Watching: SceneTargetPlan {
+            let inner = DirectTargetPlan(colorFormat: .bgra8Unorm_srgb, sampleCount: 4)
+            let log: RecordingPass.Log
+            var given: [MTLRenderPassDescriptor] = []
+            var fails = false
+            var onSetUp: (() -> Void)?
+            struct Failure: Error {}
+            init(log: RecordingPass.Log) { self.log = log }
+            func formats(for stage: PassStage) -> SceneFormats { inner.formats(for: stage) }
+            var provides: Set<ResourceID> { inner.provides }
+            func resize(_ size: RenderSize, device: MTLDevice) { inner.resize(size, device: device) }
+            func renderPass(for stage: PassStage, _ f: FrameContext) -> MTLRenderPassDescriptor? {
+                let p = inner.renderPass(for: stage, f)
+                if let p { given.append(p) }
+                return p
+            }
+            func continuation(_ f: FrameContext) -> MTLRenderPassDescriptor? {
+                let p = inner.continuation(f)
+                if let p { given.append(p) }
+                return p
+            }
+            func endScene(_ encoder: MTLRenderCommandEncoder, resumes: Bool, _ f: FrameContext) {
+                inner.endScene(encoder, resumes: resumes, f)
+            }
+            func beginScene(_ encoder: MTLRenderCommandEncoder, on pass: MTLRenderPassDescriptor, _ f: FrameContext) {
+                log.entries.append(given.contains { $0 === pass } ? "begin" : "begin on another pass")
+            }
+            func setUp(_ s: PassSetup) throws {
+                log.entries.append("plan set-up")
+                onSetUp?()
+                if fails { throw Failure() }
+            }
+        }
+        func passes(_ log: RecordingPass.Log) -> [RecordingPass] {
+            let halfRes = RecordingPass("halfRes", .transparent, 0, log: log)
+            halfRes.encodesOnCommandBuffer = true
+            return [RecordingPass("vessel", .opaque, log: log), halfRes, RecordingPass("composite", .transparent, 1, log: log)]
+        }
+        let log = RecordingPass.Log()
+        let plan = Watching(log: log)
+        let list = passes(log)
+        plan.onSetUp = { XCTAssertEqual(list.map(\.setUps), [0, 0, 0], "the plan first") }
+        let r = try SceneRenderer(device: try device(), outputFormat: .bgra8Unorm_srgb, passes: list, plan: plan)
+        XCTAssertEqual(r.failures, [:])
+        XCTAssertEqual(log.entries, ["plan set-up"])
+        XCTAssertEqual(list.map(\.setUps), [1, 1, 1])
+        log.entries = []
+        try render(r)
+        XCTAssertEqual(log.entries, ["begin", "vessel:render", "halfRes:cb", "begin", "composite:render"])
+        guard r.profiler.isSupported else { throw XCTSkip("no timestamp counters on this GPU") }
+        r.profiling = true
+        r.profileInterval = 1
+        log.entries = []
+        try render(r)
+        // The vessel's, the overhead's, the resume's, the composite's.
+        XCTAssertEqual(log.entries, ["begin", "vessel:render", "begin", "halfRes:cb", "begin", "begin", "composite:render"])
+
+        let failing = Watching(log: RecordingPass.Log())
+        failing.fails = true
+        let f = try SceneRenderer(device: try device(), outputFormat: .bgra8Unorm_srgb, passes: passes(failing.log),
+                                  plan: failing)
+        XCTAssertEqual(Array(f.failures.keys), [FrameGraph.planName])
+        XCTAssertEqual(f.graph.active.count, 3)
+        try render(f)
     }
 }

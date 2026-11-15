@@ -1,0 +1,28 @@
+{
+  "goldens": "none",
+  "shots": [
+    {"name": "a2-pad-dawn-sun", "scenario": "apollo8-dawn-pad", "userTextures": true,
+     "reference": "S68-56050, S68-56002", "camera": {"yaw": -60, "pitch": 4, "distance": 260, "fov": 60}},
+    {"name": "a2-pad-dawn-lit", "scenario": "apollo8-dawn-pad", "userTextures": true,
+     "camera": {"yaw": 120, "pitch": 4, "distance": 260, "fov": 60}},
+    {"name": "a2-pad-dawn-wide", "scenario": "apollo8-dawn-pad", "userTextures": true,
+     "camera": {"yaw": 30, "pitch": 1, "distance": 900, "fov": 90}},
+    {"name": "a2-ascent-60s", "scenario": "as506-pad", "advance": ["met:60"], "userTextures": true,
+     "camera": {"yaw": 149, "pitch": -11.5, "distance": 220}},
+    {"name": "a2-ascent-150s", "scenario": "as506-pad", "advance": ["met:150"], "userTextures": true,
+     "camera": {"yaw": 90, "pitch": -5, "distance": 200, "fov": 60}},
+    {"name": "a2-orbit-limb", "scenario": "as506-parking-orbit", "userTextures": true,
+     "camera": {"yaw": -34.4, "pitch": 8, "distance": 70, "fov": 60}},
+    {"name": "a2-orbit-sunset", "scenario": "as506-parking-orbit", "advance": ["wait:1906"], "userTextures": true,
+     "showOrbit": false, "reference": "Apollo 7 and 9 terminator frames",
+     "camera": {"yaw": 107.6, "pitch": 12.5, "distance": 120, "fov": 12}},
+    {"name": "a2-orbit-night", "scenario": "as506-parking-orbit", "advance": ["wait:2400"], "userTextures": true,
+     "camera": {"yaw": 150, "pitch": 30, "distance": 70}},
+    {"name": "a2-earth-from-afar", "scenario": "as506-parking-orbit", "userTextures": true, "showOrbit": false,
+     "camera": {"target": "body:399", "frame": "inertial", "yaw": 223.5, "pitch": 22.9, "distance": 22000000}},
+    {"name": "a2-entry", "scenario": "apollo7-cm-ei", "advance": ["wait:330"], "userTextures": true,
+     "camera": {"yaw": 126, "pitch": 8, "distance": 40, "fov": 60}},
+    {"name": "a2-mains", "scenario": "apollo7-cm-ei", "advance": ["ev:mains deployed", "wait:25"], "userTextures": true,
+     "camera": {"yaw": -149, "pitch": 5.7, "distance": 70}}
+  ]
+}

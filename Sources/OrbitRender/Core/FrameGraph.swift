@@ -26,8 +26,18 @@ public final class FrameGraph {
     /// The pass named `name`, if the graph has it.
     public func pass(named name: String) -> RenderPass? { passes.first { $0.name == name } }
 
+    /// The key of the plan's own set-up error in `failures`.
+    public static let planName = "Target plan"
+
     func setUp(device: MTLDevice, shaders: ShaderLibrary, states: CommonStates) {
         failures = [:]
+        do {
+            try plan.setUp(PassSetup(device: device, shaders: shaders, formats: plan.formats(for: .opaque),
+                                     states: states))
+        } catch {
+            failures[Self.planName] = "\(error)"
+            NSLog("OrbitSim: the target plan's set-up failed: \(error)")
+        }
         for p in passes where p.isEnabled {
             let setup = PassSetup(device: device, shaders: shaders, formats: plan.formats(for: p.stage), states: states)
             do {
@@ -106,7 +116,10 @@ public final class FrameGraph {
             encoder = cb.makeRenderCommandEncoder(descriptor: descriptor)
             encoder?.label = label
             suspended = false
-            if let encoder { f.bindShared(encoder) }
+            if let encoder {
+                f.bindShared(encoder)
+                plan.beginScene(encoder, on: descriptor, f)
+            }
         }
         // While timing: one empty continuation of the scene, whose time is
         // what each split costs (loading and storing the targets); the
