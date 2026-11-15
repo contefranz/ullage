@@ -13,16 +13,22 @@ public struct ParticleSettings: Codable, Equatable {
     public var testBursts: [ParticleTestBurst] = []
     /// The studio's gravity and air.
     public var studio = ParticleStudio()
+    /// The smoke's overdraw budget, in layers of the effect targets: past
+    /// it a seeded share of the puffs is drawn, each denser by as much (the
+    /// design's size LOD, for the pad's thousands of big puffs near the
+    /// camera).
+    public var smokeOverdraw = 6.0
 
     public init() {}
 
-    private enum CodingKeys: String, CodingKey { case quality, testBursts, studio }
+    private enum CodingKeys: String, CodingKey { case quality, testBursts, studio, smokeOverdraw }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         quality = try c.decodeIfPresent(ParticleQuality.self, forKey: .quality) ?? .high
         testBursts = try c.decodeIfPresent([ParticleTestBurst].self, forKey: .testBursts) ?? []
         studio = try c.decodeIfPresent(ParticleStudio.self, forKey: .studio) ?? ParticleStudio()
+        smokeOverdraw = try c.decodeIfPresent(Double.self, forKey: .smokeOverdraw) ?? 6
     }
 }
 

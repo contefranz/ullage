@@ -91,6 +91,11 @@ struct ParticleFrameGPU {
     var counts = SIMD4<UInt32>.zero
     /// Chunks drawn at most, substeps at most, anchors.
     var limits = SIMD4<UInt32>.zero
+    /// 1 culling against the frame's view, pixels per radian at the effect
+    /// targets, the smoke's overdraw budget and the targets' area (texels).
+    var view = SIMD4<Float>.zero
+    /// The volume noise's drift, tiles (`EffectTimeRules.noiseDrift`).
+    var noise = SIMD4<Float>.zero
 }
 
 /// Where a frame's small buffers go: the frame's arena, or the self-test's own.
@@ -155,10 +160,10 @@ public final class ParticleSystem {
 
     /// The counters' slots.
     enum Counter: Int {
-        case free = 0, aliveA, aliveB, drawStreak, drawSmoke, drawChunk, emitted, dropped
+        case free = 0, aliveA, aliveB, drawStreak, drawSmoke, drawChunk, emitted, dropped, smokeArea, smokeKeep
     }
 
-    static let counterCount = 8
+    static let counterCount = 10
     /// The indirect draws' offsets in `arguments`, by render class.
     static func drawArgumentsOffset(_ c: ParticleRenderClass) -> Int { 16 + 16 * c.index }
 
@@ -228,11 +233,9 @@ public final class ParticleSystem {
         plan = nil
         guard library != nil else { return nil }
         let settings = f.settings.particle
+        // Off: nothing runs, and the particles wait as they are.
         let want = settings.quality.capacity
-        if want == 0 {
-            if capacity != 0 { capacity = 0 }
-            return nil
-        }
+        if want == 0 { return nil }
         if want != capacity || particles == nil { guard allocate(want) else { return nil } }
         plan = makePlan(director.frame(f.scene, settings: settings), settings: settings)
         return plan
@@ -258,12 +261,28 @@ public final class ParticleSystem {
     /// The frame's kernels, on a compute encoder of the pass's own.
     func encodeSimulation(_ f: FrameContext) {
         guard let p = plan(for: f), p.works, let enc = f.makeComputeEncoder() else { return }
-        encode(p, uploads: f.arena, encoder: enc)
+        f.bindFrameUniforms(enc)
+        encode(p, uploads: f.arena, encoder: enc, view: Self.view(f, settings: p.settings))
         enc.endEncoding()
     }
 
-    /// Encodes `plan` on `enc` with its small buffers from `uploads`.
-    func encode(_ plan: Plan, uploads: ParticleUploads, encoder enc: MTLComputeCommandEncoder) {
+    /// ParticleFrame's `view` for frame `f`: culling on, the effect targets'
+    /// pixels per radian and area, and the smoke's budget, `smokeOverdraw`
+    /// layers of them.
+    static func view(_ f: FrameContext, settings: ParticleSettings) -> SIMD4<Float> {
+        let scale = f.settings.transparency.resolution.scale
+        let t = EffectSlots.targetSize(width: f.size.width, height: f.size.height, scale: scale)
+        let texels = Double(t.width * t.height)
+        return SIMD4(1, Float(f.scene.camera.pixelsPerRadian * Double(f.size.height) / max(f.scene.camera.viewport.height, 1)
+                                  / Double(scale)),
+                     Float(settings.smokeOverdraw * texels), Float(texels))
+    }
+
+    /// Encodes `plan` on `enc` with its small buffers from `uploads`. The
+    /// frame uniforms must be bound (buffer 30); `view` zero draws every
+    /// particle (the self-test).
+    func encode(_ plan: Plan, uploads: ParticleUploads, encoder enc: MTLComputeCommandEncoder,
+                view: SIMD4<Float> = .zero) {
         bindings = nil
         guard let particles, let freeList, let drawLists, let counters, let arguments, alive.count == 2,
               let reset = pipelines["particle_reset"], let begin = pipelines["particle_begin"],
@@ -286,6 +305,9 @@ public final class ParticleSystem {
                            out.clock.advances ? 1 : 0)
         frame.counts = SIMD4(UInt32(capacity), UInt32(total), UInt32(requests.count), UInt32(current))
         frame.limits = SIMD4(UInt32(ParticleBudget.chunks), UInt32(ParticlePhysics.maxSubsteps), UInt32(anchors.count), 0)
+        frame.view = view
+        let drift = EffectTimeRules.noiseDrift(out.clock.turbulenceTime)
+        frame.noise = SIMD4(Float(drift.x), Float(drift.y), Float(drift.z), 0)
         guard let fb = uploads.upload([frame]),
               let mb = uploads.upload(materials.isEmpty ? [ParticleMaterialGPU(.smoke)] : materials),
               let ab = uploads.upload(anchors), let pb = uploads.upload(AirProfilesGPU.pack(out.airProfiles)) else { return }
@@ -331,8 +353,9 @@ public final class ParticleSystem {
     /// Binds the particles, the draw lists and the frame's anchors,
     /// materials and uniforms (buffers 0-4) on a render encoder.
     func bindDraw(_ enc: MTLRenderCommandEncoder) -> Bool {
-        guard let particles, let drawLists, let b = bindings else { return false }
+        guard let particles, let drawLists, let counters, let b = bindings else { return false }
         enc.setVertexBuffer(particles, offset: 0, index: 0)
+        enc.setVertexBuffer(counters, offset: 0, index: 5)
         enc.setVertexBuffer(drawLists, offset: 0, index: 1)
         enc.setVertexBuffer(b.anchors.buffer, offset: b.anchors.offset, index: 2)
         enc.setVertexBuffer(b.materials.buffer, offset: b.materials.offset, index: 3)
@@ -344,7 +367,8 @@ public final class ParticleSystem {
     /// Draws `c`'s list, its count from the GPU.
     func draw(_ c: ParticleRenderClass, on enc: MTLRenderCommandEncoder) {
         guard let arguments else { return }
-        enc.drawPrimitives(type: .triangle, indirectBuffer: arguments, indirectBufferOffset: Self.drawArgumentsOffset(c))
+        enc.drawPrimitives(type: c == .chunk ? .triangle : .triangleStrip, indirectBuffer: arguments,
+                           indirectBufferOffset: Self.drawArgumentsOffset(c))
     }
 
     // MARK: Reading back (self-test, tests)

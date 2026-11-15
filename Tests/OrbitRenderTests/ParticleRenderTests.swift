@@ -64,6 +64,86 @@ final class ParticleRenderTests: XCTestCase {
         XCTAssertFalse(nonePasses.contains("Half-resolution transparents"))
     }
 
+    /// A small studio shot in the inertial frame, its camera `distance` m
+    /// out from the target along `direction` (ICRF), at a manual EV.
+    func studioShot(_ bursts: [ParticleTestBurst], from direction: Vec3, distance: Double, ev: Double) -> SnapshotSpec.Shot {
+        var shot = SnapshotSpec.Shot(name: "p3-test", scenario: "leo")
+        shot.width = 320
+        shot.height = 200
+        shot.showOrbit = false
+        let deg = 180 / Double.pi, d = direction.normalized
+        shot.camera = SnapshotSpec.CameraSpec(frame: "inertial", yaw: atan2(-d.y, d.x) * deg, pitch: asin(d.z) * deg,
+                                              distance: distance, fov: 40)
+        shot.settings.post.exposure.mode = .manual
+        shot.settings.post.exposure.ev100 = ev
+        shot.settings.transparency.testBackdrop = true
+        shot.settings.particle.testBursts = bursts
+        return shot
+    }
+
+    /// The frame's light summed over the image, cd/m² (the backdrop is black).
+    func totalLight(_ shot: SnapshotSpec.Shot) throws -> Double {
+        let out = try snapper().render(shot)
+        let light = try XCTUnwrap(out.light)
+        return stride(from: 0, to: light.count, by: 4).reduce(0.0) { $0 + Double(light[$1] + light[$1 + 1] + light[$1 + 2]) }
+    }
+
+    /// A spark's light is the same however it moves relative to the line of
+    /// sight: straight at the camera (a round dot), at 45° and across it (a
+    /// streak). The capsule is drawn across the line of sight and its flux
+    /// spread over what is drawn. (A dim exposure keeps every sample far
+    /// below the MSAA resolve's highlight weighting.)
+    func testStreakFluxDoesNotDependOnTheViewAngle() throws {
+        let s = try snapper()
+        let probe = studioShot([], from: Vec3(1, 0.3, 0.2), distance: 30, ev: 20)
+        let scene = probe.scene(try probe.prepare(system: s.system))
+        let t = EffectTargetFrame(scene: scene)
+        let ray = t.origin.normalized                      // camera to target
+        let view = Vec3(ray.dot(t.east), ray.dot(t.north), ray.dot(t.up))
+        var across = view.cross(Vec3(0, 0, 1))
+        if across.length < 1e-3 { across = view.cross(Vec3(1, 0, 0)) }
+        across = across.normalized
+        var sums: [Double] = []
+        for direction in [-view, (-view + across).normalized, across] {
+            var b = ParticleTestBurst()
+            b.material = "spark"
+            b.count = 1
+            b.axis = [direction.x, direction.y, direction.z]
+            b.spread = 0
+            b.speed = [60, 60]
+            b.radius = [0.005, 0.005]
+            b.lifetime = [2, 2]
+            b.ages = [0, 0]
+            b.temperature = 2_600
+            sums.append(try totalLight(studioShot([b], from: Vec3(1, 0.3, 0.2), distance: 30, ev: 20)))
+        }
+        XCTAssertGreaterThan(sums[2], 0)
+        for (angle, sum) in zip([0, 45], sums) {
+            XCTAssertEqual(sum, sums[2], accuracy: 0.1 * sums[2], "at \(angle)° to the line of sight: \(sums)")
+        }
+    }
+
+    /// Chunks are lit on one side, as the vessels: seen against the Sun,
+    /// their faces turned from it get only the sky (none above the air) and
+    /// the floor, not sunlight.
+    func testBacklitChunksAreDark() throws {
+        let s = try snapper()
+        let probe = studioShot([], from: Vec3(1, 0, 0), distance: 25, ev: 15)
+        let sun = probe.scene(try probe.prepare(system: s.system)).sun.direction
+        var b = ParticleTestBurst()
+        b.material = "debris"
+        b.count = 200
+        b.shape = "ball"
+        b.size = 5
+        b.radius = [0.3, 0.6]
+        b.lifetime = [60, 60]
+        b.ages = [1, 1]
+        let front = try totalLight(studioShot([b], from: sun, distance: 25, ev: 15))
+        let back = try totalLight(studioShot([b], from: -sun, distance: 25, ev: 15))
+        XCTAssertGreaterThan(front, 0)
+        XCTAssertLessThan(back, 0.2 * front, "backlit \(back) against front-lit \(front)")
+    }
+
     /// Every look-dev shot's light is finite and not negative, and each
     /// draws something over its black backdrop.
     func testLightIsFiniteAndDrawn() throws {

@@ -467,6 +467,91 @@ final class ParticleEffectsTests: XCTestCase {
         XCTAssertEqual(anchors.last, 0, "\(anchors)")
     }
 
+    /// The noise drifts a whole number of tiles in the turbulence clock's
+    /// hour, so the puffs' erosion does not jump when it wraps.
+    func testNoiseDriftIsWholeAcrossTheWrap() {
+        let period = EffectTimeRules.turbulencePeriod
+        for t in [0.5, 1_234.5, 3_599.99] {
+            let a = EffectTimeRules.noiseDrift(t), b = EffectTimeRules.noiseDrift(t - period)
+            for (x, y) in [(a.x, b.x), (a.y, b.y), (a.z, b.z)] {
+                let d = abs(x - y)
+                XCTAssertLessThan(min(d, 1 - d), 1e-9, "at \(t) s")
+            }
+        }
+        let r = EffectTimeRules.noiseDriftRate
+        for rate in [r.0, r.1, r.2] { XCTAssertEqual(rate * period, (rate * period).rounded(), accuracy: 1e-9) }
+    }
+
+    /// Across a change of reference body (a sphere of influence) the
+    /// velocities are not differenced: no spurious acceleration for that
+    /// frame's continuous particles.
+    func testNoAccelerationAcrossASphereOfInfluence() throws {
+        let (sim, camera) = try open("leo")
+        let session = EffectSession()
+        var scene = SceneExtractor().extract(sim: sim, camera: camera, viewport: Self.viewport, realTime: 0)
+        _ = session.frame(scene, settings: ParticleSettings())
+        let id = try XCTUnwrap(scene.vessels.first?.id)
+        scene.clock.frameIndex += 1
+        scene.clock.simTime = scene.clock.simTime + 1.0 / 60
+        scene.vessels[0].referenceBodyID = 301
+        scene.vessels[0].velocity = scene.vessels[0].velocity + Vec3(1_000, 0, 0)
+        _ = session.frame(scene, settings: ParticleSettings())
+        XCTAssertEqual(session.thrustAcceleration(of: id), .zero)
+        // The next frame about the Moon differences again.
+        scene.clock.frameIndex += 1
+        scene.clock.simTime = scene.clock.simTime + 1.0 / 60
+        _ = session.frame(scene, settings: ParticleSettings())
+        XCTAssertLessThan(session.thrustAcceleration(of: id).length, 10)
+    }
+
+    /// A retired anchor's slot is not handed out again on the next frame,
+    /// so the GPU sees it empty, and kills its particles, before a new
+    /// anchor could adopt them.
+    func testRetiredSlotCoolsDown() throws {
+        let (sim, camera) = try open("leo")
+        final class EveryFrame: EffectProducer {
+            let name = "every frame"
+            var material = ParticleMaterialID(0)
+            func registerMaterials(_ table: ParticleMaterialTable) { material = table.register(.spark) }
+            func update(_ f: EffectFrame) {
+                guard let a = f.anchor(.studio(StudioAnchor())) else { return }
+                var r = EmitRequest(anchor: a, material: material, count: 1)
+                r.lifetime = 0.01...0.01
+                f.emit(r)
+            }
+        }
+        let session = EffectSession(producers: [EveryFrame()])
+        var scene = SceneExtractor().extract(sim: sim, camera: camera, viewport: Self.viewport, realTime: 0)
+        var slotsByFrame: [Set<Int>] = []
+        for _ in 0..<12 {
+            scene.clock.frameIndex += 1
+            scene.clock.simTime = scene.clock.simTime + 1.0 / 60
+            slotsByFrame.append(Set(session.frame(scene, settings: ParticleSettings()).anchors.map(\.id.slot)))
+        }
+        let gone = try XCTUnwrap(slotsByFrame.firstIndex { !$0.contains(0) }, "slot 0 retires")
+        XCTAssertFalse(slotsByFrame[gone + 1].contains(0), "not handed out the frame after it retired")
+        XCTAssertTrue(slotsByFrame[(gone + 2)...].contains { $0.contains(0) }, "but afterwards")
+    }
+
+    /// A free-fall anchor's environment: it falls at the body's gravity and
+    /// moves at its own velocity (ω × r − the air's, r up its radius: within
+    /// the geodetic and geocentric verticals' difference).
+    func testFreeFallAnchorEnvironment() throws {
+        let (sim, camera) = try open("as506-parking-orbit")
+        let scene = SceneExtractor().extract(sim: sim, camera: camera, viewport: Self.viewport, realTime: 0)
+        let v = try XCTUnwrap(scene.vessels.first)
+        let earth = try XCTUnwrap(scene.bodies.first { $0.id == 399 })
+        let anchor = EffectAnchor.freeFall(bodyID: 399, position: v.position - earth.position, velocity: v.velocity,
+                                           epoch: scene.clock.simTime)
+        let frame = try XCTUnwrap(anchor.frame(in: scene, airProfile: { _ in nil }, studioProfile: nil,
+                                               iceTemperature: { _ in 200 }))
+        let env = frame.environment
+        XCTAssertEqual(env.frameAcceleration, frame.gravity)
+        XCTAssertEqual((env.frameVelocity - v.velocity).length, 0, accuracy: 3)
+        XCTAssertEqual((env.frameDisplacement(at: -2) - (v.velocity * -2 + frame.gravity * 2)).length, 0, accuracy: 6)
+        XCTAssertEqual(frame.air(at: .zero, profile: nil), .vacuum)
+    }
+
     // MARK: Materials and settings
 
     func testMaterialTable() {

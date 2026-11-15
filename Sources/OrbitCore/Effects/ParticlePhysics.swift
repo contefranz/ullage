@@ -96,17 +96,33 @@ public enum ParticlePhysics {
     public struct Environment: Equatable {
         public var gravity: Vec3
         public var frameAcceleration: Vec3
+        /// The anchor's velocity relative to the body at the frame's epoch,
+        /// in its axes (zero for a body-fixed one): a moving anchor was
+        /// elsewhere earlier in the step, so the air a particle met then is
+        /// looked up where the particle was, not where the anchor is now.
+        public var frameVelocity: Vec3
         public var vacuumIceTemperature: Double
 
-        public init(gravity: Vec3, frameAcceleration: Vec3 = .zero, vacuumIceTemperature: Double = 200) {
+        public init(gravity: Vec3, frameAcceleration: Vec3 = .zero, frameVelocity: Vec3 = .zero,
+                    vacuumIceTemperature: Double = 200) {
             self.gravity = gravity
             self.frameAcceleration = frameAcceleration
+            self.frameVelocity = frameVelocity
             self.vacuumIceTemperature = vacuumIceTemperature
         }
 
-        /// A free-fall anchor's: it falls at the body's gravity.
-        public static func freeFall(gravity: Vec3, vacuumIceTemperature: Double = 200) -> Environment {
-            Environment(gravity: gravity, frameAcceleration: gravity, vacuumIceTemperature: vacuumIceTemperature)
+        /// A free-fall anchor's: it falls at the body's gravity, moving at
+        /// `velocity` at the frame's epoch.
+        public static func freeFall(gravity: Vec3, velocity: Vec3 = .zero, vacuumIceTemperature: Double = 200)
+            -> Environment {
+            Environment(gravity: gravity, frameAcceleration: gravity, frameVelocity: velocity,
+                        vacuumIceTemperature: vacuumIceTemperature)
+        }
+
+        /// Where the anchor was at time `t` (s from the frame's epoch,
+        /// negative before it), relative to where it is then, in its axes.
+        public func frameDisplacement(at t: Double) -> Vec3 {
+            frameVelocity * t + frameAcceleration * (0.5 * t * t)
         }
     }
 
@@ -189,8 +205,10 @@ public enum ParticlePhysics {
 
     /// The particle after `dt` s. `air` gives the air at a position at the
     /// end of the advance (the frame's epoch: the GPU looks it up in the
-    /// anchor's altitude table); in a falling frame the air's velocity at
-    /// time t before then was that plus `frameAcceleration` × t. The advance
+    /// anchor's altitude table). The air a particle meets at time t before
+    /// then is looked up where it then was, `frameDisplacement(at: t)` from
+    /// its position in the anchor (which moved since), and in a falling
+    /// frame its velocity was that plus `frameAcceleration` × t. The advance
     /// takes the pieces `schedule` gives, each:
     /// 1. drag and buoyancy on the slip through the air, P1's exact linear
     ///    step, re-linearised about the mean of the slip speeds at the start
@@ -206,7 +224,8 @@ public enum ParticlePhysics {
     public static func advance(_ s: State, material m: Material, environment e: Environment, dt: Double,
                                air: (Vec3) -> Air) -> State {
         guard dt > 0 else { return s }
-        var a = air(s.position)
+        func look(_ p: Vec3, _ t: Double) -> Air { air(p + e.frameDisplacement(at: t)) }
+        var a = look(s.position, -dt)
         let plan = schedule(dt: dt, shortest: shortestTime(s, material: m, environment: e, air: a, at: -dt))
         var state = s, elapsed = 0.0, h = plan.first
         for k in 0..<plan.count {
@@ -215,7 +234,7 @@ public enum ParticlePhysics {
             state = substep(state, material: m, environment: e, dt: step, air: a, at: elapsed - dt)
             elapsed += step
             h *= plan.ratio
-            let next = air(state.position)
+            let next = look(state.position, elapsed - dt)
             if m.density <= 0, !a.isVacuum, !next.isVacuum, a.pressure > 0, next.pressure > 0 {
                 state.temperature *= pow(next.pressure / a.pressure, adiabaticExponent)
             }

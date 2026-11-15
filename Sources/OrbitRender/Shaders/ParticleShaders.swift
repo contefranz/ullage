@@ -54,6 +54,9 @@ struct ParticleFrame {
     float4 time;             // x: dt (s), y: turbulence time (s), z: 1 holds flashes, w: 1 advances
     uint4 counts;            // x: capacity, y: particles to emit, z: requests, w: the current alive list (0 or 1)
     uint4 limits;            // x: chunks drawn at most, y: substeps at most, z: anchors
+    float4 view;             // x: 1 culls against the frame's view (FrameUniforms), y: pixels per radian at the effect
+                             // targets, z: the smoke's overdraw budget (effect texels), w: the effect targets' texels
+    float4 noise;            // xyz: the volume noise's drift on the turbulence clock (tiles, EffectTimeRules.noiseDrift)
 };
 
 #define PARTICLE_COUNTER_FREE 0
@@ -61,7 +64,10 @@ struct ParticleFrame {
 #define PARTICLE_COUNTER_DRAW 3       // + render class
 #define PARTICLE_COUNTER_EMITTED 6
 #define PARTICLE_COUNTER_DROPPED 7
-#define PARTICLE_COUNTERS 8
+#define PARTICLE_COUNTER_SMOKE_AREA 8  // the drawn puffs' area at the effect targets, in 256 texels
+#define PARTICLE_COUNTER_SMOKE_KEEP 9  // the share of puffs drawn, × 2^24 (the overdraw budget's thinning)
+#define PARTICLE_COUNTERS 10
+#define PARTICLE_KEEP_ONE 16777216.0
 #define PARTICLE_CLASS_STREAK 0
 #define PARTICLE_CLASS_SMOKE 1
 #define PARTICLE_CLASS_CHUNK 2
@@ -74,6 +80,7 @@ struct ParticleFrame {
 #define PARTICLE_FLASH_HOLD_FRAMES 3u
 #define PARTICLE_ADIABATIC 0.2857             // R / cp of dry air
 #define PARTICLE_EXPANSION 0.4                // γ - 1 of a cloud spreading into vacuum
+#define PARTICLE_STREAK_MIN_PIXELS 3.0        // a streak's least width
 
 inline uint particle_materialIndex(uint p) { return p & 63u; }
 inline uint particle_anchorIndex(uint p) { return (p >> 6) & 255u; }
@@ -279,11 +286,25 @@ inline float particle_logLinear(float a, float b, float w) {
     return a > 1e-30 && b > 1e-30 ? exp(mix(log(a), log(b), w)) : mix(a, b, w);
 }
 
-// The air at p (AirProfile.sample, then the anchor's own motion).
-inline ParticleAir particle_air(device const ParticleAnchor &an, device const float4 *profiles, float3 p) {
+// Where a free-fall anchor was at time t (s from the frame's epoch,
+// negative before it), from where it is then: v t + ½ g t², its velocity
+// v = ω × r − air (AnchorFrame.environment's frameVelocity); zero for the others.
+inline float3 particle_frameDisplacement(device const ParticleAnchor &an, float t) {
+    if (an.toWorld0.w < 0.5) { return float3(0.0); }
+    float3 v = cross(an.rotation.xyz, an.up.xyz * an.north.w) - an.air.xyz;
+    return v * t + 0.5 * an.gravity.xyz * t * t;
+}
+
+// The air a particle at p met at time t (s from the frame's epoch):
+// AnchorFrame.air(at:) where the particle then was, p plus the anchor's
+// displacement since, so a parcel in a climbing or falling anchor reads the
+// profile at its own altitude. The velocity is the epoch's; airMotion
+// carries it back to t.
+inline ParticleAir particle_air(device const ParticleAnchor &an, device const float4 *profiles, float3 p0, float t) {
     ParticleAir o = particle_vacuum();
     int profile = int(an.gravity.w);
     if (profile < 0) { return o; }
+    float3 p = p0 + particle_frameDisplacement(an, t);
     float h = max(particle_altitude(an, p), 0.0);
     if (h >= PARTICLE_AIR_TOP) { return o; }
     float u = sqrt(h / PARTICLE_AIR_TOP) * float(PARTICLE_AIR_LEVELS - 1);
@@ -309,7 +330,7 @@ inline ParticleState particle_advance(ParticleState s, device const ParticleMate
                                       device const float4 *profiles, float dt, int most) {
     if (dt <= 0.0) { return s; }
     float3 frameAcceleration = an.toWorld0.w > 0.5 ? an.gravity.xyz : float3(0.0);
-    ParticleAir a = particle_air(an, profiles, s.position);
+    ParticleAir a = particle_air(an, profiles, s.position, -dt);
     float3 plan = particle_schedule(dt, particle_shortest(s, m, an.gravity.xyz, frameAcceleration, a, -dt), most);
     int count = int(plan.z);
     float elapsed = 0.0, h = plan.x;
@@ -319,7 +340,7 @@ inline ParticleState particle_advance(ParticleState s, device const ParticleMate
         s = particle_substep(s, m, an.gravity.xyz, frameAcceleration, an.rotation.w, a, step, elapsed - dt);
         elapsed += step;
         h *= plan.y;
-        ParticleAir next = particle_air(an, profiles, s.position);
+        ParticleAir next = particle_air(an, profiles, s.position, elapsed - dt);
         if (m.motion.x <= 0.0 && a.density > 0.0 && next.density > 0.0 && a.pressure > 0.0 && next.pressure > 0.0) {
             s.temperature *= pow(next.pressure / a.pressure, PARTICLE_ADIABATIC);
         }
@@ -444,18 +465,69 @@ kernel void particle_begin(device atomic_uint *counters [[buffer(1)]],
     for (uint c = 0; c < 3; c++) { atomic_store_explicit(&counters[PARTICLE_COUNTER_DRAW + c], 0u, memory_order_relaxed); }
     atomic_store_explicit(&counters[PARTICLE_COUNTER_EMITTED], 0u, memory_order_relaxed);
     atomic_store_explicit(&counters[PARTICLE_COUNTER_DROPPED], 0u, memory_order_relaxed);
+    atomic_store_explicit(&counters[PARTICLE_COUNTER_SMOKE_AREA], 0u, memory_order_relaxed);
 }
 
-// Appends a live particle to the next alive list and its class's draw list.
-inline void particle_append(uint index, uint renderClass, device uint *aliveOut, device uint *drawLists,
-                            device atomic_uint *counters, constant ParticleFrame &pf) {
+inline float particle_phase(float cosTheta, float g);
+inline float3 particle_emission(device const ParticleMaterial &m, float temperature);
+inline float particle_fade(device const ParticleMaterial &m, float age, float lifetime);
+
+// Whether a live particle is drawn this frame (it is simulated either way):
+// in the view, a streak's length and all; a streak bright enough to see at
+// this exposure (its glint taken with the Sun above any air, an upper
+// bound). `area` is a smoke puff's at the effect targets, texels.
+inline bool particle_drawn(float3 p, float3 v, float radius, float temperature, float age, float lifetime,
+                           device const ParticleMaterial &m, device const ParticleAnchor &an,
+                           constant ParticleFrame &pf, constant FrameUniforms &frame, thread float &area) {
+    area = 0.0;
+    if (pf.view.x < 0.5) { return true; }
+    float3x3 toWorld = float3x3(an.toWorld0.xyz, an.toWorld1.xyz, an.toWorld2.xyz);
+    float3 world = an.origin.xyz + toWorld * p;
+    uint c = min(uint(m.albedo.w), 2u);
+    float speed = length(v);
+    float reach = radius + (c == PARTICLE_CLASS_STREAK ? speed * m.shape.x : 0.0);
+    float3 q = (frame.view * float4(world, 0.0)).xyz;
+    float depth = -q.z;
+    if (depth < -reach) { return false; }
+    float ty = frame.camera.y, tx = ty * frame.camera.z;
+    if (abs(q.x) - reach * sqrt(1.0 + tx * tx) > depth * tx) { return false; }
+    if (abs(q.y) - reach * sqrt(1.0 + ty * ty) > depth * ty) { return false; }
+    if (c == PARTICLE_CLASS_STREAK) {
+        float d = max(depth, frame.camera.x);
+        float width = max(2.0 * radius, PARTICLE_STREAK_MIN_PIXELS * d * 2.0 * ty * frame.viewport.w), h = 0.5 * width;
+        // The trail across the line of sight, as the streak draws it.
+        float3 ray = normalize(world), trail = (toWorld * v) * m.shape.x;
+        float len = length(trail - ray * dot(trail, ray));
+        float coverage = M_PI_F * radius * radius / (16.0 / 15.0 * h * len + M_PI_F / 3.0 * h * h);
+        float shown = age < lifetime ? age : 0.5 * lifetime;
+        float3 glint = m.albedo.rgb * frame.sunIlluminance.rgb
+            * particle_phase(dot(frame.sunDirection.xyz, normalize(world)), m.look.y);
+        float3 light = (particle_emission(m, temperature) + glint) * particle_fade(m, shown, lifetime);
+        // Its brightest, pre-exposed, against a tenth of an 8-bit step.
+        if (max(light.r, max(light.g, light.b)) * coverage * frame.exposure.x < 4e-4) { return false; }
+    }
+    if (c == PARTICLE_CLASS_SMOKE) {
+        float rp = radius / max(depth, radius) * pf.view.y;
+        area = min(M_PI_F * rp * rp, pf.view.w);
+    }
+    return true;
+}
+
+// Appends a live particle to the next alive list and, drawn, to its class's
+// draw list, a puff's area to the smoke's sum.
+inline void particle_append(uint index, uint renderClass, bool drawn, float area, device uint *aliveOut,
+                            device uint *drawLists, device atomic_uint *counters, constant ParticleFrame &pf) {
     uint next = 1u - pf.counts.w;
     uint k = atomic_fetch_add_explicit(&counters[PARTICLE_COUNTER_ALIVE + next], 1u, memory_order_relaxed);
     aliveOut[k] = index;
+    if (!drawn) { return; }
     uint c = min(renderClass, 2u);
     uint d = atomic_fetch_add_explicit(&counters[PARTICLE_COUNTER_DRAW + c], 1u, memory_order_relaxed);
     uint most = c == PARTICLE_CLASS_CHUNK ? pf.limits.x : pf.counts.x;
     if (d < most) { drawLists[c * pf.counts.x + d] = index; }
+    if (area > 0.0) {
+        atomic_fetch_add_explicit(&counters[PARTICLE_COUNTER_SMOKE_AREA], uint(ceil(area / 256.0)), memory_order_relaxed);
+    }
 }
 
 inline bool particle_dead(ParticleState s, float age, float lifetime, uint shown, device const ParticleMaterial &m,
@@ -477,6 +549,7 @@ kernel void particle_simulate(device Particle *particles [[buffer(0)]],
                               device const ParticleMaterial *materials [[buffer(7)]],
                               device const ParticleAnchor *anchors [[buffer(8)]],
                               device const float4 *profiles [[buffer(9)]],
+                              constant FrameUniforms &frame [[buffer(ORBIT_BUFFER_FRAME)]],
                               uint id [[thread_position_in_grid]]) {
     uint count = atomic_load_explicit(&counters[PARTICLE_COUNTER_ALIVE + pf.counts.w], memory_order_relaxed);
     if (id >= count) { return; }
@@ -513,7 +586,9 @@ kernel void particle_simulate(device Particle *particles [[buffer(0)]],
     p.state.y = s.temperature;
     p.packed = particle_pack(mi, ai, shown, particle_lookSeed(p.packed));
     particles[index] = p;
-    particle_append(index, uint(m.albedo.w), aliveOut, drawLists, counters, pf);
+    float area;
+    bool drawn = particle_drawn(s.position, s.velocity, s.radius, s.temperature, age, lifetime, m, an, pf, frame, area);
+    particle_append(index, uint(m.albedo.w), drawn, area, aliveOut, drawLists, counters, pf);
 }
 
 kernel void particle_emit(device Particle *particles [[buffer(0)]],
@@ -526,6 +601,7 @@ kernel void particle_emit(device Particle *particles [[buffer(0)]],
                           device const ParticleAnchor *anchors [[buffer(8)]],
                           device const float4 *profiles [[buffer(9)]],
                           device const ParticleRequest *requests [[buffer(10)]],
+                          constant FrameUniforms &frame [[buffer(ORBIT_BUFFER_FRAME)]],
                           uint id [[thread_position_in_grid]]) {
     if (id >= pf.counts.y || pf.counts.z == 0u) { return; }
     // The request this particle belongs to: the last whose first index is at most id.
@@ -551,7 +627,7 @@ kernel void particle_emit(device Particle *particles [[buffer(0)]],
     s.position = sp.position;
     s.velocity = sp.velocity;
     s.radius = sp.radius;
-    s.temperature = r.shape.w > 0.0 ? r.shape.w : particle_air(an, profiles, sp.position).temperature;
+    s.temperature = r.shape.w > 0.0 ? r.shape.w : particle_air(an, profiles, sp.position, -sp.age).temperature;
     s = particle_advance(s, m, an, profiles, sp.age, int(pf.limits.y));
     uint shown = sp.age >= sp.lifetime ? 1u : 0u;
     if (s.radius <= 0.0 || orbit_isNotFinite(s.position) || orbit_isNotFinite(s.velocity)) { return; }
@@ -570,7 +646,10 @@ kernel void particle_emit(device Particle *particles [[buffer(0)]],
     p.packed = particle_pack(mi, ai, shown, sp.seed >> 16);
     particles[index] = p;
     atomic_fetch_add_explicit(&counters[PARTICLE_COUNTER_EMITTED], 1u, memory_order_relaxed);
-    particle_append(index, uint(m.albedo.w), aliveOut, drawLists, counters, pf);
+    float area;
+    bool drawn = particle_drawn(s.position, s.velocity, s.radius, s.temperature, sp.age, sp.lifetime, m, an, pf, frame,
+                                area);
+    particle_append(index, uint(m.albedo.w), drawn, area, aliveOut, drawLists, counters, pf);
 }
 
 // The next frame's simulate dispatch and this frame's draws.
@@ -585,7 +664,8 @@ kernel void particle_compact(device atomic_uint *counters [[buffer(1)]],
     args[1] = 1u;
     args[2] = 1u;
     args[3] = 0u;
-    uint vertices[3] = {6u, 6u, 36u};
+    // Streaks and smoke are 4-vertex triangle strips; chunks 36-vertex triangles.
+    uint vertices[3] = {4u, 4u, 36u};
     for (uint c = 0; c < 3; c++) {
         uint drawn = atomic_load_explicit(&counters[PARTICLE_COUNTER_DRAW + c], memory_order_relaxed);
         uint most = c == PARTICLE_CLASS_CHUNK ? pf.limits.x : pf.counts.x;
@@ -594,6 +674,12 @@ kernel void particle_compact(device atomic_uint *counters [[buffer(1)]],
         args[6 + 4 * c] = 0u;
         args[7 + 4 * c] = 0u;
     }
+    // The smoke's overdraw budget: past it, a seeded share of the puffs is
+    // drawn, each with its optical depth divided by that share, so the
+    // transmittance through the cloud is kept (in expectation).
+    float area = float(atomic_load_explicit(&counters[PARTICLE_COUNTER_SMOKE_AREA], memory_order_relaxed)) * 256.0;
+    float keep = area > pf.view.z && pf.view.z > 0.0 ? pf.view.z / area : 1.0;
+    atomic_store_explicit(&counters[PARTICLE_COUNTER_SMOKE_KEEP], uint(keep * PARTICLE_KEEP_ONE), memory_order_relaxed);
 }
 
 // --------------------------------------------------------------- looks ---
@@ -639,7 +725,8 @@ inline float particle_fade(device const ParticleMaterial &m, float age, float li
 
 // Emission following (T / T0)^4.
 inline float3 particle_emission(device const ParticleMaterial &m, float temperature) {
-    float k = m.emission.w > 0.0 ? pow(max(temperature, 0.0) / m.emission.w, 4.0) : 1.0;
+    float t = m.emission.w > 0.0 ? max(temperature, 0.0) / m.emission.w : 1.0, t2 = t * t;
+    float k = t2 * t2;
     return m.emission.rgb * min(k, 64.0);
 }
 
@@ -660,7 +747,9 @@ inline float3 particle_sun(constant FrameUniforms &frame, constant AtmosphereUni
 
 // ------------------------------------------------------------- streaks ---
 // Additive, full resolution, after the effect composite: a quad along the
-// motion over the material's streak time, at least 1.5 pixels wide, its
+// motion over the material's streak time, at least 3 pixels wide (its
+// profile is shaded once a pixel: shaded at pixel centres, a dot 2.5 pixels
+// wide keeps its integral only to 13 %, 3 pixels to 3 %), its
 // light spread so the particle's flux is kept however thin it is drawn.
 
 struct ParticleStreakOut {
@@ -678,7 +767,7 @@ vertex ParticleStreakOut particle_streak_vertex(uint vid [[vertex_id]], uint iid
                                                 constant ParticleFrame &pf [[buffer(4)]],
                                                 constant FrameUniforms &frame [[buffer(ORBIT_BUFFER_FRAME)]],
                                                 constant AtmosphereUniforms &atmosphere [[buffer(ORBIT_BUFFER_ATMOSPHERE)]]) {
-    float2 corners[6] = {float2(-1, 0), float2(1, 0), float2(-1, 1), float2(1, 0), float2(1, 1), float2(-1, 1)};
+    float2 corners[4] = {float2(-1, 0), float2(1, 0), float2(-1, 1), float2(1, 1)};   // a triangle strip
     ParticleView p = particle_view(particles, lists[PARTICLE_CLASS_STREAK * pf.counts.x + iid], anchors);
     device const ParticleMaterial &m = materials[p.material];
     device const ParticleAnchor &an = anchors[p.anchor];
@@ -693,8 +782,12 @@ vertex ParticleStreakOut particle_streak_vertex(uint vid [[vertex_id]], uint iid
         return o;
     }
     float pixel = depth * 2.0 * frame.camera.y * frame.viewport.w;
-    float width = max(2.0 * p.radius, 1.5 * pixel);
+    float width = max(2.0 * p.radius, PARTICLE_STREAK_MIN_PIXELS * pixel);
+    // The trail across the line of sight: a streak seen end-on is a round
+    // dot, and the flux below is spread over what is drawn, at any angle.
     float3 trail = (frame.view * float4(p.velocity, 0.0)).xyz * m.shape.x;
+    float3 ray = normalize(c);
+    trail -= ray * dot(trail, ray);
     float len = length(trail);
     float3 along, side;
     if (len > 0.25 * width) {
@@ -714,10 +807,12 @@ vertex ParticleStreakOut particle_streak_vertex(uint vid [[vertex_id]], uint iid
     o.uv = k;
     o.cap = 0.5 * width / total;
     // The particle's flux spread over the capsule: its disc's area over the
-    // profile's integral, (1 - d²) about the core, d in half-widths: (4/3) h L
-    // along the length and (π/2) h² for the two caps.
+    // profile's integral, (1 - d²)² about the core, d in half-widths:
+    // (16/15) h L along the length and (π/3) h² for the two caps. The
+    // profile falls smoothly to nothing, so shading it once a pixel keeps
+    // its integral.
     float h = 0.5 * width;
-    float coverage = M_PI_F * p.radius * p.radius / (4.0 / 3.0 * h * len + 0.5 * M_PI_F * h * h);
+    float coverage = M_PI_F * p.radius * p.radius / (16.0 / 15.0 * h * len + M_PI_F / 3.0 * h * h);
     float3 view = normalize(p.world);
     float3 glint = m.albedo.rgb * particle_sun(frame, atmosphere, an)
         * particle_phase(dot(frame.sunDirection.xyz, view), m.look.y);
@@ -730,8 +825,8 @@ fragment float4 particle_streak_fragment(ParticleStreakOut in [[stage_in]]) {
     // The distance from the core in half-widths: across, and into a cap.
     float c = max(in.cap, 1e-4);
     float along = in.uv.y < c ? (c - in.uv.y) / c : (in.uv.y > 1.0 - c ? (in.uv.y - 1.0 + c) / c : 0.0);
-    float d2 = in.uv.x * in.uv.x + along * along;
-    return float4(orbit_effectRadiance(in.color * max(1.0 - d2, 0.0)), 0.0);
+    float d2 = in.uv.x * in.uv.x + along * along, q = max(1.0 - d2, 0.0);
+    return float4(orbit_effectRadiance(in.color * q * q), 0.0);
 }
 
 // --------------------------------------------------------------- smoke ---
@@ -760,10 +855,25 @@ vertex ParticleSmokeOut particle_smoke_vertex(uint vid [[vertex_id]], uint iid [
                                               device const ParticleAnchor *anchors [[buffer(2)]],
                                               device const ParticleMaterial *materials [[buffer(3)]],
                                               constant ParticleFrame &pf [[buffer(4)]],
+                                              device const uint *counters [[buffer(5)]],
                                               constant FrameUniforms &frame [[buffer(ORBIT_BUFFER_FRAME)]],
                                               constant AtmosphereUniforms &atmosphere [[buffer(ORBIT_BUFFER_ATMOSPHERE)]]) {
-    float2 corners[6] = {float2(-1, -1), float2(1, -1), float2(-1, 1), float2(1, -1), float2(1, 1), float2(-1, 1)};
+    float2 corners[4] = {float2(-1, -1), float2(1, -1), float2(-1, 1), float2(1, 1)};  // a triangle strip
     ParticleView p = particle_view(particles, lists[PARTICLE_CLASS_SMOKE * pf.counts.x + iid], anchors);
+    // Thinned past the overdraw budget: the puffs whose seed falls beyond the
+    // share kept are not drawn, the others are denser.
+    float keep = float(counters[PARTICLE_COUNTER_SMOKE_KEEP]) / PARTICLE_KEEP_ONE;
+    if (float(p.seed) / 65536.0 >= keep) {
+        ParticleSmokeOut none;
+        none.position = float4(2.0, 2.0, 2.0, 1.0);
+        none.corner = float2(2.0);
+        none.viewDepth = 0.0;
+        none.radius = 0.0;
+        none.tau = 0.0;
+        none.phase = 0.0;
+        none.sunLight = none.ambient = none.sunView = none.noiseOrigin = float3(0.0);
+        return none;
+    }
     device const ParticleMaterial &m = materials[p.material];
     device const ParticleAnchor &an = anchors[p.anchor];
     float2 k = corners[vid];
@@ -775,7 +885,7 @@ vertex ParticleSmokeOut particle_smoke_vertex(uint vid [[vertex_id]], uint iid [
     o.viewDepth = -q.z;
     o.radius = p.radius;
     float grown = p.spawnRadius / max(p.radius, 1e-6);
-    o.tau = m.look.x * grown * grown * particle_fade(m, p.age, p.lifetime);
+    o.tau = m.look.x * grown * grown * particle_fade(m, p.age, p.lifetime) / max(keep, 1e-6);
     float3 view = normalize(p.world);
     float3 sun = particle_sun(frame, atmosphere, an);
     o.sunLight = m.albedo.rgb * sun;
@@ -799,7 +909,7 @@ fragment EffectOITOut particle_smoke_fragment(ParticleSmokeOut in [[stage_in]],
     float scene = orbit_effectSceneDistance(uint2(in.position.xy), halfResDepth, frame);
     float fade = clamp((scene - in.viewDepth) / (0.5 * in.radius), 0.0, 1.0)
         * clamp((in.viewDepth - frame.camera.x) / max(in.radius, 1e-3), 0.0, 1.0);
-    float3 at = in.noiseOrigin + float3(in.corner * 0.45, 0.0) + float3(0.011, 0.007, 0.023) * pf.time.y;
+    float3 at = in.noiseOrigin + float3(in.corner * 0.45, 0.0) + pf.noise.xyz;
     float2 n = noise.sample(noiseSampler, at).rg;
     float profile = (1.0 - r2) * (1.0 - r2);
     float tau = in.tau * profile * (0.35 + 1.3 * n.x);
@@ -894,7 +1004,9 @@ vertex ParticleChunkOut particle_chunk_vertex(uint vid [[vertex_id]], uint iid [
 
 fragment float4 particle_chunk_fragment(ParticleChunkOut in [[stage_in]],
                                         constant FrameUniforms &frame [[buffer(ORBIT_BUFFER_FRAME)]]) {
-    float lambert = abs(dot(normalize(in.normal), frame.sunDirection.xyz));
+    // One-sided, as the vessels and R6's column: a face turned from the Sun
+    // gets only the sky and any glow.
+    float lambert = max(dot(normalize(in.normal), frame.sunDirection.xyz), 0.0);
     return float4(orbit_effectRadiance(in.color * in.sun * lambert + in.base), 1.0);
 }
 

@@ -189,6 +189,49 @@ final class ParticlePhysicsTests: XCTestCase {
         }
     }
 
+    /// The same in stratified air, with the anchor moving through it: US76
+    /// below, a free-fall anchor thrown up at 500 m/s from 24 km (an ascent's
+    /// vent) and one dropped from rest at 3 km (an ELS puff). The air a
+    /// particle meets is looked up where the particle was when it met it, so
+    /// a hot puff's rise, growth and adiabatic cooling are the body-fixed
+    /// ones, over 600 frames and in one advance.
+    func testFreeFallFrameMatchesBodyFixedInStratifiedAir() {
+        let us76 = USStandardAtmosphere1976()
+        func air(_ altitude: Double, _ velocity: Vec3) -> P.Air {
+            let s = us76.state(altitude: altitude)
+            return P.Air(density: s.density, temperature: s.temperature, pressure: s.pressure, velocity: velocity)
+        }
+        let puff = P.Material(density: 0, dragCoefficient: 0.5, entrainment: 0.1, spreadRate: 0.3, coolingTime: 20)
+        for (z0, v0) in [(24_000.0, 500.0), (3_000.0, 0.0)] {
+            let t0 = us76.state(altitude: z0).temperature
+            let start = P.State(position: .zero, velocity: .zero, radius: 5, temperature: t0 + 60)
+            for frames in [600, 1] {
+                let h = 10.0 / Double(frames)
+                var fixed = start
+                // The anchor starts at the puff, moving up at v0 with the air at rest.
+                var falling = P.State(position: .zero, velocity: Vec3(0, 0, -v0), radius: 5, temperature: t0 + 60)
+                for k in 1...frames {
+                    fixed = P.advance(fixed, material: puff, environment: P.Environment(gravity: g), dt: h) {
+                        air(z0 + $0.z, .zero)
+                    }
+                    let t = Double(k) * h
+                    let altitude = z0 + v0 * t - 0.5 * 9.80665 * t * t, speed = v0 - 9.80665 * t
+                    falling = P.advance(falling, material: puff,
+                                        environment: .freeFall(gravity: g, velocity: Vec3(0, 0, speed)), dt: h) {
+                        air(altitude + $0.z, Vec3(0, 0, -speed))
+                    }
+                }
+                let t = 10.0, rise = v0 * t - 0.5 * 9.80665 * t * t
+                let name = "from \(z0) m at \(v0) m/s, \(frames) frames"
+                XCTAssertEqual(falling.position.z + rise, fixed.position.z, accuracy: 1e-6 * max(1, abs(rise)), name)
+                XCTAssertEqual(falling.velocity.z + (v0 - 9.80665 * t), fixed.velocity.z, accuracy: 1e-6 * max(1, v0), name)
+                XCTAssertEqual(falling.radius, fixed.radius, accuracy: 1e-9 * fixed.radius, name)
+                XCTAssertEqual(falling.temperature, fixed.temperature, accuracy: 1e-9 * fixed.temperature, name)
+                XCTAssertGreaterThan(fixed.position.z, 1, "the hot puff rose, \(name)")
+            }
+        }
+    }
+
     /// A gas parcel carried up through US76 cools on the dry adiabat, g/cp =
     /// 9.76 K/km (dry air, cp 1,004.7 J/(kg K)), steeper than the
     /// standard atmosphere's 6.5 K/km; so a parcel thrown up from 1 km in

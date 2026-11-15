@@ -270,6 +270,24 @@ extension EffectsSelfTest {
         /// A studio anchor in constant sea-level air with a light wind, under gravity.
         static let air = ParticlePhysics.Air(density: 1.2, temperature: 290, pressure: 101_325, velocity: Vec3(3, -1, 0))
 
+        /// US76 with a wind veering and growing with height.
+        static let stratified: AirProfile = {
+            var p = AirProfile(USStandardAtmosphere1976())
+            for i in 0..<AirProfile.count {
+                p.windEast[i] = 5 + AirProfile.altitude(i) / 1_000
+                p.windNorth[i] = -3 + AirProfile.altitude(i) / 4_000
+            }
+            return p
+        }()
+
+        /// A free-fall anchor at 5 km climbing at 200 m/s, the body turning
+        /// under it, in that air (profile 1).
+        static let climbing = AnchorFrame(origin: Vec3(0, 0, -80), toWorld: .identity, up: .unitZ, east: .unitX,
+                                          north: .unitY, altitude: 5_000, groundAltitude: -.infinity, radius: 6.376e6,
+                                          gravity: Vec3(0, 0, -9.79), fallsFreely: true,
+                                          airVelocity: Vec3(30, -10, -200), rotation: Vec3(0, 4.1e-5, 6.0e-5),
+                                          airProfile: 1, sunlitFraction: 1, vacuumIceTemperature: 205)
+
         static func anchor(falling: Bool = false) -> AnchorFrame {
             AnchorFrame(origin: Vec3(0, 0, -50), toWorld: .identity, up: .unitZ, east: .unitX, north: .unitY,
                         altitude: 100, groundAltitude: -.infinity, radius: 6.371e6, gravity: Vec3(0, 0, -9.80665),
@@ -284,6 +302,7 @@ extension EffectsSelfTest {
             let materials = ParticleMaterialTable()
             let steam = materials.register(.steam), spark = materials.register(.spark), flash = materials.register(.flash)
             let id = EffectAnchorID(slot: 0, generation: 1), falling = EffectAnchorID(slot: 1, generation: 1)
+            let climbing = EffectAnchorID(slot: 2, generation: 1)
             let profile = AirProfile(constant: Self.air, windEast: Self.air.velocity.x, windNorth: Self.air.velocity.y)
             var epoch = Epoch(tdbSecondsPastJ2000: 0)
 
@@ -292,9 +311,13 @@ extension EffectsSelfTest {
                 epoch = epoch + dt
                 let clock = EffectClock(epoch: epoch, dt: dt, realDt: dt / warp, warp: warp)
                 let out = EffectFrameOutput(clock: clock, resets: resets, requests: requests,
-                                            anchors: anchored ? [(id, Self.anchor()), (falling, Self.anchor(falling: true))] : [],
-                                            airProfiles: [profile], drawn: drawn, materials: materials)
+                                            anchors: anchored ? [(id, Self.anchor()), (falling, Self.anchor(falling: true)),
+                                                                 (climbing, Self.climbing)] : [],
+                                            airProfiles: [profile, Self.stratified], drawn: drawn, materials: materials)
                 guard let cb = queue.makeCommandBuffer(), let enc = cb.makeComputeCommandEncoder() else { return (-1, -1, -1, -1) }
+                // No view: every particle is drawn (ParticleFrame.view zero).
+                var uniforms = FrameUniforms()
+                enc.setBytes(&uniforms, length: MemoryLayout<FrameUniforms>.stride, index: Binding.frameBuffer)
                 system.encode(system.makePlan(out, settings: ParticleSettings()), uploads: uploads, encoder: enc)
                 enc.endEncoding()
                 cb.commit()
@@ -362,7 +385,59 @@ extension EffectsSelfTest {
                                 detail: String(format: "%d alive of 3,584 (1,024 in a falling anchor); against the CPU p99 %.2e, worst %.2e",
                                                first.alive, p99, sorted.last ?? .infinity)))
 
+            // 1b. In stratified air with a wind shear, in a climbing anchor
+            // over a turning body: the profile's levels, the adiabat, the
+            // anchor's air (its velocity, ω × p, the wind) and its own
+            // climb, against AnchorFrame.air and .environment.
+            let rising = materials.register({ var m = ParticleMaterial.smoke; m.name = "rising smoke"; return m }())
+            let flakes = materials.register(.iceFlake)
+            var smokeUp = EmitRequest(anchor: climbing, material: rising, count: 512)
+            smokeUp.shape = .ball(radius: 20)
+            smokeUp.speed = 5...20
+            smokeUp.ages = 0...6
+            smokeUp.lifetime = 30...40
+            smokeUp.radius = 2...4
+            smokeUp.temperature = 420
+            smokeUp.seed = 21
+            var ice = EmitRequest(anchor: climbing, material: flakes, count: 256)
+            ice.shape = .ball(radius: 10)
+            ice.speed = 1...4
+            ice.ages = 0...6
+            ice.lifetime = 60...60
+            ice.radius = 1e-3...3e-3
+            ice.seed = 22
+            let strat = run([smokeUp, ice], dt: 0, resets: true)
+            let gpuStrat = system.readAlive(queue: queue)
+            let frame = Self.climbing, env = frame.environment
+            var stratErrors: [Double] = []
+            for (r, mat) in [(smokeUp, materials[rising]), (ice, ParticleMaterial.iceFlake)] {
+                let mine = gpuStrat.filter { $0.material == r.material.index }.sorted { $0.velocityAge.w < $1.velocityAge.w }
+                let cpu = (0..<r.count).map { EmitSampler.sample(r, index: $0) }.sorted { $0.age < $1.age }
+                guard mine.count == cpu.count else {
+                    stratErrors.append(.infinity)
+                    continue
+                }
+                for (g, c) in zip(mine, cpu) {
+                    let t0 = r.temperature > 0 ? r.temperature
+                        : frame.air(at: c.position + env.frameDisplacement(at: -c.age), profile: Self.stratified).temperature
+                    let start = ParticlePhysics.State(position: c.position, velocity: c.velocity, radius: c.radius,
+                                                      temperature: t0)
+                    let e = ParticlePhysics.advance(start, material: mat.physics, environment: env, dt: c.age) {
+                        frame.air(at: $0, profile: Self.stratified)
+                    }
+                    stratErrors.append(Self.error(gpu: (g.positionRadius, SIMD4(g.velocityAge.x, g.velocityAge.y,
+                                                                                 g.velocityAge.z, g.state.1)),
+                                                  expected: e, from: start, dt: c.age))
+                }
+            }
+            let ss = stratErrors.sorted()
+            let sp99 = ss.isEmpty ? .infinity : ss[Int(Double(ss.count - 1) * 0.99)]
+            checks.append(Check(name: "stratified air", passed: strat.alive == 768 && sp99 < 1e-3 && (ss.last ?? .infinity) < 0.03,
+                                detail: String(format: "%d alive of 768 in a climbing anchor through US76 and a wind shear; against the CPU p99 %.2e, worst %.2e",
+                                               strat.alive, sp99, ss.last ?? .infinity)))
+
             // 2. Every slot accounted for as particles die.
+            _ = run([puffs, sparks, fallingPuffs], dt: 0, resets: true)
             let half = run([], dt: 1.2)
             let none = run([], dt: 30)
             checks.append(Check(name: "slots", passed: first.alive + first.free == capacity && half.alive + half.free == capacity

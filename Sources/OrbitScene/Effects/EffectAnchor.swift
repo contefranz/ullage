@@ -184,6 +184,28 @@ public struct AnchorFrame: Equatable {
         let along = p.dot(up), across = (p - up * along).lengthSquared
         return altitude + along + across / (2 * max(radius, 1))
     }
+
+    /// Its particles' environment (`ParticlePhysics.Environment`): the
+    /// body's gravity; in free fall the anchor's own fall and velocity,
+    /// ω × r − `airVelocity` with r its radius up (as the GPU takes them).
+    public var environment: ParticlePhysics.Environment {
+        guard fallsFreely else {
+            return ParticlePhysics.Environment(gravity: gravity, vacuumIceTemperature: vacuumIceTemperature)
+        }
+        return .freeFall(gravity: gravity, velocity: rotation.cross(up * radius) - airVelocity,
+                         vacuumIceTemperature: vacuumIceTemperature)
+    }
+
+    /// The air at `p` (anchor axes) at the frame's epoch, in `profile`
+    /// (vacuum without one): ParticleShaders' particle_air. Its velocity is
+    /// relative to the anchor: `airVelocity`, ω × p and the wind.
+    public func air(at p: Vec3, profile: AirProfile?) -> ParticlePhysics.Air {
+        guard let profile else { return .vacuum }
+        let s = profile.sample(altitude: altitude(of: p))
+        guard s.density > 0 else { return .vacuum }
+        return ParticlePhysics.Air(density: s.density, temperature: s.temperature, pressure: s.pressure,
+                                   velocity: airVelocity + rotation.cross(p) + east * s.windEast + north * s.windNorth)
+    }
 }
 
 extension EffectAnchor {

@@ -316,7 +316,7 @@ HOW AN EFFECT TRACK PLUGS IN
 6. Never touch the particle shaders: a look the material table cannot express is a request to P3.
 
 ANCHORS (`EffectFrame`)
-- `anchor(_:)` makes one, carried on to the frame's epoch. It returns nil when all 256 are in use; skip the emission then. An anchor lives while particles emitted into it may (their lifetimes, plus 3 frames for a held flash), then its id stops resolving.
+- `anchor(_:)` makes one, carried on to the frame's epoch. It returns nil when all 256 are in use; skip the emission then. An anchor lives while particles emitted into it may (their lifetimes, plus 3 frames for a held flash), then its id stops resolving. Its slot is not handed out again for two frames, so the GPU kills any particle left in it first.
 - `freeFallAnchor(for: event)`: at the event's vessel's state at the event. This is the anchor for a staging burst: retros, pyros, debris.
 - `freeFallAnchor(for: vessel)`: at a scene vessel's state now.
 - `vesselAnchor(id, key:)`: one tracking anchor per vessel and key, rebased every 2 s or 500 m; body-fixed while the vessel is landed. Use it for continuous emitters on a vessel: vents, frost, RCS.
@@ -330,12 +330,12 @@ ANCHORS (`EffectFrame`)
   - So a particle's slip through the air is exactly what it is in a body-fixed anchor: neutral steam stays with the air, and hot smoke rises.
   - A free-fall anchor that has fallen below half its body's radius (one left at the ground for some ten minutes) is retired with its particles. Effects that stay near the ground for minutes belong in body-fixed anchors.
 - The air at a particle:
-  - the body's `AirProfile` at its altitude;
+  - the body's `AirProfile` at its altitude, read where the particle was when it met that air: a climbing or falling free-fall anchor was elsewhere earlier in the step (`Environment.frameVelocity`, `AnchorFrame.environment`);
   - the wind blows east and north at the anchor's origin;
   - in free fall the air also turns with the body: ω × r, less the anchor's velocity, plus the −g above.
 - `place(point, of: event, in:)` and `place(point, of: vessel, in:)`: a point in vessel body axes from the centre of mass. They give its position, velocity and (for a scene vessel) acceleration in the anchor's axes, and `toAnchor` for directions. For a vessel, `place` gives `origin`, `sourceVelocity` and `sourceAcceleration`.
   - The acceleration is relative to the anchor.
-  - In a free-fall anchor it is the vessel's thrust and drag alone: none for a coasting vessel. Gravity's mean over the last frame is taken off its change of velocity.
+  - In a free-fall anchor it is the vessel's thrust and drag alone: none for a coasting vessel. Gravity's mean over the last frame is taken off its change of velocity. Across a change of reference body (a sphere of influence) it is zero for that frame.
   - In a body-fixed anchor it is the whole acceleration, gravity included.
 
 EMITTING
@@ -376,15 +376,18 @@ MATERIALS (`ParticleMaterial`; JSON keys are the member names)
   - `sublimates`.
 - Time and ground: `isFlash` (held at least 3 frames above 10×) and `killedAtGround`.
 - How each render class is drawn and lit:
-  - streaks: emission plus a sunlit glint, albedo × E⊙ × sunlit × HG;
+  - streaks: emission plus a sunlit glint, albedo × E⊙ × sunlit × HG. A capsule along the trail across the line of sight, at least 3 px wide, its flux the particle's at any view angle;
   - smoke: albedo × (E⊙ × sunlit × HG + sky/π), plus emission, through R6's OIT layer;
-  - chunks: Lambert in P1.
+  - chunks: Lambert in P1, one-sided as the vessels.
+- What is drawn:
+  - every class is culled against the view, in the simulate kernel; streaks too faint to see at the frame's exposure are not drawn (they still move);
+  - smoke has an overdraw budget, `ParticleSettings.smokeOverdraw` (6 layers of the effect targets). Past it, a seeded share of the puffs is drawn, each with its optical depth divided by that share, so the transmittance through the cloud is kept: the design's size LOD for the pad's thousands of big puffs. A dense plume reads puffier for it.
   - The Sun is the frame's, through the air (A2's transmitted Sun) when the camera is in air, times the anchor's sunlit fraction (`Eclipse`).
 
 TIME (`EffectTimeRules`)
 - The particles advance by the simulation's dt. It is 0 when paused, on the first frame, and on a frame drawn again.
 - On a scenario change (a new simulation, or the extractor's frame index going back) or a time jump (dt < 0 or > 600 s), everything resets.
-- The turbulence clock is real dt × min(warp, 4); the noise runs on it.
+- The turbulence clock is real dt × min(warp, 4). The noise drifts on it by whole tiles an hour, so it does not jump when the clock wraps.
 - A flash (`isFlash`) above 10× lives on past its lifetime until drawn on 3 frames, looking as it did at half its life (`FlashHold`).
 - The GPU's integrator takes any dt. It uses up to 32 pieces of the exact linear-drag step on the slip through the air, each re-linearised (second order) in speed, radius and temperature.
   - The pieces are equal while 32 of twice the shortest of τ and the terminal time suffice.
@@ -411,7 +414,7 @@ KNOWN LIMITS (ask P3 rather than work around them)
 - A body-fixed anchor's ground is the reference surface (sea level). There is no terrain or pad-deck height yet.
 - Streaks are stretched by their motion relative to their anchor, not to the camera.
 - Coriolis is neglected in body-fixed anchors, and tides in free-fall ones (their particles stay within kilometres).
-- Within one advance, the air's profile is looked up at each piece's start. In free fall, the anchor's own altitude is taken at the frame's epoch: a few metres off over a 100× frame.
+- Within one advance the air's profile is looked up at each piece's start. A free-fall anchor's velocity is ω × r − its air's, with r up its radius (the geodetic up): within about 1.5 m/s of the true one.
 - Smoke has no self-shadowing (option 6, deferred). Thick puffs are lit by a diffuse wrap, thin ones by single scattering.
 
 ## Phasing

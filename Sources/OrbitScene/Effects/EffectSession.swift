@@ -244,9 +244,13 @@ public final class EffectSession {
     private var generations = [Int](repeating: 0, count: ParticleBudget.anchors)
     private var tracking: [String: (id: EffectAnchorID, since: Epoch)] = [:]
     private var continuous: [String: ContinuousEmission] = [:]
-    /// Each vessel's last velocity and position (relative to its body), and
-    /// its acceleration less gravity over the last frame (thrust and drag).
-    private var lastVelocity: [UUID: (velocity: Vec3, position: Vec3, epoch: Epoch, acceleration: Vec3)] = [:]
+    /// Each vessel's last velocity and position (relative to its body, its
+    /// id), and its acceleration less gravity over the last frame (thrust
+    /// and drag).
+    private var lastVelocity: [UUID: (velocity: Vec3, position: Vec3, body: Int, epoch: Epoch, acceleration: Vec3)] = [:]
+    /// A retired anchor's slot is not handed out again before this frame,
+    /// so the GPU has seen it empty, and killed its particles, first.
+    private var cooldown = [Int](repeating: -1, count: ParticleBudget.anchors)
     /// Per class: when its last particles die, and the last frame a held flash may show.
     private var liveUntil: [ParticleRenderClass: Epoch] = [:]
     private var flashFrames: [ParticleRenderClass: Int] = [:]
@@ -271,6 +275,7 @@ public final class EffectSession {
     /// simulation, the journal's place too.
     public func reset(newSimulation: Bool) {
         slots = [Slot?](repeating: nil, count: ParticleBudget.anchors)
+        cooldown = [Int](repeating: -1, count: ParticleBudget.anchors)
         tracking = [:]
         continuous = [:]
         lastVelocity = [:]
@@ -366,7 +371,7 @@ public final class EffectSession {
     // MARK: Anchors
 
     func makeAnchor(_ a: EffectAnchor, frame: Int, epoch: Epoch) -> EffectAnchorID? {
-        guard let i = slots.firstIndex(where: { $0 == nil }) else { return nil }
+        guard let i = slots.indices.first(where: { slots[$0] == nil && frame >= cooldown[$0] }) else { return nil }
         generations[i] += 1
         slots[i] = Slot(anchor: a, generation: generations[i], expires: epoch, lastUse: frame)
         return EffectAnchorID(slot: i, generation: generations[i])
@@ -391,7 +396,7 @@ public final class EffectSession {
             // the centre.
             guard let next = s.anchor.propagatedAboveHalfRadius(to: clock.epoch, body: scene.bodies.first { $0.id == id })
             else {
-                slots[i] = nil
+                retire(i, frame: clock.frame)
                 continue
             }
             s.anchor = next
@@ -402,8 +407,15 @@ public final class EffectSession {
     private func retireAnchors(clock: EffectClock) {
         for i in slots.indices {
             guard let s = slots[i] else { continue }
-            if clock.epoch >= s.expires && clock.frame > s.lastUse + EffectTimeRules.flashHoldFrames { slots[i] = nil }
+            if clock.epoch >= s.expires && clock.frame > s.lastUse + EffectTimeRules.flashHoldFrames {
+                retire(i, frame: clock.frame)
+            }
         }
+    }
+
+    private func retire(_ i: Int, frame: Int) {
+        slots[i] = nil
+        cooldown[i] = frame + 2
     }
 
     func vesselAnchor(_ id: UUID, key: String, frame f: EffectFrame) -> EffectAnchorID? {
@@ -437,19 +449,21 @@ public final class EffectSession {
     /// the way (the trapezoid of its two ends): at 1,000× a coasting
     /// vessel's arc turns gravity by 1° a frame.
     private func noteVelocities(_ scene: RenderScene, clock: EffectClock) {
-        var next: [UUID: (velocity: Vec3, position: Vec3, epoch: Epoch, acceleration: Vec3)] = [:]
+        var next: [UUID: (velocity: Vec3, position: Vec3, body: Int, epoch: Epoch, acceleration: Vec3)] = [:]
         for v in scene.vessels {
             guard let b = scene.bodies.first(where: { $0.id == v.referenceBodyID }) else { continue }
             let r = v.position - b.position
             var a = Vec3.zero
-            if let p = lastVelocity[v.id] {
+            // Across a change of reference body (a sphere of influence) the
+            // velocities are not comparable: no acceleration that frame.
+            if let p = lastVelocity[v.id], p.body == b.id {
                 let dt = clock.epoch - p.epoch
                 let pole = b.orientation.icrfToBody.r2
                 let g = (EffectAnchor.gravity(at: r, body: b, pole: pole)
                     + EffectAnchor.gravity(at: p.position, body: b, pole: pole)) * 0.5
                 a = dt > 0 && b.gm > 0 ? (v.velocity - p.velocity) / dt - g : p.acceleration
             }
-            next[v.id] = (v.velocity, r, clock.epoch, a)
+            next[v.id] = (v.velocity, r, b.id, clock.epoch, a)
         }
         lastVelocity = next
     }

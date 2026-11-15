@@ -65,6 +65,20 @@ public enum EffectTimeRules {
     /// The turbulence clock wraps here, s (Float keeps 0.25 ms at an hour).
     public static let turbulencePeriod = 3_600.0
 
+    /// The volume noise's drift on the turbulence clock, tiles a second
+    /// along each axis: whole numbers of tiles an hour, so the drift
+    /// (`noiseDrift`) is the same either side of the clock's wrap.
+    public static let noiseDriftRate = (40.0 / 3_600, 25.0 / 3_600, 83.0 / 3_600)
+
+    /// The volume noise's offset at turbulence time `t`, tiles, in [0, 1).
+    public static func noiseDrift(_ t: Double) -> (x: Double, y: Double, z: Double) {
+        func f(_ rate: Double) -> Double {
+            let x = rate * t
+            return x - x.rounded(.down)
+        }
+        return (f(noiseDriftRate.0), f(noiseDriftRate.1), f(noiseDriftRate.2))
+    }
+
     /// The turbulence clock's step: real dt × min(warp, 4); 0 when paused.
     public static func turbulenceDt(realDt: Double, warp: Double, paused: Bool) -> Double {
         paused ? 0 : max(realDt, 0) * min(max(warp, 0), turbulenceWarp)
