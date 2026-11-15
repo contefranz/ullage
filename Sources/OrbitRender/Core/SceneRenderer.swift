@@ -94,10 +94,11 @@ public final class SceneRenderer {
         // plumes (P2), smoke (P3); R6's test emitters first.
         let slots = HalfResTransparentPass(effects: [EffectTestEmitters()])
         let post = PostPass()
+        let tiles = PlanetTilePass(loadsUserTiles: loadsUserTextures)
         return [
             // P0
             post.exposurePass, AtmosphereLUTPass(), CloudPass(), ShadowPass(), EnvironmentProbePass(),
-            ParticleSimulationPass(),
+            ParticleSimulationPass(), tiles,
             // P1
             StarPass(), PlanetPass(loadsUserTextures: loadsUserTextures), VesselPass(), EffectTestOpaquePass(),
             // P2
