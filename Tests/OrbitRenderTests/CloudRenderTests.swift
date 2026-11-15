@@ -507,10 +507,11 @@ final class CloudRenderTests: XCTestCase {
         }
         let p = try XCTUnwrap(profile, "a timed frame")
         XCTAssertTrue(try XCTUnwrap(r.graph.pass(named: "Clouds") as? CloudPass).lastFrame.drawn)
-        // P0's run of the clouds' encoders, after A2's LUTs (the slot's copy
-        // in P3 carries the pass's name too).
+        // P0's run of the clouds' encoders, after A2's LUTs (E1's tile
+        // uploads may come between; the slot's copy in P3 carries the
+        // pass's name too).
         let first = try XCTUnwrap(p.labels.firstIndex(of: "Clouds"), "\(p.labels)")
-        XCTAssertEqual(first > 0 ? p.labels[first - 1] : nil, "Atmosphere LUTs", "\(p.labels)")
+        XCTAssertLessThan(try XCTUnwrap(p.labels.firstIndex(of: "Atmosphere LUTs"), "\(p.labels)"), first)
         let run = p.labels[first...].prefix { $0 == "Clouds" }.count
         XCTAssertEqual(run, 4, "\(p.labels)")
     }
