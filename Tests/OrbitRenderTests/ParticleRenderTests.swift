@@ -197,6 +197,46 @@ final class ParticleRenderTests: XCTestCase {
         XCTAssertGreaterThan(Set(on.pixels).count, 100, "the particles are drawn")
     }
 
+    /// The faint-streak cut is where `ParticleSystem.faintestStreak` puts it:
+    /// sparks whose brightest pre-exposed light (a dot 3 pixels wide: π r²
+    /// over π/3 h², times the emission and the pre-exposure 1/(1.2 · 2^EV))
+    /// is three times the threshold are all drawn, a third of it none. An
+    /// image cannot show this cut on a black backdrop under the tone
+    /// curve's toe; the drawn count does.
+    func testFaintestStreakCut() throws {
+        let s = try snapper()
+        let ev = 15.0, distance = 30.0, r = 0.001, count = 50
+        let pixel = distance * 2 * tan(20 * Double.pi / 180) / 200
+        let h = 0.5 * 3 * pixel
+        let perEmission = 3 * r * r / (h * h) / (1.2 * pow(2, ev))
+        func drawn(_ factor: Double) throws -> Int {
+            var m = ParticleMaterial(name: "probe spark", renderClass: .streak)
+            m.albedo = .black
+            m.emission = ParticleColor(gray: factor * ParticleSystem.faintestStreak / perEmission)
+            m.fadeIn = 0
+            m.fadeOut = 0
+            m.density = 3_950
+            var b = ParticleTestBurst()
+            b.material = m.name
+            b.custom = m
+            b.count = count
+            b.shape = "ball"
+            b.size = 0.3
+            b.radius = [r, r]
+            b.lifetime = [10, 10]
+            b.ages = [0, 0]
+            _ = try s.render(studioShot([b], from: Vec3(1, 0.3, 0.2), distance: distance, ev: ev))
+            let r = try s.renderer(userTextures: false)
+            let system = try XCTUnwrap((r.graph.pass(named: "Particle simulation") as? ParticleSimulationPass)?.system)
+            return system.readCounters()[.drawStreak] ?? -1
+        }
+        // The cut drops nothing a display could show: at most a tenth of
+        // sRGB's first 8-bit step near black, (1/255)/12.92.
+        XCTAssertLessThanOrEqual(ParticleSystem.faintestStreak, 0.1 / 255 / 12.92)
+        XCTAssertEqual(try drawn(3), count, "three times the faintest: all drawn")
+        XCTAssertEqual(try drawn(1.0 / 3), 0, "a third of it: none")
+    }
+
     /// Every look-dev shot's light is finite and not negative, and each
     /// draws something over its black backdrop.
     func testLightIsFiniteAndDrawn() throws {
