@@ -552,6 +552,40 @@ final class ParticleEffectsTests: XCTestCase {
         XCTAssertEqual(frame.air(at: .zero, profile: nil), .vacuum)
     }
 
+    /// A body-fixed anchor's gravity is the gravity felt at the ground,
+    /// g − ω × (ω × r): WGS-84's normal gravity (Somigliana, NIMA TR8350.2
+    /// eq. 4-1) at the equator, the pad's latitude and the pole to a part in
+    /// 10⁴, along the geodetic normal; and what a free-fall anchor's
+    /// particles feel through the turning air there (g less its
+    /// airAcceleration), so the two frames agree.
+    func testBodyFixedGravityIsTheEffectiveGravity() throws {
+        let (sim, camera) = try open("as506-pad")
+        let scene = SceneExtractor().extract(sim: sim, camera: camera, viewport: Self.viewport, realTime: 0)
+        let earth = try XCTUnwrap(scene.bodies.first { $0.id == 399 })
+        func somigliana(_ phi: Double) -> Double {
+            let s2 = sin(phi) * sin(phi)
+            return 9.7803253359 * (1 + 0.00193185265241 * s2) / (1 - 0.00669437999013 * s2).squareRoot()
+        }
+        for latitude in [0.0, 28.608, 89.0] {
+            let phi = latitude * Double.pi / 180
+            let origin = earth.figure.bodyFixed(latitude: phi, longitude: -80.604 * Double.pi / 180, height: 0)
+            let frame = try XCTUnwrap(EffectAnchor.bodyFixed(bodyID: 399, origin: origin).frame(
+                in: scene, airProfile: { _ in nil }, studioProfile: nil, iceTemperature: { _ in 200 }))
+            XCTAssertEqual(frame.gravity.length, somigliana(phi), accuracy: 1e-4 * somigliana(phi), "at \(latitude)°")
+            XCTAssertLessThan(angleBetween(-frame.gravity, frame.up), 5e-5, "along the geodetic normal at \(latitude)°")
+            // The same point as a free-fall anchor at rest on the turning Earth.
+            let r = earth.orientation.toInertial(origin)
+            let falling = EffectAnchor.freeFall(bodyID: 399, position: r,
+                                                velocity: earth.orientation.angularVelocity.cross(r),
+                                                epoch: scene.clock.simTime)
+            let ff = try XCTUnwrap(falling.frame(in: scene, airProfile: { _ in nil }, studioProfile: nil,
+                                                 iceTemperature: { _ in 200 }))
+            let env = ff.environment
+            let felt = earth.orientation.toBody(env.gravity - env.airAcceleration)
+            XCTAssertEqual((felt - frame.gravity).length, 0, accuracy: 3e-4, "free fall feels the same at \(latitude)°")
+        }
+    }
+
     // MARK: Materials and settings
 
     func testMaterialTable() {

@@ -38,8 +38,9 @@ public struct StudioAnchor: Equatable {
 /// Where particles live.
 public enum EffectAnchor: Equatable {
     /// Fixed to a body (the pad, a splash): `origin` in the body's own axes,
-    /// m from its centre. Particles move in those axes, under gravity down
-    /// the local vertical, through the wind; Coriolis is neglected.
+    /// m from its centre. Particles move in those axes, under the gravity
+    /// felt there, g − ω × (ω × r) (`effectiveGravity`), through the wind;
+    /// Coriolis is neglected.
     case bodyFixed(bodyID: Int, origin: Vec3)
     /// Falling freely about a body (a staging's debris, a vessel's vent):
     /// its state relative to the body's centre (ICRF, m and m/s) at `epoch`,
@@ -102,6 +103,19 @@ public enum EffectAnchor: Equatable {
             a += (r * (1 - 5 * zc * zc / r2) + pole * (2 * zc)) * k
         }
         return a
+    }
+
+    /// The gravity felt at a body-fixed point (body axes, m from the
+    /// centre), in body axes: two-body + J2 less the centrifugal term,
+    /// g − ω × (ω × r). It is what the turning air's slip feels in a
+    /// free-fall anchor too (`ParticlePhysics.Environment.airAcceleration`),
+    /// so the two frames agree; at the ground it is WGS-84's normal gravity
+    /// to a part in 10⁴, along the geodetic normal to within a few arc seconds.
+    public static func effectiveGravity(atBodyFixed p: Vec3, body: RenderScene.Body) -> Vec3 {
+        let toBody = body.orientation.icrfToBody
+        let g = toBody * gravity(at: toBody.transposed * p, body: body, pole: toBody.r2)
+        let omega = toBody * body.orientation.angularVelocity
+        return g - omega.cross(omega.cross(p))
     }
 
     /// The body it is about, or nil for the studio.
@@ -237,11 +251,11 @@ extension EffectAnchor {
             let world = body.position + toWorld * origin
             let axes = Self.localAxes(origin, figure: body.figure)
             let height = body.figure.geodetic(origin).height
-            let g = Self.gravity(at: toWorld * origin, body: body, pole: body.orientation.icrfToBody.r2)
             let sunlit = lit(world)
             return AnchorFrame(origin: world, toWorld: toWorld, up: axes.up, east: axes.east, north: axes.north,
                                altitude: height, groundAltitude: 0, radius: origin.length,
-                               gravity: axes.up * -g.length, airVelocity: .zero, rotation: .zero,
+                               gravity: Self.effectiveGravity(atBodyFixed: origin, body: body), airVelocity: .zero,
+                               rotation: .zero,
                                airProfile: airProfile(id), sunlitFraction: sunlit,
                                vacuumIceTemperature: iceTemperature(sunlit))
         case let .freeFall(id, r, v, _):

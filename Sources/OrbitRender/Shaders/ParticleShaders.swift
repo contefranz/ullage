@@ -54,7 +54,8 @@ struct ParticleFrame {
     float4 time;             // x: dt (s), y: turbulence time (s), z: 1 holds flashes, w: 1 advances
     uint4 counts;            // x: capacity, y: particles to emit, z: requests, w: the current alive list (0 or 1)
     uint4 limits;            // x: chunks drawn at most, y: substeps at most, z: anchors
-    float4 view;             // x: 1 culls against the frame's view (FrameUniforms)
+    float4 view;             // x: 1 culls against the frame's view (FrameUniforms), y: the faintest streak drawn
+                             // (its brightest, pre-exposed: ParticleSystem.faintestStreak)
     float4 noise;            // xyz: the volume noise's drift on the turbulence clock (tiles, EffectTimeRules.noiseDrift)
 };
 
@@ -523,9 +524,9 @@ inline bool particle_drawn(float3 p, float3 v, float radius, float temperature, 
         float3 glint = m.albedo.rgb * frame.sunIlluminance.rgb
             * particle_phase(dot(frame.sunDirection.xyz, normalize(world)), m.look.y);
         float3 light = (particle_emission(m, temperature) + glint) * particle_fade(m, shown, lifetime);
-        // Its brightest, pre-exposed, against a tenth of the first 8-bit
-        // step of sRGB (1/255/12.92) near black.
-        if (max(light.r, max(light.g, light.b)) * coverage * frame.exposure.x < 3e-5) { return false; }
+        // Its brightest, pre-exposed (the profile's peak is 1), against the
+        // faintest drawn.
+        if (max(light.r, max(light.g, light.b)) * coverage * frame.exposure.x < pf.view.y) { return false; }
     }
     return true;
 }

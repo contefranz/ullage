@@ -91,7 +91,7 @@ struct ParticleFrameGPU {
     var counts = SIMD4<UInt32>.zero
     /// Chunks drawn at most, substeps at most, anchors.
     var limits = SIMD4<UInt32>.zero
-    /// x: 1 culling against the frame's view.
+    /// x: 1 culling against the frame's view, y: the faintest streak drawn.
     var view = SIMD4<Float>.zero
     /// The volume noise's drift, tiles (`EffectTimeRules.noiseDrift`).
     var noise = SIMD4<Float>.zero
@@ -265,10 +265,15 @@ public final class ParticleSystem {
         enc.endEncoding()
     }
 
+    /// The faintest streak drawn: its brightest, pre-exposed. A tenth of
+    /// sRGB's first 8-bit step near black (1/255/12.92), so dropping one
+    /// changes no pixel, whatever the tone curve does with the rest.
+    public static let faintestStreak = 3e-5
+
     /// ParticleFrame's `view` for frame `f`: culling on unless the settings
-    /// turn it off.
+    /// turn it off, and the faintest streak drawn.
     static func view(_ f: FrameContext, settings: ParticleSettings) -> SIMD4<Float> {
-        SIMD4(settings.culls ? 1 : 0, 0, 0, 0)
+        SIMD4(settings.culls ? 1 : 0, Float(faintestStreak), 0, 0)
     }
 
     /// Encodes `plan` on `enc` with its small buffers from `uploads`. The

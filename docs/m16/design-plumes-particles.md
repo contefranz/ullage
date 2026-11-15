@@ -323,7 +323,8 @@ ANCHORS (`EffectFrame`)
 - `bodyFixedAnchor(at: site)`: the pad, before LC's own anchors exist.
 - `.bodyFixed(bodyID:origin:)`: body axes, m from the body's centre.
 - Axes: a body-fixed anchor's are the body's own (rotating), a free-fall anchor's are ICRF, the studio's are the camera target's east, north and up.
-- Gravity (`AnchorFrame.gravity`) is the body's at the anchor's origin. In a body-fixed anchor it points down the geodetic normal.
+- Gravity (`AnchorFrame.gravity`) is the body's at the anchor's origin (two-body + J2).
+  - In a body-fixed anchor it is the gravity felt there, g − ω × (ω × r) (`EffectAnchor.effectiveGravity`): WGS-84's normal gravity to a part in 10⁴, along the geodetic normal.
 - A free-fall anchor (`AnchorFrame.fallsFreely`) falls at that gravity with its particles:
   - their weight is gone, but Archimedes' buoyancy (the static air's pressure gradient) is not;
   - the air accelerates at −g relative to the anchor.
@@ -385,7 +386,7 @@ MATERIALS (`ParticleMaterial`; JSON keys are the member names)
     - a streak's capsule: its trail, and its width (at least 3 px) about the head and tail;
     - a plate chunk's corners, r √(2 + aspect²);
     - a puff's or a tetrahedron's r.
-  - streaks too faint to see at the frame's exposure (a tenth of sRGB's first 8-bit step) are not drawn; they still move;
+  - streaks too faint to see at the frame's exposure are not drawn, though they still move. The limit is `ParticleSystem.faintestStreak`, a tenth of sRGB's first 8-bit step;
   - `ParticleSettings.culls` turns culling off, to check that it changes nothing (ParticleRenderTests).
   - Smoke has no LOD of P3's: every live puff in view is drawn. Its overdraw on the pad is R7's to tier.
   - The Sun is the frame's, through the air (A2's transmitted Sun) when the camera is in air, times the anchor's sunlit fraction (`Eclipse`).
