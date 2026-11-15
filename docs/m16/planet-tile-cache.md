@@ -83,6 +83,11 @@ Measured on the M3 Pro, in Release:
   - The file is 15.3 MB: 1.6 KB a tile at level 5, 12.8 KB at level 0. Its checksums verify. The Aral Sea and Lake Chad tiles show their late-1950s and early-1960s outlines.
 - `earth demo --image Textures/earth.jpg --max-level 4` (BMNG July at 8 km): 2,046 tiles, 14.9 MB, 3.6 s.
 - `PlanetTiles tiff`: the reader matches ImageIO on NASA's 5400 × 2700 BMNG GeoTIFF (Deflate strips), on all 43.7 M samples.
+- `PlanetTiles earth cape-selftest` runs the Cape's processing on a synthetic scene: uint16 GeoTIFFs tied PixelIsPoint in UTM zone 17, an MTL, a bright runway on the SLF's line, and a BMNG window made from it by a known mapping. 688 tiles at levels 8-12 in 7 s.
+  - The colour match finds gain 0.798 and offset 0.0201 per channel, against 0.8 and 0.02.
+  - The runway's middle drops from about 166 to 68 (scrub).
+  - The region's edge matches BMNG to under one code.
+  - A faint seam remains where the cloned strip meets the synthetic texture. Judge it on the real scene's preview.
 - **Not yet run:** the albedo, relief and Cape steps on the full sources, which need the owner's fetch. From the water step's rate, a month of albedo (131,070 tiles; reading and decompressing 2.4 GB of GeoTIFF; the 11 GB mosaic and its pyramid) should take about 10-20 min, and `earth all` with two months about 30-45 min. `PlanetTiles info` prints what came out.
 
 ## The cache

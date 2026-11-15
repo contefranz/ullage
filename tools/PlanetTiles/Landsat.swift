@@ -153,8 +153,12 @@ enum Landsat {
     // MARK: The inset
 
     /// Builds earth-cape-landsat.ostiles from the scene in Sources/earth/landsat.
+    /// The colour match it fitted: BMNG linear = gain × reflectance + offset, per channel.
+    struct Match { let gain: SIMD3<Double>, offset: SIMD3<Double> }
+
+    @discardableResult
     static func cape(paths: Earth.Paths, scene id: String, bmng: GeoRasterPyramid, month: Int, quality: Double,
-                     preview: URL?) throws {
+                     preview: URL?) throws -> Match {
         let dir = paths.sources.appendingPathComponent("landsat")
         let scene = try open(dir, scene: id)
         let paint = try paintOut(paintOutFile())
@@ -238,6 +242,151 @@ enum Landsat {
             }
             return try ImageFiles.encode(rgb, side: Earth.tileSize + 2 * Earth.border, channels: 3, png: false, quality: quality)
         }
+        return Match(gain: gain, offset: offset)
+    }
+
+    // MARK: Self-test
+
+    /// `PlanetTiles earth cape-selftest`: a synthetic scene in UTM zone 17
+    /// (uint16 GeoTIFFs tied PixelIsPoint, an MTL) with a bright runway on
+    /// the SLF's line, and a BMNG window made from it by a known colour
+    /// mapping, through `cape`: the match must find the mapping, the runway
+    /// must be gone, and the inset must fade into BMNG at the region's edge.
+    static func selfTest(keepPreview: URL? = nil) throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("cape-selftest-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: root) }
+        let landsat = root.appendingPathComponent("sources/landsat")
+        try fm.createDirectory(at: landsat, withIntermediateDirectories: true)
+        let id = defaultScene, utm = TransverseMercator.utm(zone: 17)
+        let paint = try paintOut(paintOutFile())
+        let deg = Double.pi / 180
+        let mult = 2e-5, add = -0.1, sunElevation = 35.0
+        let sunSine = sin(sunElevation * deg)
+        // Reflectance of the ground: scrub texture, brighter to the east;
+        // the runway strip (and only it) bright white.
+        func ground(_ e: Double, _ n: Double) -> SIMD3<Double> {
+            let g = utm.inverse(easting: e, northing: n)
+            var r = 0.05 + 0.04 * sin(e / 700) * cos(n / 900) + 0.03 * (e - 530_000) / 30_000
+            r = max(0.01, r)
+            let base = SIMD3(r * 1.1, r, r * 0.7)
+            let onRunway = paint.strips[0].weight(latitude: g.latitude, longitude: g.longitude) >= 1
+            return onRunway ? SIMD3(0.45, 0.45, 0.45) : base
+        }
+        // The grid: 30 m (15 m for the pan band), PixelIsPoint at the top-left pixel's centre.
+        let e0 = 505_005.0, n0 = 3_205_005.0
+        func band(_ name: String, step: Double, _ value: (SIMD3<Double>) -> Double) throws {
+            let w = Int(60_000 / step), h = Int(84_000 / step)
+            var px = [UInt16](repeating: 0, count: w * h)
+            px.withUnsafeMutableBufferPointer { out in
+                let base = out.baseAddress!
+                DispatchQueue.concurrentPerform(iterations: h) { y in
+                    for x in 0 ..< w {
+                        let rho = value(ground(e0 + Double(x) * step, n0 - Double(y) * step)) * sunSine
+                        base[y * w + x] = UInt16(min(65_535, max(1, ((rho - add) / mult).rounded())))
+                    }
+                }
+            }
+            try writeTIFF16(landsat.appendingPathComponent("\(id)_\(name).TIF"), px, width: w, height: h, west: e0, north: n0,
+                            step: step)
+        }
+        try band("B4", step: 30) { $0.x }
+        try band("B3", step: 30) { $0.y }
+        try band("B2", step: 30) { $0.z }
+        try band("B8", step: 15) { ($0.x + $0.y + $0.z) / 3 }
+        var mtl = "GROUP = LANDSAT_METADATA_FILE\n  MAP_PROJECTION = \"UTM\"\n  DATUM = \"WGS84\"\n  UTM_ZONE = 17\n"
+        mtl += "  SUN_ELEVATION = \(sunElevation)\n"
+        for b in [2, 3, 4, 8] { mtl += "  REFLECTANCE_MULT_BAND_\(b) = \(mult)\n  REFLECTANCE_ADD_BAND_\(b) = \(add)\n" }
+        try mtl.write(to: landsat.appendingPathComponent("\(id)_MTL.txt"), atomically: true, encoding: .utf8)
+        // BMNG over the region at 15": linear colour = 0.8 × reflectance + 0.02, no runway (1968).
+        let step = 15.0 / 3_600
+        let grid = GeoGrid(width: Int(0.7 / step), height: Int(0.75 / step), west: region.west - 0.15,
+                           north: region.north + 0.15, pixelWidth: step, pixelHeight: step)
+        let bmng = GeoRaster(grid: grid, channels: 3, type: .uint8)
+        for y in 0 ..< grid.height {
+            for x in 0 ..< grid.width {
+                let la = (grid.north - (Double(y) + 0.5) * step) * deg, lo = (grid.west + (Double(x) + 0.5) * step) * deg
+                let p = utm.forward(latitude: la, longitude: lo)
+                var acc = SIMD3<Double>()
+                for j in 0 ..< 4 { for i in 0 ..< 4 {
+                    var c = ground(p.easting + (Double(i) - 1.5) * 115, p.northing + (Double(j) - 1.5) * 115)
+                    if c.x > 0.4 { c = ground(p.easting + 2_000, p.northing) }
+                    acc += c
+                } }
+                let lin = acc / 16 * 0.8 + 0.02
+                for c in 0 ..< 3 { bmng.setRaw(x, y, c, Float(SRGB.linearToByte(Float(lin[c])))) }
+            }
+        }
+        let paths = Earth.Paths(sources: root.appendingPathComponent("sources"), out: root.appendingPathComponent("tiles"),
+                                work: root, keepWork: false)
+        let preview = root.appendingPathComponent("preview.png")
+        let match = try cape(paths: paths, scene: id, bmng: GeoRasterPyramid(levels: [bmng]), month: 12, quality: 0.9,
+                             preview: preview)
+        print("cape self-test: gain \(match.gain), offset \(match.offset)")
+        for c in 0 ..< 3 {
+            guard abs(match.gain[c] - 0.8) < 0.08, abs(match.offset[c] - 0.02) < 0.01 else {
+                throw ToolError("the colour match found gain \(match.gain), offset \(match.offset), not 0.8 and 0.02")
+            }
+        }
+        let tiles = try PlanetTileFile(contentsOf: paths.out.appendingPathComponent(EarthTileFiles.capeInset))
+        try tiles.verify()
+        let levels = Set(tiles.entries.map(\.key.level))
+        guard levels == Set(Landsat.levels) else { throw ToolError("inset levels \(levels.sorted())") }
+        // The preview: the runway's middle is scrub now, and the edge is BMNG's.
+        let img = try ImageFiles.decode(preview, channels: 3)
+        func at(_ lat: Double, _ lon: Double) -> SIMD3<Double> {
+            let x = Int((lon - region.west) / (0.5 / 3_600)), y = Int((region.north - lat) / (0.5 / 3_600))
+            let k = (y * img.width + x) * 3
+            return SIMD3(Double(img.pixels[k]), Double(img.pixels[k + 1]), Double(img.pixels[k + 2]))
+        }
+        let mid = paint.strips[0]
+        let runway = at((mid.from[0] + mid.to[0]) / 2, (mid.from[1] + mid.to[1]) / 2)
+        let bright = Double(SRGB.linearToByte(Float(0.45 * 0.8 + 0.02)))
+        print("cape self-test: runway middle \(runway), unpainted it would be about \(bright)")
+        guard runway.max() < bright * 0.75 else { throw ToolError("the runway is still there: \(runway)") }
+        let edgeLat = region.south + 0.0005, edgeLon = (region.west + region.east) / 2
+        let edge = at(edgeLat, edgeLon)
+        let p = bmng.grid.position(latitudeDegrees: edgeLat, longitudeDegrees: edgeLon)
+        let b = bmng.bilinear(x: p.x, y: p.y)
+        print("cape self-test: region edge \(edge), BMNG there \(b)")
+        for c in 0 ..< 3 where abs(edge[c] - Double(b[c])) > 12 { throw ToolError("the inset does not fade into BMNG at its edge") }
+        if let keepPreview {
+            try? fm.removeItem(at: keepPreview)
+            try fm.copyItem(at: preview, to: keepPreview)
+        }
+        print("cape self-test: passed (\(tiles.count) tiles, levels \(levels.sorted()))")
+    }
+
+    /// An uncompressed single-band 16-bit GeoTIFF on a projected grid,
+    /// tied PixelIsPoint at the top-left pixel's centre (as Landsat's are).
+    static func writeTIFF16(_ url: URL, _ px: [UInt16], width: Int, height: Int, west: Double, north: Double, step: Double) throws {
+        func put<T: FixedWidthInteger>(_ v: T, _ to: inout Data) { withUnsafeBytes(of: v.littleEndian) { to.append(contentsOf: $0) } }
+        let entries = 12
+        let extraAt = 8 + 2 + 12 * entries + 4
+        var extra = Data()
+        func later(_ x: Data) -> UInt32 { let o = UInt32(extraAt + extra.count); extra.append(x); return o }
+        var scaleData = Data(), tieData = Data(), keyData = Data()
+        for v in [step, step, 0] { put(v.bitPattern, &scaleData) }
+        for v in [0, 0, 0, west, north, 0] { put(v.bitPattern, &tieData) }
+        // GeoKeyDirectory 1.1.0 with two keys: projected model (1024 = 1), PixelIsPoint (1025 = 2).
+        for v: UInt16 in [1, 1, 0, 2, 1024, 0, 1, 1, 1025, 0, 1, 2] { put(v, &keyData) }
+        let scale = later(scaleData), tie = later(tieData), keys = later(keyData)
+        let dataAt = UInt32(extraAt + extra.count)
+        var d = Data([0x49, 0x49, 42, 0, 8, 0, 0, 0])
+        put(UInt16(entries), &d)
+        let table: [(UInt16, UInt16, UInt32, UInt32)] = [
+            (256, 4, 1, UInt32(width)), (257, 4, 1, UInt32(height)), (258, 3, 1, 16), (259, 3, 1, 1), (262, 3, 1, 1),
+            (273, 4, 1, dataAt), (277, 3, 1, 1), (278, 4, 1, UInt32(height)), (279, 4, 1, UInt32(width * height * 2)),
+            (33550, 12, 3, scale), (33922, 12, 6, tie), (34735, 3, 12, keys),
+        ]
+        for (tag, type, count, value) in table {
+            put(tag, &d); put(type, &d); put(count, &d)
+            if type == 3 && count == 1 { put(UInt16(value), &d); put(UInt16(0), &d) } else { put(value, &d) }
+        }
+        put(UInt32(0), &d)
+        d.append(extra)
+        d.append(px.withUnsafeBufferPointer { Data(buffer: $0) })
+        try d.write(to: url)
     }
 
     static func simdClamp(_ v: SIMD3<Double>, _ lo: Double, _ hi: Double) -> SIMD3<Double> {

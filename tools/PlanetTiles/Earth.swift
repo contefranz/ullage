@@ -30,6 +30,7 @@ enum Earth {
       --match-month MM      the BMNG month the Cape inset is matched to and filled from (default 12, else 10, else 07)
       --scene ID            the Landsat scene (default \(Landsat.defaultScene))
       --preview FILE        cape: also write the painted-out inset as a PNG to look at
+      cape-selftest         the Cape's processing on a synthetic scene (no download needed)
     usage: PlanetTiles info FILE...    header, metadata, tiles per level, checksums
     """
 
@@ -83,6 +84,8 @@ enum Earth {
                 }
                 if !paths.keepWork { cleanWork(paths.work, prefix: "bmng-\(m)") }
             }
+        case "cape-selftest":
+            try Landsat.selfTest(keepPreview: o.values["preview"].map { URL(fileURLWithPath: $0) })
         case "demo":
             guard let image = o.values["image"] else { throw ToolError("demo needs --image FILE") }
             try demo(image: URL(fileURLWithPath: (image as NSString).expandingTildeInPath),

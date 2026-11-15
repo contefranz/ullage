@@ -65,6 +65,9 @@ public final class PlanetTilePass: RenderPass {
     /// The layer's cache, if its files were found.
     public func layer(_ kind: PlanetTileLayerKind) -> PlanetTileCache? { layers[kind] }
 
+    /// Off without the user's tiles (snapshots, goldens): the slot is empty.
+    public var isEnabled: Bool { loadsUserTiles }
+
     public func setUp(_ s: PassSetup) throws {
         device = s.device
     }
