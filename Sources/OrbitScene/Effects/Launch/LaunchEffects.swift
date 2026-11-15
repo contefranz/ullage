@@ -427,7 +427,8 @@ public final class LaunchEffects: EffectProducer {
                        make: { _, _ in request(0) })
             // The burst, once: in the frame whose interval holds it, or in
             // a rebuilt history that does.
-            if disconnect <= c.now && (disconnect > c.from || c.rebuilt) {
+            if disconnect <= c.now && (disconnect > c.from || c.rebuilt)
+                && c.now - disconnect < ParticleLifetimes.vapour.upperBound {
                 var r = request(Self.umbilicalBurst)
                 r.ages = 0...0.4
                 r.speed = 2...7

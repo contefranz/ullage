@@ -45,8 +45,11 @@ final class SceneRendererTests: XCTestCase {
             let r = try SceneRenderer(device: try XCTUnwrap(RenderDevice.shared), loadsUserTextures: false)
             r.setStars(try StarCatalog.bundled())
             // The sky without its clouds (C2): Apollo 11's 9/10 cirrostratus
-            // would grey it.
+            // would grey it. Without P4's pad smoke: P3's OIT sums it in the
+            // GPU's atomic order, which moves a few bytes by one between
+            // renderers.
             r.settings.cloud.enabled = false
+            r.settings.particle.quality = .off
             let target = try XCTUnwrap(OffscreenTarget(device: r.device, width: 320, height: 200))
             r.renderAndWait(scene, into: target)
             return target.bytes()

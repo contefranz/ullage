@@ -27,6 +27,9 @@ final class SnapshotToolTests: XCTestCase {
         var shot = Self.pad
         shot.width = 320
         shot.height = 200
+        // No pad smoke (P4): P3's OIT sums it in the GPU's atomic order, so
+        // two frames of it differ by a few bytes.
+        shot.settings.particle.quality = .off
         let plain = try s.render(shot)
         let timed = try s.render(shot, timingFrames: 3)
         XCTAssertEqual(timed.pixels, plain.pixels)
