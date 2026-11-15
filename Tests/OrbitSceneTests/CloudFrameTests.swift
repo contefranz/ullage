@@ -164,6 +164,32 @@ final class CloudFrameTests: XCTestCase {
                 XCTAssertLessThan(abs(k - k.rounded()), 64 * 7.3e-5 * seconds + 0.01, "\(seconds) s")
             }
         }
+        // A long walk along the ground (1,200 km east, the Sun partly along
+        // it) keeps the anchor near the camera, along the Sun too, so the
+        // lattice still turns at under a quarter of a texel a minute there
+        // (kept off it along the Sun, the anchor drifted away and the lattice
+        // turned at several texels a minute).
+        var walker = anchor0, walkExtent = map.extent
+        var last = f
+        for k in 1...40 {
+            last = at(0, -5.37e-3 * Double(k), 300)
+            walker = last.shadowAnchor(previous: walker, previousExtent: walkExtent, texels: 256)
+            walkExtent = last.shadowMap(texels: 256, anchor: walker).extent
+        }
+        XCTAssertLessThan((walker - last.groundPoint).length, 0.5 * map.extent, "the anchor follows")
+        let lastMap = last.shadowMap(texels: 256, anchor: walker)
+        let lastLat = 28.6 * Double.pi / 180, lastLon = -80.6 * Double.pi / 180 - 5.37e-3 * 40
+        for seconds in [10.0, 60] {
+            let p = Ellipsoid.wgs84.bodyFixed(latitude: lastLat, longitude: lastLon, height: 300)
+            let angle = 0.3 + 7.3e-5 * seconds
+            let turned = CloudFrame(earth: earth(center: Mat3.rotZ(angle).transposed * (p * -1), angle: angle))
+            let a = turned.shadowAnchor(previous: walker, previousExtent: walkExtent, texels: 256)
+            let m = turned.shadowMap(texels: 256, anchor: a)
+            for axis in [lastMap.u, lastMap.v] {
+                let k = (m.center - lastMap.center).dot(axis) / texel
+                XCTAssertLessThan(abs(k - k.rounded()), 64 * 7.3e-5 * seconds + 0.02, "\(seconds) s after the walk")
+            }
+        }
         // The extent's ladder: the texel's size changes at four heights.
         for (h, e) in [(300.0, 100_000.0), (24_000, 100_000), (30_000, 200_000), (100_000, 400_000), (185_000, 800_000),
                        (300_000, 1_000_000), (1e8, 1_000_000)] {

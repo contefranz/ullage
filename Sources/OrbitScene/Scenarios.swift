@@ -231,12 +231,6 @@ public struct Scenario: Identifiable {
         return sim
     }
 
-    /// The Saturn V on LC-39A at Apollo 8's range zero, 21 December 1968,
-    /// 12:51:00 UTC (07:51 EST; FER-503 Table 2-2), the Sun about 7° up in
-    /// the east-southeast: a look at the dawn light through the atmosphere
-    /// (M1.6 track A2, shot 1). The stack is AS-506's, standing as Apollo
-    /// 11's did, until AS-503's is built; it has no flight program and
-    /// stays on the pad.
     public static let lowEarthOrbit = Scenario(
         id: "leo",
         name: "Capsule in low Earth orbit",

@@ -164,8 +164,13 @@ public struct CloudFrame: Equatable {
         guard let previous, previousExtent == extent else { return groundPoint }
         let d = groundPoint - previous
         if d.length <= extent / 4 { return previous }
-        let (u, v, _) = shadowAxes, texel = extent / Double(texels)
+        let (u, v, s) = shadowAxes, texel = extent / Double(texels)
+        // Along the Sun too: the lattice's lines run along it, so they stay
+        // put, and the anchor stays near the camera (kept off it along the
+        // Sun, it drifted thousands of km away in orbit and the lattice
+        // turned about it at several texels a minute).
         return previous + u * ((d.dot(u) / texel).rounded() * texel) + v * ((d.dot(v) / texel).rounded() * texel)
+            + s * d.dot(s)
     }
 
     // MARK: Regimes

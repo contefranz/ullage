@@ -42,9 +42,12 @@ struct CloudUniforms {
     float4 cirrusOrigin2;
     // The low layer's detail curl's own frame (its wind the low layer's):
     // axes along and across, the camera's coordinate.
-    float4 detailAlong;
+    float4 detailAlong;       // w: the fading frame's weight
     float4 detailAcross;
     float4 detailOrigin;
+    float4 detailAlong2;      // the frame fading out
+    float4 detailAcross2;
+    float4 detailOrigin2;
     float4 extinction;        // x: low, y: mid, z: cirrus in-cloud extinction (1/m), w: density scale
     float4 layers;            // x: mid base, y: mid top, z: cirrus base, w: cirrus top (m)
     float4 march;             // x: steps, y: unused, z: light distance (m), w: near reach (m)
@@ -442,7 +445,13 @@ inline CloudSample cloud_density(float3 q, float h, CloudWeatherSample w, float 
             // wind the low layer's, not the cirrus's), warping the detail
             // sideways, not up.
             float2 c = cloud_tangentCurl(q, u.detailAlong.xyz, u.detailAcross.xyz, u.detailOrigin.xyz, t, wrap, u);
-            float3 warp = (u.detailAlong.xyz * c.x + u.detailAcross.xyz * c.y) * 300.0 * (1.0 - h01);
+            float3 warp = u.detailAlong.xyz * c.x + u.detailAcross.xyz * c.y;
+            if (u.detailAlong.w > 0.0) {
+                // A re-anchored frame fades in: the two frames' warps mix.
+                float2 c2 = cloud_tangentCurl(q, u.detailAlong2.xyz, u.detailAcross2.xyz, u.detailOrigin2.xyz, t, wrap, u);
+                warp = mix(warp, u.detailAlong2.xyz * c2.x + u.detailAcross2.xyz * c2.y, u.detailAlong.w);
+            }
+            warp *= 300.0 * (1.0 - h01);
             float3 pd = (u.noiseLow.xyz + q + warp) / u.noiseHigh.w;
             float3 dv = t.detail.sample(wrap, pd, level(0.0)).rgb;
             d = cloud_erode(d, dv.r * 0.625 + dv.g * 0.25 + dv.b * 0.125, detailAmount, h01);
@@ -701,23 +710,28 @@ inline float cloud_cirrusMeanDepth(constant CloudUniforms &u) {
     return u.extinction.z * (u.layers.w - u.layers.z) * u.extinction.w;
 }
 
-// The fibres' optical depth at q for a footprint (m).
-inline float cloud_cirrusDepth(float3 q, float cover, float footprint, thread const CloudTextures &t,
-                               sampler wrap, constant CloudUniforms &u) {
+// The fibres' optical depth at q for a footprint (m), in the current
+// streak frame (x) and, while a re-anchored one fades in, the one fading
+// out (y; its weight cirrusAlong.w). The two are drawn and blended in light
+// and opacity by the caller, a cross-fade (mixing their values before the
+// threshold thinned partial cirrus to 0.17-0.58 of its depth mid-fade, and
+// mixing their depths thickened it).
+inline float2 cloud_cirrusDepth(float3 q, float cover, float footprint, thread const CloudTextures &t,
+                                sampler wrap, constant CloudUniforms &u) {
     float lod = clamp(log2(max(footprint / 128.0, 1.0)), 0.0, 1.0);
-    float v = cloud_cirrusFibres(q, u.cirrusAlong.xyz, u.cirrusAcross.xyz, u.cirrusUp.xyz, u.cirrusOrigin.xyz, lod,
-                                 t, wrap, u);
-    if (u.cirrusAlong.w > 0.0) {
-        float v2 = cloud_cirrusFibres(q, u.cirrusAlong2.xyz, u.cirrusAcross2.xyz, u.cirrusUp2.xyz, u.cirrusOrigin2.xyz,
-                                      lod, t, wrap, u);
-        v = mix(v, v2, u.cirrusAlong.w);
-    }
     // The cirrus's own thresholds (CloudCoverage: the quantiles of its value,
     // not the shape's), and its scale, so its in-cloud optical depth averages
     // C1's.
-    float d01 = clamp(cloud_remap(v, cloud_table(u.cirrusTheta, cover), 1.0, 0.0, 1.0), 0.0, 1.0)
-              * cloud_table(u.cirrusScale, cover);
-    return cloud_cirrusMeanDepth(u) * d01;
+    float theta = cloud_table(u.cirrusTheta, cover), k = cloud_table(u.cirrusScale, cover) * cloud_cirrusMeanDepth(u);
+    float v = cloud_cirrusFibres(q, u.cirrusAlong.xyz, u.cirrusAcross.xyz, u.cirrusUp.xyz, u.cirrusOrigin.xyz, lod,
+                                 t, wrap, u);
+    float2 tau = float2(clamp(cloud_remap(v, theta, 1.0, 0.0, 1.0), 0.0, 1.0) * k, 0.0);
+    if (u.cirrusAlong.w > 0.0) {
+        float v2 = cloud_cirrusFibres(q, u.cirrusAlong2.xyz, u.cirrusAcross2.xyz, u.cirrusUp2.xyz, u.cirrusOrigin2.xyz,
+                                      lod, t, wrap, u);
+        tau.y = clamp(cloud_remap(v2, theta, 1.0, 0.0, 1.0), 0.0, 1.0) * k;
+    }
+    return tau;
 }
 
 // A thin slab of optical depth tau's light towards the eye (rgb, per unit of
@@ -777,8 +791,12 @@ inline CloudResult cloud_cirrus(float3 of, float3 df, float3 d, float pixelAngle
     float far = cloud_cirrusFar(footprint);
     float4 c = float4(0.0);
     if (far < 1.0) {
-        c += (1.0 - far) * cloud_cirrusLight(cloud_cirrusDepth(d * th, cover, footprint, t, wrap, u), mu, m, mu0, mu0c,
-                                             phase, sun, sky, u);
+        float2 tf = cloud_cirrusDepth(d * th, cover, footprint, t, wrap, u);
+        float4 lf = cloud_cirrusLight(tf.x, mu, m, mu0, mu0c, phase, sun, sky, u);
+        if (u.cirrusAlong.w > 0.0) {
+            lf = mix(lf, cloud_cirrusLight(tf.y, mu, m, mu0, mu0c, phase, sun, sky, u), u.cirrusAlong.w);
+        }
+        c += (1.0 - far) * lf;
     }
     if (far > 0.0) {
         c += far * cover * cloud_cirrusLight(cloud_cirrusMeanDepth(u), mu, m, mu0, mu0c, phase, sun, sky, u);
@@ -1213,7 +1231,8 @@ kernel void cloud_shadow(texture2d<float, access::write> out [[texture(0)]],
             float3 upc = normalize(float3(pfc.x, pfc.y, pfc.z * u.cameraFigure.w));
             float muc = max(dot(s, upc), 0.02);
             float texel = u.shadow.x / u.shadow.y, far = cloud_cirrusFar(texel);
-            float tf = far < 1.0 ? exp(-cloud_cirrusDepth(qc, cover, texel, t, wrap, u) / muc) : 1.0;
+            float2 df = far < 1.0 ? cloud_cirrusDepth(qc, cover, texel, t, wrap, u) : float2(0.0);
+            float tf = mix(exp(-df.x / muc), exp(-df.y / muc), u.cirrusAlong.w);
             float tm = 1.0 - cover + cover * exp(-cloud_cirrusMeanDepth(u) / muc);
             float tc = -log(max(mix(tf, tm, far), 1e-6));
             for (int k = 0; k < 4; k++) {

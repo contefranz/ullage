@@ -130,7 +130,7 @@ final class CloudRenderTests: XCTestCase {
     /// A field of one uniform sky around the parking orbit's epoch: the low,
     /// mid and high covers, the cloud base 1,000 m up.
     static func uniformWeather(low: Double, mid: Double = 0, high: Double = 0, eastWind: Double = 0,
-                               epoch: Epoch = VesselLibrary.apollo11Insertion,
+                               northWind: Double = 0, epoch: Epoch = VesselLibrary.apollo11Insertion,
                                overrides: [CloudOverride] = []) throws -> CloudWeather {
         let t0 = Int64(((epoch.julianDateUTC - 2_440_587.5) * 86_400).rounded())
         let names = ["lcc", "mcc", "hcc", "cbh", "u850", "v850", "u500", "v500", "u250", "v250"]
@@ -139,9 +139,9 @@ final class CloudRenderTests: XCTestCase {
                              offset: name.hasPrefix("u") || name.hasPrefix("v") ? -50 : 0,
                              scale: name == "cbh" ? 60 : (name.hasPrefix("u") || name.hasPrefix("v") ? 0.5 : 1 / 254))
         }
-        let wind = UInt8(((eastWind + 50) / 0.5).rounded()), calm = UInt8(100)
+        let east = UInt8(((eastWind + 50) / 0.5).rounded()), north = UInt8(((northWind + 50) / 0.5).rounded())
         let values: [UInt8] = [UInt8((low * 254).rounded()), UInt8((mid * 254).rounded()),
-                               UInt8((high * 254).rounded()), 17, wind, calm, wind, calm, wind, calm]
+                               UInt8((high * 254).rounded()), 17, east, north, east, north, east, north]
         let snapshot = zip(planes, values).map { p, v in [UInt8](repeating: v, count: p.count) }
         let field = try CloudField(data: CloudField.encode(planes: planes, utcSeconds: [t0 - 86_400, t0 + 86_400],
                                                            note: "uniform", snapshots: [snapshot, snapshot]))
@@ -198,13 +198,14 @@ final class CloudRenderTests: XCTestCase {
     }
 
     /// The cirrus's opacity over a view is the same whatever the footprint:
-    /// fibres at 0.2 km, their blend with the deck's mean, the mean at
-    /// 2-5 km. Sampled at coarser mips the fibres vanished at 0.5-2.5 km
+    /// fibres at 0.2 km, their blend with the deck's mean at 0.3 km (the
+    /// middle of the hand-over), the mean at 0.9-6 km. Sampled at coarser mips the fibres vanished at 0.5-2.5 km
     /// footprints (their thresholds are mip 0's), and blending depth and
     /// cover apart overshot the deck's opacity 3-6 times at low cover.
     func testCirrusOpacityHoldsAcrossFootprints() throws {
-        for (cover, sizes) in [(0.5, [(1_600, 1_000), (400, 250), (160, 100), (64, 40)]),
-                               (0.1, [(400, 250), (160, 100), (64, 40)])] {
+        // 1104 x 690 at fov 20: 320-360 m, the middle of the hand-over (128-512 m).
+        for (cover, sizes) in [(0.5, [(1_600, 1_000), (1_104, 690), (400, 250), (160, 100), (64, 40)]),
+                               (0.1, [(1_104, 690), (400, 250), (160, 100), (64, 40)])] {
             let weather = try Self.uniformWeather(low: 0, high: cover)
             var means: [Double] = []
             for (w, h) in sizes {
@@ -220,6 +221,50 @@ final class CloudRenderTests: XCTestCase {
                 XCTAssertEqual(m / far, 1, accuracy: cover < 0.2 ? 0.35 : 0.25, "cover \(cover), \(w) px wide")
             }
         }
+    }
+
+    /// Through a cirrus re-anchor's fade (the high wind turned 90°) the
+    /// cirrus keeps its opacity: the two frames' depths mix. Mixing their
+    /// fibre values before the threshold thinned partial cirrus to
+    /// 0.17-0.58 of its depth mid-fade.
+    func testCirrusKeepsItsOpacityThroughAReAnchor() throws {
+        // 3/10 cirrus, its fibres alone (130 m footprints).
+        let east = try Self.uniformWeather(low: 0, high: 0.3, eastWind: 30)
+        let north = try Self.uniformWeather(low: 0, high: 0.3, northWind: 30)
+        var shot = Self.deckShot(width: 1_600, height: 1_000)
+        shot.camera = SnapshotSpec.CameraSpec(target: "body:399", frame: "inertial", yaw: 223.5, pitch: 22.9,
+                                              distance: 6_700_000, fov: 12)
+        let s = try snapper()
+        let prepared = try shot.prepare(system: s.system)
+        let capture = Capture()
+        let r = try SceneRenderer(device: s.device, outputFormat: .bgra8Unorm_srgb,
+                                  passes: SceneRenderer.defaultPasses(loadsUserTextures: false) + [capture],
+                                  plan: HDRTargetPlan(outputFormat: .bgra8Unorm_srgb, sampleCount: 4))
+        r.settings = shot.settings
+        let clouds = try XCTUnwrap(r.graph.pass(named: "Clouds") as? CloudPass)
+        let target = try XCTUnwrap(OffscreenTarget(device: s.device, width: shot.width, height: shot.height))
+        var scene = shot.scene(prepared)
+        func mean(_ k: Int, _ w: CloudWeather, _ name: String, realDt: Double) throws -> Double {
+            clouds.weatherOverride = w
+            clouds.weatherOverrideName = name
+            scene.clock.frameIndex = k
+            scene.clock.realDt = realDt
+            scene.clock.temporalReset = k == 1
+            _ = r.renderAndWait(scene, into: target)
+            let c = try XCTUnwrap(capture.values(.halfResClouds))
+            return c.texels.map { $0[3] }.reduce(0, +) / Double(c.texels.count)
+        }
+        let a = try mean(1, east, "east", realDt: 0)
+        let old = try mean(2, north, "north", realDt: 1)      // re-anchored: the old frame at full weight
+        XCTAssertEqual(clouds.cirrus.fade, 1)
+        let mid = try mean(3, north, "north", realDt: 1)      // halfway
+        XCTAssertEqual(clouds.cirrus.fade, 0.5, accuracy: 1e-9)
+        let new = try mean(4, north, "north", realDt: 2)      // the new frame alone
+        XCTAssertEqual(clouds.cirrus.fade, 0)
+        XCTAssertGreaterThan(a, 0.02)
+        XCTAssertEqual(old / a, 1, accuracy: 0.1, "the old frame drawn as before")
+        print("cirrus through a re-anchor: \(a), \(old), \(mid), \(new)")
+        XCTAssertEqual(mid / (0.5 * (old + new)), 1, accuracy: 0.1, "halfway through the fade")
     }
 
     /// In the hand-over band the far layer's share shows where the march

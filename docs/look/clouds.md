@@ -167,7 +167,8 @@ a = b = c = 0.5 a deck of τ 90 had a plane albedo of 0.09 against 0.18 for
 | The march's in-cloud extinction against C1's β, low and mid, cover 0.1-0.9 (an independent sample) | within 8 % (15 % at 0.1) |
 | Cirrus: drawn cover against the cover; in-cloud optical depth against C1's | within 0.04; 8 % (15 % at 0.1) |
 | GPU: a broken low deck marched against the far layer from LEO, cover 0.3 and 0.7 | radiance within 25 %, opacity within 30 % (oblique views see more cloud than the cover) |
-| GPU: 4/10 cirrus from orbit, fibres drawn | 0.4 of the view within 0.15 |
+| GPU: 4/10 cirrus from orbit at 650 m footprints (the deck's mean drawn) | 4/10 of the deck's opacity within 20 % |
+| GPU: the cirrus's opacity at 0.2-6 km footprints, 1/10 and 5/10 cover; through a re-anchor's fade | the same within 25 % (35 % at 1/10); within 15 % mid-fade |
 | GPU: the hand-over at a far weight of 0.16, the march's gaps | the far layer's share shows in over 75 % (none before) |
 | GPU: the shadow map at Apollo 8's dawn, a full deck but a clear pad | over 95 % of the lines crossing it 60-400 km out shaded |
 | GPU: the weather map after another mission | the same as a fresh pass's |
@@ -178,37 +179,45 @@ a = b = c = 0.5 a deck of τ 90 had a plane albedo of 0.09 against 0.18 for
 
 ## Cost
 
-M3 Pro, 3024 × 1964, GPU lock held. One queue, clouds on and off on
-alternate frames; difference of the medians (`CloudCostTests`,
-`ORBITSIM_CLOUD_COST=1`). The P0 pass alone, steady (reprojecting) and
-fresh (every texel marched, as at 10× warp):
+M3 Pro, 3024 × 1964, GPU lock held, on main with A2 (#67) and R1's #70.
+One queue, clouds on and off on alternate frames; difference of the
+medians (`CloudCostTests`, `ORBITSIM_CLOUD_COST=1`). The P0 pass alone,
+steady (reprojecting) and fresh (every texel marched, as at 10× warp):
 
 | Shot | Steady | Fresh |
 |---|---|---|
-| Pad (AS-506) | 2.3 ms | 4.9 ms |
-| Ascent, 60 s | 1.9 ms | 3.9 ms |
-| LEO | 1.9 ms | 3.4 ms |
+| Pad (AS-506) | 3.0 ms | 5.4 ms |
+| Ascent, 60 s | 2.6 ms | 4.4 ms |
+| LEO | 1.9 ms | 4.3 ms |
 | Earth from 22,000 km | under 0.1 ms | under 0.1 ms |
 
-With every default pass (`ORBITSIM_CLOUD_COST_FULL=1`), A2's air included,
-the clouds add the following; R6's slots cost 1.9-2.7 ms of it whenever
+With every default pass (`ORBITSIM_CLOUD_COST_FULL=1`), the clouds add the
+following (steady, two runs). R6's slots cost 0.85-1.1 ms of it whenever
 anything draws through them, even a tiny test slab
-(`ORBITSIM_CLOUD_COST_R6=1`), so the clouds' own share is the difference:
+(`ORBITSIM_CLOUD_COST_R6=1`; R1's #70 resolves the scene at the break), so
+the clouds' own share is the difference:
 
 | Shot | Clouds added | R6's slots | Clouds' own (budget) |
 |---|---|---|---|
-| Pad | 5.0 ms | 2.2 ms | 2.8 ms (3.0) |
-| Ascent, 60 s | 4.4 ms | 1.9 ms | 2.5 ms |
-| LEO | 4.7 ms | 2.7 ms | 2.0 ms (2.0) |
-| Earth from 22,000 km | 3.2 ms | 1.9 ms | 1.4 ms |
+| Pad | 3.8 ms | 0.9 ms | 2.9 ms (3.0) |
+| Ascent, 60 s | 3.5 ms | 0.85 ms | 2.7 ms |
+| LEO | 3.7-3.8 ms | 1.0-1.1 ms | 2.7 ms (2.0: over) |
+| Earth from 22,000 km | 1.7-1.9 ms | 0.8 ms | 1.0 ms |
 
-Steady state; fresh frames add 0.6-0.8 ms on the pad and in LEO. Run to run
-the full frame varies by about 0.5 ms. Of the own share, A2's aerial
-perspective is about 0.3-0.5 ms (one froxel lookup per texel). The far
-layer is evaluated only for rays that meet a layer's shell before the
-ground: under the cloud base, the downward rays used to evaluate it over
-the whole ground (1.4 ms on the pad) only for the depth cut to drop it.
-`ORBITSIM_CLOUD_COST_NO_AIR=1` turns A2 off in both frames.
+- Fresh frames add about 1 ms. Run to run the full frame varies by about
+  0.3 ms.
+- **LEO is over its budget with A2 in the frame.** With A2 off in both
+  frames (`ORBITSIM_CLOUD_COST_NO_AIR=1`) the clouds' own share in LEO is
+  1.3-1.5 ms. Their own use of the air does not explain the difference:
+  - their haze (one froxel lookup per texel) measures nothing in LEO and
+    0.3-0.4 ms on the pad (a build with it disabled);
+  - the far layer and the shadow map are 0.1 ms or less there.
+  The rest appears only when both draw; finding it wants a GPU capture
+  (Open).
+- The far layer is evaluated only for rays that meet a layer's shell before
+  the ground: under the cloud base, the downward rays used to evaluate it
+  over the whole ground (1.4 ms on the pad) only for the depth cut to drop
+  it.
 
 ## For other tracks
 
@@ -243,6 +252,10 @@ the whole ground (1.4 ms on the pad) only for the depth cut to drop it.
   (`c2-near.json`), the views from between the layers, and the aerial
   perspective (A2's froxels, and beyond their reach A2's haze from space).
   Open: the detail erosion up close wants tuning against photographs.
+- **LEO's cost with A2:** the clouds' marginal cost in LEO is about 2.7 ms
+  with A2 drawing and 1.3-1.5 ms without, against a budget of 2.0 (Cost).
+  Neither the clouds' haze nor their far layer or shadow map accounts for
+  it; a GPU capture of both frames should show where it goes.
 - **The 13 km step:** the march switches from near to orbit at the shell's
   top in one frame. Inside the shell its reach is 150 km, its clear-air
   steps grow with the distance and the far layer takes no ray; above, the
@@ -256,7 +269,7 @@ the whole ground (1.4 ms on the pad) only for the depth cut to drop it.
 - **Water paths** (decision 29): not added. The far layer's optical depth
   is the layer model's. ERA5's total column liquid and ice water would vary
   the brightness of thin and thick decks; adding them is two OSCLOUD1
-  planes, a change to C1's tool and a 10-minute re-fetch.
+  planes, a change to C1's tool and a 3-6 minute re-fetch per mission (the fetches took 2:42-5:44).
 - **Apollo 8:** `apollo8-pad` is a look-development stand-in: AS-506's
   stack, physics unchanged, dressed as AS-503 on Apollo 8's day. The
   parking orbit on that day is M2's, so the test harness

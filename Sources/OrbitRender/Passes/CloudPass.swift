@@ -586,7 +586,8 @@ public final class CloudPass: RenderPass, HalfResEffect {
         set(cirrus.current, &u.cirrusAlong, &u.cirrusAcross, &u.cirrusUp, &u.cirrusOrigin, weight: cirrus.fade)
         set(cirrus.previous, &u.cirrusAlong2, &u.cirrusAcross2, &u.cirrusUp2, &u.cirrusOrigin2, weight: 0)
         var detailUp = SIMD4<Float>.zero
-        set(detailFrames.current, &u.detailAlong, &u.detailAcross, &detailUp, &u.detailOrigin, weight: 0)
+        set(detailFrames.current, &u.detailAlong, &u.detailAcross, &detailUp, &u.detailOrigin, weight: detailFrames.fade)
+        set(detailFrames.previous, &u.detailAlong2, &u.detailAcross2, &detailUp, &u.detailOrigin2, weight: 0)
         u.windHigh = SIMD4(u.cirrusAlong.x, u.cirrusAlong.y, u.cirrusAlong.z, Float(Self.curlPeriod))
         let layers = CloudLayerModel.layers(CloudSample(low: 1, mid: 1, high: 1))
         u.extinction = SIMD4(Float(layers[0].extinction), Float(layers[1].extinction), Float(layers[2].extinction),
@@ -716,6 +717,9 @@ struct CloudUniforms {
     var detailAlong = SIMD4<Float>.zero
     var detailAcross = SIMD4<Float>.zero
     var detailOrigin = SIMD4<Float>.zero
+    var detailAlong2 = SIMD4<Float>.zero
+    var detailAcross2 = SIMD4<Float>.zero
+    var detailOrigin2 = SIMD4<Float>.zero
     var extinction = SIMD4<Float>.zero
     var layers = SIMD4<Float>.zero
     var march = SIMD4<Float>.zero
