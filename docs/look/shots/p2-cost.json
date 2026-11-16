@@ -1,0 +1,33 @@
+{
+  "goldens": "none",
+  "shots": [
+    {"name": "p2-cost-pad-base", "scenario": "as506-pad", "showOrbit": false, "advance": ["met:3"],
+     "camera": {"yaw": 149, "pitch": -2, "distance": 62, "fov": 62},
+     "settings": {"post": {"exposure": {"mode": "manual", "ev100": 15}}}},
+    {"name": "p2-cost-pad-plume", "scenario": "as506-pad", "showOrbit": false, "advance": ["met:8"],
+     "camera": {"yaw": -109, "pitch": -25, "distance": 70, "fov": 70},
+     "settings": {"post": {"exposure": {"mode": "manual", "ev100": 15}}}},
+    {"name": "p2-cost-ascent", "scenario": "as506-pad", "showOrbit": false, "advance": ["met:30"],
+     "camera": {"yaw": 160, "pitch": -40, "distance": 160, "fov": 60},
+     "settings": {"post": {"exposure": {"mode": "manual", "ev100": 15}}}},
+    {"name": "p2-cost-max-q", "scenario": "as506-pad", "showOrbit": false, "advance": ["met:80"],
+     "camera": {"yaw": 170, "pitch": -35, "distance": 300, "fov": 60},
+     "settings": {"post": {"exposure": {"mode": "manual", "ev100": 15}}}},
+    {"name": "p2-cost-leo-s-ii", "scenario": "as506-pad", "showOrbit": false,
+     "advance": ["ev:S-IC/S-II separation", "wait:10"],
+     "camera": {"yaw": 170, "pitch": -10, "distance": 60, "fov": 60},
+     "settings": {"post": {"exposure": {"mode": "manual", "ev100": 15}}}},
+    {"name": "p2-cost-leo-sps", "scenario": "as506-parking-orbit", "showOrbit": false,
+     "advance": ["stage", "wait:6", "throttle:1", "wait:10"],
+     "camera": {"yaw": 200, "pitch": 10, "distance": 14, "fov": 60},
+     "settings": {"post": {"exposure": {"mode": "manual", "ev100": 15}}}},
+    {"name": "p2-cost-leo-sps-forward", "scenario": "as506-parking-orbit", "showOrbit": false,
+     "advance": ["stage", "wait:6", "throttle:1", "wait:10"],
+     "camera": {"yaw": 200, "pitch": 10, "distance": 14, "fov": 60},
+     "settings": {"post": {"exposure": {"mode": "manual", "ev100": 15}}}},
+    {"name": "p2-cost-leo-sps-night", "scenario": "apollo7-deorbit", "showOrbit": false,
+     "advance": ["throttle:1", "wait:8"],
+     "camera": {"yaw": 160, "pitch": -5, "distance": 18, "fov": 50},
+     "settings": {"post": {"exposure": {"mode": "manual", "ev100": 4}}}}
+  ]
+}

@@ -73,9 +73,11 @@ final class SceneExtractorTests: XCTestCase {
     /// finds on the Apollo vehicles has its spec's exit radius, however many
     /// shapes the dresser links to its thruster. The scene takes the last
     /// linked shape (the F-1s, J-2s, the SPS, the SM and CM RCS jets, the
-    /// S-II retros and the TX-280s) or, for the APS engines, which the
-    /// dresser does not link, the cone narrowing to each; the dresser and
-    /// the specs share one exit per family.
+    /// S-II retros and the TX-280s), the port a motor fires through (the
+    /// S-IC retros' breaches, the S-II ullage motors' exits: P2) or, for
+    /// the APS engines, which the dresser does not link, the cone narrowing
+    /// to each; the dresser and the specs share one exit per family. Every
+    /// drawn exhaust is within 15° of the physics' thrust line.
     func testNozzleExitsAreTheExhaustSpecs() throws {
         var checked = Set<String>()
         for v in [VesselLibrary.saturnV(), VesselLibrary.apolloCSM(.apollo7), VesselLibrary.commandModule(.apollo7)] {
@@ -85,22 +87,22 @@ final class SceneExtractorTests: XCTestCase {
                     guard let nozzle = geometry.nozzles[ObjectIdentifier(t)] else { continue }
                     let spec = try XCTUnwrap(ExhaustLibrary.spec(for: t, in: p), t.name)
                     XCTAssertEqual(nozzle.radius, spec.exitRadius, accuracy: 1e-9, t.name)
+                    XCTAssertGreaterThan(nozzle.exhaust.dot(-t.direction), cos(15 * Double.pi / 180), t.name)
                     // The family: its row in the CEA table, which the spec cites.
                     checked.insert(try XCTUnwrap(spec.source.components(separatedBy: "CEA row ").last, t.name))
                 }
             }
         }
         XCTAssertEqual(checked, ["F-1", "J-2", "SPS", "SM RCS", "CM RCS", "APS attitude", "APS ullage", "S-II retro",
-                                 "S-IVB ullage"])
+                                 "S-IVB ullage", "S-IC retro", "S-II ullage"])
     }
 
     /// The S-II retros and the S-IVB's TX-280s are drawn off the physics'
     /// thrust points (VG2: the retros' nozzles under their fairings' caps,
     /// the TX-280s on fairings 17.5° round from the fin lines): each motor's
     /// plume starts at its port, the drawn nozzle's exit, which the dresser
-    /// links to it, not at its thrust point. The TX-280s' plumes keep the
-    /// physics' exhaust, 10° off their nozzles' (a follow-up for the plume
-    /// code, which does not read the ports).
+    /// links to it, not at its thrust point. The TX-280s' plumes leave
+    /// along their drawn nozzles, 10° off the physics' thrust line (P2).
     func testSolidMotorPlumesStartAtTheirPorts() throws {
         let stack = VesselLibrary.saturnV()
         let geometry = VesselGeometry(of: stack)
@@ -130,7 +132,10 @@ final class SceneExtractorTests: XCTestCase {
             XCTAssertEqual(e.exitRadius, port.radius, accuracy: 1e-12)
             XCTAssertTrue(e.isSolid)
             let off = acos(max(-1, min(1, e.axis.dot(stack.attitude.rotate(port.direction)))))
-            XCTAssertEqual(off * 180 / Double.pi, 10, accuracy: 0.1, e.name)
+            XCTAssertEqual(off * 180 / Double.pi, 0, accuracy: 0.1, e.name)
+            let t = try XCTUnwrap(stack.thrusters.first { $0.name == e.name })
+            let physics = acos(max(-1, min(1, e.axis.dot(stack.attitude.rotate(-t.thrustDirection)))))
+            XCTAssertEqual(physics * 180 / Double.pi, 10, accuracy: 0.1, e.name)
         }
     }
 

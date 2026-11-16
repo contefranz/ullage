@@ -317,9 +317,24 @@ public struct RenderScene {
         public var isSolid: Bool
         /// An attitude or ullage jet (not a main engine, not a solid).
         public var isJet: Bool
+        /// The part it is on, by name (the exhaust library's key with `name`).
+        public var part: String
+        /// The propellant flow over its engine family's rated flow
+        /// (`ApolloExhaust.Engine.ratedFlow`): what the plume model's chamber
+        /// pressure follows. The thrust fraction for an engine the library
+        /// does not know.
+        public var flowFraction: Double
+        /// The air at the vessel (the simulation's: the launch day's sounding
+        /// on AS-506's pad), for the plume model.
+        public var ambient: AtmosphereState
+        /// Seconds it has been commanded on since it last started
+        /// (`Thruster.burnTime`): the nozzle glow's history on a first frame.
+        public var burnTime: Double
 
         public init(vesselID: UUID, thruster: ThrusterKey, name: String, exit: Vec3, axis: Vec3, exitRadius: Double,
-                    style: PlumeStyle, thrustFraction: Double, pressureRatio: Double, isSolid: Bool, isJet: Bool) {
+                    style: PlumeStyle, thrustFraction: Double, pressureRatio: Double, isSolid: Bool, isJet: Bool,
+                    part: String = "", flowFraction: Double? = nil, ambient: AtmosphereState? = nil,
+                    burnTime: Double = 0) {
             self.vesselID = vesselID
             self.thruster = thruster
             self.name = name
@@ -331,6 +346,24 @@ public struct RenderScene {
             self.pressureRatio = pressureRatio
             self.isSolid = isSolid
             self.isJet = isJet
+            self.part = part
+            self.flowFraction = flowFraction ?? thrustFraction
+            self.ambient = ambient ?? Self.air(pressureRatio: pressureRatio)
+            self.burnTime = burnTime
+        }
+
+        /// Air at `pressureRatio` of sea level's, at a 250 K mean
+        /// temperature, where the vessel's own air is not known.
+        public static func air(pressureRatio: Double) -> AtmosphereState {
+            let p = max(0, pressureRatio) * 101_325
+            guard p > 0 else { return .vacuum }
+            let t = 250.0
+            var air = AtmosphereState.vacuum
+            air.temperature = t
+            air.pressure = p
+            air.density = p / (287.05 * t)
+            air.speedOfSound = (1.4 * 287.05 * t).squareRoot()
+            return air
         }
     }
 

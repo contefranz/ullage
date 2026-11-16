@@ -240,12 +240,13 @@ public final class VesselPass: RenderPass {
         return Float(min(max((now - entry.aoArrived) / duration, 0), 1))
     }
 
-    /// The plume lights: P2's, when it writes them into the lighting
-    /// uniforms, else `PlumeLights` from the scene's emitters.
+    /// The plume lights: P2's, when it has written them into the lighting
+    /// uniforms (lightCount.y is 1 then, however many), else `PlumeLights`
+    /// from the scene's emitters.
     static func localLights(_ f: FrameContext, maximum: Int) -> [LocalLight] {
         guard maximum > 0 else { return [] }
         let written = Int(f.lighting.lightCount.x)
-        if written > 0 {
+        if written > 0 || f.lighting.lightCount.y > 0.5 {
             return withUnsafeBytes(of: f.lighting.lights) { raw in
                 Array(raw.bindMemory(to: LocalLight.self).prefix(min(written, maximum)))
             }
