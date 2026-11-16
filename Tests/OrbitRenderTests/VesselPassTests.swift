@@ -22,9 +22,11 @@ final class VesselPassTests: XCTestCase {
         return r
     }
 
-    /// `s` at a fixed exposure, EV 15.
+    /// `s` at a fixed exposure, EV 15, with R2's stand-in environment (R3's
+    /// probe off: EnvironmentProbePassTests checks the vessels under it).
     static func manual(_ s: RenderSettings) -> RenderSettings {
         var s = s
+        s.probe.enabled = false
         s.post.exposure.mode = .manual
         s.post.exposure.ev100 = 15
         return s

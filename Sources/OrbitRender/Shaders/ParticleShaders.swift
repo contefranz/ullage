@@ -842,6 +842,13 @@ fragment float4 particle_streak_fragment(ParticleStreakOut in [[stage_in]]) {
 // Henyey-Greenstein single scattering, the sky's light, any glow; faded
 // softly into the scene and at the near plane.
 
+// The ambient light on a surface facing the unit n, E/π (cd/m²): R3's
+// probe's SH9 when it is drawn (lighting.probe.w > 0), else A2's sky on a
+// level surface (zero without air).
+inline float3 particle_ambient(constant LightingUniforms &lighting, constant AtmosphereUniforms &atmosphere, float3 n) {
+    return lighting.probe.w > 0.5 ? orbit_sh9Irradiance(lighting, n) : atmosphere.skyIrradiance.rgb / M_PI_F;
+}
+
 struct ParticleSmokeOut {
     float4 position [[position]];
     float2 corner;
@@ -850,7 +857,7 @@ struct ParticleSmokeOut {
     float tau;               // optical depth through the centre
     float phase;             // Henyey-Greenstein, towards the camera (1/sr)
     float3 sunLight;         // albedo × the Sun (lux)
-    float3 ambient;          // albedo × the sky / π, plus the glow (cd/m²)
+    float3 ambient;          // albedo × the ambient E/π (R3's probe, else the sky), plus the glow (cd/m²)
     float3 sunView;          // unit, camera -> Sun, view axes
     float3 noiseOrigin;      // the puff's place in the noise
 };
@@ -862,7 +869,8 @@ vertex ParticleSmokeOut particle_smoke_vertex(uint vid [[vertex_id]], uint iid [
                                               device const ParticleMaterial *materials [[buffer(3)]],
                                               constant ParticleFrame &pf [[buffer(4)]],
                                               constant FrameUniforms &frame [[buffer(ORBIT_BUFFER_FRAME)]],
-                                              constant AtmosphereUniforms &atmosphere [[buffer(ORBIT_BUFFER_ATMOSPHERE)]]) {
+                                              constant AtmosphereUniforms &atmosphere [[buffer(ORBIT_BUFFER_ATMOSPHERE)]],
+                                              constant LightingUniforms &lighting [[buffer(ORBIT_BUFFER_LIGHTING)]]) {
     float2 corners[4] = {float2(-1, -1), float2(1, -1), float2(-1, 1), float2(1, 1)};  // a triangle strip
     ParticleView p = particle_view(particles, lists[PARTICLE_CLASS_SMOKE * pf.counts.x + iid], anchors);
     device const ParticleMaterial &m = materials[p.material];
@@ -881,7 +889,10 @@ vertex ParticleSmokeOut particle_smoke_vertex(uint vid [[vertex_id]], uint iid [
     float3 sun = particle_sun(frame, atmosphere, an);
     o.sunLight = m.albedo.rgb * sun;
     o.phase = particle_phase(dot(frame.sunDirection.xyz, view), m.look.y);
-    o.ambient = m.albedo.rgb * atmosphere.skyIrradiance.rgb / M_PI_F + particle_emission(m, p.temperature);
+    // The ambient on the puff's side the camera sees, as the Sun's wrap
+    // lights a thick puff: R3's SH9 where the probe is (the ground, the
+    // Earth below in orbit), else A2's sky on a level surface.
+    o.ambient = m.albedo.rgb * particle_ambient(lighting, atmosphere, -view) + particle_emission(m, p.temperature);
     o.sunView = (frame.view * float4(frame.sunDirection.xyz, 0.0)).xyz;
     float s = float(p.seed);
     o.noiseOrigin = float3(fract(s * 0.618034), fract(s * 0.414214), fract(s * 0.732051)) * 4.0;
@@ -949,7 +960,8 @@ vertex ParticleChunkOut particle_chunk_vertex(uint vid [[vertex_id]], uint iid [
                                               device const ParticleMaterial *materials [[buffer(3)]],
                                               constant ParticleFrame &pf [[buffer(4)]],
                                               constant FrameUniforms &frame [[buffer(ORBIT_BUFFER_FRAME)]],
-                                              constant AtmosphereUniforms &atmosphere [[buffer(ORBIT_BUFFER_ATMOSPHERE)]]) {
+                                              constant AtmosphereUniforms &atmosphere [[buffer(ORBIT_BUFFER_ATMOSPHERE)]],
+                                              constant LightingUniforms &lighting [[buffer(ORBIT_BUFFER_LIGHTING)]]) {
     ParticleView p = particle_view(particles, lists[PARTICLE_CLASS_CHUNK * pf.counts.x + iid], anchors);
     device const ParticleMaterial &m = materials[p.material];
     device const ParticleAnchor &an = anchors[p.anchor];
@@ -988,7 +1000,7 @@ vertex ParticleChunkOut particle_chunk_vertex(uint vid [[vertex_id]], uint iid [
     o.position = frame.viewProjection * float4(world, 1.0);
     o.color = m.albedo.rgb;
     o.sun = particle_sun(frame, atmosphere, an) / M_PI_F * frame.exposure.x;
-    o.base = (m.albedo.rgb * (atmosphere.skyIrradiance.rgb / M_PI_F) + particle_emission(m, p.temperature))
+    o.base = (m.albedo.rgb * particle_ambient(lighting, atmosphere, o.normal) + particle_emission(m, p.temperature))
         * frame.exposure.x + m.albedo.rgb * 0.01;
     return o;
 }
@@ -1125,5 +1137,6 @@ kernel void particle_sizes(device uint *out [[buffer(0)]], uint id [[thread_posi
 """#
 
 extension ShaderModule {
-    public static let particle = ShaderModule(name: "Particle", headers: [.effectSlots], source: particleShaderSource)
+    public static let particle = ShaderModule(name: "Particle", headers: [.effectSlots, .sphericalHarmonics],
+                                              source: particleShaderSource)
 }

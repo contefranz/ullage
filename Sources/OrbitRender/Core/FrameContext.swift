@@ -172,7 +172,10 @@ public final class FrameContext {
     /// lighting uniforms (`copyIntoLighting`), before any render stage reads
     /// them.
     func uploadShared() {
-        guard let f = arena.push(value: frame), let l = arena.push(value: lighting),
+        // The lighting uniforms in a buffer of their own when P0 writes into
+        // them on the GPU, so the arena's readers do not wait for that write.
+        let pushLighting = lightingCopies.isEmpty ? arena.push(value: lighting) : arena.pushSeparately(value: lighting)
+        guard let f = arena.push(value: frame), let l = pushLighting,
               let a = arena.push(value: atmosphere) else { return }
         shared = ((f.buffer, f.offset), (l.buffer, l.offset), (a.buffer, a.offset))
         guard !lightingCopies.isEmpty else { return }

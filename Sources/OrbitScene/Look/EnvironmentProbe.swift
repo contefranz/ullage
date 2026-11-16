@@ -218,7 +218,7 @@ public enum EnvironmentProbe {
     /// An analytic environment the probe can take instead of the scene's
     /// (`ProbeSettings.environment`), for the look-dev goldens.
     public struct LookDevEnvironment: Equatable {
-        public enum Kind: Int { case furnace = 1, earthBelow = 2 }
+        public enum Kind: Int { case furnace = 1, earthBelow = 2, earthUniform = 3 }
         public var kind: Kind
         /// The furnace's uniform radiance, cd/m².
         public var radiance: Spectrum3
@@ -251,12 +251,21 @@ public enum EnvironmentProbe {
                                       sunIlluminance: Spectrum3(colour.r, colour.g, colour.b) * sunLux)
         }
 
+        /// The same Earth lit evenly, its ground at the radiance of the
+        /// sub-solar point everywhere: a uniform disc, whose irradiance is
+        /// Howell's sphere factor (`BRDF.sphereIrradiance`).
+        public static func earthUniform(sunLux: Double) -> LookDevEnvironment {
+            var e = earthBelow(toSun: .unitZ, sunLux: sunLux)
+            e.kind = .earthUniform
+            return e
+        }
+
         /// The radiance toward the unit `d`, cd/m².
         public func radiance(_ d: Vec3) -> Spectrum3 {
             switch kind {
             case .furnace:
                 return radiance
-            case .earthBelow:
+            case .earthBelow, .earthUniform:
                 // The sphere of radius 1 at distance 1/sin σ along the body's
                 // direction; the ground's normal where the ray meets it.
                 let s2 = bodySinSigma2
@@ -267,7 +276,8 @@ public enum EnvironmentProbe {
                 guard disc >= 0, b > 0 else { return .zero }
                 let t = b - disc.squareRoot()
                 let normal = (d * t - bodyDirection * r).normalized
-                return reflectance * sunIlluminance * max(normal.dot(toSun), 0)
+                let cosine = kind == .earthUniform ? 1 : max(normal.dot(toSun), 0)
+                return reflectance * sunIlluminance * cosine
             }
         }
     }

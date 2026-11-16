@@ -1,0 +1,24 @@
+{
+  "goldens": "scene",
+  "shots": [
+    {"name": "r3-pad-stack", "scenario": "as506-pad", "showOrbit": false,
+     "camera": {"yaw": -60, "pitch": 4, "distance": 210, "fov": 38},
+     "settings": {"shading": {"waitForAmbientOcclusion": true}, "particle": {"quality": "off"}},
+     "reference": "S69-39961"},
+    {"name": "r3-pad-base", "scenario": "as506-pad", "showOrbit": false,
+     "camera": {"yaw": -35, "pitch": -2, "distance": 62, "fov": 62},
+     "settings": {"shading": {"waitForAmbientOcclusion": true}, "particle": {"quality": "off"}}},
+    {"name": "r3-sivb-sla-orbit", "scenario": "as506-parking-orbit", "showOrbit": false, "advance": ["stage", "wait:20"],
+     "camera": {"target": "vessel:Apollo 11", "frame": "vessel", "yaw": 200, "pitch": 18, "distance": 16, "fov": 40},
+     "settings": {"shading": {"waitForAmbientOcclusion": true}}, "reference": "AS07-03-1545"},
+    {"name": "r3-csm-orbit-glint", "scenario": "as506-parking-orbit", "showOrbit": false, "advance": ["stage", "wait:20"],
+     "camera": {"target": "vessel:Apollo 11", "frame": "vessel", "yaw": 20, "pitch": -12, "distance": 14, "fov": 40},
+     "settings": {"shading": {"waitForAmbientOcclusion": true}}, "reference": "AS09-20-3064"},
+    {"name": "r3-csm-earth-below", "scenario": "as506-parking-orbit", "showOrbit": false, "advance": ["stage", "wait:20"],
+     "camera": {"target": "vessel:Apollo 11", "frame": "vessel", "yaw": 100, "pitch": 30, "distance": 18, "fov": 45},
+     "settings": {"shading": {"waitForAmbientOcclusion": true}}, "reference": "AS09-20-3064"},
+    {"name": "r3-stack-night", "scenario": "as506-parking-orbit", "showOrbit": false, "advance": ["wait:2600"],
+     "camera": {"target": "vessel:Apollo 11", "frame": "vessel", "yaw": -34.4, "pitch": 20, "distance": 45},
+     "settings": {"shading": {"waitForAmbientOcclusion": true}}}
+  ]
+}

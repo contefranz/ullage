@@ -79,6 +79,8 @@ public final class SceneRenderer {
         pool = TexturePool(device: device)
         history = HistoryTargets(device: device)
         graph = FrameGraph(passes: passes, plan: plan)
+        // R3's probe draws through the graph's own planet, sky and cloud passes.
+        for case let probe as EnvironmentProbePass in graph.passes { probe.connect(graph.passes) }
         profiler = GPUProfiler(device: device)
         arenas = (0..<Self.framesInFlight).compactMap { _ in FrameArena(device: device, capacity: 1 << 18) }
         guard arenas.count == Self.framesInFlight else { throw Failure.noResources }
@@ -100,19 +102,15 @@ public final class SceneRenderer {
         // R2's vessels, whose thin tubes blend over the sky after A2's composite.
         let vessels = VesselPass()
         let tiles = PlanetTilePass(loadsUserTiles: loadsUserTextures)
-        // R3's probe draws the planets, A2's sky and C2's far clouds through their passes.
-        let planets = PlanetPass(loadsUserTextures: loadsUserTextures, tiles: tiles)
-        let sky = AtmosphereCompositePass()
         return [
             // P0
-            post.exposurePass, AtmosphereLUTPass(), clouds, shadows,
-            EnvironmentProbePass(planets: planets, sky: sky, clouds: clouds),
+            post.exposurePass, AtmosphereLUTPass(), clouds, shadows, EnvironmentProbePass(),
             ParticleSimulationPass(system: particles), tiles,
             // P1
-            StarPass(), planets, vessels,
+            StarPass(), PlanetPass(loadsUserTextures: loadsUserTextures, tiles: tiles), vessels,
             ParticleChunkPass(system: particles), EffectTestOpaquePass(),
             // P2
-            sky, vessels.wirePass,
+            AtmosphereCompositePass(), vessels.wirePass,
             // P3
             slots, PlumePass(), FarPointPass(), TransparentCompositePass(slots: slots), EffectTestSparksPass(),
             ParticleDrawPass(system: particles), EntryPass(), post.resolvePass,

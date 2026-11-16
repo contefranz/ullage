@@ -12,8 +12,9 @@ public struct ProbeSettings: Codable, Equatable {
     /// The specular cube's mip levels, roughness k/(count − 1) at mip k
     /// (`EnvironmentProbe.roughness`): 6 from 128² go down to 4², 22° a texel.
     public var specularMips = 6
-    /// GGX samples per texel of the prefiltered mips (filtered importance
-    /// sampling: each reads the source mip its pdf covers).
+    /// GGX samples per texel of the first prefiltered mip, doubling at each
+    /// mip after it up to eight times (filtered importance sampling: each
+    /// reads the source mip its pdf covers).
     public var prefilterSamples = 32
     /// The night floor: the share of the exposure's white a white surface
     /// shows by it alone (StandInLighting's 0.02), merged as a soft maximum
@@ -73,4 +74,7 @@ public enum ProbeEnvironment: String, Codable, CaseIterable {
     /// R2's look-dev Earth below at 185 km, point by point under the scene's
     /// Sun (`EnvironmentProbe.LookDevEnvironment.earthBelow`).
     case earthBelow
+    /// The same Earth lit evenly at the sub-solar point's radiance: Howell's
+    /// uniform disc (`EnvironmentProbe.LookDevEnvironment.earthUniform`).
+    case earthUniform
 }

@@ -92,7 +92,7 @@ inline float4 probe_clean(float3 c) {
 // ------------------------------------------ the look-dev environments ---
 
 struct ProbeLookDev {
-    float4 kind;          // x: 1 furnace, 2 Earth below
+    float4 kind;          // x: 1 furnace, 2 Earth below, 3 the same lit evenly
     float4 radiance;      // rgb: the furnace's (cd/m2)
     float4 body;          // xyz: unit, to the body's centre; w: sin^2 of its angular radius
     float4 reflectance;   // rgb: the ground's, albedo x colour / pi (per lux)
@@ -117,7 +117,8 @@ kernel void probe_lookDev(texture2d_array<float, access::write> out [[texture(0)
         if (disc >= 0.0 && b > 0.0) {
             float t = b - sqrt(disc);
             float3 normal = normalize(d * t - u.body.xyz * r);
-            radiance = u.reflectance.rgb * u.sun.rgb * max(dot(normal, u.toSun.xyz), 0.0);
+            float cosine = u.kind.x > 2.5 ? 1.0 : max(dot(normal, u.toSun.xyz), 0.0);
+            radiance = u.reflectance.rgb * u.sun.rgb * cosine;
         }
     }
     out.write(probe_clean(radiance), gid.xy, gid.z);
@@ -127,6 +128,7 @@ kernel void probe_lookDev(texture2d_array<float, access::write> out [[texture(0)
 
 struct ProbePrefilter {
     float4 params;        // x: alpha, y: samples, z: the source's face size (mip 0), w: the source's mips
+    float4 lod;           // x: the lod's bias (Krivanek and Colbert's 1), y: the coarsest source mip read
 };
 
 inline float2 probe_hammersley(uint i, uint n) {
@@ -136,7 +138,7 @@ inline float2 probe_hammersley(uint i, uint n) {
 // One mip of the specular cube: Karis' (2013) split-sum prefilter with
 // n = v = r, sum L(l) n.l / sum n.l over GGX-sampled half vectors, each
 // sample reading the source mip its solid angle covers (Krivanek and
-// Colbert 2008: lod = log2(Omega_s / Omega_p) / 2 + 1). Its limit is
+// Colbert 2008: lod = log2(Omega_s / Omega_p) / 2 + bias). Its limit is
 // EnvironmentProbe.prefilterReference.
 kernel void probe_prefilter(texturecube<float> source [[texture(0)]],
                             texture2d_array<float, access::write> out [[texture(1)]],
@@ -151,7 +153,7 @@ kernel void probe_prefilter(texturecube<float> source [[texture(0)]],
     float3 up = abs(normal.z) < 0.999 ? float3(0.0, 0.0, 1.0) : float3(1.0, 0.0, 0.0);
     float3 tx = normalize(cross(up, normal)), ty = cross(normal, tx);
     float texel = 4.0 * PROBE_PI / (6.0 * u.params.z * u.params.z);
-    float maxLod = max(u.params.w - 1.0, 0.0);
+    float maxLod = clamp(u.lod.y, 0.0, max(u.params.w - 1.0, 0.0));
     float3 sum = float3(0.0);
     float weight = 0.0;
     for (uint i = 0; i < count; i++) {
@@ -165,7 +167,7 @@ kernel void probe_prefilter(texturecube<float> source [[texture(0)]],
         if (nl <= 0.0) { continue; }
         float d = cosT * cosT * (a2 - 1.0) + 1.0;
         float pdf = a2 / (PROBE_PI * d * d) * 0.25;   // D (n.h) / (4 v.h), n.h = v.h
-        float lod = clamp(0.5 * log2(1.0 / (float(count) * pdf * texel + 1e-12)) + 1.0, 0.0, maxLod);
+        float lod = clamp(0.5 * log2(1.0 / (float(count) * pdf * texel + 1e-12)) + u.lod.x, 0.0, maxLod);
         sum += source.sample(trilinear, l, level(lod)).rgb * nl;
         weight += nl;
     }

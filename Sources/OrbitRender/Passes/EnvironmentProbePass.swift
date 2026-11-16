@@ -42,6 +42,19 @@ public final class EnvironmentProbePass: RenderPass {
     public static let irradianceSize = 16
     /// The side of the downsample irradiance and SH9 are taken from.
     public static let sourceSize = 32
+    /// The prefilter's lod bias (Křivánek and Colbert's +1 blurs a wide lobe
+    /// well past the reference) and the source mips it never reads (a 2²
+    /// face's box average is no lobe).
+    static let lodBias = 0.5
+    static let coarsestSourceSkipped = 2
+
+    /// GGX samples per texel at specular mip `mip`: `prefilterSamples`
+    /// doubling each mip (the lobe widens and the texels thin out), at most
+    /// eight times.
+    static func prefilterSamples(mip: Int, settings: ProbeSettings) -> Int {
+        max(settings.prefilterSamples, 1) << min(max(mip - 1, 0), 3)
+    }
+
     /// Steps of the ground's haze marched in the probe's faces from above the air.
     public static let groundSteps = 8
     /// Beyond this distance from the camera the probe stays at the camera:
@@ -87,10 +100,15 @@ public final class EnvironmentProbePass: RenderPass {
         public var nightFloor: Float = 0
     }
 
-    public init(planets: PlanetPass? = nil, sky: AtmosphereCompositePass? = nil, clouds: CloudPass? = nil) {
-        self.planets = planets
-        self.sky = sky
-        self.clouds = clouds
+    public init() {}
+
+    /// The passes the faces are drawn through: the first planet pass, A2's
+    /// composite and C2's clouds among `passes` (the renderer connects its
+    /// graph's own; none of them, and the faces hold only the black sky).
+    public func connect(_ passes: [RenderPass]) {
+        planets = passes.lazy.compactMap { $0 as? PlanetPass }.first
+        sky = passes.lazy.compactMap { $0 as? AtmosphereCompositePass }.first
+        clouds = passes.lazy.compactMap { $0 as? CloudPass }.first
     }
 
     public func setUp(_ s: PassSetup) throws {
@@ -137,7 +155,7 @@ public final class EnvironmentProbePass: RenderPass {
         switch settings.environment {
         case .scene:
             drawFaces(f, maps: maps, center: center, settings: settings)
-        case .furnace, .earthBelow:
+        case .furnace, .earthBelow, .earthUniform:
             guard let enc = f.makeComputeEncoder() else { return }
             var u = Self.lookDevUniforms(settings, scene: f.scene)
             enc.setComputePipelineState(pipelines.lookDev)
@@ -161,10 +179,12 @@ public final class EnvironmentProbePass: RenderPass {
         for (k, level) in maps.specularLevels.enumerated() {
             let mip = k + 1
             let alpha = BRDF.alpha(roughness: EnvironmentProbe.roughness(mip: mip, count: maps.mips))
-            var u = SIMD4<Float>(Float(alpha), Float(max(settings.prefilterSamples, 1)), Float(maps.size),
-                                 Float(maps.radiance.mipmapLevelCount))
+            var u = (SIMD4<Float>(Float(alpha), Float(Self.prefilterSamples(mip: mip, settings: settings)),
+                                  Float(maps.size), Float(maps.radiance.mipmapLevelCount)),
+                     SIMD4<Float>(Float(Self.lodBias), Float(maps.radiance.mipmapLevelCount - 1 - Self.coarsestSourceSkipped),
+                                  0, 0))
             enc.setTexture(level, index: 1)
-            enc.setBytes(&u, length: 16, index: 0)
+            enc.setBytes(&u, length: 32, index: 0)
             Self.dispatch(enc, pipelines.prefilter, width: level.width, height: level.height, depth: 6)
         }
         enc.setComputePipelineState(pipelines.irradiance)
@@ -299,6 +319,8 @@ public final class EnvironmentProbePass: RenderPass {
         switch s.environment {
         case .earthBelow:
             env = .earthBelow(toSun: scene.sun.direction, sunLux: scene.sun.illuminance)
+        case .earthUniform:
+            env = .earthUniform(sunLux: scene.sun.illuminance)
         default:
             env = .furnace(s.furnaceRadiance)
         }

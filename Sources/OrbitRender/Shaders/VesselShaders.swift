@@ -267,7 +267,7 @@ extension ShaderHeader {
 
 extension ShaderModule {
     public static let vessel = ShaderModule(name: "Vessel",
-                                            headers: [.shadowCommon, .atmosphereCommon, .sphericalHarmonics, .lightingCommon,
+                                            headers: [.shadowCommon, .atmosphereCommon, .lightingCommon,
                                                       .vesselSurface, .vesselPaint, .vesselMaterial],
                                             source: vesselShaderSource)
 }

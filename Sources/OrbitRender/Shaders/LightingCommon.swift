@@ -269,7 +269,7 @@ struct OrbitStandInEnvironment {
 // k prefiltered at perceptual roughness k / (mips - 1), trilinear) and the
 // irradiance cube (texture 21, E/pi, in cd/m2), both scaled by
 // lighting.ambient.w and lifted to the night floor (lighting.ambient.rgb,
-// `orbit_probeNightFloor`). Without it, the stand-in: the body's disc where
+// a soft maximum). Without it, the stand-in: the body's disc where
 // the reflection meets it, widened by the lobe, blurred to the
 // cosine-weighted value as the surface roughens.
 inline float3 orbit_environmentLight(OrbitShadingPoint p, float ao, constant LightingUniforms &lighting,
@@ -283,8 +283,11 @@ inline float3 orbit_environmentLight(OrbitShadingPoint p, float ao, constant Lig
         float lod = p.roughness * (lighting.probe.w - 1.0);
         prefiltered = specularCube.sample(trilinear, r, level(lod)).rgb * lighting.ambient.w;
         irradianceOverPi = irradianceCube.sample(trilinear, p.n, level(0.0)).rgb * lighting.ambient.w;
-        prefiltered = orbit_probeNightFloor(prefiltered, lighting);
-        irradianceOverPi = orbit_probeNightFloor(irradianceOverPi, lighting);
+        // The night floor as a soft maximum, x + f^2/(x + f)
+        // (EnvironmentProbe.floored; the SH9 header's orbit_probeNightFloor).
+        float3 f = max(lighting.ambient.rgb, float3(0.0)), f2 = f * f, tiny = max(f, float3(1e-30));
+        prefiltered += f2 / (max(prefiltered, float3(0.0)) + tiny);
+        irradianceOverPi += f2 / (max(irradianceOverPi, float3(0.0)) + tiny);
     } else {
         float s2 = standIn.bodySinSigma2;
         float3 u = standIn.uniform_ / ORBIT_PI;
