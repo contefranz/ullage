@@ -16,6 +16,23 @@ final class FrameArena {
 
     func reset() { offset = 0 }
 
+    /// A buffer of its own for one value the GPU also writes this frame
+    /// (`FrameContext.copyIntoLighting`): a GPU write into the arena would
+    /// make every encoder that reads any of it wait for the write, and the
+    /// write wait for every earlier reader (Metal tracks hazards per buffer).
+    private var separate: MTLBuffer?
+
+    func pushSeparately<T>(value: T) -> (buffer: MTLBuffer, offset: Int)? {
+        let length = MemoryLayout<T>.size
+        if separate == nil || separate!.length < length {
+            separate = device.makeBuffer(length: max(length, 256), options: .storageModeShared)
+            separate?.label = "Frame arena (GPU-written uniforms)"
+        }
+        guard let b = separate else { return nil }
+        withUnsafeBytes(of: value) { b.contents().copyMemory(from: $0.baseAddress!, byteCount: length) }
+        return (b, 0)
+    }
+
     /// Copies `items` in, 256-byte aligned; the buffer and offset to bind,
     /// nil when there is nothing to draw.
     func push<T>(_ items: [T]) -> (buffer: MTLBuffer, offset: Int)? {

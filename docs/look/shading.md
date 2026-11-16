@@ -166,10 +166,13 @@ VM1 evaluates per fragment.
   (`lightCount.x` > 0), else `PlumeLights` from the emitters and P1's specs:
   a grey-body column at the exit or afterburning temperature, emissivity by
   propellant, engine clusters merged into one light.
-- **Environment (R3):** with a probe (`LightingUniforms.probe.w` = its
-  specular mip count) the prefiltered cube (texture 20, radiance in cd/m²,
-  mip = √α × (mips − 1)) and the irradiance cube (texture 21, E/π in cd/m²,
-  the night floor included). Until then, the stand-in (`StandInLighting`):
+- **Environment (R3, docs/look/probe.md):** with the probe
+  (`LightingUniforms.probe.w` = its specular mip count) the prefiltered cube
+  (texture 20, radiance in cd/m², mip k at perceptual roughness k/(mips − 1),
+  read trilinearly at √α × (mips − 1)) and the irradiance cube (texture 21,
+  E/π in cd/m²), both times `ambient.w` and lifted to the night floor
+  (`ambient.rgb`, E/π at 0.02 of the exposure's white) as a soft maximum.
+  With the probe off (`ProbeSettings.enabled`), the stand-in (`StandInLighting`):
   the reference body as a disc of uniform radiance (diffuse through the
   sphere's view factor with its horizon, specular where the reflection meets
   it, blurred with roughness). That radiance is the ground's reflectance

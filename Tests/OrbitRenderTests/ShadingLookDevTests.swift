@@ -18,9 +18,11 @@ final class ShadingLookDevTests: XCTestCase {
 
     /// Ambient occlusion baked before the frame, as the app bakes it (its
     /// rays are seeded: one result in every build), and a fixed exposure,
-    /// EV 15 ("sunny 16"), through R1's default tone curve.
+    /// EV 15 ("sunny 16"), through R1's default tone curve. R3's probe off:
+    /// these goldens are R2's stand-in light (R3's are ProbeLookDevTests).
     static var settings: RenderSettings {
         var s = RenderSettings()
+        s.probe.enabled = false
         s.shading.waitForAmbientOcclusion = true
         s.post.exposure.mode = .manual
         s.post.exposure.ev100 = 15
