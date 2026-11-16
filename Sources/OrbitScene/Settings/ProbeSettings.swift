@@ -28,9 +28,9 @@ public struct ProbeSettings: Codable, Equatable {
     /// Draw the pad (LC-39A, within 2 km) into the probe, so the stack sees
     /// its concrete and steel.
     public var sites = true
-    /// Faces drawn a frame while nothing moves enough to make one stale
-    /// (`EnvironmentProbePass.fullUpdate`): 2, the six in three frames; 6
-    /// draws every face every frame.
+    /// Faces drawn a frame while steady (`EnvironmentProbePass.update`): 2,
+    /// the six in three frames; while moving at least 3; 6 draws every face
+    /// every frame (the cost test's full path).
     public var facesPerFrame = 2
     /// What the probe sees: the scene, or an analytic look-dev environment.
     public var environment = ProbeEnvironment.scene
