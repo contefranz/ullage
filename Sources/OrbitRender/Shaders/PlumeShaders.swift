@@ -36,13 +36,13 @@ struct PlumeMember {
     float4 gas;         // extinction, albedo, core temperature, expansion cooling
     float4 flame;       // temperature, start, ambient temperature, afterburning
     float4 sheath;      // extinction, thickness, length, soot burn-out
-    float4 sheathLight; // rgb: the film's blackbody
+    float4 sheathLight; // rgb: the film's blackbody, w: the radius' offset (merged)
     float4 particles;   // extinction, albedo, temperature, cooling length
     float4 particles2;  // angle, source offset, onset, phase g
     float4 structure;   // cell length, cells, strength, upstream
     float4 base;        // rgb: the base's blackbody, w: extinction
     float4 disk;        // distance, radius, extinction, the air's confinement
-    float4 diskLight;   // rgb: the disk's blackbody
+    float4 diskLight;   // rgb: the disk's blackbody, w: the density's scale (merged)
     float4 noise;       // eddy size, phase (tiles), depth, tile (m)
     float4 glow;        // rgb (cd/m²), w: length
     float4 extent;      // x: tan of the 1 % Simons angle (0 none), y: the particles', z: flame hold (m), w: flame spread
@@ -194,7 +194,8 @@ struct PlumeSample {
     float g;            // scattering-weighted asymmetry
 };
 
-inline void plume_add(thread PlumeSample &s, float sigma, float albedo, float3 light) {
+inline void plume_add(thread PlumeSample &s, float sigma0, float albedo, float3 light, float scale) {
+    float sigma = sigma0 * scale;
     if (sigma <= 0.0) { return; }
     float a = sigma * (1.0 - albedo);
     s.absorption += a;
@@ -226,8 +227,9 @@ inline void plume_member(thread PlumeSample &s, const device PlumeMember &m, flo
     float r = length(radial);
     float re = m.exit.w, de = 2.0 * re;
     float xp = max(x, 0.0);
-    float R = max(re + m.shape.x * (1.0 - exp(-xp / max(m.shape.y, 1e-6))) + m.shape.z * max(0.0, xp - m.shape.w)
-                  + m.extent.w * max(0.0, xp - m.flame.y), 0.2 * re);
+    float R = max(re + m.sheathLight.w + m.shape.x * (1.0 - exp(-xp / max(m.shape.y, 1e-6)))
+                  + m.shape.z * max(0.0, xp - m.shape.w) + m.extent.w * max(0.0, xp - m.flame.y), 0.2 * re);
+    float k = m.diskLight.w;
     // The early reject: PlumeMember.extent.
     float e = x < 0.0 ? 1.6 * re : 1.55 * R;
     if (x >= 0.0) {
@@ -248,7 +250,7 @@ inline void plume_member(thread PlumeSample &s, const device PlumeMember &m, flo
     if (m.base.w > 0.0 && x < 0.4 * de) {
         float mb = (1.0 - plume_smoothstep(0.6, 1.0, r / (1.6 * re))) * plume_smoothstep(-upstream, -0.5 * upstream, x)
             * (1.0 - plume_smoothstep(0.0, 0.4 * de, x));
-        plume_add(s, m.base.w * mb * turb, 0.0, m.base.rgb);
+        plume_add(s, m.base.w * mb * turb, 0.0, m.base.rgb, k);
     }
     if (x >= 0.0) {
         // The boundary ragged by the eddies.
@@ -290,14 +292,14 @@ inline void plume_member(thread PlumeSample &s, const device PlumeMember &m, flo
             }
             float burnt = 1.0;
             if (m.sheath.w > 0.0) { burnt -= 0.75 * plume_smoothstep(m.sheath.w, 1.5 * m.sheath.w, x); }
-            plume_add(s, m.gas.x * rho * cells * burnt * turb, m.gas.y, plume_blackbody(t * hot, pf));
+            plume_add(s, m.gas.x * rho * cells * burnt * turb, m.gas.y, plume_blackbody(t * hot, pf), k);
         }
         // The film.
         if (m.sheath.x > 0.0 && x < m.sheath.z + 0.5 * de) {
             float t = m.sheath.y;
             float band = plume_smoothstep(1.0 - t - 0.06, 1.0 - t + 0.04, q) * (1.0 - plume_smoothstep(1.0 + 0.4 * t, 1.0 + t, q));
             float along = 1.0 - plume_smoothstep(m.sheath.z - 0.3 * de, m.sheath.z + 0.3 * de, x);
-            plume_add(s, m.sheath.x * band * along * min(1.0, dilution) * fade * turb, m.gas.y, m.sheathLight.rgb);
+            plume_add(s, m.sheath.x * band * along * min(1.0, dilution) * fade * turb, m.gas.y, m.sheathLight.rgb, k);
         }
         // Particles: alumina, or condensate.
         if (m.particles.x > 0.0 && x > 0.5 * m.particles2.z) {
@@ -314,18 +316,18 @@ inline void plume_member(thread PlumeSample &s, const device PlumeMember &m, flo
             float temp = m.particles.z > 0.0 ? m.particles.z * pow(1.0 + 3.0 * x / m.particles.w, -1.0 / 3.0) : 0.0;
             // Hot alumina absorbs (and so glows) more than its white smoke.
             float albedo = mix(m.particles.y, 0.5, plume_smoothstep(1400.0, 2000.0, temp));
-            plume_add(s, m.particles.x * pp * dil * on * fade * turb, albedo, plume_blackbody(temp * hot, pf));
+            plume_add(s, m.particles.x * pp * dil * on * fade * turb, albedo, plume_blackbody(temp * hot, pf), k);
         }
         // The Mach disk.
         if (m.disk.z > 0.0) {
             float dx = (x - m.disk.x) / (0.25 * m.disk.y + 0.05 * de);
             float md = exp(-dx * dx) * (1.0 - plume_smoothstep(0.8, 1.1, r / max(m.disk.y, 1e-6)));
-            plume_add(s, m.disk.z * md, 0.0, m.diskLight.rgb);
+            plume_add(s, m.disk.z * md, 0.0, m.diskLight.rgb, k);
         }
         // The glow, emission only.
         if (m.glow.w > 0.0) {
             float along = pow(max(1.0 - x / m.glow.w, 0.0), 1.6) * plume_smoothstep(0.0, 0.03 * m.glow.w, x);
-            s.emission += m.glow.rgb * (along * (1.0 - plume_smoothstep(0.7, 1.0, q)) / (2.0 * R));
+            s.emission += m.glow.rgb * (along * (1.0 - plume_smoothstep(0.7, 1.0, q)) / (2.0 * R) * k);
         }
         // Self-shadowing towards the Sun: this member's extinction here over
         // the chord to its edge along the Sun, a uniform column's.
@@ -346,7 +348,7 @@ inline void plume_member(thread PlumeSample &s, const device PlumeMember &m, flo
 // The fragment intersects its ray with the cluster's proxy (the slab
 // between its end rings and each edge's cone), clamps it at the scene and
 // marches it in the frame's steps, jittered, with Hillaire's energy-
-// conserving step, stopping once the transmittance is under 1 %. The
+// conserving step, stopping once the transmittance is under 2 %. The
 // members are lit by their own glow, the Sun (single scattering, HG, R4's
 // shadow, C2's cloud shadow, the Sun's chord through the plume), the
 // ambient (A2's sky in air, the earthshine in vacuum; R3's SH9 later) and
@@ -452,6 +454,7 @@ fragment EffectVolumeOut plume_march_fragment(PlumeProxyOut in [[stage_in]],
     }
 
     int first_ = int(c.axis.w), count = int(c.u.w);
+    float mergeX = c.reserved[0].y;
     float3 lightCentre = c.light.xyz, lightAxis = c.lightAxis.xyz;
     float lightLength = c.light.w, lightRadius = c.lightAxis.w;
     float3 lightColor = c.lightColor.rgb;
@@ -471,8 +474,23 @@ fragment EffectVolumeOut plume_march_fragment(PlumeProxyOut in [[stage_in]],
         PlumeSample x = {0.0, 0.0, float3(0.0), 0.0};
         float sunDepth = 0.0;
         float nv = members[first_].noise.z > 0.0 ? plume_noise(members[first_], p, noise, ns) : 0.0;
-        for (int k = 0; k < count; k++) {
-            plume_member(x, members[first_ + k], p, pf, nv, sunDepth, sunDir);
+        // The members, and beyond mergeX the merged far field in their
+        // place, blended over 15 % of that distance.
+        float wm = mergeX > 0.0 ? plume_smoothstep(mergeX, 1.15 * mergeX, dot(p - c.origin.xyz, a)) : 0.0;
+        if (wm < 1.0) {
+            for (int k = 0; k < count; k++) {
+                plume_member(x, members[first_ + k], p, pf, nv, sunDepth, sunDir);
+            }
+        }
+        if (wm > 0.0) {
+            PlumeSample y = {0.0, 0.0, float3(0.0), 0.0};
+            float sunY = 0.0;
+            plume_member(y, members[first_ + count], p, pf, nv, sunY, sunDir);
+            x.absorption = mix(x.absorption, y.absorption, wm);
+            x.scattering = mix(x.scattering, y.scattering, wm);
+            x.emission = mix(x.emission, y.emission, wm);
+            x.g = mix(x.g, y.g, wm);
+            sunDepth = mix(sunDepth, sunY, wm);
         }
         float sigma = x.absorption + x.scattering;
         if (sigma <= 0.0 && max(x.emission.r, max(x.emission.g, x.emission.b)) <= 0.0) { continue; }
@@ -512,7 +530,7 @@ fragment EffectVolumeOut plume_march_fragment(PlumeProxyOut in [[stage_in]],
         if (frontC >= ORBIT_EFFECT_NO_FRONT && orbit_frontReached(1.0 - transmittanceC, radianceC * exposure, e)) {
             frontC = orbit_frontCode(s);
         }
-        if (transmittance < 0.01) { break; }
+        if (transmittance < 0.02) { break; }
     }
     // In front of the clouds the composite lays the plume over them, so it
     // carries their dimming itself; behind their front they lie over it.

@@ -66,6 +66,11 @@ public struct PlumeMember: Equatable {
 
     // Shape: R(x) = re + growth (1 - e^(-x/ℓ)) + spread max(0, x - xc).
     public var radiusGrowth = 0.0
+    /// Added to R(x), and the factor on every coefficient: a cluster's
+    /// merged far field stands for its members (`PlumeClusters`), wider by
+    /// their offsets and as dense as all of them together (N, by mass).
+    public var radiusOffset = 0.0
+    public var densityScale = 1.0
     public var shapeLength = 1.0
     public var farSpread = 0.0
     /// The potential core's length (m); effectively infinite without
@@ -82,6 +87,9 @@ public struct PlumeMember: Equatable {
     /// is cut (`extent`): 1 % unless the frame's exposure shows less
     /// (`PlumeLook.trim`).
     public var extentFraction = 0.01
+    /// Only its glow shows at the frame's exposure (a readable plume in
+    /// vacuum): drawn as an impostor, M1.5's way, however large.
+    public var glowOnly = false
     /// How far the air confines the free expansion to the jet's boundary
     /// (P1's structure visibility in air, 0 in vacuum): the Simons field
     /// is cut beyond R(x) as much.
@@ -168,7 +176,7 @@ public struct PlumeMember: Equatable {
     /// The jet's radius at x (m).
     public func radius(atX x: Double) -> Double {
         let xp = max(x, 0)
-        let r = exitRadius + radiusGrowth * (1 - exp(-xp / max(shapeLength, 1e-6)))
+        let r = exitRadius + radiusOffset + radiusGrowth * (1 - exp(-xp / max(shapeLength, 1e-6)))
             + farSpread * max(0, xp - coreLength) + flameSpread * max(0, xp - flameStart)
         return max(r, 0.2 * exitRadius)
     }
@@ -226,7 +234,8 @@ public struct PlumeMember: Equatable {
     public func sample(x: Double, r: Double) -> Sample {
         var s = Sample()
         let de = exitDiameter, re = exitRadius
-        func add(_ sigma: Double, albedo: Double, temperature: Double) {
+        func add(_ sigma0: Double, albedo: Double, temperature: Double) {
+            let sigma = sigma0 * densityScale
             guard sigma > 0 else { return }
             let a = sigma * (1 - albedo)
             s.absorption += a
@@ -313,7 +322,7 @@ public struct PlumeMember: Equatable {
         // The glow, emission only.
         if glowLength > 0 {
             let along = pow(max(1 - x / glowLength, 0), 1.6) * Self.smoothstep(0, 0.03 * glowLength, x)
-            let k = along * (1 - Self.smoothstep(0.7, 1.0, q)) / (2 * rx)
+            let k = along * (1 - Self.smoothstep(0.7, 1.0, q)) / (2 * rx) * densityScale
             s.emission = Photometry.RGB(s.emission.r + glow.r * k, s.emission.g + glow.g * k,
                                         s.emission.b + glow.b * k)
         }
@@ -689,26 +698,44 @@ public enum PlumeLook {
         // The phase towards the camera (at the origin), or the forward peak.
         let view = (m.exit + m.axis * (0.25 * m.length)).normalized
         let forward = henyeyGreenstein(sunDirection.map { view.dot($0) } ?? 1, m.phaseG)
-        var peak = 0.0
-        for x in [0.5, 2, 8].map({ $0 * m.exitDiameter }) where x < m.length {
-            let s = m.sample(x: x, r: 0)
-            let chord = m.visibleWidth(atX: x)
-            peak = max(peak, (s.emission.luminance + s.scattering * sun * forward) * chord,
-                       s.extinction * chord > 0.02 ? 1e30 : 0)
+        // What shows besides the glow (the readable floor's, the near-exit
+        // light's), which lives in the near field and sets neither the
+        // cone nor the length.
+        var bare = m
+        bare.glow = Photometry.RGB(0, 0, 0)
+        bare.glowLength = 0
+        func peak(_ p: PlumeMember) -> Double {
+            var best = 0.0
+            for x in [0.5, 2, 8].map({ $0 * p.exitDiameter }) where x < p.length {
+                let s = p.sample(x: x, r: 0)
+                let chord = p.visibleWidth(atX: x)
+                best = max(best, (s.emission.luminance + s.scattering * sun * forward) * chord,
+                           s.extinction * chord > 0.02 ? 1e30 : 0)
+            }
+            // The base's glow and the Mach disk off the stations: their
+            // light through their thickness, thin.
+            if p.baseExtinction > 0 {
+                best = max(best, p.baseExtinction * blackbody(p.baseTemperature).luminance * 3.2 * p.exitRadius)
+            }
+            if p.machDiskExtinction > 0 {
+                best = max(best, p.machDiskExtinction * blackbody(p.machDiskTemperature).luminance
+                           * (0.5 * p.machDiskRadius + 0.1 * p.exitDiameter))
+            }
+            return best
         }
-        // The base's glow and the Mach disk off the stations: their light
-        // through their thickness, thin.
-        if m.baseExtinction > 0 {
-            peak = max(peak, m.baseExtinction * blackbody(m.baseTemperature).luminance * 3.2 * m.exitRadius)
+        let field = peak(bare)
+        guard field >= faintest || peak(m) >= faintest else { return false }
+        let sunAtPhase = sun * forward / henyeyGreenstein(1, m.phaseG)
+        if field >= faintest {
+            m.extentFraction = min(max(faintest / field, 0.01), 0.3)
+            m.length = min(m.length, max(visibleLength(bare, faintest: faintest, opaque: 0.02, sun: sunAtPhase),
+                                         m.glowLength))
+        } else {
+            // The glow alone: within the jet, over its own length.
+            m.glowOnly = true
+            m.extentFraction = 0.5
+            m.length = min(m.length, max(m.glowLength, 2 * m.exitDiameter))
         }
-        if m.machDiskExtinction > 0 {
-            peak = max(peak, m.machDiskExtinction * blackbody(m.machDiskTemperature).luminance
-                       * (0.5 * m.machDiskRadius + 0.1 * m.exitDiameter))
-        }
-        guard peak >= faintest else { return false }
-        m.extentFraction = min(max(faintest / peak, 0.01), 0.3)
-        m.length = min(m.length, visibleLength(m, faintest: faintest, opaque: 0.02,
-                                               sun: sun * forward / henyeyGreenstein(1, m.phaseG)))
         return true
     }
 

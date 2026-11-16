@@ -17,8 +17,9 @@ import OrbitScene
 ///
 ///     ORBITSIM_TIMINGS=1 scripts/test.sh fast --no-parallel --filter PlumeCostTests
 ///
-/// 120 rounds at 3024×1964 unless ORBITSIM_TIMINGS_ROUNDS=N or
-/// ORBITSIM_TIMINGS_SIZE=WxH say otherwise.
+/// 120 rounds at 3024×1964, High, unless ORBITSIM_TIMINGS_ROUNDS=N,
+/// ORBITSIM_TIMINGS_SIZE=WxH or ORBITSIM_PLUME_QUALITY=medium|ultra say
+/// otherwise; ORBITSIM_PLUME_READABLE=1 measures readable plumes.
 @MainActor
 final class PlumeCostTests: XCTestCase {
     final class Times: @unchecked Sendable {
@@ -52,7 +53,8 @@ final class PlumeCostTests: XCTestCase {
             var scene = shot.scene(try shot.prepare(system: snapper.system))
             let start = scene.clock.simTime
             var on = shot.settings, off = shot.settings
-            on.plume.quality = .high
+            on.plume.quality = env["ORBITSIM_PLUME_QUALITY"].flatMap(PlumeQuality.init(rawValue:)) ?? .high
+            on.plume.readable = env["ORBITSIM_PLUME_READABLE"] == "1"
             off.plume.quality = .off
             let times = Times()
             var frameCount = 0
@@ -103,8 +105,8 @@ final class PlumeCostTests: XCTestCase {
             }.joined(separator: ", ")
             let system = r.graph.passes.compactMap { ($0 as? PlumePreparePass)?.system }.first
             let clusters = system?.lastClusters ?? []
-            let line = String(format: "%@: plumes %.3f ms (on %.3f, off %.3f ms); clusters %d (marched %d, impostors %d)",
-                              shot.name, median(withPlumes) - median(without), median(withPlumes), median(without),
+            let line = String(format: "%@ (%@): plumes %.3f ms (on %.3f, off %.3f ms); clusters %d (marched %d, impostors %d)",
+                              shot.name, on.plume.quality.rawValue, median(withPlumes) - median(without), median(withPlumes), median(without),
                               clusters.count, clusters.filter { $0.detail == .march }.count,
                               clusters.filter { $0.detail == .impostor }.count)
             print("PlumeCostTests: \(line)")

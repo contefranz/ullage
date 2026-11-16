@@ -201,4 +201,32 @@ final class PlumeClustersTests: XCTestCase {
     }
 
     func target0(_ c: PlumeCluster) -> Double { 0.5 * (c.start + c.end) }
+
+    /// Beyond the merge, the merged member carries the members' soot: the
+    /// extinction integrated over the cross-section, within 35 % of theirs
+    /// summed (one wide jet for five overlapping ones).
+    func testMergedFarFieldKeepsTheMembersMass() throws {
+        for altitude in [0.0, 13_000] {
+            let c = PlumeClusters.cluster(five(ApolloExhaust.f1, air: us76.state(altitude: altitude)))
+            let merged = try XCTUnwrap(c.merged, "F-1 at \(altitude) m")
+            XCTAssertGreaterThan(c.mergeX, 0)
+            XCTAssertLessThan(c.mergeX, 0.8 * c.end)
+            XCTAssertEqual(merged.densityScale, 5)
+            let x = min(1.5 * c.mergeX, 0.6 * c.end)
+            let reach = (c.radius(atX: x) / PlumeClusters.margin) * 1.2
+            var members = 0.0, single = 0.0
+            let n = 120
+            for i in 0..<n {
+                for j in 0..<n {
+                    let a = -reach + 2 * reach * (Double(i) + 0.5) / Double(n)
+                    let b = -reach + 2 * reach * (Double(j) + 0.5) / Double(n)
+                    let p = c.origin + c.axis * x + c.u * a + c.v * b
+                    members += c.members.reduce(0) { $0 + $1.sample(at: p).extinction }
+                    single += merged.sample(at: p).extinction
+                }
+            }
+            XCTAssertEqual(single / members, 1, accuracy: 0.35, "F-1 at \(altitude) m at \(x) m")
+        }
+    }
 }
+

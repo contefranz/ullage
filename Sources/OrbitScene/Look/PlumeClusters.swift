@@ -37,6 +37,12 @@ public struct PlumeCluster {
     /// is the intersection of one cone per edge and the slab between the
     /// end rings, and convex.
     public var rings: [Ring]
+    /// Beyond `mergeX` along the axis (m from `origin`; 0 for none) the
+    /// members' plumes have run together and `merged` stands for them all:
+    /// one member on the axis, wider by their offsets (RMS) and as dense as
+    /// all of them, the march's far field at the cost of one.
+    public var merged: PlumeMember?
+    public var mergeX = 0.0
     public var family: PlumeFamily
     public var isJet: Bool
     public var vesselID: UUID?
@@ -115,10 +121,45 @@ public enum PlumeClusters {
         let lowest = members.map { ($0.exit - origin).dot(axis) }.min() ?? 0
         origin = origin + axis * lowest
         let u = PlumeLook.perpendicular(axis), v = axis.cross(u).normalized
-        return PlumeCluster(members: members, origin: origin, axis: axis, u: u, v: v,
-                            rings: proxy(members, origin: origin, axis: axis),
-                            family: members.first?.family ?? .kerosene, isJet: members.first?.isJet ?? false,
-                            vesselID: members.first?.vesselID)
+        let merge = merged(members, origin: origin, axis: axis)
+        var c = PlumeCluster(members: members, origin: origin, axis: axis, u: u, v: v,
+                             rings: proxy(members + (merge.map { [$0.member] } ?? []), origin: origin, axis: axis),
+                             family: members.first?.family ?? .kerosene, isJet: members.first?.isJet ?? false,
+                             vesselID: members.first?.vesselID)
+        c.merged = merge?.member
+        c.mergeX = merge?.x ?? 0
+        return c
+    }
+
+    /// The merged far field of three or more members: from where a
+    /// member's jet has grown to 0.9 of the furthest member's offset from
+    /// the axis (they overlap there), if that is within 0.8 of their
+    /// length. The member nearest the axis, moved onto it, its radius
+    /// widened by the RMS offset, its density times N; no Mach disk or base
+    /// of its own (the members keep theirs upstream).
+    static func merged(_ members: [PlumeMember], origin: Vec3,
+                       axis: Vec3) -> (member: PlumeMember, x: Double)? {
+        guard members.count >= 3 else { return nil }
+        let offsets = members.map { m -> Double in
+            let d = m.exit - origin
+            return (d - axis * d.dot(axis)).length
+        }
+        guard let far = offsets.max(), far > 0 else { return nil }
+        let rms = (offsets.reduce(0) { $0 + $1 * $1 } / Double(offsets.count)).squareRoot()
+        let base = members[offsets.firstIndex(of: offsets.min()!)!]
+        let start = (base.exit - origin).dot(axis)
+        var x = 0.0
+        while x < 0.8 * base.length && base.radius(atX: x) < 0.9 * far { x += 0.25 * base.exitDiameter }
+        guard x < 0.8 * base.length else { return nil }
+        var m = base
+        m.exit = origin + axis * start
+        m.axis = axis
+        m.radiusOffset = rms
+        m.densityScale = Double(members.count)
+        m.machDiskExtinction = 0
+        m.baseExtinction = 0
+        m.upstream = 0
+        return (m, start + x)
     }
 
     /// The proxy's rings: the upper concave hull of every member's extent
@@ -224,7 +265,8 @@ public enum PlumeClusters {
     /// How `c` is drawn: marched from `settings.marchPixels` across on
     /// screen (its length and width, at its nearest point), an impostor
     /// from `impostorPixels`, nothing below; attitude jets are impostors
-    /// beyond `jetMarchDistance`. The camera inside a proxy marches it.
+    /// beyond `jetMarchDistance`, and so is a cluster only a readable glow
+    /// shows. The camera inside a proxy marches it.
     public static func detail(_ c: PlumeCluster, camera: RenderScene.Camera,
                               settings: PlumeSettings) -> PlumeCluster.Detail {
         guard settings.enabled, settings.quality != .off else { return .none }
@@ -235,7 +277,7 @@ public enum PlumeClusters {
         let size = max(c.end - c.start, 2 * maxRadius)
         let pixels = distance > 0 ? size / distance * camera.pixelsPerRadian : .infinity
         let marches = settings.quality.steps > 0 && pixels >= settings.marchPixels
-            && (!c.isJet || distance <= settings.jetMarchDistance)
+            && (!c.isJet || distance <= settings.jetMarchDistance) && !c.members.allSatisfy(\.glowOnly)
         if marches { return .march }
         return pixels >= settings.impostorPixels ? .impostor : .none
     }

@@ -60,13 +60,13 @@ enum Plumes {
             gas: f4(m.gasExtinction, m.gasAlbedo, m.coreTemperature, m.expansionCooling),
             flame: f4(m.flameTemperature, m.flameStart, m.ambientTemperature, m.afterburning),
             sheath: f4(m.sheathExtinction, m.sheathThickness, m.sheathLength, m.sootBurnout),
-            sheathLight: f4(PlumeLook.blackbody(m.sheathTemperature), 0),
+            sheathLight: f4(PlumeLook.blackbody(m.sheathTemperature), m.radiusOffset),
             particles: f4(m.particleExtinction, m.particleAlbedo, m.particleTemperature, m.particleCooling),
             particles2: f4(m.particleAngle, m.particleOffset, m.particleOnset, m.phaseG),
             structure: f4(m.shockCellLength, m.shockCellCount, m.shockStrength, m.upstream),
             base: f4(PlumeLook.blackbody(m.baseTemperature), m.baseExtinction),
             disk: f4(m.machDiskDistance, m.machDiskRadius, m.machDiskExtinction, m.confinement),
-            diskLight: f4(PlumeLook.blackbody(m.machDiskTemperature), 0),
+            diskLight: f4(PlumeLook.blackbody(m.machDiskTemperature), m.densityScale),
             noise: f4(m.noiseScale, noise.phase, turbulent ? m.turbulence : 0, noise.tile),
             glow: f4(m.glow, m.glowLength), extent: f4(vacuumAngle, particleAngle, m.flameHold, m.flameSpread))
     }
@@ -95,7 +95,7 @@ enum Plumes {
         let near = c.members.map { m in
             (m.exit - c.origin).dot(c.axis) + min(m.length, max(10 * m.exitDiameter, m.glowLength))
         }.max() ?? c.end
-        g.reserved.0 = SIMD4(Float(min(near, c.end)), 0, 0, 0)
+        g.reserved.0 = SIMD4(Float(min(near, c.end)), Float(c.merged == nil ? 0 : c.mergeX), 0, 0)
         if let l = light {
             g.light = f4(l.centre, l.length)
             g.lightAxis = f4(l.axis, l.radius)
@@ -181,7 +181,8 @@ struct PlumeClusterGPU {
     /// rgb: intensity (cd).
     var lightColor = SIMD4<Float>.zero
     /// x: where the near field ends along the axis (m), which the march
-    /// gives half its steps.
+    /// gives half its steps; y: where the merged member takes over (0:
+    /// none; it follows the members in the buffer).
     var reserved = (SIMD4<Float>.zero, SIMD4<Float>.zero, SIMD4<Float>.zero, SIMD4<Float>.zero)
 }
 
@@ -194,13 +195,13 @@ struct PlumeMemberGPU {
     var gas: SIMD4<Float>         // extinction, albedo, core temperature, expansion cooling
     var flame: SIMD4<Float>       // temperature, start, ambient temperature, afterburning
     var sheath: SIMD4<Float>      // extinction, thickness, length, soot burn-out
-    var sheathLight: SIMD4<Float> // rgb: the film's blackbody (cd/m²)
+    var sheathLight: SIMD4<Float> // rgb: the film's blackbody (cd/m²), w: the radius' offset (merged)
     var particles: SIMD4<Float>   // extinction, albedo, temperature, cooling length
     var particles2: SIMD4<Float>  // angle, source offset, onset, phase g
     var structure: SIMD4<Float>   // cell length, cells, strength, upstream
     var base: SIMD4<Float>        // rgb: the base's blackbody, w: its extinction
     var disk: SIMD4<Float>        // distance, radius, extinction, the air's confinement
-    var diskLight: SIMD4<Float>   // rgb: the disk's blackbody
+    var diskLight: SIMD4<Float>   // rgb: the disk's blackbody, w: the density's scale (merged)
     var noise: SIMD4<Float>       // eddy size, phase (tiles), depth, tile (m)
     var glow: SIMD4<Float>        // rgb (cd/m²), w: length
     var extent: SIMD4<Float>      // x: tan of the 1 % Simons angle (0: none), y: the particles' (0: none),
@@ -326,6 +327,7 @@ public final class PlumeSystem {
                     guard let d = done else { continue }
                     m.length = d.length
                     m.extentFraction = d.extentFraction
+                    m.glowOnly = d.glowOnly
                 } else {
                     let visible = PlumeLook.trim(&m, faintest: faintest, sun: sun, sunDirection: scene.sun.direction)
                     trimmed[key] = visible ? m : nil
@@ -386,7 +388,7 @@ public final class PlumeSystem {
             switch detail {
             case .march:
                 data.marched.append(Plumes.gpu(c, memberStart: data.members.count, light: light, sunlit: sunlit))
-                data.members += c.members.map {
+                data.members += (c.members + (c.merged.map { [$0] } ?? [])).map {
                     Plumes.gpu($0, turbulenceTime: turbulence, turbulent: settings.turbulence)
                 }
             case .impostor:
