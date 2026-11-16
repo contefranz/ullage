@@ -18,7 +18,10 @@ import OrbitScene
 ///
 /// 200 rounds unless ORBITSIM_TIMINGS_ROUNDS=N; ORBITSIM_TIMINGS_SIZE=WxH
 /// for another size; ORBITSIM_PROBE_SHOTS=pad,leo for some shots;
-/// ORBITSIM_PROBE_SETTINGS='{"clouds": false}' for the on frames' probe.
+/// ORBITSIM_PROBE_SETTINGS='{"clouds": false}' for the on frames' probe,
+/// '{"facesPerFrame": 6}' for the full update every frame (warp from about
+/// 8× in LEO). The frames run (unpaused: paused, the probe redraws nothing
+/// once current), and the report gives the faces drawn a frame.
 @MainActor
 final class ProbeCostTests: XCTestCase {
     /// The probe alone, its derived maps over an analytic furnace (no
@@ -114,10 +117,13 @@ final class ProbeCostTests: XCTestCase {
             let times = Times()
             var last: MTLCommandBuffer?
             var drawn = false
+            var faces: [Int] = []
             for k in 0..<(2 * rounds + 40) {
                 var scene = base
                 scene.clock.frameIndex = k / 2 + 1
                 scene.clock.temporalReset = k == 0
+                // Running: paused, the probe redraws nothing once current.
+                scene.clock.paused = false
                 let measure = k >= 40, isOn = k % 2 == 0
                 r.settings = isOn ? on : off
                 last = r.render(scene, to: target.texture) { cb in
@@ -128,7 +134,10 @@ final class ProbeCostTests: XCTestCase {
                         times.byFrame[k] = t
                     }
                 }
-                if isOn { drawn = probe.lastFrame.drawn }
+                if isOn {
+                    drawn = probe.lastFrame.drawn
+                    if k >= 40 { faces.append(probe.lastFrame.facesDrawn) }
+                }
             }
             last?.waitUntilCompleted()
             Thread.sleep(forTimeInterval: 0.2)
@@ -141,8 +150,9 @@ final class ProbeCostTests: XCTestCase {
                 guard let on = times.byFrame[k], let off = times.byFrame[k + 1] else { return nil }
                 return on - off
             }
-            print(String(format: "probe %@ at %dx%d: %.3f ms, paired %.3f ms (frame %.2f ms, without the probe %.2f ms, %d rounds)",
-                         name, w, h, cost, median(pairs) * 1_000, median(times.a) * 1_000, median(times.b) * 1_000, rounds))
+            print(String(format: "probe %@ at %dx%d, %d faces a frame: %.3f ms, paired %.3f ms (frame %.2f ms, without the probe %.2f ms, %d rounds)",
+                         name, w, h, faces.sorted()[faces.count / 2], cost, median(pairs) * 1_000, median(times.a) * 1_000,
+                         median(times.b) * 1_000, rounds))
         }
     }
 }

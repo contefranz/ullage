@@ -28,6 +28,10 @@ public struct ProbeSettings: Codable, Equatable {
     /// Draw the pad (LC-39A, within 2 km) into the probe, so the stack sees
     /// its concrete and steel.
     public var sites = true
+    /// Faces drawn a frame while nothing moves enough to make one stale
+    /// (`EnvironmentProbePass.fullUpdate`): 2, the six in three frames; 6
+    /// draws every face every frame.
+    public var facesPerFrame = 2
     /// What the probe sees: the scene, or an analytic look-dev environment.
     public var environment = ProbeEnvironment.scene
     /// The furnace's radiance, cd/m² (`environment` = furnace).
@@ -36,7 +40,8 @@ public struct ProbeSettings: Codable, Equatable {
     public init() {}
 
     private enum CodingKeys: String, CodingKey {
-        case enabled, faceSize, specularMips, prefilterSamples, nightFloor, intensity, clouds, sites, environment
+        case enabled, faceSize, specularMips, prefilterSamples, nightFloor, intensity, clouds, sites, facesPerFrame
+        case environment
         case furnaceRadiance
     }
 
@@ -51,14 +56,16 @@ public struct ProbeSettings: Codable, Equatable {
         intensity = try c.decodeIfPresent(Double.self, forKey: .intensity) ?? d.intensity
         clouds = try c.decodeIfPresent(Bool.self, forKey: .clouds) ?? d.clouds
         sites = try c.decodeIfPresent(Bool.self, forKey: .sites) ?? d.sites
+        facesPerFrame = try c.decodeIfPresent(Int.self, forKey: .facesPerFrame) ?? d.facesPerFrame
         environment = try c.decodeIfPresent(ProbeEnvironment.self, forKey: .environment) ?? d.environment
         furnaceRadiance = try c.decodeIfPresent(Double.self, forKey: .furnaceRadiance) ?? d.furnaceRadiance
     }
 
-    /// The face size the renderer uses: a power of two in 16...512.
+    /// The face size the renderer uses: a power of two in 32...512 (the
+    /// irradiance and SH9 read a 32² downsample, so no face is smaller).
     public var resolvedFaceSize: Int {
-        var n = 16
-        while n < min(max(faceSize, 16), 512) { n *= 2 }
+        var n = 32
+        while n < min(max(faceSize, 32), 512) { n *= 2 }
         return n
     }
 

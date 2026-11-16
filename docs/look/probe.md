@@ -18,10 +18,13 @@ it in LightingCommon's `orbit_environmentLight`.
   there exactly; A2's sky and C2's clouds from the camera, within a few
   hundred metres of it in practice. The vessels are not in it, so they do
   not reflect each other; the pad is (below).
-- **What:** six 90° faces of `ProbeSettings.faceSize`² (128; 64 at Low),
+- **What:** six 90° faces of `ProbeSettings.faceSize`² (128; 64 at Low;
+  never under 32, the irradiance's and SH9's source),
   each its own render pass, drawn through the other tracks' probe entry
   points, in this order:
-  1. `PlanetPass.encodeProbe`: every body more than a texel across, as the
+  1. `PlanetPass.encodeProbe`: every body more than a texel across whose
+     figure the centre is outside (the WGS-84 ellipsoid: on the pad the
+     ground is 4.9 km inside the equatorial sphere), as the
      planet pass draws it (E1's albedo tiles, A2's light through the air),
      without the night floor or the grid; from above the air the ground's
      haze is marched in the shader (8 steps), A2's reduced-resolution haze
@@ -33,19 +36,27 @@ it in LightingCommon's `orbit_environmentLight`.
      and the cloud marched (6 steps), so the face becomes (1 − a) face +
      T cloud + a in-scatter: the haze in front of the cloud stays whole.
      No cirrus and no march: the probe wants the clouds' light, not their
-     detail.
+     detail. C2 prepares this frame's weather and uniforms whenever the
+     probe asks for clouds, on screen or not (`CloudPass.probeEarth`; the
+     march, shadow map and slot only on screen), so the vessels' light does
+     not change as the camera turns; the probe takes them only from the
+     frame that prepared them. Without A2 the air in front is not marched.
   4. `VesselPass.encodeProbe`: LC-39A when it is within 2 km of the centre
      (`ProbeSettings.sites`), opaque over the sky and the clouds and in
      front of the ground, lit by the Sun with R4's shadows and R2's stand-in
-     environment (a second bounce): the concrete and steel under the stack,
+     environment without its night floor (the receivers add theirs), a
+     second bounce: the concrete and steel under the stack,
      a large part of its lower sky. Not the vessels, which would see
      themselves.
   Each entry point only adds a function and a pipeline of its own: what
   its pass draws for the frame does not change.
 - **Units:** rgba16Float, luminance in cd/m², linear Rec. 709, not
-  pre-exposed (the faces' frame uniforms carry a pre-exposure of 1), NaN
-  cleaned, clamped below 6e4 (the aureole within a few degrees of a low Sun
-  can pass it; the Sun itself is not in the probe).
+  pre-exposed (the faces' frame uniforms carry a pre-exposure of 1). The
+  faces' fixed-function blends add terms each below 6e4 (A2's sky, the
+  clouds over it), which can pass half float's 65504 and store +inf (near a
+  low Sun with cloud), so `probe_cleanFaces` cleans each drawn face in place
+  before its mips and the derived maps read it, by R1's rule: +inf saturates
+  at 6e4, NaN and −inf are no light. The Sun itself is not in the probe.
 - **The Sun** is excluded: it stays the analytic light (the Sun's disc as
   an area light, R4's `orbit_sunShadow`). The Moon is drawn when it is over
   a texel across (in lunar orbit), not from the Earth.
@@ -137,13 +148,17 @@ lights.
 
 ## Cost
 
-- **Faces:** two a frame in turn while nothing moves enough to make one
-  stale; all six on a temporal reset, a frame that does not follow the last,
-  new settings, a warp above 10× (so the Earth turning under the vessel at
-  1000× is never stale), a centre moved over 1 km or a Sun turned over 0.05°
-  (`EnvironmentProbePass.fullUpdate`). At 1× a face is at most two frames
-  old: 400 m of LEO, 0.0002° of Sun.
-- **Derived maps** every frame, their dispatches concurrent: the prefilter
+- **Faces:** `ProbeSettings.facesPerFrame` (2) a frame in turn while
+  nothing moves enough to make one stale; all six on a temporal reset, a
+  frame that does not follow the last, new render settings, another nearest
+  body, or a frame that moves the centre more than 1 km over the nearest
+  body's ground or turns the Sun more than 0.05° in that body's frame
+  (`EnvironmentProbePass.fullUpdate`): LEO from about 8× warp, the Sun on the
+  pad at 1000×. Measured where the faces' content lives, so a camera
+  orbiting its target moves nothing. At 1× a face is at most two frames
+  old: 260 m of LEO, 0.0002° of Sun. While paused, once all six are current,
+  no face and no derived map is redrawn.
+- **Derived maps** on every frame that draws a face, their dispatches concurrent: the prefilter
   a SIMD group of 32 to a texel (the rough mips' few texels do not wait on
   long loops), the irradiance tiled through threadgroup memory (each group
   loads every source texel once).

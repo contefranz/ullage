@@ -196,13 +196,15 @@ public final class PlanetPass: RenderPass {
         for body in bodies {
             let rel = body.position - center
             let distance = rel.length
-            guard distance > body.radius, 2 * asin(min(1, body.radius / distance)) >= texel else { continue }
-            let style = Self.style(for: body.id)
             let orientation = body.orientation, figure = body.figure
             let a = figure.equatorialRadius, stretch = a / figure.polarRadius
             let probeBody = orientation.toBody(-rel)
             let origin = Vec3(probeBody.x, probeBody.y, probeBody.z * stretch)
             let c = (origin.length - a) * (origin.length + a)
+            // Outside the figure (its ellipsoid: on the pad the geocentric
+            // radius is 4.9 km under the equatorial), and over a texel across.
+            guard c > 0, 2 * asin(min(1, body.radius / max(distance, 1))) >= texel else { continue }
+            let style = Self.style(for: body.id)
             let altitude = figure.geodetic(probeBody).height
             let texture = textures[body.id]
             let tiled = body.id == AtmosphereFrame.planetID ? albedoTiles : nil

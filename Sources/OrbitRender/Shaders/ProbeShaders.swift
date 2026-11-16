@@ -84,9 +84,29 @@ inline float3 probe_texelDirection(uint2 xy, uint face, float size) {
     return normalize(probe_direction(face, st.x, st.y));
 }
 
-// Radiance as the cube stores it: no NaN, below half float's overflow.
+// Radiance as the cube stores it, R1's rule per channel: NaN and -inf are
+// no light, +inf saturates, the rest is clamped to [0, 6e4], below half
+// float's overflow. The bit test comes before any min(), which would turn a
+// NaN into its other argument.
+inline float probe_cleanChannel(float x) {
+    uint b = as_type<uint>(x);
+    if ((b & 0x7f800000u) == 0x7f800000u) { return (b & 0x807fffffu) == 0u ? 60000.0 : 0.0; }
+    return clamp(x, 0.0, 60000.0);
+}
 inline float4 probe_clean(float3 c) {
-    return float4(orbit_isNotFinite(c) ? float3(0.0) : clamp(c, 0.0, 60000.0), 1.0);
+    return float4(probe_cleanChannel(c.r), probe_cleanChannel(c.g), probe_cleanChannel(c.b), 1.0);
+}
+
+// The faces as drawn, cleaned in place before their mips and the derived
+// maps read them: the fixed-function blends that build a face (A2's sky over
+// the ground, the clouds over both) add terms each below 6e4, so a sum can
+// pass half float's 65504 and be stored as +inf, which would spread through
+// every mip, the irradiance and SH9.
+kernel void probe_cleanFaces(texture2d_array<float, access::read_write> faces [[texture(0)]],
+                             uint3 gid [[thread_position_in_grid]]) {
+    uint n = faces.get_width();
+    if (gid.x >= n || gid.y >= n || gid.z >= 6u) { return; }
+    faces.write(probe_clean(faces.read(gid.xy, gid.z).rgb), gid.xy, gid.z);
 }
 
 // ------------------------------------------ the look-dev environments ---

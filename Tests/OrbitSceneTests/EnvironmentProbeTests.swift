@@ -121,6 +121,11 @@ final class EnvironmentProbeTests: XCTestCase {
         XCTAssertTrue(s.enabled)
         XCTAssertEqual(s.resolvedFaceSize, 128)
         XCTAssertEqual(s.resolvedSpecularMips, 6)
+        XCTAssertEqual(s.facesPerFrame, 2)
+        var tiny = ProbeSettings()
+        tiny.faceSize = 16
+        XCTAssertEqual(tiny.resolvedFaceSize, 32, "no face under the 32² source")
+        XCTAssertEqual(tiny.resolvedSpecularMips, 4)
         var low = ProbeSettings()
         low.faceSize = 64
         XCTAssertEqual(low.resolvedSpecularMips, 5)

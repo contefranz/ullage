@@ -1465,7 +1465,8 @@ fragment EffectCloudOut cloud_slot_fragment(CloudSlotOut in [[stage_in]],
 
 struct CloudProbeView {
     float4x4 viewToWorld;     // the face's view basis (columns: right, up, -forward), tan(fov/2) = 1
-    float4 params;            // x: 1 / pre-exposure (the cloud uniforms' Sun is pre-exposed), y: haze steps, z: face size
+    float4 params;            // x: 1 / pre-exposure (the cloud uniforms' Sun is pre-exposed), y: haze steps, z: face size,
+                              // w: 1 with A2's profile bound (the haze marched)
     float4 sunWorld;          // xyz: unit, to the Sun (world), w: its angular radius (rad)
     float4 solar;             // rgb: the Sun's illuminance above the air (lux)
 };
@@ -1510,7 +1511,7 @@ fragment float4 cloud_probe_fragment(CloudSlotOut in [[stage_in]],
     if (!(c.a > 0.0) || orbit_isNotFinite(c.rgb) || orbit_isNotFinite(c.a)) { discard_fragment(); }
     c.rgb *= v.params.x;
     c.a = clamp(c.a, 0.0, 1.0);
-    if (air.radii.w > 0.5 && far.front < 1e29) {
+    if (air.radii.w > 0.5 && v.params.w > 0.5 && far.front < 1e29) {
         float scale = length(df);
         float3 dF = df / scale;
         float3 sunF = normalize(u.sun.xyz * float3(1.0, 1.0, u.cameraFigure.w));

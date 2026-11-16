@@ -411,8 +411,9 @@ public final class VesselPass: RenderPass {
     /// world relative to `center` (camera-relative, m) to the face's clip
     /// space (a reflection: the winding flips). In cd/m² (pre-exposure 1):
     /// the Sun with R4's shadows, R2's stand-in environment for the light
-    /// around it (the probe's own is the one being drawn), no aerial
-    /// perspective, no plume lights, no thin wires. What `encode` draws
+    /// around it (the probe's own is the one being drawn) without its night
+    /// floor (the receivers add theirs), no aerial perspective, no plume
+    /// lights, no thin wires. What `encode` draws
     /// does not depend on it.
     public func encodeProbe(_ f: FrameContext, on enc: MTLRenderCommandEncoder, formats: SceneFormats,
                             viewProjection: simd_float4x4, center: Vec3, faceSize: Int) {
@@ -478,8 +479,12 @@ public final class VesselPass: RenderPass {
         let countdown = Self.countdown(at: f.scene.clock.simTime)
         let t = countdown.rangeTime(at: f.scene.clock.simTime)
         for s in sites {
-            draw.setObject(Self.object(StandInLighting.site(s, in: f.scene), scene: f.scene, settings: settings,
-                                       shading: shading))
+            // No night floor: the probe's receivers add theirs, relative to
+            // the exposure (at pre-exposure 1 it would be absolute).
+            var object = Self.object(StandInLighting.site(s, in: f.scene), scene: f.scene, settings: settings,
+                                     shading: shading)
+            object.floor = .zero
+            draw.setObject(object)
             for (element, mesh) in zip(LC39A.elements, site) {
                 guard let mesh else { continue }
                 let (r, o) = element.transform(at: t, countdown)

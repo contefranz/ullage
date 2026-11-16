@@ -261,9 +261,12 @@ final class EnvironmentProbePassTests: XCTestCase {
         XCTAssertEqual(capture2.values, [SIMD4<Float>](repeating: .zero, count: 11))
     }
 
-    /// The faces two a frame in turn while frames follow each other at 1×;
-    /// all six on the first frame, a temporal reset, a skipped frame, a warp
-    /// above 10×, a Sun that turned or new settings.
+    /// The faces two a frame in turn while frames follow each other at 1×:
+    /// three frames draw all six exactly once. All six on the first frame, a
+    /// temporal reset, a skipped frame, the centre moved over 1 km (in the
+    /// world: a camera orbiting its target moves nothing), the Sun turned or
+    /// new settings; none while paused once all six are current, and then no
+    /// derived maps either.
     func testFacesRoundRobin() throws {
         let device = try device()
         let probe = EnvironmentProbePass()
@@ -271,24 +274,194 @@ final class EnvironmentProbePassTests: XCTestCase {
                                   plan: DirectTargetPlan(colorFormat: .bgra8Unorm_srgb, sampleCount: 1))
         let target = try XCTUnwrap(OffscreenTarget(device: device, width: 8, height: 8))
         var scene = LookDevScenes.materialSpheres(width: 8, height: 8)
-        func faces(_ index: Int, reset: Bool = false, warp: Double = 1) -> Int {
+        func faces(_ index: Int, reset: Bool = false, paused: Bool = false) -> [Int] {
             scene.clock.frameIndex = index
             scene.clock.temporalReset = reset
-            scene.clock.warp = warp
+            scene.clock.paused = paused
             r.renderAndWait(scene, into: target)
-            return probe.lastFrame.facesDrawn
+            return probe.lastFrame.faces
         }
-        XCTAssertEqual([faces(1), faces(2), faces(3), faces(4)], [6, 2, 2, 2])
-        XCTAssertEqual(faces(5, reset: true), 6)
-        XCTAssertEqual([faces(6), faces(8)], [2, 6], "a skipped frame")
-        XCTAssertEqual([faces(9, warp: 100), faces(10, warp: 10)], [6, 2])
+        XCTAssertEqual(faces(1), Array(0..<6))
+        let cycle = [faces(2), faces(3), faces(4)]
+        XCTAssertEqual(cycle.map(\.count), [2, 2, 2])
+        XCTAssertEqual(cycle.flatMap { $0 }.sorted(), Array(0..<6), "three frames, each face once")
+        XCTAssertEqual(faces(5, reset: true).count, 6)
+        XCTAssertEqual([faces(6).count, faces(8).count], [2, 6], "a skipped frame")
+        // The camera orbits its target 1.5 km out: the probe does not move.
+        scene.camera.position = scene.camera.position + Vec3(1_500, 0, 0)
+        scene.vessels[0].position = scene.vessels[0].position - Vec3(1_500, 0, 0)
+        XCTAssertEqual(faces(9).count, 2, "a camera orbit")
+        // The target flies 1.5 km.
+        scene.vessels[0].position = scene.vessels[0].position + Vec3(0, 1_500, 0)
+        XCTAssertEqual(faces(10).count, 6, "the probe moved 1.5 km")
         let sun = scene.sun.direction
         scene.sun.direction = (sun + Vec3(0, 0, 0.01)).normalized
-        XCTAssertEqual(faces(11), 6, "the Sun turned 0.4°")
+        XCTAssertEqual(faces(11).count, 6, "the Sun turned 0.4°")
         var s = r.settings
         s.probe.nightFloor = 0.03
         r.settings = s
-        XCTAssertEqual([faces(12), faces(13)], [6, 2], "new settings")
+        XCTAssertEqual([faces(12).count, faces(13).count], [6, 2], "new settings")
+        // Paused: the faces left to draw, then nothing, and no derived maps.
+        let paused = [faces(14, paused: true), faces(15, paused: true), faces(16, paused: true)]
+        XCTAssertEqual(paused.flatMap { $0 }.count, 6)
+        XCTAssertEqual(faces(17, paused: true), [])
+        XCTAssertFalse(probe.lastFrame.derived)
+        XCTAssertTrue(probe.lastFrame.drawn, "still published")
+        XCTAssertEqual(faces(18).count, 2, "running again")
+        // 6 a frame on request (the cost test's full path).
+        s.probe.facesPerFrame = 6
+        r.settings = s
+        XCTAssertEqual([faces(19).count, faces(20).count], [6, 6])
+    }
+
+    /// The probe on the pad holds the ground below it (the WGS-84 ground is
+    /// 4.9 km inside the equatorial sphere there, which the planets' probe
+    /// entry once took for the planet's inside): sunlit sea toward the nadir,
+    /// with the pad left out of the probe.
+    func testPadProbeHoldsTheGround() throws {
+        let device = try device()
+        let snapper = try SnapshotRenderer(device: device)
+        var shot = SnapshotSpec.Shot(name: "pad", scenario: "as506-pad",
+                                     camera: SnapshotSpec.CameraSpec(yaw: -60, pitch: 4, distance: 210, fov: 38))
+        shot.width = 64
+        shot.height = 40
+        let scene = shot.scene(try shot.prepare(system: snapper.system))
+        let r = try SceneRenderer(device: device, loadsUserTextures: false)
+        var s = r.settings
+        s.probe.sites = false
+        s.particle.quality = .off
+        r.settings = s
+        let target = try XCTUnwrap(OffscreenTarget(device: device, width: 64, height: 40))
+        r.renderAndWait(scene, into: target)
+        let probe = try XCTUnwrap(r.graph.passes.compactMap { $0 as? EnvironmentProbePass }.first)
+        let cube = try read(try XCTUnwrap(probe.maps).radiance, level: 0, device: device)
+        let earth = try XCTUnwrap(scene.bodies.first { $0.id == 399 })
+        let up = (probe.lastFrame.center - earth.position).normalized
+        let down = cube.nearest(-up).g
+        // Up: the sky, for scale.
+        let sky = cube.nearest(up).g
+        print(String(format: "pad probe: nadir %.0f cd/m², zenith %.0f cd/m²", down, sky))
+        XCTAssertGreaterThan(down, 200, "the ground below the pad")
+        XCTAssertGreaterThan(sky, 200, "the sky above")
+    }
+
+    /// C2's far clouds are in the probe whether or not they are on screen,
+    /// and only while they are on: with the camera looking away from the
+    /// Earth in LEO, the probe's nadir irradiance is higher with clouds than
+    /// without, and turning the clouds off leaves none behind.
+    func testProbeCloudsFollowTheSettingsNotTheView() throws {
+        let device = try device()
+        let snapper = try SnapshotRenderer(device: device)
+        var shot = SnapshotSpec.Shot(name: "away", scenario: "as506-parking-orbit", advance: ["stage", "wait:60"],
+                                     camera: SnapshotSpec.CameraSpec(target: "vessel:Apollo 11 – S-IVB", frame: "vessel",
+                                                                     yaw: 0, pitch: -60, distance: 40, fov: 50))
+        shot.width = 64
+        shot.height = 40
+        let scene = shot.scene(try shot.prepare(system: snapper.system))
+        func nadirIrradiance(_ r: SceneRenderer, clouds: Bool) throws -> Double {
+            var s = r.settings
+            s.cloud.enabled = clouds
+            r.settings = s
+            let target = try XCTUnwrap(OffscreenTarget(device: device, width: 64, height: 40))
+            r.renderAndWait(scene, into: target)
+            let cloudPass = try XCTUnwrap(r.graph.passes.compactMap { $0 as? CloudPass }.first)
+            XCTAssertFalse(cloudPass.lastFrame.drawn, "the clouds are off screen")
+            let probe = try XCTUnwrap(r.graph.passes.compactMap { $0 as? EnvironmentProbePass }.first)
+            let irradiance = try read(try XCTUnwrap(probe.maps).irradiance, level: 0, device: device)
+            let earth = try XCTUnwrap(scene.bodies.first { $0.id == 399 })
+            return irradiance.nearest((earth.position - probe.lastFrame.center).normalized).g
+        }
+        let a = try SceneRenderer(device: device, loadsUserTextures: false)
+        let cloudy = try nadirIrradiance(a, clouds: true)
+        let cleared = try nadirIrradiance(a, clouds: false)
+        let fresh = try nadirIrradiance(try SceneRenderer(device: device, loadsUserTextures: false), clouds: false)
+        print(String(format: "probe nadir E/π in LEO: with clouds %.0f, turned off %.0f, never on %.0f", cloudy, cleared, fresh))
+        XCTAssertGreaterThan(cloudy, 1.2 * fresh, "the clouds brighten the Earth below")
+        XCTAssertEqual(cleared, fresh, accuracy: 0.002 * fresh, "no clouds left behind")
+    }
+
+    /// R1's rule in the probe's clean (+inf saturates at 6e4, NaN and −inf
+    /// are no light), and the pass that cleans the faces in place before
+    /// their mips: a face texel stored as +inf by a blend.
+    func testCleanFollowsR1sRule() throws {
+        let device = try device()
+        let module = ShaderModule(name: "ProbeCleanTest", headers: [.sphericalHarmonics], source: probeShaderSource + """
+
+            kernel void clean_test(const device float4 *input [[buffer(0)]], device float4 *out [[buffer(1)]],
+                                   uint i [[thread_position_in_grid]]) {
+                out[i] = probe_clean(input[i].xyz);
+            }
+            """)
+        let library = try ShaderLibrary(device: device).library(module)
+        let pipeline = try device.makeComputePipelineState(function: try XCTUnwrap(library.makeFunction(name: "clean_test")))
+        let nan = Float(bitPattern: 0x7fc0_0000)
+        let input: [SIMD4<Float>] = [SIMD4(.infinity, -.infinity, nan, 0), SIMD4(7e4, -1, 123.5, 0)]
+        let inBuffer = try XCTUnwrap(device.makeBuffer(bytes: input, length: 32, options: .storageModeShared))
+        let outBuffer = try XCTUnwrap(device.makeBuffer(length: 32, options: .storageModeShared))
+        let queue = try XCTUnwrap(device.makeCommandQueue())
+        var cb = try XCTUnwrap(queue.makeCommandBuffer())
+        let enc = try XCTUnwrap(cb.makeComputeCommandEncoder())
+        enc.setComputePipelineState(pipeline)
+        enc.setBuffer(inBuffer, offset: 0, index: 0)
+        enc.setBuffer(outBuffer, offset: 0, index: 1)
+        enc.dispatchThreads(MTLSize(width: 2, height: 1, depth: 1), threadsPerThreadgroup: MTLSize(width: 2, height: 1, depth: 1))
+        enc.endEncoding()
+        cb.commit()
+        cb.waitUntilCompleted()
+        let out = outBuffer.contents().bindMemory(to: SIMD4<Float>.self, capacity: 2)
+        XCTAssertEqual(SIMD3(out[0].x, out[0].y, out[0].z), SIMD3(60_000, 0, 0))
+        XCTAssertEqual(SIMD3(out[1].x, out[1].y, out[1].z), SIMD3(60_000, 0, 123.5))
+
+        // The faces: one texel at +inf in a 32² cube, cleaned in place.
+        let d = MTLTextureDescriptor.textureCubeDescriptor(pixelFormat: .rgba16Float, size: 32, mipmapped: false)
+        d.usage = [.shaderRead, .shaderWrite]
+        d.storageMode = .shared
+        let cube = try XCTUnwrap(device.makeTexture(descriptor: d))
+        var texels = [Float16](repeating: 1, count: 4 * 32 * 32)
+        texels[4 * (5 * 32 + 7)] = .infinity
+        for face in 0..<6 {
+            cube.replace(region: MTLRegionMake2D(0, 0, 32, 32), mipmapLevel: 0, slice: face, withBytes: texels,
+                         bytesPerRow: 32 * 8, bytesPerImage: 32 * 32 * 8)
+        }
+        let faces = try XCTUnwrap(cube.makeTextureView(pixelFormat: .rgba16Float, textureType: .type2DArray,
+                                                       levels: 0..<1, slices: 0..<6))
+        let clean = try device.makeComputePipelineState(function: try XCTUnwrap(library.makeFunction(name: "probe_cleanFaces")))
+        cb = try XCTUnwrap(queue.makeCommandBuffer())
+        let enc2 = try XCTUnwrap(cb.makeComputeCommandEncoder())
+        enc2.setComputePipelineState(clean)
+        enc2.setTexture(faces, index: 0)
+        enc2.dispatchThreads(MTLSize(width: 32, height: 32, depth: 6), threadsPerThreadgroup: MTLSize(width: 8, height: 8, depth: 1))
+        enc2.endEncoding()
+        cb.commit()
+        cb.waitUntilCompleted()
+        let back = try read(cube, level: 0, device: device)
+        for f in EnvironmentProbe.Face.allCases {
+            XCTAssertEqual(back.value(f, 7, 5).r, 60_000, accuracy: 32, "face \(f)")
+            XCTAssertEqual(back.value(f, 8, 5).r, 1)
+        }
+    }
+
+    /// The smallest face the probe draws, 32² (16 resolves to it: the
+    /// irradiance and SH9 read a 32² source): its irradiance against brute
+    /// force over its own radiance.
+    func testSmallestFaceIrradiance() throws {
+        let device = try device()
+        var settings = Self.earthBelow
+        settings.faceSize = 16
+        let (probe, capture, _) = try renderProbe(settings)
+        let maps = try XCTUnwrap(probe.maps)
+        XCTAssertEqual(maps.size, 32)
+        XCTAssertEqual(maps.mips, 4)
+        let full = try read(maps.radiance, level: 0, device: device)
+        let irradiance = try read(maps.irradiance, level: 0, device: device)
+        let peak = EnvironmentProbe.irradianceReference(full, n: -.unitZ).g
+        for t in EnvironmentProbe.texels(size: irradiance.size) where t.x % 3 == 1 && t.y % 3 == 1 {
+            XCTAssertEqual(irradiance.value(t.face, t.x, t.y).g, EnvironmentProbe.irradianceReference(full, n: t.direction).g,
+                           accuracy: 2e-3 * peak)
+        }
+        let sh = SH9(irradianceOverPi: (0..<9).map {
+            Spectrum3(Double(capture.values[$0].x), Double(capture.values[$0].y), Double(capture.values[$0].z)) })
+        XCTAssertEqual(sh.irradianceOverPi(-.unitZ).g, peak, accuracy: 0.04 * peak)
     }
 
     // MARK: Through the vessel pass
