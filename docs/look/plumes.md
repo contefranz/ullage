@@ -24,10 +24,20 @@ medium, L low (visual, calibrated or assumed).
    Each cluster gets a convex proxy: the upper concave hull of every
    member's extent (sampled cross-sections at their offsets and tilts), with
    a 4 % margin, reduced to at most eight rings.
-3. **Detail.** By the cluster's size on screen at its nearest point: marched
-   from 48 px, an impostor from 6 px, nothing below (the vessel's far point
-   carries it). Attitude jets are impostors beyond 20 m. Low draws only
-   impostors; Off draws nothing.
+3. **Visibility and detail.** Each member is first trimmed to what can
+   show at the frame's exposure (`PlumeLook.trim`; the least light drawn
+   is 0.002 pre-exposed): its light near the exit (its own, and the Sun's
+   at the phase towards the camera) decides whether it is drawn at all, how
+   far out the free expansion's cone is cut, and how long it is. A J-2's,
+   the SPS's or an RCS jet's physical plume in vacuum is therefore not
+   drawn, at no cost. A plume only its readable glow shows is an impostor,
+   as M1.5 drew it. Then by the cluster's size on screen at its nearest
+   point: marched from 48 px, an impostor from 6 px, nothing below (the
+   vessel's far point carries it). Attitude jets are impostors beyond
+   20 m. Low draws only impostors; Off, or `enabled: false`, nothing.
+   Beyond where a cluster's plumes have run together (a member's jet as
+   wide as the furthest member's offset) one merged member stands for
+   them, its radius widened by their RMS offset and its density times N.
 4. **The march** (`OrbitRender/Passes/PlumePass.swift`, `Shaders/PlumeShaders`),
    at R6's half resolution into the volumes layer: one instanced draw of
    every proxy's back faces; each fragment intersects its ray with the
