@@ -26,15 +26,20 @@ import OrbitScene
 /// 5. `LightingUniforms.probe` (centre, mip count) and `ambient` (the night
 ///    floor as E/π relative to the exposure, the light's scale).
 ///
-/// The faces are drawn two a frame in turn while nothing moves enough to
-/// make one stale, and all six on any jump, new settings, a warp above 10×
-/// (the Earth turning under the vessel at 1000× is never stale), a centre
-/// moved over 1 km or a Sun turned over 0.05° (`fullUpdate`); the derived
-/// maps every frame. Their dispatches run concurrently; a one-command blit
-/// ends the pass, so the driver does not merge its compute with the next
-/// pass's. The lighting uniforms then live in a buffer of their own
-/// (`FrameArena.pushSeparately`): the SH9 copy into the arena made every
-/// later encoder wait for C2's march (6.2 ms on the pad).
+/// The faces are redrawn by how stale they could be (`update`, measured in
+/// the nearest body's fixed frame, so a camera orbiting its target moves
+/// nothing): `facesPerFrame` (2) in turn while steady; three a frame while
+/// the centre moves over the ground, or the Sun turns, by more than half a
+/// texel a frame as seen from the centre (LEO from about 11×, and the
+/// extractor's turn-only resets at 1e4× and up); all six on a new target,
+/// warp, settings, nearest body or centre (target or camera), or a skipped
+/// frame. While paused they finish their turn and stop, but redraw on motion
+/// and when E1's tiles stream in (`FaceSchedule`). The derived maps on every
+/// frame that draws a face; their dispatches run concurrently; a
+/// one-command blit ends the pass, so the driver does not merge its compute
+/// with the next pass's. The lighting uniforms then live in a buffer of
+/// their own (`FrameArena.pushSeparately`): the SH9 copy into the arena made
+/// every later encoder wait for C2's march (6.2 ms on the pad).
 @MainActor
 public final class EnvironmentProbePass: RenderPass {
     public let name = "Environment probe"
@@ -67,7 +72,7 @@ public final class EnvironmentProbePass: RenderPass {
     public static let cloudHazeSteps = 6
     /// Faces drawn a frame while the probe moves fast (`Update.moving`):
     /// each face at most one frame old.
-    public static let movingFacesPerFrame = 3
+    public nonisolated static let movingFacesPerFrame = 3
     /// Beyond this distance from the camera the probe stays at the camera:
     /// A2's sky is the camera's.
     public static let maximumTargetDistance = 50_000.0
@@ -127,21 +132,32 @@ public final class EnvironmentProbePass: RenderPass {
         /// body-fixed axes relative to it (m), or barycentric without a body.
         var body: Int
         var anchor: Vec3
-        /// The centre's height over that body (m), the scale its motion is
-        /// seen at: 1 km without a body.
+        /// The centre's height over that body's figure (m, geodetic: on the
+        /// pad about 55 m, not the 16 km over the polar radius), the scale its
+        /// motion is seen at; 1 km without a body.
         var height: Double
         /// The Sun's direction in the same axes.
         var toSun: Vec3
         var settings: RenderSettings
+        var target: CameraTarget
+        var warp: Double
+        /// Whether the centre is the target vessel (else the camera).
+        var onTarget: Bool
+        /// E1's resident albedo tiles (−1 without the store).
+        var tiles: Int
 
-        init(_ scene: RenderScene, center: Vec3, settings: RenderSettings) {
+        init(_ scene: RenderScene, center: Vec3, settings: RenderSettings, tiles: Int = -1) {
             frameIndex = scene.clock.frameIndex
             self.settings = settings
+            target = scene.camera.target
+            warp = scene.clock.warp
+            onTarget = center != .zero
+            self.tiles = tiles
             if let b = scene.bodies.filter({ !$0.isSun }).min(by: {
                 ($0.position - center).length < ($1.position - center).length }) {
                 body = b.id
                 anchor = b.orientation.toBody(center - b.position)
-                height = max((center - b.position).length - b.figure.polarRadius, 1)
+                height = max(b.figure.geodetic(anchor).height, 1)
                 toSun = b.orientation.toBody(scene.sun.direction)
             } else {
                 body = 0
@@ -154,30 +170,58 @@ public final class EnvironmentProbePass: RenderPass {
 
     enum Update { case full, moving, steady }
     private var lastFaces: FaceState?
-    private var faceCursor = 0
-    /// While paused: the faces drawn since the pause, all six once current.
-    private var pausedFaces: Set<Int> = []
+    private var schedule = FaceSchedule()
 
     /// How this frame's faces are drawn:
-    /// - `full`, every face: the first frame, a temporal reset (a jump, a new
-    ///   target, a warp change), a frame that does not follow the last one
-    ///   drawn, new render settings, another nearest body.
+    /// - `full`, every face: the first frame, a frame that does not follow
+    ///   the last one drawn, new render settings, another nearest body, a new
+    ///   camera target or warp, or the centre switched between the target
+    ///   and the camera.
     /// - `moving`, `movingFacesPerFrame` in turn (each face one frame old):
     ///   the centre moved over the nearest body's ground, or the Sun turned in
     ///   its frame, by more than half a texel of the face (`size`) as seen
-    ///   from the centre since last frame. LEO from about 11× warp, the pad's
-    ///   Sun never.
+    ///   from the centre since last frame (LEO from about 11× warp); or the
+    ///   extractor's temporal reset for the body turning alone (same target,
+    ///   same warp: every frame from 1e4×, where half a cube a frame behind
+    ///   is no worse than the frame's own strobe).
     /// - `steady`, `ProbeSettings.facesPerFrame` in turn: a face is then at
     ///   most two frames old and a texel off.
     /// Measured where the faces' content lives, so a camera orbiting its
     /// target moves nothing.
     static func update(_ now: FaceState, after last: FaceState?, clock: RenderScene.Clock, size: Int) -> Update {
-        guard let last, !clock.temporalReset, now.frameIndex == last.frameIndex + 1, now.settings == last.settings,
-              now.body == last.body else { return .full }
+        guard let last, now.frameIndex == last.frameIndex + 1, now.settings == last.settings, now.body == last.body,
+              now.target == last.target, now.warp == last.warp, now.onTarget == last.onTarget else { return .full }
+        if clock.temporalReset { return .moving }
         let halfTexel = 1 / Double(max(size, 1))
         let shift = (now.anchor - last.anchor).length / max(min(now.height, last.height), 1)
         let turn = acos(min(max(now.toSun.dot(last.toSun), -1), 1))
         return shift > halfTexel || turn > halfTexel ? .moving : .steady
+    }
+
+    /// Which faces a frame draws, in turn.
+    struct FaceSchedule {
+        var cursor = 0
+        /// While paused: the faces drawn since the pause or the last change.
+        var pausedFaces: Set<Int> = []
+
+        /// `steady` faces a frame, `movingFacesPerFrame` while moving, all six
+        /// on a full update. While paused, steady frames finish the turn
+        /// since the last change and then draw nothing; motion and a full
+        /// update draw as running, and tiles streaming in (`tilesChanged`)
+        /// start the turn again.
+        mutating func next(_ update: Update, paused: Bool, steady: Int, tilesChanged: Bool) -> [Int] {
+            let perFrame = update == .moving ? max(steady, movingFacesPerFrame) : min(max(steady, 1), 6)
+            if update == .full || perFrame >= 6 {
+                pausedFaces = paused ? Set(0..<6) : []
+                return Array(0..<6)
+            }
+            if paused, update == .moving || tilesChanged { pausedFaces = [] }
+            if paused, pausedFaces.count == 6 { return [] }
+            let drawn = (0..<perFrame).map { (cursor + $0) % 6 }
+            cursor = (cursor + perFrame) % 6
+            pausedFaces = paused ? pausedFaces.union(drawn) : []
+            return drawn
+        }
     }
 
     public init() {}
@@ -235,23 +279,16 @@ public final class EnvironmentProbePass: RenderPass {
 
         // 1. The radiance: every face when anything may have made one stale,
         // else `facesPerFrame` in turn; none while paused once all are current.
-        let state = FaceState(f.scene, center: center, settings: f.settings)
+        let tiles = planets?.tiles?.layer(.albedo)?.residency.residentCount ?? -1
+        let state = FaceState(f.scene, center: center, settings: f.settings, tiles: tiles)
         let update = Self.update(state, after: lastFaces, clock: f.scene.clock, size: maps.size)
-        let full = update == .full
+        let tilesChanged = lastFaces.map { $0.tiles != tiles } ?? false
         lastFaces = state
         var drawn: [Int] = []
         switch settings.environment {
         case .scene:
-            let steady = min(max(settings.facesPerFrame, 1), 6)
-            let perFrame = update == .moving ? max(steady, Self.movingFacesPerFrame) : steady
-            if full || perFrame == 6 {
-                drawn = Array(0..<6)
-            } else if !(f.scene.clock.paused && pausedFaces.count == 6) {
-                drawn = (0..<perFrame).map { (faceCursor + $0) % 6 }
-                faceCursor = (faceCursor + perFrame) % 6
-            }
-            pausedFaces = f.scene.clock.paused ? pausedFaces.union(drawn) : []
-            if full, f.scene.clock.paused { pausedFaces = Set(0..<6) }
+            drawn = schedule.next(update, paused: f.scene.clock.paused, steady: settings.facesPerFrame,
+                                  tilesChanged: tilesChanged)
             if !drawn.isEmpty {
                 drawFaces(f, maps: maps, center: center, settings: settings,
                           faces: drawn.compactMap { EnvironmentProbe.Face(rawValue: $0) })

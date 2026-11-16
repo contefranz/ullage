@@ -263,10 +263,11 @@ final class EnvironmentProbePassTests: XCTestCase {
 
     /// The faces two a frame in turn while frames follow each other at 1×:
     /// three frames draw all six exactly once. All six on the first frame, a
-    /// temporal reset, a skipped frame or new settings; three while the
-    /// centre moves or the Sun turns more than half a texel a frame (in the
-    /// world: a camera orbiting its target moves nothing); none while paused
-    /// once all six are current, and then no derived maps either.
+    /// skipped frame or new settings; three on a reset for the body's turn
+    /// alone, or while the centre moves or the Sun turns more than half a
+    /// texel a frame (in the world: a camera orbiting its target moves
+    /// nothing); none while paused once all six are current, and then no
+    /// derived maps either. ProbeCadenceTests has the bodies' cases.
     func testFacesRoundRobin() throws {
         let device = try device()
         let probe = EnvironmentProbePass()
@@ -285,7 +286,7 @@ final class EnvironmentProbePassTests: XCTestCase {
         let cycle = [faces(2), faces(3), faces(4)]
         XCTAssertEqual(cycle.map(\.count), [2, 2, 2])
         XCTAssertEqual(cycle.flatMap { $0 }.sorted(), Array(0..<6), "three frames, each face once")
-        XCTAssertEqual(faces(5, reset: true).count, 6)
+        XCTAssertEqual(faces(5, reset: true).count, 3, "a reset with the same target and warp: the body's turn")
         XCTAssertEqual([faces(6).count, faces(8).count], [2, 6], "a skipped frame")
         // The camera orbits its target 1.5 km out: the probe does not move.
         scene.camera.position = scene.camera.position + Vec3(1_500, 0, 0)

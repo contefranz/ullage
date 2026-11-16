@@ -148,19 +148,28 @@ lights.
 
 ## Cost
 
-- **Faces** (`EnvironmentProbePass.update`), measured where their content
-  lives (the centre and the Sun in the nearest body's fixed frame), so a
-  camera orbiting its target moves nothing:
-  - all six on the first frame, a temporal reset (a jump, a new target, a
-    warp change), a frame that does not follow the last, new render
-    settings or another nearest body: single frames;
-  - three a frame in turn, each face at most a frame old, while the centre
-    moves over the ground or the Sun turns by more than half a texel a frame
-    as seen from the centre: LEO from about 11× warp; on the pad the Sun
-    never, the ascent hardly;
-  - otherwise `ProbeSettings.facesPerFrame` (2) in turn: a face at most two
-    frames old and a texel off (at 1× 260 m of LEO, 0.0002° of Sun);
-  - none while paused once all six are current, and then no derived maps.
+- **Faces** (`EnvironmentProbePass.update`, `FaceSchedule`), measured where
+  their content lives: the centre and the Sun in the nearest body's fixed
+  frame, the centre's motion seen from its geodetic height over that body's
+  figure (on the pad about 55 m, in LEO about 186 km). A camera orbiting its
+  target moves nothing.
+  - **All six** (single frames): the first frame, a frame that does not
+    follow the last, new render settings, another nearest body, a new
+    camera target or warp, or the centre switching between the target and
+    the camera (at 50 km).
+  - **Three a frame** in turn, each face at most a frame old: the centre
+    moving over the ground, or the Sun turning, by more than half a texel a
+    frame as seen from the centre (LEO from about 11× warp; the first
+    seconds of an ascent from about 10×; the pad's Sun never); and the
+    extractor's temporal reset for the body turning alone (same target and
+    warp), every frame from about 1e4×, where half a cube a frame behind is
+    no worse than the frame's own strobe.
+  - **Otherwise** `ProbeSettings.facesPerFrame` (2) in turn: a face at most
+    two frames old and a texel off (at 1× 260 m of LEO, 0.0002° of Sun).
+  - **Paused:** the turn since the last change finishes, then nothing is
+    drawn and no derived map rebuilt; motion (a camera-centred probe, a
+    jump) and full updates draw as when running, and E1's tiles streaming
+    in start the turn again.
 - **Derived maps** on every frame that draws a face, their dispatches concurrent: the prefilter
   a SIMD group of 32 to a texel (the rough mips' few texels do not wait on
   long loops), the irradiance tiled through threadgroup memory (each group
@@ -180,7 +189,8 @@ lights.
   |---|---|---|---|
   | 2, steady | 0.06 / 0.21 ms | 0.11 / 0.22 ms | 0.13 / 0.23 ms |
   | 3, moving | 0.24 / 0.34 ms | 0.03 / 0.13 ms | 0.20 / 0.28 ms |
-  | 6, reset frames | 0.30 / 0.47 ms | 0.15 / 0.22 ms | 0.45 / 0.63 ms |
+  | 6, full-update frames | 0.30 / 0.47 ms | 0.15 / 0.22 ms | 0.45 / 0.63 ms |
 
   The runs scatter by about ±0.15 ms (another session shared the GPU). Six
-  faces a frame is a single frame's spike after a reset.
+  faces a frame is a single frame's spike after a new target, warp,
+  settings or body; the turn-only resets of 1e4× and up take three.
