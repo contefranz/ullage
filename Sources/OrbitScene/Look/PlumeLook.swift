@@ -78,6 +78,10 @@ public struct PlumeMember: Equatable {
     public var simonsExponent = 8.0
     public var limitingAngle = 1.5
     public var sourceOffset = 1.0
+    /// The share of the axis's density at which the free expansion's cone
+    /// is cut (`extent`): 1 % unless the frame's exposure shows less
+    /// (`PlumeLook.trim`).
+    public var extentFraction = 0.01
     /// How far the air confines the free expansion to the jet's boundary
     /// (P1's structure visibility in air, 0 in vacuum): the Simons field
     /// is cut beyond R(x) as much.
@@ -182,7 +186,7 @@ public struct PlumeMember: Equatable {
         if x < 0 { return baseExtinction > 0 && x >= -upstream ? 1.6 * exitRadius : exitRadius }
         var e = 1.55 * radius(atX: x)
         if vacuumBlend > 0.02 && confinement < 0.98 {
-            let theta = min(simonsAngle(fraction: 0.01), 85 * Double.pi / 180)
+            let theta = min(simonsAngle(fraction: extentFraction), 85 * Double.pi / 180)
             e = max(e, (x + sourceOffset) * tan(theta))
         }
         if particleExtinction > 0 && vacuumBlend > 0.02 && confinement < 0.98 {
@@ -314,6 +318,14 @@ public struct PlumeMember: Equatable {
                                         s.emission.b + glow.b * k)
         }
         return s
+    }
+
+    /// The plume's width at x for an estimate of its light seen side-on:
+    /// the jet's, or where the expansion is free the half-mass cone's.
+    public func visibleWidth(atX x: Double) -> Double {
+        let r = radius(atX: x)
+        guard vacuumBlend > 0.5 else { return 2 * r }
+        return 2 * min(r, (x + sourceOffset) * tan(simonsAngle(fraction: 0.5)))
     }
 
     /// The field at a camera-relative point.
@@ -486,6 +498,9 @@ public enum PlumeLook {
         // and wholly free where the air is too thin for a boundary.
         var v = inAir ? min(max(log10(max(n, 1)) / 3.5, 0), 1) : 1
         v = max(v, 1 - w)
+        // A jet the air confines and that has not yet balloned: no free
+        // expansion's field at all (and none of its cost).
+        if inAir && w > 0.98 && v < 0.2 { v = 0 }
         m.vacuumBlend = v
         m.confinement = inAir ? w : 0
         m.simonsExponent = 2 / (s.gamma - 1)
@@ -497,7 +512,8 @@ public enum PlumeLook {
         // The boundary: from the lip at δ0 towards the fully expanded jet,
         // which a strongly underexpanded jet overshoots.
         let slope = tan(min(max(s.boundaryAngle, -0.5), 80 * Double.pi / 180))
-        if inAir && s.jetDiameter.isFinite {
+        // (Free-molecular air bounds nothing: the vacuum's shape.)
+        if inAir && s.jetDiameter.isFinite && w > 0.02 {
             let overshoot = n > 1 ? 1 + 0.2 * min(1, log10(n) / 2) : 1
             let growth = 0.5 * s.jetDiameter * overshoot - re
             m.radiusGrowth = abs(growth) < 1e-3 * re ? 0 : growth
@@ -637,24 +653,63 @@ public enum PlumeLook {
     }
 
     /// How far downstream the member's field still shows (m): where its
-    /// column across has an optical depth under 3e-3 and the light it
-    /// gives is under 3 cd/m², searched outward in 4 % steps, at most 3 km.
-    public static func visibleLength(_ m: PlumeMember) -> Double {
+    /// column across has an optical depth under `opaque` and the light it
+    /// gives (its own, and up to `sun` lux scattered at the forward peak)
+    /// is under `faintest` cd/m², searched outward in 4 % steps, at most
+    /// 3 km.
+    public static func visibleLength(_ m: PlumeMember, faintest: Double = 3, opaque: Double = 3e-3,
+                                     sun: Double = 0) -> Double {
+        let forward = henyeyGreenstein(1, m.phaseG)
         var probe = m
         probe.length = 1e9
         let de = m.exitDiameter
         var x = 0.5 * de, last = x
         while x < 3_000 {
             let s = probe.sample(x: x, r: 0)
-            let chord = 2 * probe.radius(atX: x)
+            let chord = probe.visibleWidth(atX: x)
             let tau = s.extinction * chord
-            let light = s.emission.luminance * chord
+            let light = (s.emission.luminance + s.scattering * sun * forward) * chord
             let disk = m.machDiskExtinction > 0 && x < m.machDiskDistance + m.machDiskRadius
-            if tau > 3e-3 || light > 3 || disk || x < (m.glowLength > 0 ? m.glowLength : 0) { last = x }
+            if tau > opaque || light > faintest || disk || x < (m.glowLength > 0 ? m.glowLength : 0) { last = x }
             else if x > 4 * last + 10 * de { break }
             x *= 1.04
         }
         return max(last * 1.15, 2 * de)
+    }
+
+    /// Trims `m` to what can show at an exposure where `faintest` cd/m² is
+    /// the least light seen, the Sun's `sun` lux on it: false when nothing
+    /// of it can (a J-2's or the SPS's plume in vacuum, unless readable).
+    /// Its light at a few stations near the exit, thin and lit at the
+    /// forward peak (an upper bound), sets how much of the free expansion's
+    /// cone can show; its length ends where neither its light nor its
+    /// opacity (2 % against a bright background) can.
+    public static func trim(_ m: inout PlumeMember, faintest: Double, sun: Double,
+                            sunDirection: Vec3? = nil) -> Bool {
+        // The phase towards the camera (at the origin), or the forward peak.
+        let view = (m.exit + m.axis * (0.25 * m.length)).normalized
+        let forward = henyeyGreenstein(sunDirection.map { view.dot($0) } ?? 1, m.phaseG)
+        var peak = 0.0
+        for x in [0.5, 2, 8].map({ $0 * m.exitDiameter }) where x < m.length {
+            let s = m.sample(x: x, r: 0)
+            let chord = m.visibleWidth(atX: x)
+            peak = max(peak, (s.emission.luminance + s.scattering * sun * forward) * chord,
+                       s.extinction * chord > 0.02 ? 1e30 : 0)
+        }
+        // The base's glow and the Mach disk off the stations: their light
+        // through their thickness, thin.
+        if m.baseExtinction > 0 {
+            peak = max(peak, m.baseExtinction * blackbody(m.baseTemperature).luminance * 3.2 * m.exitRadius)
+        }
+        if m.machDiskExtinction > 0 {
+            peak = max(peak, m.machDiskExtinction * blackbody(m.machDiskTemperature).luminance
+                       * (0.5 * m.machDiskRadius + 0.1 * m.exitDiameter))
+        }
+        guard peak >= faintest else { return false }
+        m.extentFraction = min(max(faintest / peak, 0.01), 0.3)
+        m.length = min(m.length, visibleLength(m, faintest: faintest, opaque: 0.02,
+                                               sun: sun * forward / henyeyGreenstein(1, m.phaseG)))
+        return true
     }
 
     /// M1.5's look, through the march: today's colour, intensity, length and

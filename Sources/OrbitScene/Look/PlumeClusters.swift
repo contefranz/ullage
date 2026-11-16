@@ -227,7 +227,7 @@ public enum PlumeClusters {
     /// beyond `jetMarchDistance`. The camera inside a proxy marches it.
     public static func detail(_ c: PlumeCluster, camera: RenderScene.Camera,
                               settings: PlumeSettings) -> PlumeCluster.Detail {
-        guard settings.quality != .off else { return .none }
+        guard settings.enabled, settings.quality != .off else { return .none }
         let t = min(max((-c.origin).dot(c.axis), c.start), c.end)
         let nearest = c.origin + c.axis * t
         let distance = max(nearest.length - c.radius(atX: t), 0)

@@ -11,7 +11,7 @@ struct PlumeFrame {
     float4 wienA;       // rgb: c1 (K), w: the turbulence clock (s)
     float4 sun;         // xyz: unit to the Sun (world), w: 1 with the clouds' layer bound
     float4 sunLight;    // rgb: the Sun's lux at the plumes, w: 1 to take R4's shadow
-    float4 ambient;     // rgb: ambient lux in vacuum (earthshine), w: 1 to take A2's sky
+    float4 ambient;     // rgb: the ambient stub's mean radiance (cd/m², not pre-exposed)
     float4 params;      // x: frame index, y: 1 with aerial perspective
     float4 wienC;       // rgb: c2 (K²)
 };
@@ -202,8 +202,22 @@ inline void plume_add(thread PlumeSample &s, float sigma, float albedo, float3 l
     s.emission += a * light;
 }
 
+// The turbulence at camera-relative p: two octaves of the volume noise in a
+// cluster's frame (its first member's eddies), moving downstream, about 0
+// on average and ±0.3 or so. One lookup a sample for all the members.
+inline float plume_noise(const device PlumeMember &m, float3 p, texture3d<float> noise, sampler ns) {
+    float3 d = p - m.exit.xyz;
+    float x = max(dot(d, m.axis.xyz), 0.0);
+    float re = m.exit.w;
+    float R = re + m.shape.x * (1.0 - exp(-x / max(m.shape.y, 1e-6))) + m.shape.z * max(0.0, x - m.shape.w);
+    float grow = pow(max(R / re, 1.0), 0.7);
+    float3 nc = (d / (m.noise.w * grow)) - m.axis.xyz * m.noise.y;
+    float n1 = noise.sample(ns, nc).r, n2 = noise.sample(ns, nc * 2.0 + 0.37).g;
+    return 2.0 * (0.65 * n1 + 0.35 * n2) - 1.0;
+}
+
 inline void plume_member(thread PlumeSample &s, const device PlumeMember &m, float3 p, constant PlumeFrame &pf,
-                         texture3d<float> noise, sampler ns, thread float &sunDepth, float3 sunDir) {
+                         float nv, thread float &sunDepth, float3 sunDir) {
     float3 d = p - m.exit.xyz;
     float x = dot(d, m.axis.xyz);
     float upstream = m.structure.w, length_ = m.axis.w;
@@ -223,11 +237,7 @@ inline void plume_member(thread PlumeSample &s, const device PlumeMember &m, flo
     }
     if (r > e) { return; }
 
-    // The turbulence: two octaves of the volume noise, moving downstream.
-    float grow = pow(max(R / re, 1.0), 0.7);
-    float3 nc = (d / (m.noise.w * grow)) - m.axis.xyz * m.noise.y;
-    float n1 = noise.sample(ns, nc).r, n2 = noise.sample(ns, nc * 2.0 + 0.37).g;
-    float nv = 2.0 * (0.65 * n1 + 0.35 * n2) - 1.0;                 // about 0 on average, ±0.3 or so
+    // The turbulence's depth here (the noise is the sample's).
     float depth = m.noise.z * plume_smoothstep(0.0, 4.0 * de, xp);
     float turb = max(1.0 + depth * 3.0 * nv, 0.05);
     float hot = 1.0 + depth * 0.15 * nv;                            // hot and cool pockets
@@ -245,14 +255,19 @@ inline void plume_member(thread PlumeSample &s, const device PlumeMember &m, flo
         float q = r / R * (1.0 - depth * 0.5 * nv);
         float w = clamp(0.06 + 0.45 * x / (x + 6.0 * de), 0.06, 0.5);
         float pc = 1.0 - plume_smoothstep(1.0 - w, 1.0 + w, q);
-        float theta = atan2(r, x + m.simons.w);
-        float lim = m.simons.z;
-        float confine = 1.0 - m.disk.w * plume_smoothstep(1.0, 1.5, q);
-        float pv = theta < lim ? pow(max(cos(0.5 * M_PI_F * theta / lim), 0.0), m.simons.y) * confine : 0.0;
         float v = m.simons.x;
-        float profile = mix(pc, pv, v);
-        float d2 = (x + m.simons.w) * (x + m.simons.w) + r * r;
-        float dilution = (re / R) * (re / R) * (1.0 - v) + m.simons.w * m.simons.w / max(d2, 1e-9) * v;
+        float confine = 1.0, profile = pc, dilution = (re / R) * (re / R);
+        if (v > 0.0) {
+            // The free expansion's field (Simons), cut at the boundary as
+            // much as the air confines it.
+            float theta = atan2(r, x + m.simons.w);
+            float lim = m.simons.z;
+            confine = 1.0 - m.disk.w * plume_smoothstep(1.0, 1.5, q);
+            float pv = theta < lim ? pow(max(cos(0.5 * M_PI_F * theta / lim), 0.0), m.simons.y) * confine : 0.0;
+            profile = mix(pc, pv, v);
+            float d2 = (x + m.simons.w) * (x + m.simons.w) + r * r;
+            dilution = dilution * (1.0 - v) + m.simons.w * m.simons.w / max(d2, 1e-9) * v;
+        }
         float fade = 1.0 - plume_smoothstep(0.7 * length_, length_, x);
         float rho = profile * dilution * fade;
         float mixing = x > m.shape.w ? m.shape.w / x : 1.0;
@@ -285,13 +300,16 @@ inline void plume_member(thread PlumeSample &s, const device PlumeMember &m, flo
             plume_add(s, m.sheath.x * band * along * min(1.0, dilution) * fade * turb, m.gas.y, m.sheathLight.rgb);
         }
         // Particles: alumina, or condensate.
-        if (m.particles.x > 0.0) {
-            float tp = atan2(r, x + m.particles2.y);
-            float pa = m.particles2.x;
-            float ppv = tp < pa ? pow(max(cos(0.5 * M_PI_F * tp / pa), 0.0), 2.0) * confine : 0.0;
-            float pp = mix(pc, ppv, v);
-            float dp2 = (x + m.particles2.y) * (x + m.particles2.y) + r * r;
-            float dil = (re / R) * (re / R) * (1.0 - v) + m.particles2.y * m.particles2.y / max(dp2, 1e-9) * v;
+        if (m.particles.x > 0.0 && x > 0.5 * m.particles2.z) {
+            float pp = pc, dil = (re / R) * (re / R);
+            if (v > 0.0) {
+                float tp = atan2(r, x + m.particles2.y);
+                float pa = m.particles2.x;
+                float ppv = tp < pa ? pow(max(cos(0.5 * M_PI_F * tp / pa), 0.0), 2.0) * confine : 0.0;
+                pp = mix(pc, ppv, v);
+                float dp2 = (x + m.particles2.y) * (x + m.particles2.y) + r * r;
+                dil = dil * (1.0 - v) + m.particles2.y * m.particles2.y / max(dp2, 1e-9) * v;
+            }
             float on = m.particles2.z > 0.0 ? plume_smoothstep(0.5 * m.particles2.z, m.particles2.z, x) : 1.0;
             float temp = m.particles.z > 0.0 ? m.particles.z * pow(1.0 + 3.0 * x / m.particles.w, -1.0 / 3.0) : 0.0;
             // Hot alumina absorbs (and so glows) more than its white smoke.
@@ -336,11 +354,14 @@ inline void plume_member(thread PlumeSample &s, const device PlumeMember &m, flo
 // and behind them; A2's air between the camera and the plume dims it and
 // adds its own light.
 
-// The ambient irradiance about the plumes (lux), behind one function: A2's
-// sky in air, the earthshine stand-in in vacuum. R3's SH9 replaces it.
-inline float3 plume_ambient(constant PlumeFrame &pf, constant AtmosphereUniforms &air,
-                            constant LightingUniforms &lighting) {
-    return pf.ambient.w > 0.5 ? air.skyIrradiance.rgb : pf.ambient.rgb;
+// The ambient light scattered towards the eye along view ray v by a medium
+// of Henyey-Greenstein asymmetry g (cd/m², not pre-exposed), with R3's
+// orbit_sh9InScatter(lighting, v, g)'s signature and meaning; once R3
+// merges its body becomes that call (with the .sphericalHarmonics header).
+// Until then the stub: the mean radiance about the plumes, isotropic (A2's
+// sky in air, the earthshine stand-in in vacuum; PlumeSystem.prepare).
+inline float3 plume_sh9InScatter(constant LightingUniforms &lighting, float3 v, float g, constant PlumeFrame &pf) {
+    return pf.ambient.rgb;
 }
 
 fragment EffectVolumeOut plume_march_fragment(PlumeProxyOut in [[stage_in]],
@@ -407,7 +428,6 @@ fragment EffectVolumeOut plume_march_fragment(PlumeProxyOut in [[stage_in]],
     float jitter = plume_jitter(in.position.xy, pf.params.x);
     float3 sunDir = pf.sun.xyz;
     float3 sunLux = pf.sunLight.rgb * c.v.w;
-    float3 ambient = plume_ambient(pf, air, lighting) / (4.0 * M_PI_F);
     // R4's shadow at four points along the march, and C2's at its middle.
     float shadows[4] = {1.0, 1.0, 1.0, 1.0};
     if (pf.sunLight.w > 0.5) {
@@ -450,14 +470,16 @@ fragment EffectVolumeOut plume_march_fragment(PlumeProxyOut in [[stage_in]],
         float3 p = dir * s;
         PlumeSample x = {0.0, 0.0, float3(0.0), 0.0};
         float sunDepth = 0.0;
+        float nv = members[first_].noise.z > 0.0 ? plume_noise(members[first_], p, noise, ns) : 0.0;
         for (int k = 0; k < count; k++) {
-            plume_member(x, members[first_ + k], p, pf, noise, ns, sunDepth, sunDir);
+            plume_member(x, members[first_ + k], p, pf, nv, sunDepth, sunDir);
         }
         float sigma = x.absorption + x.scattering;
         if (sigma <= 0.0 && max(x.emission.r, max(x.emission.g, x.emission.b)) <= 0.0) { continue; }
         float3 source = x.emission;
         if (x.scattering > 0.0) {
             float g = x.g / x.scattering;
+            float3 ambient = plume_sh9InScatter(lighting, view, g, pf);
             float shadow = shadows[clamp(int(4.0 * (s - enter) / max(exit - enter, 1e-6)), 0, 3)];
             source += x.scattering * sunLux * (shadow * plume_phase(dot(view, sunDir), g) * exp(-sunDepth));
             // The cluster's own light on its smoke outside its luminous

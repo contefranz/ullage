@@ -51,7 +51,7 @@ enum Plumes {
     static func gpu(_ m: PlumeMember, turbulenceTime: Double, turbulent: Bool = true) -> PlumeMemberGPU {
         let noise = noisePhase(m, time: turbulenceTime)
         let free = m.vacuumBlend > 0.02 && m.confinement < 0.98
-        let vacuumAngle = free ? tan(min(m.simonsAngle(fraction: 0.01), 85 * Double.pi / 180)) : 0
+        let vacuumAngle = free ? tan(min(m.simonsAngle(fraction: m.extentFraction), 85 * Double.pi / 180)) : 0
         let particleAngle = m.particleExtinction > 0 && free ? tan(min(m.particleAngle, 85 * Double.pi / 180)) : 0
         return PlumeMemberGPU(
             exit: f4(m.exit, m.exitRadius), axis: f4(m.axis, m.length),
@@ -153,8 +153,8 @@ struct PlumeFrameGPU {
     var sun = SIMD4<Float>.zero
     /// rgb: the Sun's illuminance at the plumes (lux), w: 1 to shadow it (R4).
     var sunLight = SIMD4<Float>.zero
-    /// rgb: the ambient irradiance in vacuum (lux, earthshine), w: 1 to
-    /// take A2's sky instead (in air).
+    /// rgb: the ambient stub's mean radiance (cd/m², not pre-exposed): A2's
+    /// sky in air, the earthshine stand-in in vacuum, until R3's SH9.
     var ambient = SIMD4<Float>.zero
     /// x: frame index (the jitter), y: 1 with aerial perspective.
     var params = SIMD4<Float>.zero
@@ -251,6 +251,11 @@ public final class PlumeSystem {
     private(set) var noise: VolumeNoise?
     private var turbulence = 0.0
     private var last: (frame: Int, time: Epoch)?
+    /// The last frame's pre-exposure (R1's, set in P0 after the graph has
+    /// asked which passes run): the culling's.
+    private var exposure: Double?
+    /// The least pre-exposed light a plume must give to be drawn.
+    static let faintest = 2e-3
     /// The frame `frame` was planned for, and whether P0 has lit it.
     private weak var planned: FrameContext?
     private var lit = false
@@ -297,15 +302,38 @@ public final class PlumeSystem {
 
         var data = PlumeFrameData()
         let heats = glow.update(scene)
-        if settings.nozzleGlow && settings.quality != .off {
+        let drawn = settings.enabled && settings.quality != .off
+        if settings.nozzleGlow && drawn {
             for v in scene.vessels where f.drawsMesh(v.id) {
                 for part in v.geometry.parts {
                     for t in part.thrusters { if let h = heats[t.key] { data.glows.append((v.id, t.key, h)) } }
                 }
             }
         }
-        if settings.quality != .off {
-            let clusters = PlumeClusters.clusters(Self.members(scene, settings: settings) { f.drawsMesh($0) })
+        if drawn {
+            // Each member trimmed to what this exposure can show; those
+            // that cannot show at all are not drawn.
+            let ev = f.settings.post.exposure.fixedEV100
+            let p = ev.map { 1 / (1.2 * pow(2, $0)) } ?? exposure ?? 1 / (1.2 * pow(2, 15))
+            let faintest = Self.faintest / max(p, 1e-12), sun = scene.sun.illuminance
+            var trimmed: [String: PlumeMember?] = [:]
+            var members: [PlumeMember] = []
+            for var m in Self.members(scene, settings: settings, drawn: { f.drawsMesh($0) }) {
+                // Members alike but for their place trim alike.
+                let key = "\(m.family) \(m.exitRadius) \(m.gasExtinction) \(m.particleExtinction) \(m.glow.r) "
+                    + "\(m.length) \(m.machDiskExtinction) \(m.radiusGrowth)"
+                if let done = trimmed[key] {
+                    guard let d = done else { continue }
+                    m.length = d.length
+                    m.extentFraction = d.extentFraction
+                } else {
+                    let visible = PlumeLook.trim(&m, faintest: faintest, sun: sun, sunDirection: scene.sun.direction)
+                    trimmed[key] = visible ? m : nil
+                    guard visible else { continue }
+                }
+                members.append(m)
+            }
+            let clusters = PlumeClusters.clusters(members)
             data.clusters = clusters.map { ($0, PlumeClusters.detail($0, camera: scene.camera, settings: settings)) }
         }
         frame = data
@@ -331,6 +359,7 @@ public final class PlumeSystem {
         guard !lit else { return }
         lit = true
         let scene = f.scene, settings = f.settings.plume
+        exposure = Double(f.frame.exposure.x)
         var data = frame
         let sun = scene.sun
         let air = f.atmosphere.radii.w > 0.5 && f.atmosphere.sunTransmitted.w > 0
@@ -347,6 +376,10 @@ public final class PlumeSystem {
         } ?? Photometry.RGB(0, 0, 0)
         let sky = air ? Photometry.RGB(Double(f.atmosphere.skyIrradiance.x), Double(f.atmosphere.skyIrradiance.y),
                                        Double(f.atmosphere.skyIrradiance.z)) : earth
+        // The stub's mean radiance about the plumes (cd/m²): a sky above of
+        // irradiance E is E/π, a darker ground below, about E/2π over the
+        // sphere; the Earth's disc in vacuum about E/4π.
+        let ambient = air ? sky.scaled(by: 1 / (2 * Double.pi)) : earth.scaled(by: 1 / (4 * Double.pi))
         let lights = data.clusters.map { PlumeLights.light($0.cluster) }
         for ((c, detail), light) in zip(data.clusters, lights) {
             let sunlit = c.vesselID.flatMap { id in scene.vessels.first { $0.id == id }?.light.sunlit } ?? 1
@@ -370,7 +403,7 @@ public final class PlumeSystem {
         u.wienC = SIMD4(Float(w[0].2), Float(w[1].2), Float(w[2].2), 0)
         u.sun = Plumes.f4(sun.direction, f.textures[.cloudLayer] != nil ? 1 : 0)
         u.sunLight = Plumes.f4(sunLux, f.settings.shadow.enabled ? 1 : 0)
-        u.ambient = Plumes.f4(earth, air ? 1 : 0)
+        u.ambient = Plumes.f4(ambient, 0)
         u.params = SIMD4(Float(scene.clock.frameIndex % 1024), f.settings.atmosphere.enabled ? 1 : 0, 0, 0)
         data.uniforms = u
 

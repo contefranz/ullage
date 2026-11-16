@@ -5,6 +5,11 @@ import Foundation
 /// option 1) and the look-dev engines shots draw. P2 owns this file;
 /// `RenderSettings` holds one.
 public struct PlumeSettings: Codable, Equatable {
+    /// Plumes at all: off, P2 draws nothing (no plume, impostor or nozzle
+    /// glow) and writes no plume light, for shots and tests that need a
+    /// plain frame. R2's vessel pass then lights from the emitters itself
+    /// unless `ShadingSettings.plumeLights` is 0.
+    public var enabled = true
     /// The plumes' tier (R7's tiers set it): impostors only, or a march of
     /// 16, 32 or 48 steps.
     public var quality = PlumeQuality.high
@@ -36,12 +41,13 @@ public struct PlumeSettings: Codable, Equatable {
     public init() {}
 
     private enum CodingKeys: String, CodingKey {
-        case quality, readable, model, nozzleGlow, turbulence, marchPixels, impostorPixels, jetMarchDistance, testEngines
+        case enabled, quality, readable, model, nozzleGlow, turbulence, marchPixels, impostorPixels, jetMarchDistance, testEngines
     }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let d = PlumeSettings()
+        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? d.enabled
         quality = try c.decodeIfPresent(PlumeQuality.self, forKey: .quality) ?? d.quality
         readable = try c.decodeIfPresent(Bool.self, forKey: .readable) ?? d.readable
         model = try c.decodeIfPresent(PlumeLookModel.self, forKey: .model) ?? d.model
