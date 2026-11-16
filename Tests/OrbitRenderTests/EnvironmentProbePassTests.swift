@@ -263,10 +263,10 @@ final class EnvironmentProbePassTests: XCTestCase {
 
     /// The faces two a frame in turn while frames follow each other at 1×:
     /// three frames draw all six exactly once. All six on the first frame, a
-    /// temporal reset, a skipped frame, the centre moved over 1 km (in the
-    /// world: a camera orbiting its target moves nothing), the Sun turned or
-    /// new settings; none while paused once all six are current, and then no
-    /// derived maps either.
+    /// temporal reset, a skipped frame or new settings; three while the
+    /// centre moves or the Sun turns more than half a texel a frame (in the
+    /// world: a camera orbiting its target moves nothing); none while paused
+    /// once all six are current, and then no derived maps either.
     func testFacesRoundRobin() throws {
         let device = try device()
         let probe = EnvironmentProbePass()
@@ -291,27 +291,32 @@ final class EnvironmentProbePassTests: XCTestCase {
         scene.camera.position = scene.camera.position + Vec3(1_500, 0, 0)
         scene.vessels[0].position = scene.vessels[0].position - Vec3(1_500, 0, 0)
         XCTAssertEqual(faces(9).count, 2, "a camera orbit")
-        // The target flies 1.5 km.
-        scene.vessels[0].position = scene.vessels[0].position + Vec3(0, 1_500, 0)
-        XCTAssertEqual(faces(10).count, 6, "the probe moved 1.5 km")
+        // The target flies 5 m in a frame, then 50 m (1 km is the scale without
+        // a body: half a 128² texel is 7.8 m).
+        scene.vessels[0].position = scene.vessels[0].position + Vec3(0, 5, 0)
+        XCTAssertEqual(faces(10).count, 2, "5 m a frame")
+        scene.vessels[0].position = scene.vessels[0].position + Vec3(0, 50, 0)
+        let moving = [faces(11)]
+        XCTAssertEqual(moving[0].count, 3, "50 m a frame")
         let sun = scene.sun.direction
-        scene.sun.direction = (sun + Vec3(0, 0, 0.01)).normalized
-        XCTAssertEqual(faces(11).count, 6, "the Sun turned 0.4°")
+        scene.sun.direction = (sun + Vec3(0, 0, 0.03)).normalized
+        XCTAssertEqual(faces(12).count, 3, "the Sun turned 1.3°")
+        XCTAssertEqual(faces(13).count, 2, "still again")
         var s = r.settings
         s.probe.nightFloor = 0.03
         r.settings = s
-        XCTAssertEqual([faces(12).count, faces(13).count], [6, 2], "new settings")
+        XCTAssertEqual([faces(14).count, faces(15).count], [6, 2], "new settings")
         // Paused: the faces left to draw, then nothing, and no derived maps.
-        let paused = [faces(14, paused: true), faces(15, paused: true), faces(16, paused: true)]
+        let paused = [faces(16, paused: true), faces(17, paused: true), faces(18, paused: true)]
         XCTAssertEqual(paused.flatMap { $0 }.count, 6)
-        XCTAssertEqual(faces(17, paused: true), [])
+        XCTAssertEqual(faces(19, paused: true), [])
         XCTAssertFalse(probe.lastFrame.derived)
         XCTAssertTrue(probe.lastFrame.drawn, "still published")
-        XCTAssertEqual(faces(18).count, 2, "running again")
+        XCTAssertEqual(faces(20).count, 2, "running again")
         // 6 a frame on request (the cost test's full path).
         s.probe.facesPerFrame = 6
         r.settings = s
-        XCTAssertEqual([faces(19).count, faces(20).count], [6, 6])
+        XCTAssertEqual([faces(21).count, faces(22).count], [6, 6])
     }
 
     /// The probe on the pad holds the ground below it (the WGS-84 ground is

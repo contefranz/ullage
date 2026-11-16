@@ -148,16 +148,19 @@ lights.
 
 ## Cost
 
-- **Faces:** `ProbeSettings.facesPerFrame` (2) a frame in turn while
-  nothing moves enough to make one stale; all six on a temporal reset, a
-  frame that does not follow the last, new render settings, another nearest
-  body, or a frame that moves the centre more than 1 km over the nearest
-  body's ground or turns the Sun more than 0.05° in that body's frame
-  (`EnvironmentProbePass.fullUpdate`): LEO from about 8× warp, the Sun on the
-  pad at 1000×. Measured where the faces' content lives, so a camera
-  orbiting its target moves nothing. At 1× a face is at most two frames
-  old: 260 m of LEO, 0.0002° of Sun. While paused, once all six are current,
-  no face and no derived map is redrawn.
+- **Faces** (`EnvironmentProbePass.update`), measured where their content
+  lives (the centre and the Sun in the nearest body's fixed frame), so a
+  camera orbiting its target moves nothing:
+  - all six on the first frame, a temporal reset (a jump, a new target, a
+    warp change), a frame that does not follow the last, new render
+    settings or another nearest body: single frames;
+  - three a frame in turn, each face at most a frame old, while the centre
+    moves over the ground or the Sun turns by more than half a texel a frame
+    as seen from the centre: LEO from about 11× warp; on the pad the Sun
+    never, the ascent hardly;
+  - otherwise `ProbeSettings.facesPerFrame` (2) in turn: a face at most two
+    frames old and a texel off (at 1× 260 m of LEO, 0.0002° of Sun);
+  - none while paused once all six are current, and then no derived maps.
 - **Derived maps** on every frame that draws a face, their dispatches concurrent: the prefilter
   a SIMD group of 32 to a texel (the rough mips' few texels do not wait on
   long loops), the irradiance tiled through threadgroup memory (each group
@@ -169,7 +172,15 @@ lights.
 - A one-command blit ends the pass, so the driver does not merge its
   compute with the next P0 pass's.
 - **Measured** (`ProbeCostTests`, ORBITSIM_TIMINGS=1, 3024×1964, High, the
-  whole frame with every default pass, the probe on and off on alternate
-  frames, three runs of 300 rounds, medians of the on/off pairs): 0.18 ms on
-  the pad, 0.20 ms at 60 s of ascent, 0.25 ms in LEO, against 0.3 ms; the
-  runs scatter by about ±0.15 ms.
+  whole frame with every default pass, running, the probe on and off on
+  alternate frames, three runs of 300 rounds each; medians of the on/off
+  pairs, then of the differences of the medians), against 0.3 ms:
+
+  | Faces a frame | Pad | Ascent, 60 s | LEO |
+  |---|---|---|---|
+  | 2, steady | 0.06 / 0.21 ms | 0.11 / 0.22 ms | 0.13 / 0.23 ms |
+  | 3, moving | 0.24 / 0.34 ms | 0.03 / 0.13 ms | 0.20 / 0.28 ms |
+  | 6, reset frames | 0.30 / 0.47 ms | 0.15 / 0.22 ms | 0.45 / 0.63 ms |
+
+  The runs scatter by about ±0.15 ms (another session shared the GPU). Six
+  faces a frame is a single frame's spike after a reset.

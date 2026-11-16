@@ -65,11 +65,9 @@ public final class EnvironmentProbePass: RenderPass {
     public static let groundSteps = 8
     /// Steps of the air marched in front of the clouds in the faces.
     public static let cloudHazeSteps = 6
-    /// A frame that moves the probe's centre more than this over the nearest
-    /// body's ground (m), or turns the Sun more than `fullUpdateSunTurn`
-    /// (rad) in that body's frame, draws every face: LEO from about 8×.
-    public static let fullUpdateDistance = 1_000.0
-    public static let fullUpdateSunTurn = 0.05 * Double.pi / 180
+    /// Faces drawn a frame while the probe moves fast (`Update.moving`):
+    /// each face at most one frame old.
+    public static let movingFacesPerFrame = 3
     /// Beyond this distance from the camera the probe stays at the camera:
     /// A2's sky is the camera's.
     public static let maximumTargetDistance = 50_000.0
@@ -129,6 +127,9 @@ public final class EnvironmentProbePass: RenderPass {
         /// body-fixed axes relative to it (m), or barycentric without a body.
         var body: Int
         var anchor: Vec3
+        /// The centre's height over that body (m), the scale its motion is
+        /// seen at: 1 km without a body.
+        var height: Double
         /// The Sun's direction in the same axes.
         var toSun: Vec3
         var settings: RenderSettings
@@ -140,32 +141,43 @@ public final class EnvironmentProbePass: RenderPass {
                 ($0.position - center).length < ($1.position - center).length }) {
                 body = b.id
                 anchor = b.orientation.toBody(center - b.position)
+                height = max((center - b.position).length - b.figure.polarRadius, 1)
                 toSun = b.orientation.toBody(scene.sun.direction)
             } else {
                 body = 0
                 anchor = scene.camera.position + center
+                height = 1_000
                 toSun = scene.sun.direction
             }
         }
     }
+
+    enum Update { case full, moving, steady }
     private var lastFaces: FaceState?
     private var faceCursor = 0
     /// While paused: the faces drawn since the pause, all six once current.
     private var pausedFaces: Set<Int> = []
 
-    /// Whether every face is drawn this frame: the first, or after a
-    /// temporal reset (a jump, a new target, a warp change), a frame that
-    /// does not follow the last one drawn, new render settings, another
-    /// nearest body, or the centre moved more than `fullUpdateDistance` over
-    /// that body's ground or the Sun turned more than `fullUpdateSunTurn` in
-    /// its frame since last frame (LEO from about 8×; on the pad the Sun at
-    /// 1000×). Otherwise a face is at most two frames old: at 1× 260 m of
-    /// LEO, 0.0002° of Sun. A camera orbiting its target moves nothing.
-    static func fullUpdate(_ now: FaceState, after last: FaceState?, clock: RenderScene.Clock) -> Bool {
-        guard let last else { return true }
-        return clock.temporalReset || now.frameIndex != last.frameIndex + 1 || now.settings != last.settings
-            || now.body != last.body || (now.anchor - last.anchor).length > fullUpdateDistance
-            || now.toSun.dot(last.toSun) < cos(fullUpdateSunTurn)
+    /// How this frame's faces are drawn:
+    /// - `full`, every face: the first frame, a temporal reset (a jump, a new
+    ///   target, a warp change), a frame that does not follow the last one
+    ///   drawn, new render settings, another nearest body.
+    /// - `moving`, `movingFacesPerFrame` in turn (each face one frame old):
+    ///   the centre moved over the nearest body's ground, or the Sun turned in
+    ///   its frame, by more than half a texel of the face (`size`) as seen
+    ///   from the centre since last frame. LEO from about 11× warp, the pad's
+    ///   Sun never.
+    /// - `steady`, `ProbeSettings.facesPerFrame` in turn: a face is then at
+    ///   most two frames old and a texel off.
+    /// Measured where the faces' content lives, so a camera orbiting its
+    /// target moves nothing.
+    static func update(_ now: FaceState, after last: FaceState?, clock: RenderScene.Clock, size: Int) -> Update {
+        guard let last, !clock.temporalReset, now.frameIndex == last.frameIndex + 1, now.settings == last.settings,
+              now.body == last.body else { return .full }
+        let halfTexel = 1 / Double(max(size, 1))
+        let shift = (now.anchor - last.anchor).length / max(min(now.height, last.height), 1)
+        let turn = acos(min(max(now.toSun.dot(last.toSun), -1), 1))
+        return shift > halfTexel || turn > halfTexel ? .moving : .steady
     }
 
     public init() {}
@@ -224,12 +236,14 @@ public final class EnvironmentProbePass: RenderPass {
         // 1. The radiance: every face when anything may have made one stale,
         // else `facesPerFrame` in turn; none while paused once all are current.
         let state = FaceState(f.scene, center: center, settings: f.settings)
-        let full = Self.fullUpdate(state, after: lastFaces, clock: f.scene.clock)
+        let update = Self.update(state, after: lastFaces, clock: f.scene.clock, size: maps.size)
+        let full = update == .full
         lastFaces = state
         var drawn: [Int] = []
         switch settings.environment {
         case .scene:
-            let perFrame = min(max(settings.facesPerFrame, 1), 6)
+            let steady = min(max(settings.facesPerFrame, 1), 6)
+            let perFrame = update == .moving ? max(steady, Self.movingFacesPerFrame) : steady
             if full || perFrame == 6 {
                 drawn = Array(0..<6)
             } else if !(f.scene.clock.paused && pausedFaces.count == 6) {
