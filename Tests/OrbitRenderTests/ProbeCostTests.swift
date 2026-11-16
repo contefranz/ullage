@@ -18,10 +18,13 @@ import OrbitScene
 ///
 /// 200 rounds unless ORBITSIM_TIMINGS_ROUNDS=N; ORBITSIM_TIMINGS_SIZE=WxH
 /// for another size; ORBITSIM_PROBE_SHOTS=pad,leo for some shots;
-/// ORBITSIM_PROBE_SETTINGS='{"clouds": false}' for the on frames' probe,
-/// '{"facesPerFrame": 6}' for the full update every frame (warp from about
-/// 8× in LEO). The frames run (unpaused: paused, the probe redraws nothing
-/// once current), and the report gives the faces drawn a frame.
+/// ORBITSIM_PROBE_SETTINGS='{"clouds": false}' for the on frames' probe.
+/// The frames stand still, so the probe draws its steady 2 faces a frame;
+/// '{"facesPerFrame": 3}' times the moving cadence (LEO from about 11×,
+/// the turn-only resets from 1e4×), '{"facesPerFrame": 6}' the full update
+/// (single frames: a new target, warp, settings or body). The frames run
+/// (unpaused: paused, the probe redraws nothing once current), and the
+/// report gives the faces drawn a frame.
 @MainActor
 final class ProbeCostTests: XCTestCase {
     /// The probe alone, its derived maps over an analytic furnace (no
