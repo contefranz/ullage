@@ -351,6 +351,50 @@ final class EnvironmentProbePassTests: XCTestCase {
         XCTAssertGreaterThan(sky, 200, "the sky above")
     }
 
+    /// The probe sees the same sky from its centre wherever the camera is:
+    /// the stack on the pad with the camera 210 m away (A2's sky-view LUT)
+    /// and 30 km away and 10 km up (the sky and the ground's haze marched
+    /// from the centre): zenith, horizon and nadir within 10 %. From the
+    /// camera, the far one's zenith would be the sky over 10 km of air.
+    func testFarCameraSeesTheCentresSky() throws {
+        let device = try device()
+        let snapper = try SnapshotRenderer(device: device)
+        func probe(distance: Double, pitch: Double) throws -> (cube: EnvironmentProbe.CubeMap, up: Vec3, center: Vec3) {
+            var shot = SnapshotSpec.Shot(name: "pad", scenario: "as506-pad",
+                                         camera: SnapshotSpec.CameraSpec(yaw: -60, pitch: pitch, distance: distance, fov: 38))
+            shot.width = 64
+            shot.height = 40
+            let scene = shot.scene(try shot.prepare(system: snapper.system))
+            let r = try SceneRenderer(device: device, loadsUserTextures: false)
+            var s = r.settings
+            s.probe.sites = false
+            s.cloud.enabled = false
+            s.particle.quality = .off
+            r.settings = s
+            let target = try XCTUnwrap(OffscreenTarget(device: device, width: 64, height: 40))
+            r.renderAndWait(scene, into: target)
+            let pass = try XCTUnwrap(r.graph.passes.compactMap { $0 as? EnvironmentProbePass }.first)
+            let earth = try XCTUnwrap(scene.bodies.first { $0.id == 399 })
+            let center = pass.lastFrame.center
+            return (try read(try XCTUnwrap(pass.maps).radiance, level: 0, device: device),
+                    (center - earth.position).normalized, center)
+        }
+        let near = try probe(distance: 210, pitch: 4)
+        let far = try probe(distance: 30_000, pitch: 20)
+        XCTAssertLessThan(near.center.length, 300)
+        XCTAssertGreaterThan(far.center.length, 25_000)
+        XCTAssertTrue(EnvironmentProbePass.skyFromCentre(far.center))
+        // A horizontal direction, and one 20° below the horizon.
+        let side = near.up.cross(Vec3(0.3, 0.5, 0.8)).normalized
+        let below = (side - near.up * 0.364).normalized
+        for (name, d) in [("zenith", near.up), ("horizon", (side + near.up * 0.05).normalized), ("below", below),
+                          ("nadir", -near.up)] {
+            let a = near.cube.nearest(d).g, b = far.cube.nearest(d).g
+            print(String(format: "pad probe %@: camera near %.0f, 30 km away %.0f cd/m²", name, a, b))
+            XCTAssertEqual(b, a, accuracy: 0.1 * a, name)
+        }
+    }
+
     /// C2's far clouds are in the probe whether or not they are on screen,
     /// and only while they are on: with the camera looking away from the
     /// Earth in LEO, the probe's nadir irradiance is higher with clouds than
