@@ -11,7 +11,10 @@ import OrbitScene
 ///    pre-exposed, NaN-free below 6e4): six 90° faces, each drawn through
 ///    the planets' probe entry point (`PlanetPass.encodeProbe`: the ground,
 ///    E1's albedo tiles, its haze), A2's sky (`AtmosphereCompositePass.
-///    encodeProbe`) and C2's far cloud layers (`CloudPass.encodeProbe`).
+///    encodeProbe`), C2's far cloud layers (`CloudPass.encodeProbe`) and
+///    the pad (`VesselPass.encodeProbe`), all seen from the probe's centre:
+///    within 2 km of the camera the sky and the ground's haze from its
+///    sky-view LUT, farther marched from the centre (`skyFromCentre`).
 ///    The Sun is not in it: it stays the analytic light. Or an analytic
 ///    look-dev environment (`ProbeSettings.environment`). Then its mips.
 /// 2. **Specular** (texture slot 20): mip 0 the radiance, mip k ≥ 1 GGX-
@@ -74,8 +77,16 @@ public final class EnvironmentProbePass: RenderPass {
     /// each face at most one frame old.
     public nonisolated static let movingFacesPerFrame = 3
     /// Beyond this distance from the camera the probe stays at the camera:
-    /// A2's sky is the camera's.
+    /// a target that far is a few pixels across, and the camera's
+    /// surroundings light what is near it.
     public static let maximumTargetDistance = 50_000.0
+
+    /// Whether the probe's sky (A2's) and the planet's haze are marched from
+    /// its centre: more than `AtmosphereCompositePass.probeSkyViewRange` from
+    /// the camera, whose sky-view LUT they otherwise read.
+    nonisolated static func skyFromCentre(_ center: Vec3) -> Bool {
+        center.length > AtmosphereCompositePass.probeSkyViewRange
+    }
 
     private weak var planets: PlanetPass?
     private weak var vessels: VesselPass?
@@ -116,9 +127,11 @@ public final class EnvironmentProbePass: RenderPass {
         public var faceSize = 0
         public var mips = 0
         public var nightFloor: Float = 0
-        /// The faces drawn this frame (`EnvironmentProbe.Face` raw values):
-        /// all six on a full update, `facesPerFrame` in turn, none while
-        /// paused once every face is current.
+        /// The faces drawn this frame (`EnvironmentProbe.Face` raw values), as
+        /// `FaceSchedule` picks them: all six on a full update, three in turn
+        /// while moving, `facesPerFrame` in turn while steady; paused, the
+        /// turn since the last change and then none, but motion, full updates
+        /// and tiles streaming in still draw.
         public var faces: [Int] = []
         /// Whether the derived maps were rebuilt (not while paused and current).
         public var derived = false
@@ -145,6 +158,9 @@ public final class EnvironmentProbePass: RenderPass {
         var onTarget: Bool
         /// E1's resident albedo tiles (−1 without the store).
         var tiles: Int
+        /// Whether the sky and the planet's haze are marched from the centre
+        /// rather than read from the camera's sky-view LUT (`skyFromCentre`).
+        var skyFromCentre: Bool
 
         init(_ scene: RenderScene, center: Vec3, settings: RenderSettings, tiles: Int = -1) {
             frameIndex = scene.clock.frameIndex
@@ -153,6 +169,7 @@ public final class EnvironmentProbePass: RenderPass {
             warp = scene.clock.warp
             onTarget = center != .zero
             self.tiles = tiles
+            skyFromCentre = EnvironmentProbePass.skyFromCentre(center)
             if let b = scene.bodies.filter({ !$0.isSun }).min(by: {
                 ($0.position - center).length < ($1.position - center).length }) {
                 body = b.id
@@ -175,8 +192,8 @@ public final class EnvironmentProbePass: RenderPass {
     /// How this frame's faces are drawn:
     /// - `full`, every face: the first frame, a frame that does not follow
     ///   the last one drawn, new render settings, another nearest body, a new
-    ///   camera target or warp, or the centre switched between the target
-    ///   and the camera.
+    ///   camera target or warp, the centre switched between the target and
+    ///   the camera, or its sky between the camera's LUT and its own march.
     /// - `moving`, `movingFacesPerFrame` in turn (each face one frame old):
     ///   the centre moved over the nearest body's ground, or the Sun turned in
     ///   its frame, by more than half a texel of the face (`size`) as seen
@@ -190,7 +207,8 @@ public final class EnvironmentProbePass: RenderPass {
     /// target moves nothing.
     static func update(_ now: FaceState, after last: FaceState?, clock: RenderScene.Clock, size: Int) -> Update {
         guard let last, now.frameIndex == last.frameIndex + 1, now.settings == last.settings, now.body == last.body,
-              now.target == last.target, now.warp == last.warp, now.onTarget == last.onTarget else { return .full }
+              now.target == last.target, now.warp == last.warp, now.onTarget == last.onTarget,
+              now.skyFromCentre == last.skyFromCentre else { return .full }
         if clock.temporalReset { return .moving }
         let halfTexel = 1 / Double(max(size, 1))
         let shift = (now.anchor - last.anchor).length / max(min(now.height, last.height), 1)
@@ -277,8 +295,10 @@ public final class EnvironmentProbePass: RenderPass {
         else { return }
         let center = Self.center(f.scene)
 
-        // 1. The radiance: every face when anything may have made one stale,
-        // else `facesPerFrame` in turn; none while paused once all are current.
+        // 1. The radiance: the faces `update` and `FaceSchedule` pick (all on
+        // a full update, three while moving, `facesPerFrame` while steady;
+        // paused, the turn since the last change, then none until motion, a
+        // full update or new tiles).
         let tiles = planets?.tiles?.layer(.albedo)?.residency.residentCount ?? -1
         let state = FaceState(f.scene, center: center, settings: f.settings, tiles: tiles)
         let update = Self.update(state, after: lastFaces, clock: f.scene.clock, size: maps.size)
@@ -406,6 +426,10 @@ public final class EnvironmentProbePass: RenderPass {
         var frame = f.frame
         frame.exposure.x = 1
         var atmosphere = f.atmosphere
+        // Far from the camera, the planet's haze is marched from the centre
+        // too: its in-air path reads the camera's sky-view LUT, which the
+        // altitude in `radii.z` selects (A2's sky does the same, `probeUniforms`).
+        if Self.skyFromCentre(center) { atmosphere.radii.z = atmosphere.radii.y - atmosphere.radii.x + 1 }
         let near = max(f.scene.camera.near, 0.25)
         for face in faces {
             let pass = MTLRenderPassDescriptor()
@@ -436,10 +460,10 @@ public final class EnvironmentProbePass: RenderPass {
             planets?.encodeProbe(f, on: enc, formats: formats, viewToWorld: viewToWorld, center: center,
                                  faceSize: maps.size, groundSteps: Self.groundSteps, near: near)
             sky?.encodeProbe(f, on: enc, formats: formats, viewToWorld: viewToWorld, tanHalfFov: 1,
-                             faceSize: maps.size, preExposure: 1, depth: 0)
+                             faceSize: maps.size, preExposure: 1, depth: 0, center: center)
             if settings.clouds {
                 clouds?.encodeProbe(f, on: enc, formats: formats, viewToWorld: viewToWorld, faceSize: maps.size,
-                                    hazeSteps: Self.cloudHazeSteps)
+                                    hazeSteps: Self.cloudHazeSteps, center: center)
             }
             // The pad last: opaque over the sky and the clouds, in front of the ground.
             if settings.sites {

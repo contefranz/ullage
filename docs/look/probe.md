@@ -14,10 +14,15 @@ it in LightingCommon's `orbit_environmentLight`.
 
 - **Where:** at the camera target when it is a vessel within 50 km of the
   camera, else at the camera (`EnvironmentProbePass.center`), in
-  `LightingUniforms.probe.xyz` (camera-relative). The planets are drawn from
-  there exactly; A2's sky and C2's clouds from the camera, within a few
-  hundred metres of it in practice. The vessels are not in it, so they do
-  not reflect each other; the pad is (below).
+  `LightingUniforms.probe.xyz` (camera-relative). Everything is drawn from
+  there: the planets, C2's clouds (their ray origin and shells recomputed
+  for the centre), and A2's sky, read from the camera's sky-view LUT within
+  2 km of the camera (`AtmosphereCompositePass.probeSkyViewRange`: its
+  height and Sun as good as the centre's) and marched from the centre
+  beyond, as the planet's haze then is (`EnvironmentProbePass.
+  skyFromCentre`; switching between the two redraws every face). The
+  vessels are not in it, so they do not reflect each other; the pad is
+  (below).
 - **What:** six 90° faces of `ProbeSettings.faceSize`² (128; 64 at Low;
   never under 32, the irradiance's and SH9's source),
   each its own render pass, drawn through the other tracks' probe entry
