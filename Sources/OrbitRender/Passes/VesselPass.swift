@@ -71,6 +71,7 @@ public final class VesselPass: RenderPass {
         wireDepth = try Self.depthPipeline(library, setup: s)
         dfg = Self.dfgTexture(device: s.device)
         dummy = s.device.makeBuffer(length: 256, options: .storageModeShared)
+        probe = ProbeDrawing(library: library, device: s.device)
     }
 
     static func pipeline(_ library: MTLLibrary, wire: Bool, setup s: PassSetup) throws -> MTLRenderPipelineState {
@@ -371,6 +372,129 @@ public final class VesselPass: RenderPass {
 
     /// Sites farther than this from the camera are not drawn (m).
     static let siteRange = 100_000.0
+
+    // MARK: R3's probe entry point
+
+    /// What the probe's faces need of this pass: their pipelines (by
+    /// format) and stand-ins for the slots the faces leave empty.
+    private final class ProbeDrawing {
+        let library: MTLLibrary
+        let cube: MTLTexture, volume: MTLTexture, shadow: MTLTexture
+        var pipelines: [String: MTLRenderPipelineState] = [:]
+
+        init?(library: MTLLibrary, device: MTLDevice) {
+            func texture(_ type: MTLTextureType, _ format: MTLPixelFormat) -> MTLTexture? {
+                let d = MTLTextureDescriptor()
+                d.textureType = type
+                d.pixelFormat = format
+                d.width = 1
+                d.height = 1
+                d.usage = .shaderRead
+                d.storageMode = .private
+                return device.makeTexture(descriptor: d)
+            }
+            guard let cube = texture(.typeCube, .rgba16Float), let volume = texture(.type3D, .rgba16Float),
+                  let shadow = texture(.type2DArray, .depth32Float) else { return nil }
+            self.library = library
+            self.cube = cube
+            self.volume = volume
+            self.shadow = shadow
+        }
+    }
+    private var probe: ProbeDrawing?
+
+    /// R3's probe entry point: LC-39A, when it is within 2 km of `center`,
+    /// drawn into one face of a radiance cube on `enc` (attachments of
+    /// `formats`, depth tested and written), so the stack on the pad sees
+    /// the concrete and steel below it. Not the vessels: the probe sits at
+    /// the camera target, which would see itself. `viewProjection` takes
+    /// world relative to `center` (camera-relative, m) to the face's clip
+    /// space (a reflection: the winding flips). In cd/m² (pre-exposure 1):
+    /// the Sun with R4's shadows, R2's stand-in environment for the light
+    /// around it (the probe's own is the one being drawn), no aerial
+    /// perspective, no plume lights, no thin wires. What `encode` draws
+    /// does not depend on it.
+    public func encodeProbe(_ f: FrameContext, on enc: MTLRenderCommandEncoder, formats: SceneFormats,
+                            viewProjection: simd_float4x4, center: Vec3, faceSize: Int) {
+        let sites = f.scene.sites.filter { $0.name == "LC-39A" && ($0.origin - center).length < Self.probeSiteRange }
+        guard !sites.isEmpty, let probe, let dfg, let dummy, let materials = f.meshes.materials else { return }
+        let key = "\(formats.color.rawValue) \(formats.depth.rawValue) \(formats.sampleCount)"
+        if probe.pipelines[key] == nil {
+            let d = MTLRenderPipelineDescriptor()
+            guard let vertex = probe.library.makeFunction(name: "vessel_vertex"),
+                  let fragment = probe.library.makeFunction(name: "vessel_fragment") else { return }
+            d.vertexFunction = vertex
+            d.fragmentFunction = fragment
+            d.colorAttachments[0].pixelFormat = formats.color
+            d.depthAttachmentPixelFormat = formats.depth
+            d.rasterSampleCount = formats.sampleCount
+            d.label = "Vessels (probe)"
+            guard let made = try? f.device.makeRenderPipelineState(descriptor: d) else { return }
+            probe.pipelines[key] = made
+        }
+        guard let pipeline = probe.pipelines[key] else { return }
+        if site == nil { site = Self.siteMeshes(device: f.device, materials: materials) }
+        guard let site else { return }
+        let n = Float(max(faceSize, 1))
+        var frame = f.frame
+        frame.viewProjection = viewProjection
+        frame.exposure.x = 1
+        frame.camera.y = 1
+        frame.camera.z = 1
+        frame.viewport = SIMD4(n, n, 1 / n, 1 / n)
+        var lighting = f.lighting
+        lighting.probe = .zero
+        lighting.ambient = .zero
+        lighting.lightCount = .zero
+        // R4's maps take camera-relative points; the draws are relative to the centre.
+        var shift = matrix_identity_float4x4
+        shift.columns.3 = SIMD4(center, 1)
+        lighting.shadowMatrices = (lighting.shadowMatrices.0 * shift, lighting.shadowMatrices.1 * shift,
+                                   lighting.shadowMatrices.2 * shift, lighting.shadowMatrices.3 * shift)
+        var air = f.atmosphere
+        air.aerialPerspective = .zero
+        var light = LocalLight()
+        enc.setRenderPipelineState(pipeline)
+        enc.setVertexBytes(&frame, length: MemoryLayout<FrameUniforms>.stride, index: Binding.frameBuffer)
+        enc.setFragmentBytes(&frame, length: MemoryLayout<FrameUniforms>.stride, index: Binding.frameBuffer)
+        enc.setVertexBytes(&lighting, length: MemoryLayout<LightingUniforms>.stride, index: Binding.lightingBuffer)
+        enc.setFragmentBytes(&lighting, length: MemoryLayout<LightingUniforms>.stride, index: Binding.lightingBuffer)
+        enc.setFragmentBytes(&air, length: MemoryLayout<AtmosphereUniforms>.stride, index: Binding.atmosphereBuffer)
+        enc.setFragmentBuffer(materials.buffer, offset: 0, index: 0)
+        enc.setFragmentBytes(&paints, length: MemoryLayout<VesselPaintGPU>.stride * paints.count, index: 3)
+        enc.setFragmentBytes(&light, length: MemoryLayout<LocalLight>.stride, index: 5)
+        enc.setFragmentTexture(probe.cube, index: Binding.environmentSpecular)
+        enc.setFragmentTexture(probe.cube, index: Binding.environmentIrradiance)
+        enc.setFragmentTexture(dfg, index: Binding.dfgLUT)
+        enc.setFragmentTexture(f.slotTextures[Binding.shadowAtlas] ?? probe.shadow, index: Binding.shadowAtlas)
+        enc.setFragmentTexture(probe.volume, index: Binding.aerialPerspective)
+        enc.setFragmentSamplerState(f.states.linearClamp, index: Binding.linearClampSampler)
+        enc.setFragmentSamplerState(f.states.shadowCompare, index: Binding.shadowCompareSampler)
+        if formats.depth != .invalid { enc.setDepthStencilState(f.states.depthWrite) }
+        enc.setFrontFacing(.clockwise)
+        let settings = f.settings.shading
+        let shading = SIMD4<Float>(1, 0, settings.specularAntiAliasing ? 1 : 0, settings.multipleScattering ? 1 : 0)
+        let draw = Drawing(encoder: enc, opaque: pipeline, wire: pipeline, dummy: dummy, wireRadius: 1)
+        let countdown = Self.countdown(at: f.scene.clock.simTime)
+        let t = countdown.rangeTime(at: f.scene.clock.simTime)
+        for s in sites {
+            draw.setObject(Self.object(StandInLighting.site(s, in: f.scene), scene: f.scene, settings: settings,
+                                       shading: shading))
+            for (element, mesh) in zip(LC39A.elements, site) {
+                guard let mesh else { continue }
+                let (r, o) = element.transform(at: t, countdown)
+                let model = simd_float4x4(rotation: s.orientation * r, translation: s.origin - center + s.orientation * o)
+                draw.part(mesh, ao: (nil, nil, 0)) { _ in model }
+            }
+        }
+        // The thin members are held as wires: not in the probe.
+        _ = draw.takeWires()
+        enc.setCullMode(.none)
+        enc.setFrontFacing(.counterClockwise)
+    }
+
+    /// Sites farther than this from the probe's centre are not in it (m).
+    static let probeSiteRange = 2_000.0
 
     private func drawSites(_ f: FrameContext, draw: Drawing, materials: VesselMaterialTable, shading: SIMD4<Float>,
                            settings: ShadingSettings, frustum: Frustum) {

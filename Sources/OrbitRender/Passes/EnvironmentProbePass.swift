@@ -75,6 +75,7 @@ public final class EnvironmentProbePass: RenderPass {
     public static let maximumTargetDistance = 50_000.0
 
     private weak var planets: PlanetPass?
+    private weak var vessels: VesselPass?
     private weak var sky: AtmosphereCompositePass?
     private weak var clouds: CloudPass?
 
@@ -143,10 +144,12 @@ public final class EnvironmentProbePass: RenderPass {
     public init() {}
 
     /// The passes the faces are drawn through: the first planet pass, A2's
-    /// composite and C2's clouds among `passes` (the renderer connects its
-    /// graph's own; none of them, and the faces hold only the black sky).
+    /// composite, C2's clouds and R2's vessel pass (for the pad) among
+    /// `passes` (the renderer connects its graph's own; none of them, and the
+    /// faces hold only the black sky).
     public func connect(_ passes: [RenderPass]) {
         planets = passes.lazy.compactMap { $0 as? PlanetPass }.first
+        vessels = passes.lazy.compactMap { $0 as? VesselPass }.first
         sky = passes.lazy.compactMap { $0 as? AtmosphereCompositePass }.first
         clouds = passes.lazy.compactMap { $0 as? CloudPass }.first
     }
@@ -329,6 +332,12 @@ public final class EnvironmentProbePass: RenderPass {
             if settings.clouds {
                 clouds?.encodeProbe(f, on: enc, formats: formats, viewToWorld: viewToWorld, faceSize: maps.size,
                                     hazeSteps: Self.cloudHazeSteps)
+            }
+            // The pad last: opaque over the sky and the clouds, in front of the ground.
+            if settings.sites {
+                let projection = simd_float4x4.reversedInfinitePerspective(fovY: Float.pi / 2, aspect: 1, near: Float(near))
+                vessels?.encodeProbe(f, on: enc, formats: formats, viewProjection: projection * viewToWorld.transpose,
+                                     center: center, faceSize: maps.size)
             }
             enc.endEncoding()
         }

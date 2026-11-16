@@ -16,8 +16,8 @@ it in LightingCommon's `orbit_environmentLight`.
   camera, else at the camera (`EnvironmentProbePass.center`), in
   `LightingUniforms.probe.xyz` (camera-relative). The planets are drawn from
   there exactly; A2's sky and C2's clouds from the camera, within a few
-  hundred metres of it in practice. Vessels and the pad are not in it, so
-  vessels do not reflect each other or the tower.
+  hundred metres of it in practice. The vessels are not in it, so they do
+  not reflect each other; the pad is (below).
 - **What:** six 90° faces of `ProbeSettings.faceSize`² (128; 64 at Low),
   each its own render pass, drawn through the other tracks' probe entry
   points, in this order:
@@ -34,6 +34,12 @@ it in LightingCommon's `orbit_environmentLight`.
      T cloud + a in-scatter: the haze in front of the cloud stays whole.
      No cirrus and no march: the probe wants the clouds' light, not their
      detail.
+  4. `VesselPass.encodeProbe`: LC-39A when it is within 2 km of the centre
+     (`ProbeSettings.sites`), opaque over the sky and the clouds and in
+     front of the ground, lit by the Sun with R4's shadows and R2's stand-in
+     environment (a second bounce): the concrete and steel under the stack,
+     a large part of its lower sky. Not the vessels, which would see
+     themselves.
   Each entry point only adds a function and a pipeline of its own: what
   its pass draws for the frame does not change.
 - **Units:** rgba16Float, luminance in cd/m², linear Rec. 709, not

@@ -25,6 +25,9 @@ public struct ProbeSettings: Codable, Equatable {
     public var intensity = 1.0
     /// Draw C2's far cloud layers into the probe (where the clouds are on).
     public var clouds = true
+    /// Draw the pad (LC-39A, within 2 km) into the probe, so the stack sees
+    /// its concrete and steel.
+    public var sites = true
     /// What the probe sees: the scene, or an analytic look-dev environment.
     public var environment = ProbeEnvironment.scene
     /// The furnace's radiance, cd/m² (`environment` = furnace).
@@ -33,7 +36,7 @@ public struct ProbeSettings: Codable, Equatable {
     public init() {}
 
     private enum CodingKeys: String, CodingKey {
-        case enabled, faceSize, specularMips, prefilterSamples, nightFloor, intensity, clouds, environment
+        case enabled, faceSize, specularMips, prefilterSamples, nightFloor, intensity, clouds, sites, environment
         case furnaceRadiance
     }
 
@@ -47,6 +50,7 @@ public struct ProbeSettings: Codable, Equatable {
         nightFloor = try c.decodeIfPresent(Double.self, forKey: .nightFloor) ?? d.nightFloor
         intensity = try c.decodeIfPresent(Double.self, forKey: .intensity) ?? d.intensity
         clouds = try c.decodeIfPresent(Bool.self, forKey: .clouds) ?? d.clouds
+        sites = try c.decodeIfPresent(Bool.self, forKey: .sites) ?? d.sites
         environment = try c.decodeIfPresent(ProbeEnvironment.self, forKey: .environment) ?? d.environment
         furnaceRadiance = try c.decodeIfPresent(Double.self, forKey: .furnaceRadiance) ?? d.furnaceRadiance
     }
