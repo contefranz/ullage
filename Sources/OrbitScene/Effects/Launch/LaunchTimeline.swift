@@ -56,23 +56,49 @@ public enum PadIgnition {
 
 /// The vehicle's rise off the pad, which a rebuilt history assumes (the
 /// frames before a reset are not kept), as the simulation flies it: straight
-/// up, the tower-clearance yaw's metres aside, uniformly accelerated from
-/// first motion at the S-IC's 34.34 MN at 0.5 s (FER Figure 5-3) on
-/// 2,899,008 kg (Table 20-1) less g, 2.06 m/s² (the simulation starts at
-/// full thrust and has no holddown release taper), until the roll and pitch
-/// programs start once it has risen 137 m (GE504 §4.1.2, the IU's
-/// criterion), 11.5 s on. AS-506 itself, slower off the pad, started them
-/// at T1 + 12.6 s (FER Table 2-2).
+/// up, the tower-clearance yaw's metres aside, under the S-IC's thrust at
+/// first motion as the propellant burns, a = F / (m0 − ṁ t) − g, with
+///
+/// - F, 34.34 MN: the stage's thrust at 0.5 s (FER Figure 5-3, H), the
+///   model's since §17 (AS506-datasheet §8.5);
+/// - m0, 2,899,008 kg: the vehicle at first motion (FER Table 20-1, H);
+/// - ṁ, 13,157 kg/s: the five F-1s' flow at first motion (AS506's rating,
+///   FER §5: `LaunchEffectsTests.testLiftoffRiseIsTheModels` checks it
+///   against the vehicle).
+///
+/// Drag is negligible this low. It reproduces the model's climb in the
+/// datasheet (§8.5): 105 m at range 10 s and 473 m at 20 s, within 3 m, and
+/// GE504's 137 m rise, at which the IU starts the roll and pitch programs
+/// (SaturnIU), 11.0 s after first motion (T1 + 10.7 s). AS-506 itself,
+/// slower off the pad with its controlled release, started them at
+/// T1 + 12.6 s (FER Table 2-2).
 public enum LiftoffRise {
-    public static let acceleration = 34.34e6 / 2_899_008 - 9.79
+    public static let thrust = 34.34e6
+    public static let mass = 2_899_008.0
+    public static let flow = 13_157.0
+    public static let gravity = 9.79
     /// The rise at which the pitch program starts, m, and when, s after first motion.
     public static let programStartRise = 137.0
-    public static let programStart = (2 * programStartRise / acceleration).squareRoot()
+    public static let programStart: Double = {
+        var lo = 0.0, hi = 30.0
+        for _ in 0..<60 {
+            let mid = 0.5 * (lo + hi)
+            if rise(after: mid) < programStartRise { lo = mid } else { hi = mid }
+        }
+        return 0.5 * (lo + hi)
+    }()
 
-    /// The rise `t` s after first motion while the climb is vertical, m.
+    /// The speed `t` s after first motion, m/s: (F / ṁ) ln(m0 / m) − g t.
+    public static func speed(after t: Double) -> Double {
+        let s = max(0, t), k = flow / mass
+        return -(thrust / flow) * log(1 - k * s) - gravity * s
+    }
+
+    /// The rise `t` s after first motion, m: the speed's integral,
+    /// (F / ṁ) ((1 − k t) ln(1 − k t) / k + t) − g t² / 2 with k = ṁ / m0.
     public static func rise(after t: Double) -> Double {
-        let s = max(0, t)
-        return 0.5 * acceleration * s * s
+        let s = max(0, t), k = flow / mass
+        return (thrust / flow) * ((1 - k * s) * log(1 - k * s) / k + s) - 0.5 * gravity * s * s
     }
 }
 

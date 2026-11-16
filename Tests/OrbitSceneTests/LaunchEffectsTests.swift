@@ -44,6 +44,8 @@ final class LaunchEffectsTests: XCTestCase {
         let session: EffectSession
         var realTime = 0.0
         var outputs: [EffectFrameOutput] = []
+        /// Each output's epoch.
+        var epochs: [Epoch] = []
         var scene: RenderScene?
 
         init(_ sim: Simulation, _ camera: OrbitCamera) {
@@ -61,6 +63,7 @@ final class LaunchEffectsTests: XCTestCase {
             self.scene = scene
             let out = session.frame(scene, settings: ParticleSettings())
             outputs.append(out)
+            epochs.append(sim.time)
             return out
         }
 
@@ -307,6 +310,33 @@ final class LaunchEffectsTests: XCTestCase {
         return laid
     }
 
+    /// The rebuilt trail against the frames': at each height of `heights`
+    /// the count-weighted mean horizontal place of the puffs' origins within
+    /// 500 m of it, apart by less than `tolerance` m, the rebuilt one moving
+    /// away from the pad as it climbs. Returns the largest gap.
+    @discardableResult
+    func compareTrails(_ framed: [Laid], _ rebuilt: [Laid], heights: [Double], tolerance: Double,
+                       _ label: String) throws -> Double {
+        func mean(_ l: [Laid], _ h: Double) -> Vec3? {
+            let near = l.filter { abs($0.altitude - h) < 500 }
+            guard !near.isEmpty else { return nil }
+            let w = near.reduce(0.0) { $0 + Double($1.request.count) }
+            return near.reduce(Vec3.zero) { $0 + Vec3($1.site.x, $1.site.y, 0) * Double($1.request.count) } * (1 / w)
+        }
+        var away = 0.0, worst = 0.0
+        for h in heights {
+            let f = try XCTUnwrap(mean(framed, h), "\(label): frames at \(Int(h)) m")
+            let g = try XCTUnwrap(mean(rebuilt, h), "\(label): rebuilt at \(Int(h)) m")
+            print(String(format: "LaunchEffectsTests: %@ trail at %.0f m: frames %.0f m from the pad, rebuilt %.0f m, %.0f m apart",
+                         label, h, f.length, g.length, (f - g).length))
+            XCTAssertLessThan((f - g).length, tolerance, "\(label) at \(Int(h)) m")
+            XCTAssertGreaterThan(g.length, away - 10, "\(label): away from the pad as it climbs, at \(Int(h)) m")
+            away = g.length
+            worst = max(worst, (f - g).length)
+        }
+        return worst
+    }
+
     /// One flight, frame by frame at 2 Hz, and fresh sessions rebuilding
     /// the history from it as a snapshot does.
     /// - T+75 s: the rebuilt pad clouds stay at the pad (the vehicle is
@@ -350,21 +380,8 @@ final class LaunchEffectsTests: XCTestCase {
                        "the vehicle's own velocity, \(framedFrost.sourceVelocity.length) m/s")
         // The rebuilt trail along the frames'.
         let framed = try trail(run.outputs, run, axes: axes), again = try trail([rebuilt75], at75, axes: axes)
-        func mean(_ l: [Laid], _ h: Double) -> Vec3? {
-            let near = l.filter { abs($0.altitude - h) < 500 }
-            guard !near.isEmpty else { return nil }
-            let w = near.reduce(0.0) { $0 + Double($1.request.count) }
-            return near.reduce(Vec3.zero) { $0 + Vec3($1.site.x, $1.site.y, 0) * Double($1.request.count) } * (1 / w)
-        }
-        var away = 0.0
-        for h in stride(from: 1_000.0, through: 9_000, by: 1_000) {
-            let f = try XCTUnwrap(mean(framed, h)), g = try XCTUnwrap(mean(again, h))
-            print(String(format: "LaunchEffectsTests: trail at %.0f m: frames %.0f m from the pad, rebuilt %.0f m, %.0f m apart",
-                         h, f.length, g.length, (f - g).length))
-            XCTAssertLessThan((f - g).length, 100, "at \(Int(h)) m")
-            XCTAssertGreaterThan(g.length, away - 10, "away from the pad as it climbs, at \(Int(h)) m")
-            away = g.length
-        }
+        try compareTrails(framed, again, heights: Array(stride(from: 1_000.0, through: 9_000, by: 1_000)), tolerance: 100,
+                          "T+75 s")
         let framedCount = framed.reduce(0) { $0 + $1.request.count }, againCount = again.reduce(0) { $0 + $1.request.count }
         XCTAssertEqual(Double(againCount), Double(framedCount), accuracy: 0.08 * Double(framedCount))
 
@@ -426,9 +443,80 @@ final class LaunchEffectsTests: XCTestCase {
             let framedCount = run.count(name), againCount = at170.count(name)
             XCTAssertEqual(Double(againCount), Double(framedCount), accuracy: 0.06 * Double(framedCount), name)
         }
-        let trailFramed = try trail(run.outputs, run, axes: axes).reduce(0) { $0 + $1.request.count }
-        let trailAgain = try trail([rebuilt170], at170, axes: axes).reduce(0) { $0 + $1.request.count }
-        print("LaunchEffectsTests: trail puffs at T+170 s: frames \(trailFramed), rebuilt \(trailAgain)")
-        XCTAssertEqual(Double(trailAgain), Double(trailFramed), accuracy: 0.08 * Double(trailFramed))
+        let framedTrail = try trail(run.outputs, run, axes: axes)
+        let trailFramed = framedTrail.reduce(0) { $0 + $1.request.count }
+        let heights = Array(stride(from: 2_000.0, through: 38_000, by: 4_000))
+        // After OECO and the S-IC's separation the rebuilt trail ends at the
+        // journal's last cutoff, not at the spent stage, which coasts on.
+        for (seconds, label) in [(0.0, "T+170 s"), (30, "T+200 s"), (100, "T+300 s"), (150, "T+450 s")] {
+            if seconds > 0 { fly(run, step: 2, for: seconds, test: self) }
+            let late = Run(sim, camera)
+            let rebuilt = late.frame()
+            let again = try trail([rebuilt], late, axes: axes)
+            let trailAgain = again.reduce(0) { $0 + $1.request.count }
+            print("LaunchEffectsTests: trail puffs at \(label): frames \(trailFramed), rebuilt \(trailAgain)")
+            XCTAssertEqual(Double(trailAgain), Double(trailFramed), accuracy: 0.05 * Double(trailFramed), label)
+            try compareTrails(framedTrail, again, heights: heights, tolerance: 700, label)
+        }
+    }
+
+    /// An outboard F-1 out at range 60 s (`as506-sic-engine1-out`): a
+    /// rebuild at T+100 s lays the trail after the failure at the four
+    /// engines' flow, as the frames did, from the journal's cutoff.
+    func testEngineOutRebuild() throws {
+        let (sim, camera) = try open("as506-sic-engine1-out")
+        let run = Run(sim, camera)
+        run.frame()
+        let axes = try siteAxes(try XCTUnwrap(run.scene))
+        fly(run, step: 0.5, for: 100, test: self)
+        let at100 = Run(sim, camera)
+        let rebuilt = at100.frame()
+        let failure = try XCTUnwrap(at100.effects.cutoffs["S-IC engine 1"], "the journal's engine out")
+        XCTAssertEqual(failure - LaunchCountdown.epoch(0, in: .apollo11), 60, accuracy: 0.1)
+        XCTAssertEqual(LaunchEffects.flow(at: sim.time, cutoffs: Array(at100.effects.cutoffs.values), engines: 5), 0.8,
+                       accuracy: 1e-12)
+        let framed = try trail(run.outputs, run, axes: axes), again = try trail([rebuilt], at100, axes: axes)
+        let framedCount = framed.reduce(0) { $0 + $1.request.count }, againCount = again.reduce(0) { $0 + $1.request.count }
+        // Laid at full flow after the failure, the rebuild would have about
+        // a tenth more: the margin tells the two apart.
+        let after = zip(run.outputs, run.epochs).filter { $0.1 > failure + LaunchEffects.tailOff }.map(\.0)
+        let laidAfter = try trail(after, run, axes: axes).reduce(0) { $0 + $1.request.count }
+        print("LaunchEffectsTests: engine out at T+100 s: frames \(framedCount) (\(laidAfter) after the failure), rebuilt \(againCount)")
+        XCTAssertEqual(Double(againCount), Double(framedCount), accuracy: 0.03 * Double(framedCount))
+        XCTAssertGreaterThan(Double(laidAfter) * 0.25, 0.06 * Double(framedCount), "the failure's share is measurable")
+        try compareTrails(framed, again, heights: Array(stride(from: 2_000.0, through: 18_000, by: 2_000)), tolerance: 200,
+                          "engine out, T+100 s")
+    }
+
+    /// The journal's flow: five F-1s, one cut off, tailing off linearly
+    /// over 0.66 s (the F-1's shutdown, FER §5.4).
+    func testJournalFlow() {
+        let e = Epoch(tdbSecondsPastJ2000: 1_000)
+        XCTAssertEqual(LaunchEffects.flow(at: e + -1, cutoffs: [e], engines: 5), 1)
+        XCTAssertEqual(LaunchEffects.flow(at: e + 0.33, cutoffs: [e], engines: 5), 0.9, accuracy: 1e-12)
+        XCTAssertEqual(LaunchEffects.flow(at: e + 0.66, cutoffs: [e], engines: 5), 0.8, accuracy: 1e-12)
+        XCTAssertEqual(LaunchEffects.flow(at: e + 30, cutoffs: [e], engines: 5), 0.8, accuracy: 1e-12)
+        let all = (0..<5).map { e + Double($0) * 10 }
+        XCTAssertEqual(LaunchEffects.flow(at: e + 50, cutoffs: all, engines: 5), 0)
+        XCTAssertEqual(LaunchEffects.flow(at: e + 15, cutoffs: all, engines: 5), 0.6, accuracy: 1e-12)
+    }
+
+    /// The rebuilt rise is the model's climb (AS506-datasheet §8.5): 105 m at
+    /// range 10 s and 473 m at 20 s, and the IU's 137 m program start at
+    /// T1 + 10.7 s (T1 at range 0.63 s), 11.0 s after first motion; its flow
+    /// is the vehicle's five F-1s' at first motion.
+    func testLiftoffRiseIsTheModels() {
+        let fm = 0.30
+        XCTAssertEqual(LiftoffRise.rise(after: 10 - fm), 105, accuracy: 3)
+        XCTAssertEqual(LiftoffRise.rise(after: 20 - fm), 473, accuracy: 4)
+        XCTAssertEqual(LiftoffRise.programStart, 0.63 + 10.7 - fm, accuracy: 0.15)
+        XCTAssertEqual(LiftoffRise.rise(after: LiftoffRise.programStart), LiftoffRise.programStartRise, accuracy: 1e-6)
+        let flows = VesselLibrary.saturnV().parts.flatMap(\.thrusters).filter { $0.name.hasPrefix("S-IC engine") }
+            .map(\.currentRating.massFlow)
+        XCTAssertEqual(flows.reduce(0, +), LiftoffRise.flow, accuracy: 0.005 * LiftoffRise.flow)
+        // Its speed is its rise's rate.
+        let t = 15.0, h = 1e-4
+        XCTAssertEqual(LiftoffRise.speed(after: t), (LiftoffRise.rise(after: t + h) - LiftoffRise.rise(after: t - h)) / (2 * h),
+                       accuracy: 1e-5)
     }
 }
