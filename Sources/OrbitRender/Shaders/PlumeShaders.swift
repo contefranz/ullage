@@ -471,15 +471,17 @@ fragment EffectVolumeOut plume_march_fragment(PlumeProxyOut in [[stage_in]],
     float jitter = plume_jitter(in.position.xy, pf.params.x);
     float3 sunDir = pf.sun.xyz;
     float3 sunLux = pf.sunLight.rgb * c.v.w;
-    // R4's shadow at four points along the march, and C2's at its middle.
+    // R4's shadow at four points along the march, and C2's at its middle;
+    // none of it for a cluster in the Earth's shadow.
     float shadows[4] = {1.0, 1.0, 1.0, 1.0};
-    if (pf.sunLight.w > 0.5) {
+    bool sunlit = c.v.w > 0.0 && max(sunLux.r, max(sunLux.g, sunLux.b)) > 0.0;
+    if (sunlit && pf.sunLight.w > 0.5) {
         for (int i = 0; i < 4; i++) {
             float3 p = dir * (enter + (float(i) + 0.5) * 0.25 * (exit - enter));
             shadows[i] = orbit_sunShadow(p, sunDir, lighting, shadowAtlas, shadowCompare);
         }
     }
-    sunLux *= orbit_cloudSunTransmittance(dir * (0.5 * (enter + exit)), air, cloudShadow, linear);
+    if (sunlit) { sunLux *= orbit_cloudSunTransmittance(dir * (0.5 * (enter + exit)), air, cloudShadow, linear); }
     // C2's clouds at this texel: their opacity and where they begin.
     float cloudAlpha = 0.0, cloudEntry = 1e30, cloudBack = 1e30, cloudFront = 1e30;
     if (pf.sun.w > 0.5) {

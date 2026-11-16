@@ -202,9 +202,12 @@ public struct PlumeMember: Equatable {
 
     /// The radius (m) beyond which the field is negligible at x: what the
     /// proxy holds and the shader rejects beyond, the turbulence's reach
-    /// included.
+    /// included; for a member only its glow shows, the glow's.
     public func extent(atX x: Double) -> Double {
         if x < 0 { return baseExtinction > 0 && x >= -upstream ? 1.6 * exitRadius : exitRadius }
+        // Only the glow shows: it lies within the jet, as far as the eddies
+        // carry its edge.
+        if glowOnly { return PlumeMember.turbulentReach * radius(atX: x) }
         var e = 1.55 * PlumeMember.turbulentReach * radius(atX: x)
         if vacuumBlend > 0.02 && confinement < 0.98 {
             let theta = min(simonsAngle(fraction: extentFraction), 85 * Double.pi / 180)
