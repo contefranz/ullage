@@ -50,7 +50,7 @@ final class PlumeRenderTests: XCTestCase {
 
     /// The march against the reference through the same rays: an F-1 at
     /// the pad's air, turbulence off, side-on down its axis from 2 to 12
-    /// exit diameters; their luminances agree within 25 % on average (R6's
+    /// exit diameters; their luminances agree within 10 % on average (R6's
     /// half resolution and upsample, the jitter, bloom, and the light the
     /// GPU adds from the Sun and the cluster's own light on its smoke).
     func testMarchMatchesTheReference() throws {
@@ -82,7 +82,7 @@ final class PlumeRenderTests: XCTestCase {
         let mean = ratios.reduce(0, +) / Double(max(ratios.count, 1))
         print(String(format: "PlumeRenderTests: GPU over reference %.3f over %d rows (%.3f-%.3f)", mean, ratios.count,
                      ratios.min() ?? 0, ratios.max() ?? 0))
-        XCTAssertEqual(mean, 1, accuracy: 0.25, "GPU over reference: \(ratios)")
+        XCTAssertEqual(mean, 1, accuracy: 0.1, "GPU over reference: \(ratios)")
     }
 
     /// P2 writes the plume lights into the lighting uniforms in P0, as

@@ -61,7 +61,7 @@ medium, L low (visual, calibrated or assumed).
    retro's alumina) is not stepped over. The marched clusters blend far to
    near. The field is `PlumeMember.sample`, line by line, plus the
    turbulence. `PlumeRenderTests` checks the GPU against the CPU reference
-   through the same rays (within 5 % on average; the test allows 25 %).
+   through the same rays (within 1 % on average; the test allows 10 %).
 5. **Lighting of the plume:** its own emission (absorption times the
    blackbody at each phase's temperature); single scattering of the Sun
    (Henyey-Greenstein, R4's shadow at four points, C2's cloud shadow, the

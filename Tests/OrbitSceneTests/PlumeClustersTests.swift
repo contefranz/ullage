@@ -171,7 +171,7 @@ final class PlumeClustersTests: XCTestCase {
     /// The analytic intersection the march starts from agrees with point
     /// containment along random rays, the camera outside and inside.
     func testRayIntervalsAgreeWithContainment() {
-        var rng = SystemRandomNumberGenerator()
+        var rng = SeededGenerator(seed: 0x9_1E5E)
         for altitude in [0.0, 13_000, 67_000] {
             let c = PlumeClusters.cluster(five(ApolloExhaust.f1, air: us76.state(altitude: altitude),
                                               at: Vec3(3, -2, 40)))
