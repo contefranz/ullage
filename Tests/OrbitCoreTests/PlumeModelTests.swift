@@ -224,6 +224,85 @@ final class PlumeModelTests: XCTestCase {
         XCTAssertGreaterThan(pad.luminousLength, pad.potentialCoreLength)
     }
 
+    // The afterburning flame's length is Delichatsios's (1993) turbulent jet
+    // flame, as arXiv:2008.12209 (Table 6, eqs. 21-23) and Turns quote it,
+    // on the fully expanded jet. The exhaust's stoichiometric mixture
+    // fraction comes from its CO and H2: for the pure gases it gives their
+    // stoichiometric air-fuel ratios, 34.3 for H2 and 2.47 for CO. L* runs
+    // to the momentum-dominated 23 (13.5 / 0.07^(1/5)), which every Apollo
+    // jet is, by a flame Froude number near 100. The F-1's flame
+    // reaches some 50 m at the pad, longer than its 13 m core, and lengthens
+    // as the air thins, as √(ρj/ρa).
+    func testAfterburningFlameLength() {
+        let h2 = PlumeModel.stoichiometricMixtureFraction(fuelRich: 1, molarMass: 0.002016)
+        XCTAssertEqual(1 / h2 - 1, 34.3, accuracy: 0.2)
+        let co = PlumeModel.stoichiometricMixtureFraction(fuelRich: 1, molarMass: 0.02801)
+        XCTAssertEqual(1 / co - 1, 2.47, accuracy: 0.02)
+        XCTAssertEqual(PlumeModel.stoichiometricMixtureFraction(fuelRich: 0, molarMass: 0.02), 0)
+        XCTAssertEqual(13.5 / pow(0.07, 0.2), 23, accuracy: 0.05)
+        XCTAssertEqual(PlumeModel.flameLengthStar(froude: 1), 13.5 / pow(1.07, 0.2), accuracy: 1e-12)
+        XCTAssertEqual(PlumeModel.flameLengthStar(froude: 4.99), 21.0, accuracy: 0.05)
+        XCTAssertEqual(PlumeModel.flameLengthStar(froude: 50), 23)
+        // L_f = 23 d √(ρe/ρa) / f_s once momentum dominates.
+        let lf = PlumeModel.jetFlameLength(diameter: 0.01, densityRatio: 0.0696, stoichiometricMixtureFraction: h2,
+                                           velocity: 2_000, flameTemperature: 2_300, ambientTemperature: 300)
+        XCTAssertEqual(lf, 23 * 0.01 * 0.0696.squareRoot() / h2, accuracy: 1e-9)
+
+        let spec = ApolloExhaust.f1.spec
+        let fs = PlumeModel.stoichiometricMixtureFraction(spec)
+        XCTAssertEqual(fs, 0.426, accuracy: 0.002)
+        let us = USStandardAtmosphere1976()
+        var last = 0.0
+        for km in [0.0, 5, 10, 13, 20, 30] {
+            let air = km == 0 ? day.state(altitude: 0) : us.state(altitude: km * 1_000)
+            let s = PlumeModel.state(spec, flowFraction: 1, ambient: air)
+            XCTAssertEqual(s.stoichiometricMixtureFraction, fs)
+            XCTAssertGreaterThan(s.flameLength, last, "\(km) km")
+            XCTAssertGreaterThan(s.flameLength, s.potentialCoreLength, "\(km) km")
+            last = s.flameLength
+            print(String(format: "PlumeModelTests: F-1 at %2.0f km: flame %6.1f m, core %5.1f m, luminous %6.1f m", km,
+                         s.flameLength, s.potentialCoreLength, s.luminousLength))
+            if km == 0 {
+                XCTAssertEqual(s.flameLength, 52, accuracy: 8)
+                XCTAssertEqual(s.potentialCoreLength, 15, accuracy: 3)
+            }
+        }
+        // Momentum-dominated: the flame Froude number of the F-1 at the pad.
+        let pad = PlumeModel.state(spec, flowFraction: 1, ambient: day.state(altitude: 0))
+        let tj = spec.chamberTemperature * NozzleFlow.temperatureRatio(mach: pad.jetMach, gamma: pad.gamma)
+        let rhoJ = pad.ambientPressure * spec.molarMass / (PlumeModel.gasConstant * tj)
+        let uj = pad.jetMach * (pad.gamma * PlumeModel.gasConstant * tj / spec.molarMass).squareRoot()
+        let air = day.state(altitude: 0)
+        XCTAssertGreaterThan(PlumeModel.flameFroude(velocity: uj, diameter: pad.jetDiameter,
+                                                    densityRatio: rhoJ / air.density, stoichiometricMixtureFraction: fs,
+                                                    flameTemperature: 2_300, ambientTemperature: air.temperature), 50)
+        // Nothing to burn, or no air: no flame.
+        XCTAssertEqual(PlumeModel.state(spec, flowFraction: 1, ambient: .vacuum).flameLength, 0)
+        XCTAssertEqual(PlumeModel.state(ApolloExhaust.j2.spec, flowFraction: 1, ambient: .vacuum).flameLength, 0)
+    }
+
+    // The luminous length is continuous as the afterburning fades out at
+    // 40 km's pressure (287.14 Pa) and in at 28 km's (1,616 Pa): the
+    // flame's temperature and reach mix into the inert jet's by its
+    // strength.
+    func testLuminousLengthContinuousAsAfterburningFades() {
+        let spec = ApolloExhaust.f1.spec
+        for edge in [287.14, 1_616.1] {
+            var last: Double?
+            for i in -20...20 {
+                let p = edge * pow(1.001, Double(i))
+                var air = AtmosphereState.vacuum
+                air.temperature = 230
+                air.pressure = p
+                air.density = p / (287.05 * 230)
+                air.speedOfSound = 304
+                let s = PlumeModel.state(spec, flowFraction: 1, ambient: air)
+                if let last { XCTAssertEqual(s.luminousLength / last, 1, accuracy: 0.01, "\(p) Pa") }
+                last = s.luminousLength
+            }
+        }
+    }
+
     // The regimes along the flight: the J-2 at S-II ignition (67 km) is a
     // continuum jet whose Mach disk, about 300 m downstream, is too faint to
     // see; at S-IVB ignition (185 km) and the SPS in orbit the flow is free

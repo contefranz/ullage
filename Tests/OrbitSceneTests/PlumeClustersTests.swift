@@ -205,6 +205,23 @@ final class PlumeClustersTests: XCTestCase {
     /// Beyond the merge, the merged member carries the members' soot: the
     /// extinction integrated over the cross-section, within 35 % of theirs
     /// summed (one wide jet for five overlapping ones).
+    /// The extinction summed over a cross-section of `c` at x along its
+    /// axis, of `members`.
+    func mass(_ members: [PlumeMember], in c: PlumeCluster, atX x: Double) -> Double {
+        let reach = (c.radius(atX: x) / PlumeClusters.margin) * 1.2
+        var total = 0.0
+        let n = 120
+        for i in 0..<n {
+            for j in 0..<n {
+                let a = -reach + 2 * reach * (Double(i) + 0.5) / Double(n)
+                let b = -reach + 2 * reach * (Double(j) + 0.5) / Double(n)
+                let p = c.origin + c.axis * x + c.u * a + c.v * b
+                total += members.reduce(0) { $0 + $1.sample(at: p).extinction }
+            }
+        }
+        return total
+    }
+
     func testMergedFarFieldKeepsTheMembersMass() throws {
         for altitude in [0.0, 13_000] {
             let c = PlumeClusters.cluster(five(ApolloExhaust.f1, air: us76.state(altitude: altitude)))
@@ -213,20 +230,31 @@ final class PlumeClustersTests: XCTestCase {
             XCTAssertLessThan(c.mergeX, 0.8 * c.end)
             XCTAssertEqual(merged.densityScale, 5)
             let x = min(1.5 * c.mergeX, 0.6 * c.end)
-            let reach = (c.radius(atX: x) / PlumeClusters.margin) * 1.2
-            var members = 0.0, single = 0.0
-            let n = 120
-            for i in 0..<n {
-                for j in 0..<n {
-                    let a = -reach + 2 * reach * (Double(i) + 0.5) / Double(n)
-                    let b = -reach + 2 * reach * (Double(j) + 0.5) / Double(n)
-                    let p = c.origin + c.axis * x + c.u * a + c.v * b
-                    members += c.members.reduce(0) { $0 + $1.sample(at: p).extinction }
-                    single += merged.sample(at: p).extinction
-                }
-            }
+            let single = mass([merged], in: c, atX: x), members = mass(c.members, in: c, atX: x)
             XCTAssertEqual(single / members, 1, accuracy: 0.35, "F-1 at \(altitude) m at \(x) m")
         }
     }
-}
 
+    /// A centre engine shutting down (CECO's tail-off) neither carries nor
+    /// empties the merged far field: with the centre at 0.3 of its flow
+    /// the merged member is an outer engine's, as dense as the 4.3 engines'
+    /// flow, within 20 % of the five at full there.
+    func testMergedFarFieldFollowsTheFlow() throws {
+        let spec = ApolloExhaust.f1.spec
+        for altitude in [0.0, 13_000] {
+            let air = us76.state(altitude: altitude)
+            let full = PlumeClusters.cluster(five(ApolloExhaust.f1, air: air))
+            var members = five(ApolloExhaust.f1, air: air)
+            let low = PlumeModel.state(spec, flowFraction: 0.3, ambient: air)
+            members[0] = PlumeLook.member(spec, state: low, exit: members[0].exit, axis: members[0].axis,
+                                          exitRadius: spec.exitRadius, ambient: air)
+            let c = PlumeClusters.cluster(members)
+            let a = try XCTUnwrap(full.merged), b = try XCTUnwrap(c.merged, "F-1 at \(altitude) m")
+            XCTAssertEqual(b.flowFraction, 1)
+            XCTAssertEqual(b.densityScale, 4.3, accuracy: 1e-9)
+            let x = min(1.5 * full.mergeX, 0.6 * full.end)
+            let ratio = mass([b], in: full, atX: x) / mass([a], in: full, atX: x)
+            XCTAssertEqual(ratio, 1, accuracy: 0.2, "F-1 at \(altitude) m at \(x) m")
+        }
+    }
+}

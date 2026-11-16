@@ -195,7 +195,10 @@ inline float3 orbit_sunLight(OrbitShadingPoint p, float3 toSun, float cosRho, fl
 // column `positionRadius.w` m in radius, of luminous intensity
 // `intensity.rgb` cd broadside, cut off smoothly at `intensity.w` m. The
 // irradiance is Picott's segment integral (Karis 2013, eq. 15), which tends
-// to I cos / d^2 for a short one; the specular lobe takes the segment's
+// to I cos / d^2 for a short one, over the part of the segment above the
+// receiver's horizon (Karis's clipping: a jet passing below a surface, the
+// pad's deck or deflector, lights it from the part above it, its share of
+// the intensity); the specular lobe takes the segment's
 // point nearest the reflection (eq. 19), then the column's (eq. 11), with
 // the sphere's and the line's normalisations (eqs. 14, 20).
 inline float3 orbit_lineLight(OrbitShadingPoint p, float3 position, LocalLight light) {
@@ -207,8 +210,18 @@ inline float3 orbit_lineLight(OrbitShadingPoint p, float3 position, LocalLight l
     float fall = range > 0.0 ? saturate(1.0 - pow(dc / range, 4.0)) : 1.0;
     float3 half_ = light.axisLength.xyz * (0.5 * light.axisLength.w);
     float3 l0 = c - half_, l1 = c + half_;
+    float h0 = dot(p.n, l0), h1 = dot(p.n, l1);
+    if (h0 <= 0.0 && h1 <= 0.0) { return float3(0.0); }
+    float kept = 1.0;
+    if (h0 < 0.0 || h1 < 0.0) {
+        float t = h0 / (h0 - h1);
+        float3 cut = mix(l0, l1, t);
+        if (h0 < 0.0) { l0 = cut; kept = 1.0 - t; } else { l1 = cut; kept = t; }
+        c = 0.5 * (l0 + l1);
+        dc = length(c);
+    }
     float d0 = max(length(l0), 1e-4), d1 = max(length(l1), 1e-4);
-    float irradiance = max(dot(p.n, l0) / d0 + dot(p.n, l1) / d1, 0.0)
+    float irradiance = kept * max(dot(p.n, l0) / d0 + dot(p.n, l1) / d1, 0.0)
         / (d0 * d1 + dot(l0, l1) + radius * radius);
     if (irradiance <= 0.0) { return float3(0.0); }
     // The specular lobe's representative point.
@@ -222,7 +235,7 @@ inline float3 orbit_lineLight(OrbitShadingPoint p, float3 position, LocalLight l
     if (tr > 1e-6) { point_ += toRay * saturate(radius / tr); }
     float dp = max(length(point_), 1e-4);
     float sphere = saturate(p.alpha + radius / (3.0 * dp));
-    float line_ = saturate(p.alpha + 0.5 * light.axisLength.w / (3.0 * max(dc, 1e-4)));
+    float line_ = saturate(p.alpha + 0.5 * length(ld) / (3.0 * max(dc, 1e-4)));
     float normalization = (p.alpha / sphere) * (p.alpha / sphere) * (p.alpha / line_);
     float3 l = normalize(c);
     // `orbit_light` scales by the irradiance on a surface facing the light;

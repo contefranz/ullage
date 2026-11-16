@@ -121,6 +121,98 @@ final class PlumeRenderTests: XCTestCase {
         XCTAssertGreaterThan(readable, 100 * max(physical, 1e-6))
     }
 
+    /// An impostor's stations are the light the reference march gives along
+    /// the camera's own ray through the axis there, Sun in front of the
+    /// camera or behind it: the same phase as the march (whose convention
+    /// the GPU shares, `testMarchMatchesTheReference`), so a cluster does
+    /// not change brightness as it crosses from impostor to march. A
+    /// sunlit S-IC retro in vacuum (alumina smoke, g 0.6), side-on 60 m
+    /// ahead; the ambient a mean radiance, as the march takes it.
+    func testImpostorLightsAsTheMarch() throws {
+        let spec = ApolloExhaust.sICRetro.spec
+        let state = PlumeModel.state(spec, flowFraction: 1, ambient: .vacuum)
+        let m = PlumeLook.member(spec, state: state, exit: Vec3(-3, 0, -60), axis: Vec3(1, 0, 0),
+                                 exitRadius: spec.exitRadius, ambient: .vacuum)
+        let lux = Photometry.sunColor.scaled(by: 1.3e5), ambient = Photometry.RGB(300, 330, 380)
+        var seen: [Double] = []
+        for toSun in [Vec3(0.3, 0.2, -1).normalized, Vec3(0.3, 0.2, 1).normalized] {
+            var strip: [PlumeVertex] = []
+            Plumes.impostor(m, sun: (toSun, lux), ambient: ambient, to: &strip)
+            // The station at a fifth of the length: its two vertices.
+            let station = strip[6 * 4 + 2]
+            let p = Vec3(Double(station.position.x), Double(station.position.y), Double(station.position.z))
+            let x = (p - m.exit).dot(m.axis)
+            let c = m.exit + m.axis * x, view = c.normalized
+            let e = m.extent(atX: x)
+            let reference = PlumeLook.march([m], from: c - view * (2 * e), direction: view, range: 0...(4 * e),
+                                            steps: 400, sun: (toSun, lux), ambient: ambient.scaled(by: 4 * Double.pi))
+            let got = 0.2126 * Double(station.color.x) + 0.7152 * Double(station.color.y) + 0.0722 * Double(station.color.z)
+            XCTAssertEqual(got / reference.radiance.luminance, 1, accuracy: 0.1, "Sun \(toSun)")
+            seen.append(got)
+        }
+        // Forward scatter (the Sun ahead) is the brighter, by far.
+        XCTAssertGreaterThan(seen[0], 3 * seen[1])
+    }
+
+    /// R2's line light clipped to the receiver's horizon (Karis 2013): a
+    /// vertical jet passing below an up-facing surface h off its axis,
+    /// reaching a above it and b below, of intensity I spread along it,
+    /// lights it as the part above does, (I/L)(1/h - 1/√(h² + a²)); one
+    /// wholly above as the whole; one wholly below not at all. The pad's
+    /// deck and hardstand at first motion.
+    func testLineLightLightsFromAboveTheHorizon() throws {
+        let device = try XCTUnwrap(RenderDevice.shared)
+        let module = ShaderModule(name: "LineLightTest", headers: [.shadowCommon, .lightingCommon], source: """
+            kernel void line_light_test(const device LocalLight *lights [[buffer(0)]], device float4 *out [[buffer(1)]],
+                                        uint i [[thread_position_in_grid]]) {
+                OrbitShadingPoint p;
+                p.n = float3(0.0, 0.0, 1.0);
+                p.v = float3(0.0, 0.0, 1.0);
+                p.nv = 1.0;
+                p.alpha = 0.5;
+                p.roughness = sqrt(0.5);
+                p.f0 = float3(0.0);
+                p.diffuse = float3(1.0);
+                p.dfg = float2(0.0);
+                p.energy = float3(0.0);
+                p.specularWeight = float3(0.0);
+                p.diffuseWeight = float3(0.0);
+                p.diffuseLobe = float3(1.0);
+                out[i] = float4(orbit_lineLight(p, float3(0.0), lights[i]) * ORBIT_PI, 0.0);
+            }
+            """)
+        let library = try ShaderLibrary(device: device).library(module)
+        let pipeline = try device.makeComputePipelineState(function: try XCTUnwrap(library.makeFunction(name: "line_light_test")))
+        let h = 10.0, intensity = 1e6
+        let cases: [(a: Double, b: Double)] = [(10, 30), (30, 10), (20, 0), (40, 2), (-5, 40)]
+        let lights = cases.map { c -> LocalLight in
+            var l = LocalLight()
+            l.positionRadius = SIMD4(Float(h), 0, Float(0.5 * (c.a - c.b)), 1e-3)
+            l.axisLength = SIMD4(0, 0, 1, Float(c.a + c.b))
+            l.intensity = SIMD4(Float(intensity), Float(intensity), Float(intensity), 0)
+            return l
+        }
+        let stride = MemoryLayout<LocalLight>.stride
+        let inBuffer = try XCTUnwrap(device.makeBuffer(bytes: lights, length: stride * lights.count, options: .storageModeShared))
+        let outBuffer = try XCTUnwrap(device.makeBuffer(length: 16 * lights.count, options: .storageModeShared))
+        let queue = try XCTUnwrap(device.makeCommandQueue())
+        let cb = try XCTUnwrap(queue.makeCommandBuffer()), enc = try XCTUnwrap(cb.makeComputeCommandEncoder())
+        enc.setComputePipelineState(pipeline)
+        enc.setBuffer(inBuffer, offset: 0, index: 0)
+        enc.setBuffer(outBuffer, offset: 0, index: 1)
+        enc.dispatchThreads(MTLSize(width: lights.count, height: 1, depth: 1),
+                            threadsPerThreadgroup: MTLSize(width: lights.count, height: 1, depth: 1))
+        enc.endEncoding()
+        cb.commit()
+        cb.waitUntilCompleted()
+        let out = outBuffer.contents().bindMemory(to: SIMD4<Float>.self, capacity: lights.count)
+        for (i, c) in cases.enumerated() {
+            // The part from the surface's plane up to a lights it.
+            let expected = c.a <= 0 ? 0 : intensity / (c.a + c.b) * (1 / h - 1 / (h * h + c.a * c.a).squareRoot())
+            XCTAssertEqual(Double(out[i].y), expected, accuracy: 0.01 * max(expected, 1), "a \(c.a), b \(c.b)")
+        }
+    }
+
     /// Apollo 7's SPS a few seconds into its deorbit burn, at night: the
     /// extension glows on its drawn bell, warm, where it is on and not off.
     func testSPSExtensionGlows() throws {

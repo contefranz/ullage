@@ -19,7 +19,11 @@ import OrbitScene
 ///
 /// 120 rounds at 3024×1964, High, unless ORBITSIM_TIMINGS_ROUNDS=N,
 /// ORBITSIM_TIMINGS_SIZE=WxH or ORBITSIM_PLUME_QUALITY=medium|ultra say
-/// otherwise; ORBITSIM_PLUME_READABLE=1 measures readable plumes.
+/// otherwise; ORBITSIM_PLUME_READABLE=1 measures readable plumes. A shot
+/// whose name ends in "-forward" looks about 25° off the Sun from the
+/// target (the forward scatter's view). The CPU time of P2's planning and
+/// lighting is reported too: on the first frame (nothing kept) and the
+/// median after.
 @MainActor
 final class PlumeCostTests: XCTestCase {
     final class Times: @unchecked Sendable {
@@ -46,6 +50,25 @@ final class PlumeCostTests: XCTestCase {
         for var shot in spec.shots {
             shot.width = w
             shot.height = h
+            if shot.name.hasSuffix("-forward") {
+                // The yaw and pitch whose view is nearest 25° off the Sun.
+                let prepared = try shot.prepare(system: snapper.system)
+                var best = (score: Double.infinity, yaw: shot.camera.yaw, pitch: shot.camera.pitch)
+                for yaw in stride(from: 0.0, to: 360, by: 5) {
+                    for pitch in stride(from: -60.0, through: 60, by: 10) {
+                        var probe = shot
+                        probe.camera.yaw = yaw
+                        probe.camera.pitch = pitch
+                        let scene = probe.scene(prepared)
+                        let forward = (scene.camera.worldToView.transposed * Vec3(0, 0, -1)).normalized
+                        let score = abs(acos(min(max(forward.dot(scene.sun.direction), -1), 1)) - 25 * Double.pi / 180)
+                        if score < best.score { best = (score, yaw, pitch) }
+                    }
+                }
+                shot.camera.yaw = best.yaw
+                shot.camera.pitch = best.pitch
+                print(String(format: "PlumeCostTests: %@ looks from yaw %.0f°, pitch %.0f°", shot.name, best.yaw, best.pitch))
+            }
             let r = try SceneRenderer(device: device, loadsUserTextures: false)
             r.setStars(snapper.stars)
             XCTAssertEqual(r.failures, [:])
@@ -57,6 +80,8 @@ final class PlumeCostTests: XCTestCase {
             on.plume.readable = env["ORBITSIM_PLUME_READABLE"] == "1"
             off.plume.quality = .off
             let times = Times()
+            let system = r.graph.passes.compactMap { ($0 as? PlumePreparePass)?.system }.first
+            var cpu: [Double] = []
             var frameCount = 0
             func frame(_ plumes: Bool) -> Int {
                 frameCount += 1
@@ -68,6 +93,7 @@ final class PlumeCostTests: XCTestCase {
                 r.settings = plumes ? on : off
                 let k = frameCount
                 if let cb = r.renderAndWait(scene, into: target) { times.set(k, (cb.gpuEndTime - cb.gpuStartTime) * 1e3) }
+                if plumes, let t = system?.cpuTime { cpu.append((t.plan + t.prepare) * 1e3) }
                 return k
             }
             for i in 0..<30 { _ = frame(i % 2 == 0) }
@@ -103,12 +129,14 @@ final class PlumeCostTests: XCTestCase {
                 guard let v = samples[k]?.sorted(), !v.isEmpty else { return nil }
                 return String(format: "%@ %.3f", k, v[v.count / 2])
             }.joined(separator: ", ")
-            let system = r.graph.passes.compactMap { ($0 as? PlumePreparePass)?.system }.first
             let clusters = system?.lastClusters ?? []
-            let line = String(format: "%@ (%@): plumes %.3f ms (on %.3f, off %.3f ms); clusters %d (marched %d, impostors %d)",
+            let warm = cpu.dropFirst().sorted()
+            let line = String(format: "%@ (%@): plumes %.3f ms (on %.3f, off %.3f ms); clusters %d (marched %d, impostors %d); "
+                              + "CPU %.3f ms first, %.3f ms after",
                               shot.name, on.plume.quality.rawValue, median(withPlumes) - median(without), median(withPlumes), median(without),
                               clusters.count, clusters.filter { $0.detail == .march }.count,
-                              clusters.filter { $0.detail == .impostor }.count)
+                              clusters.filter { $0.detail == .impostor }.count, cpu.first ?? .nan,
+                              warm.isEmpty ? .nan : warm[warm.count / 2])
             print("PlumeCostTests: \(line)")
             print("PlumeCostTests:   passes (ms, split profiler): \(breakdown)")
             lines.append(line)

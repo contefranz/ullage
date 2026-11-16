@@ -68,40 +68,68 @@ public enum PlumeLights {
     /// Whether a family's plume lights its surroundings.
     public static func glows(_ f: PlumeFamily) -> Bool { f == .kerosene || f == .solid }
 
+    /// One member's light along its own axis: its broadside light (the
+    /// luminance seen side-on through the axis times the jet's width, cd
+    /// per m) in `samples` bins of `step` m from its exit; nil for a family
+    /// that does not glow. It depends on the member's look alone, not on
+    /// where it is, so the renderer keeps it across frames.
+    public struct Profile: Equatable {
+        public var step: Double
+        public var bins: [RenderScene.RGB]
+    }
+
+    /// `m`'s profile (`Profile`), nil when it gives no light.
+    public static func profile(_ m: PlumeMember) -> Profile? {
+        guard glows(m.family), m.length > 0 else { return nil }
+        let dx = m.length / Double(samples)
+        let across = PlumeLook.perpendicular(m.axis)
+        var bins: [RenderScene.RGB] = []
+        for j in 0..<samples {
+            let x = (Double(j) + 0.5) * dx
+            let e = m.extent(atX: x)
+            let seen = PlumeLook.march([m], from: m.exit + m.axis * x - across * e, direction: across,
+                                       range: 0...(2 * e), steps: steps, around: (e, 0.5 * m.denseRadius(atX: x)))
+            let k = 1.6 * min(m.radius(atX: x), e) * dx
+            bins.append(RenderScene.RGB(Float(seen.radiance.r * k), Float(seen.radiance.g * k),
+                                        Float(seen.radiance.b * k)))
+        }
+        return Profile(step: dx, bins: bins)
+    }
+
     /// The light of cluster `c`, nil when it gives none.
     public static func light(_ c: PlumeCluster) -> PlumeLight? {
+        light(c, profiles: c.members.map(profile))
+    }
+
+    /// The light of cluster `c` from its members' profiles (in the order of
+    /// its members), nil when it gives none. The segment runs from the
+    /// exits to where nine-tenths of the light is reached, found within
+    /// the bin that crosses it, so that it moves smoothly.
+    public static func light(_ c: PlumeCluster, profiles: [Profile?]) -> PlumeLight? {
         var r = 0.0, g = 0.0, b = 0.0
-        var profile: [(x: Double, i: Double)] = []
-        for m in c.members where glows(m.family) {
-            let reach = m.length
-            guard reach > 0 else { continue }
-            let dx = reach / Double(samples)
-            let across = PlumeLook.perpendicular(m.axis)
-            for j in 0..<samples {
-                let x = (Double(j) + 0.5) * dx
-                let e = m.extent(atX: x)
-                let seen = PlumeLook.march([m], from: m.exit + m.axis * x - across * e, direction: across,
-                                           range: 0...(2 * e), steps: steps)
-                let width = 1.6 * min(m.radius(atX: x), e)
-                let k = width * dx
-                r += seen.radiance.r * k
-                g += seen.radiance.g * k
-                b += seen.radiance.b * k
+        var bins: [(x: Double, width: Double, i: Double)] = []
+        for (m, profile) in zip(c.members, profiles) {
+            guard let profile else { continue }
+            for (j, bin) in profile.bins.enumerated() {
+                r += Double(bin.r)
+                g += Double(bin.g)
+                b += Double(bin.b)
+                let x = (Double(j) + 0.5) * profile.step
                 let xc = (m.exit + m.axis * x - c.origin).dot(c.axis)
-                profile.append((xc, seen.radiance.luminance * k))
+                bins.append((xc, profile.step, 0.2126 * Double(bin.r) + 0.7152 * Double(bin.g)
+                             + 0.0722 * Double(bin.b)))
             }
         }
         let total = 0.2126 * r + 0.7152 * g + 0.0722 * b
         guard total > 0, total.isFinite else { return nil }
-        // The segment: from the exits to nine-tenths of the light.
-        profile.sort { $0.x < $1.x }
-        var sum = 0.0, end = profile.last?.x ?? 0
-        for p in profile {
-            sum += p.i
-            if sum >= 0.9 * total {
-                end = p.x
+        bins.sort { $0.x < $1.x }
+        var sum = 0.0, end = bins.last.map { $0.x + 0.5 * $0.width } ?? 0
+        for p in bins where p.i > 0 {
+            if sum + p.i >= 0.9 * total {
+                end = p.x - 0.5 * p.width + p.width * min(max((0.9 * total - sum) / p.i, 0), 1)
                 break
             }
+            sum += p.i
         }
         let length = max(end, c.members.map(\.exitDiameter).max() ?? 1)
         let radius = max(c.radius(atX: 0.5 * length) / PlumeClusters.margin, c.members.map(\.exitRadius).max() ?? 0)

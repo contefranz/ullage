@@ -134,9 +134,12 @@ public enum PlumeClusters {
     /// The merged far field of three or more members: from where a
     /// member's jet has grown to 0.9 of the furthest member's offset from
     /// the axis (they overlap there), if that is within 0.8 of their
-    /// length. The member nearest the axis, moved onto it, its radius
-    /// widened by the RMS offset, its density times N; no Mach disk or base
-    /// of its own (the members keep theirs upstream).
+    /// length. The member of the most flow (of those, the nearest the
+    /// axis), moved onto it, its radius widened by the RMS offset, its
+    /// density times the members' flow over its own (N when they are
+    /// alike: a centre engine shutting down neither carries nor empties
+    /// the far field); no Mach disk or base of its own (the members keep
+    /// theirs upstream).
     static func merged(_ members: [PlumeMember], origin: Vec3,
                        axis: Vec3) -> (member: PlumeMember, x: Double)? {
         guard members.count >= 3 else { return nil }
@@ -146,7 +149,9 @@ public enum PlumeClusters {
         }
         guard let far = offsets.max(), far > 0 else { return nil }
         let rms = (offsets.reduce(0) { $0 + $1 * $1 } / Double(offsets.count)).squareRoot()
-        let base = members[offsets.firstIndex(of: offsets.min()!)!]
+        let strongest = members.map(\.flowFraction).max() ?? 1
+        let base = zip(members, offsets).filter { $0.0.flowFraction >= strongest * (1 - 1e-6) }
+            .min { $0.1 < $1.1 }!.0
         let start = (base.exit - origin).dot(axis)
         var x = 0.0
         while x < 0.8 * base.length && base.radius(atX: x) < 0.9 * far { x += 0.25 * base.exitDiameter }
@@ -155,7 +160,7 @@ public enum PlumeClusters {
         m.exit = origin + axis * start
         m.axis = axis
         m.radiusOffset = rms
-        m.densityScale = Double(members.count)
+        m.densityScale = members.reduce(0) { $0 + $1.flowFraction } / max(base.flowFraction, 1e-6)
         m.machDiskExtinction = 0
         m.baseExtinction = 0
         m.upstream = 0
@@ -265,8 +270,10 @@ public enum PlumeClusters {
     /// How `c` is drawn: marched from `settings.marchPixels` across on
     /// screen (its length and width, at its nearest point), an impostor
     /// from `impostorPixels`, nothing below; attitude jets are impostors
-    /// beyond `jetMarchDistance`, and so is a cluster only a readable glow
-    /// shows. The camera inside a proxy marches it.
+    /// beyond `jetMarchDistance`. A cluster only a readable glow shows is
+    /// marched too when large, so that it lies in R6's volumes layer with
+    /// the clouds and keeps its form seen end on. The camera inside a proxy
+    /// marches it.
     public static func detail(_ c: PlumeCluster, camera: RenderScene.Camera,
                               settings: PlumeSettings) -> PlumeCluster.Detail {
         guard settings.enabled, settings.quality != .off else { return .none }
@@ -277,7 +284,7 @@ public enum PlumeClusters {
         let size = max(c.end - c.start, 2 * maxRadius)
         let pixels = distance > 0 ? size / distance * camera.pixelsPerRadian : .infinity
         let marches = settings.quality.steps > 0 && pixels >= settings.marchPixels
-            && (!c.isJet || distance <= settings.jetMarchDistance) && !c.members.allSatisfy(\.glowOnly)
+            && (!c.isJet || distance <= settings.jetMarchDistance)
         if marches { return .march }
         return pixels >= settings.impostorPixels ? .impostor : .none
     }

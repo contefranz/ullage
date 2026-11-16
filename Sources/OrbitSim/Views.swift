@@ -325,6 +325,7 @@ struct HelpView: View {
         ("Mouse drag / scroll", "orbit / zoom camera"),
         ("C / V", "camera target / camera frame"),
         ("[ ]", "switch vessel     M orbit line     H this help"),
+        ("B", "readable plumes: M1.5's glow on engines nearly invisible in vacuum (J-2, SPS, RCS)"),
     ]
 
     var body: some View {

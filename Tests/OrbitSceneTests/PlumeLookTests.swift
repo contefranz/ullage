@@ -43,8 +43,17 @@ final class PlumeLookTests: XCTestCase {
         XCTAssertGreaterThan(flame.color.r, flame.color.b, "warm")
         XCTAssertLessThan(film.luminance, 0.1 * flame.luminance, "the film's dark band")
         XCTAssertEqual(m.flameStart, 0.75 * de, accuracy: 1e-9, "P1's flame front")
-        // The flame holds above about 1,900 K for 35-40 m (S68-56050), then
-        // cools: far down it is smoke, dimmer than sunlit paint.
+        // The flame is P1's, Delichatsios's jet flame. As a check against
+        // S68-56050 (Apollo 8 at T+10 s, about 35-40 m blown out white), it
+        // stays above about 1,900 K for 40-80 m, then cools: far down it is
+        // smoke, dimmer than sunlit paint.
+        let s = PlumeModel.state(ApolloExhaust.f1.spec, flowFraction: 1, ambient: us76.state(altitude: 0))
+        XCTAssertEqual(m.flameLength, s.flameLength, accuracy: 1e-9)
+        let hot = m.flameLength * (PlumeModel.flameTemperature - m.ambientTemperature) / (1_900 - m.ambientTemperature)
+        print(String(format: "PlumeLookTests: the F-1's flame at the pad %.1f m, above 1,900 K for %.1f m (photo 35-40 m)",
+                     m.flameLength, hot))
+        XCTAssertGreaterThan(hot, 40)
+        XCTAssertLessThan(hot, 80)
         XCTAssertGreaterThan(sideOn(m, x: 30).luminance, 5 * sunlitWhite)
         XCTAssertLessThan(sideOn(m, x: 0.9 * m.length).luminance, sunlitWhite)
         XCTAssertGreaterThan(m.length, 60)
@@ -84,6 +93,14 @@ final class PlumeLookTests: XCTestCase {
                                  "\(engine.spec.source) readable")
         }
         XCTAssertEqual(PlumeLook.readableFloor, 0.3 * sunlitWhite, accuracy: 1e-9)
+        // As M1.5's did, the floor follows the flow: at half of it, half as
+        // bright and three-fourths as long, so a start or shutdown fades.
+        let full = member(ApolloExhaust.j2, readable: true)
+        var half = member(ApolloExhaust.j2)
+        PlumeLook.applyReadableFloor(&half, flowFraction: 0.5)
+        let x = 0.5 * full.exitDiameter
+        XCTAssertEqual(sideOn(half, x: x).luminance / sideOn(full, x: x).luminance, 0.5, accuracy: 0.05)
+        XCTAssertEqual(half.glowLength / full.glowLength, 0.75, accuracy: 0.02)
     }
 
     /// The J-2 shows a Mach disk only where one forms: in air at 25 km,
@@ -170,6 +187,46 @@ final class PlumeLookTests: XCTestCase {
             }
             XCTAssertGreaterThan(m.length, 2 * m.exitDiameter)
             XCTAssertLessThanOrEqual(m.length, 1_500)
+        }
+    }
+
+    /// Nothing in the F-1's look jumps as the air thins: across P1's
+    /// afterburning fading out (287.14 Pa, 40 km), the free expansion
+    /// fading in (vacuum blend 0.2, near 15 km) and the jet's length giving
+    /// way to the free expansion's (blend 0.5, near 33 km), a 0.2 % step in
+    /// pressure moves the length and the condensate's onset by under 3 %,
+    /// and the field on the axis (2, 10 and 40 exit diameters out) by under
+    /// 3 % of its strongest near the exit.
+    func testLookContinuousAsTheAirThins() {
+        let spec = ApolloExhaust.f1.spec
+        let pe = PlumeModel.state(spec, flowFraction: 1, ambient: us76.state(altitude: 0)).exitPressure
+        for edge in [287.14, pe / pow(10, 0.7), pe / pow(10, 1.75)] {
+            var last: PlumeMember?
+            for i in -15...15 {
+                let p = edge * pow(1.002, Double(i))
+                let air = RenderScene.Emitter.air(pressureRatio: p / 101_325)
+                let state = PlumeModel.state(spec, flowFraction: 1, ambient: air)
+                let m = PlumeLook.member(spec, state: state, exit: .zero, axis: Vec3(1, 0, 0),
+                                         exitRadius: spec.exitRadius, ambient: air)
+                defer { last = m }
+                guard let l = last else { continue }
+                let label = String(format: "%.1f Pa", p)
+                XCTAssertEqual(m.length / l.length, 1, accuracy: 0.03, "length at \(label)")
+                XCTAssertEqual(m.particleOnset / l.particleOnset, 1, accuracy: 0.03, "onset at \(label)")
+                XCTAssertEqual(m.vacuumBlend, l.vacuumBlend, accuracy: 0.01, "blend at \(label)")
+                // Against the field's strongest near the exit: a faint glow
+                // far out (about 1,000 K, Wien's law) is steep but smooth.
+                let peak = l.sample(x: 2 * l.exitDiameter, r: 0)
+                for k in [2.0, 10, 40] {
+                    let x = k * m.exitDiameter
+                    let a = l.sample(x: x, r: 0), b = m.sample(x: x, r: 0)
+                    XCTAssertEqual(b.extinction, a.extinction, accuracy: 0.03 * max(a.extinction, peak.extinction),
+                                   "extinction at \(k) De, \(label)")
+                    XCTAssertEqual(b.emission.luminance, a.emission.luminance,
+                                   accuracy: 0.03 * max(a.emission.luminance, peak.emission.luminance),
+                                   "emission at \(k) De, \(label)")
+                }
+            }
         }
     }
 

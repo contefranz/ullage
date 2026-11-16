@@ -59,6 +59,12 @@ public struct PlumeMember: Equatable {
     public var isJet = false
     /// The scene vessel it belongs to (nil for look-dev engines).
     public var vesselID: UUID?
+    /// Its flow over its family's rated flow (the thrust fraction for the
+    /// legacy look): what a cluster's merged far field weighs it by.
+    public var flowFraction = 1.0
+    /// An identifier its maker gives it (the renderer's key for its look,
+    /// kept across frames), carried through the clusters.
+    public var tag = 0
     /// How far it reaches downstream and upstream of the exit (the base
     /// glow), m: the proxy's extent.
     public var length = 0.0
@@ -98,9 +104,10 @@ public struct PlumeMember: Equatable {
     // The gas (soot in it): absorption at the exit (1/m), scattering albedo.
     public var gasExtinction = 0.0
     public var gasAlbedo = 0.0
-    /// Where the afterburning flame has burnt the soot out (m; 0 never):
-    /// the gas thins to `Optics.burntSoot` of itself over half that again,
-    /// leaving the condensate's white trail.
+    /// Where the afterburning flame begins to burn the soot out (m; 0
+    /// never): the gas thins to `Optics.burntSoot` of itself over half that
+    /// again (by the flame's tip), as much as the flame burns, leaving the
+    /// condensate's white trail.
     public var sootBurnout = 0.0
     /// The core's temperature at the exit (K) and the exponent of its
     /// cooling on the free expansion's dilution (γ - 1 in vacuum, 0 bounded).
@@ -112,10 +119,10 @@ public struct PlumeMember: Equatable {
     public var flameStart = 0.0
     public var ambientTemperature = 250.0
     public var afterburning = 0.0
-    /// The afterburning flame's own decay length (m): it holds its
-    /// temperature as Ta + (Tf - Ta) min(1, ℓ / x), longer than the inert
-    /// jet's core (`Optics.flameHold`).
-    public var flameHold = 0.0
+    /// The afterburning flame's length (m), P1's (Delichatsios's jet
+    /// flame): it holds its temperature to its tip and beyond falls as the
+    /// mixture fraction does, Ta + (Tf - Ta) min(1, L_f / x).
+    public var flameLength = 0.0
     /// The flame brush's spread, dR/dx from the flame's start.
     public var flameSpread = 0.0
 
@@ -188,11 +195,17 @@ public struct PlumeMember: Equatable {
         return min(limitingAngle, 2 * limitingAngle / Double.pi * acos(min(1, c)))
     }
 
+    /// How far out the eddies may carry the jet's boundary, over R(x): the
+    /// shader's ragged boundary is bounded to it, and the proxy and the
+    /// early reject hold it.
+    public static let turbulentReach = 1.15
+
     /// The radius (m) beyond which the field is negligible at x: what the
-    /// proxy holds and the shader rejects beyond.
+    /// proxy holds and the shader rejects beyond, the turbulence's reach
+    /// included.
     public func extent(atX x: Double) -> Double {
         if x < 0 { return baseExtinction > 0 && x >= -upstream ? 1.6 * exitRadius : exitRadius }
-        var e = 1.55 * radius(atX: x)
+        var e = 1.55 * PlumeMember.turbulentReach * radius(atX: x)
         if vacuumBlend > 0.02 && confinement < 0.98 {
             let theta = min(simonsAngle(fraction: extentFraction), 85 * Double.pi / 180)
             e = max(e, (x + sourceOffset) * tan(theta))
@@ -224,7 +237,7 @@ public struct PlumeMember: Equatable {
         }
     }
 
-    static func smoothstep(_ a: Double, _ b: Double, _ x: Double) -> Double {
+    public static func smoothstep(_ a: Double, _ b: Double, _ x: Double) -> Double {
         let t = min(max((x - a) / (b - a), 0), 1)
         return t * t * (3 - 2 * t)
     }
@@ -281,13 +294,14 @@ public struct PlumeMember: Equatable {
                 let fx = Self.smoothstep(flameStart - 0.25 * de, flameStart + 0.25 * de, x)
                 let qf = 0.85 * max(0, 1 - x / max(coreLength, de))
                 let fr = Self.smoothstep(qf - 0.15, qf + 0.05, q)
-                let hold = x > flameHold ? flameHold / x : 1
+                let hold = x > flameLength ? flameLength / x : 1
                 let tFlame = ambientTemperature + (flameTemperature - ambientTemperature) * hold
                 t += (max(t, tFlame) - t) * afterburning * fx * fr
             }
             var burnt = 1.0
             if sootBurnout > 0 {
-                burnt -= (1 - PlumeLook.Optics.burntSoot) * Self.smoothstep(sootBurnout, 1.5 * sootBurnout, x)
+                burnt -= (1 - PlumeLook.Optics.burntSoot) * afterburning
+                    * Self.smoothstep(sootBurnout, 1.5 * sootBurnout, x)
             }
             add(gasExtinction * rho * cells * burnt, albedo: gasAlbedo, temperature: t)
         }
@@ -337,6 +351,23 @@ public struct PlumeMember: Equatable {
         return 2 * min(r, (x + sourceOffset) * tan(simonsAngle(fraction: 0.5)))
     }
 
+    /// The radius about the axis at x within which most of the field lies
+    /// (m): the jet's, or where the expansion is free the half-mass cone's
+    /// (or the particles' cone, if wider), whichever is less: half of it is
+    /// the scale the march's equiangular steps crowd into (PlumeShaders).
+    public func denseRadius(atX x: Double) -> Double {
+        let xp = max(x, 0)
+        var dense = exitRadius + radiusGrowth * (1 - exp(-xp / max(shapeLength, 1e-6)))
+            + farSpread * max(0, xp - coreLength)
+        if vacuumBlend > 0.02 {
+            let half = 2 * limitingAngle / Double.pi * acos(pow(0.5, 1 / max(simonsExponent, 1e-3)))
+            var cone = (xp + sourceOffset) * tan(min(half, 1.4))
+            if particleExtinction > 0 { cone = max(cone, (xp + particleOffset) * tan(min(particleAngle, 1.4))) }
+            dense = min(dense, cone)
+        }
+        return max(dense, exitRadius)
+    }
+
     /// The field at a camera-relative point.
     public func sample(at p: Vec3) -> Sample {
         let d = p - exit, x = d.dot(axis)
@@ -362,9 +393,12 @@ public enum PlumeLook {
         /// The film's optical depth through its thickness (0.15 of the
         /// jet's radius), and that thickness.
         public static let sheathDepth = 1.5, sheathThickness = 0.15
-        /// A solid's alumina: optical depth across the exit per unit of
-        /// alumina mass fraction, albedo; its gas phase's depth (HCl, soot).
-        public static let aluminaDepth = 80.0, aluminaAlbedo = 0.9, solidGasDepth = 0.4
+        /// A solid's alumina: the particles' extinction efficiency (the
+        /// large-particle limit, H), their density (corundum, kg/m³, H) and
+        /// diameter (m; a few µm in small motors, L), albedo; the gas
+        /// phase's depth (HCl, soot).
+        public static let aluminaExtinctionEfficiency = 2.0, aluminaDensity = 3_950.0, aluminaDiameter = 3e-6
+        public static let aluminaAlbedo = 0.9, solidGasDepth = 0.4
         /// The F-1's exhaust condensing (water ice in the expansion, water in
         /// the humid air beyond the flame): optical depth across the exit,
         /// albedo (greyed by soot). The white cloud of the ALOTS frames at
@@ -373,13 +407,9 @@ public enum PlumeLook {
         public static let keroseneCondensate = 3.0, keroseneCondensateAlbedo = 0.8
         /// What is left of the soot once the afterburning flame has burnt it.
         public static let burntSoot = 0.25
-        /// The afterburning flame's decay length over P1's potential core:
-        /// burning on, the F-1's flame stays above about 1,900 K (blown out
-        /// white against sunlit paint) for some 35-40 m at the pad
-        /// (S68-56050, Apollo 8 at T+10 s), twice the inert jet's.
-        public static let flameHold = 2.0
-        /// The turbulent flame brush's spread from the flame front, dR/dx:
-        /// the five F-1 flames merge into one column within 15-20 m.
+        /// The turbulent flame brush's spread from the flame front, dR/dx
+        /// (L: P1 has no mixing layer's growth): the five F-1 flames merge
+        /// into one column within 15-20 m.
         public static let flameSpread = 0.035
         /// Alumina's albedo while incandescent (above about 2,000 K).
         public static let hotAluminaAlbedo = 0.5
@@ -459,7 +489,7 @@ public enum PlumeLook {
         }
         m.isJet = e.isJet
         m.vesselID = e.vesselID
-        if settings.readable { applyReadableFloor(&m) }
+        if settings.readable { applyReadableFloor(&m, flowFraction: max(e.flowFraction, e.thrustFraction)) }
         return m
     }
 
@@ -490,7 +520,7 @@ public enum PlumeLook {
                 : legacy(exit: exit, axis: axis, radius: engine.spec.exitRadius,
                          family: PlumeFamily(engine.spec.family), fraction: t.flowFraction,
                          pressureRatio: air.pressure / 101_325, jet: false)
-            if settings.readable { applyReadableFloor(&m) }
+            if settings.readable { applyReadableFloor(&m, flowFraction: t.flowFraction) }
             return m
         }
     }
@@ -502,15 +532,19 @@ public enum PlumeLook {
         let family = PlumeFamily(spec.family)
         var m = PlumeMember(exit: exit, axis: axis, exitRadius: re, family: family)
         let de = 2 * re, f = min(max(s.flowFraction, 0), 1.25)
+        m.flowFraction = s.flowFraction
         let n = s.pressureRatio, w = s.structureVisibility
         let inAir = s.ambientPressure > 0 && n.isFinite
         // How far the plume is from a bounded jet: by the pressure ratio,
         // and wholly free where the air is too thin for a boundary.
         var v = inAir ? min(max(log10(max(n, 1)) / 3.5, 0), 1) : 1
         v = max(v, 1 - w)
-        // A jet the air confines and that has not yet balloned: no free
-        // expansion's field at all (and none of its cost).
-        if inAir && w > 0.98 && v < 0.2 { v = 0 }
+        // A jet the air confines and that has not yet ballooned: no free
+        // expansion's field at all (and none of its cost), faded in from
+        // v 0.15 to 0.25 and visibility 0.99 to 0.97 so that nothing jumps.
+        if inAir {
+            v *= 1 - PlumeMember.smoothstep(0.97, 0.99, w) * (1 - PlumeMember.smoothstep(0.15, 0.25, v))
+        }
         m.vacuumBlend = v
         m.confinement = inAir ? w : 0
         m.simonsExponent = 2 / (s.gamma - 1)
@@ -559,7 +593,7 @@ public enum PlumeLook {
             m.afterburning = min(1, s.afterburning / spec.fuelRichFraction)
             m.flameTemperature = PlumeModel.flameTemperature
             m.flameStart = s.flameFrontDistance ?? (family == .kerosene ? 0.75 * de : 0.25 * de)
-            m.flameHold = Optics.flameHold * max(s.potentialCoreLength, de)
+            m.flameLength = max(s.flameLength, m.flameStart + de)
             m.flameSpread = Optics.flameSpread * m.afterburning * w * (1 - v)
         }
         // The film.
@@ -572,13 +606,18 @@ public enum PlumeLook {
         // Particles.
         switch family {
         case .solid where spec.aluminaFraction > 0:
-            m.particleExtinction = Optics.aluminaDepth * spec.aluminaFraction / de * f
+            // Particles much larger than the light's wavelength extinguish
+            // twice their cross-section: σ = 3 Q Y ρe / (2 ρp d), Q = 2, at
+            // the alumina's mass fraction Y of the exit's density (CEA's
+            // molar mass holds the condensed phase), which follows the flow.
+            m.particleExtinction = 1.5 * Optics.aluminaExtinctionEfficiency * spec.aluminaFraction * s.exitDensity
+                / (Optics.aluminaDensity * Optics.aluminaDiameter)
             m.particleAlbedo = Optics.aluminaAlbedo
             // They leave hotter than the gas (thermal lag), and cool by
-            // radiation: τ = ρ c d / (6 ε σ T³) for 3 µm alumina at ε 0.3.
+            // radiation: τ = ρ c d / (6 ε σ T³) at ε 0.3.
             let tp = s.exitTemperature + 0.5 * (spec.chamberTemperature - s.exitTemperature)
             m.particleTemperature = tp
-            let tau = 3_950.0 * 1_300 * 3e-6 / (6 * 0.3 * 5.670374e-8 * tp * tp * tp)
+            let tau = Optics.aluminaDensity * 1_300 * Optics.aluminaDiameter / (6 * 0.3 * 5.670374e-8 * tp * tp * tp)
             m.particleCooling = max(s.exitVelocity * tau, de)
             m.particleAngle = spec.lipHalfAngle + 5 * Double.pi / 180
         case .hydrogen:
@@ -596,23 +635,30 @@ public enum PlumeLook {
             m.particleAlbedo = Optics.keroseneCondensateAlbedo
             m.particleAngle = half
             // In the expansion it condenses a few diameters out; in dense
-            // air beyond the flame, as the exhaust mixes and cools.
-            let flameEnd = s.luminousLength > 0 ? Optics.flameHold * s.luminousLength : 10 * de
-            m.particleOnset = 3 * de + (max(0.5 * flameEnd, 3 * de) - 3 * de) * (1 - v)
+            // air beyond the flame's tip (the inert jet's core as the
+            // afterburning fades), as the exhaust mixes and cools.
+            let core = s.potentialCoreLength
+            let reach = core + (max(core, s.flameLength) - core) * m.afterburning
+            m.particleOnset = 3 * de + (max(reach, 3 * de) - 3 * de) * (1 - v)
         default:
             break
         }
-        if family == .kerosene && m.afterburning > 0 && s.luminousLength > 0 {
-            m.sootBurnout = 0.6 * Optics.flameHold * s.luminousLength
+        // The soot burns out by the flame's tip, as the visible flame
+        // ends there (Delichatsios's length is the visible flame's).
+        if family == .kerosene && m.afterburning > 0 {
+            m.sootBurnout = m.flameLength / 1.5
         }
         m.particleOffset = re / tan(max(m.particleAngle * 0.5, 0.05))
         m.phaseG = Optics.phaseG(family)
 
         // Structure.
+        // P1 gives cells for n from 0.3 to 5, a Mach disk above 2: faded in
+        // and out at those bounds, so that neither jumps.
         if s.shockCellLength > 0 {
             m.shockCellLength = s.shockCellLength
             m.shockCellCount = s.shockCellCount
-            m.shockStrength = Optics.shockStrength * w
+            m.shockStrength = Optics.shockStrength * w * PlumeMember.smoothstep(0.3, 0.36, n)
+                * (1 - PlumeMember.smoothstep(4, 5, n))
         }
         if family == .kerosene && inAir {
             let b = PlumeMember.smoothstep(0.5, 2, log10(max(n, 1)))
@@ -629,7 +675,7 @@ public enum PlumeLook {
             // far downstream in thin air is there but faint.
             let dilution = min(1, 4 * pow(m.sourceOffset / (disk.distance + m.sourceOffset), 2))
             m.machDiskExtinction = Optics.machDiskEmissivity(family) * disk.luminosity * dilution
-                / (0.3 * m.machDiskRadius)
+                / (0.3 * m.machDiskRadius) * PlumeMember.smoothstep(2, 3, n)
             m.machDiskTemperature = 0.85 * spec.chamberTemperature
         }
 
@@ -649,42 +695,54 @@ public enum PlumeLook {
         default:
             break
         }
-        // In air the bright flame and a stretch of its smoke (P4's trail
+        // In air the glowing jet and a stretch of its smoke (P4's trail
         // carries the rest); in vacuum what still shows, within 150
-        // diameters.
-        var length = visibleLength(m)
-        if inAir && v < 0.5 && s.luminousLength > 0 {
-            length = min(length, max(1.5 * Optics.flameHold * s.luminousLength, 30 * de))
-        } else {
-            length = min(length, 150 * de)
+        // diameters; the two mixed as the jet balloons.
+        let vacuumCap = 150 * de
+        var cap = vacuumCap
+        if inAir {
+            let airCap = max(1.2 * s.luminousLength, 30 * de)
+            cap = airCap + (vacuumCap - airCap) * PlumeMember.smoothstep(0.3, 0.7, v)
         }
-        m.length = min(length, 1_500)
+        m.length = min(visibleLength(m), cap, 1_500)
         return m
     }
 
     /// How far downstream the member's field still shows (m): where its
     /// column across has an optical depth under `opaque` and the light it
     /// gives (its own, and up to `sun` lux scattered at the forward peak)
-    /// is under `faintest` cd/m², searched outward in 4 % steps, at most
-    /// 3 km.
+    /// is under `faintest` cd/m², searched outward in 4 % steps (the last
+    /// crossing found between two of them, in log, so that the length moves
+    /// smoothly with the plume), at most 3 km; at least the Mach disk's and
+    /// the glow's reach.
     public static func visibleLength(_ m: PlumeMember, faintest: Double = 3, opaque: Double = 3e-3,
                                      sun: Double = 0) -> Double {
         let forward = henyeyGreenstein(1, m.phaseG)
         var probe = m
         probe.length = 1e9
         let de = m.exitDiameter
-        var x = 0.5 * de, last = x
+        var x = 0.5 * de, last = 0.0
+        var previous: (x: Double, ratio: Double)?
         while x < 3_000 {
             let s = probe.sample(x: x, r: 0)
             let chord = probe.visibleWidth(atX: x)
             let tau = s.extinction * chord
             let light = (s.emission.luminance + s.scattering * sun * forward) * chord
-            let disk = m.machDiskExtinction > 0 && x < m.machDiskDistance + m.machDiskRadius
-            if tau > opaque || light > faintest || disk || x < (m.glowLength > 0 ? m.glowLength : 0) { last = x }
-            else if x > 4 * last + 10 * de { break }
+            let ratio = max(tau / opaque, light / faintest)
+            if ratio > 1 {
+                last = x
+            } else {
+                if let p = previous, p.ratio > 1 {
+                    let t = ratio > 0 ? log(p.ratio) / (log(p.ratio) - log(ratio)) : 1
+                    last = p.x * pow(x / p.x, min(max(t, 0), 1))
+                }
+                if x > 4 * max(last, 0.5 * de) + 10 * de { break }
+            }
+            previous = (x, ratio)
             x *= 1.04
         }
-        return max(last * 1.15, 2 * de)
+        if m.machDiskExtinction > 0 { last = max(last, m.machDiskDistance + m.machDiskRadius) }
+        return max(last * 1.15, m.glowLength, 2 * de)
     }
 
     /// Trims `m` to what can show at an exposure where `faintest` cd/m² is
@@ -761,6 +819,7 @@ public enum PlumeLook {
         if jet { length = max(0.6, length) }
         let halfAngle = mix(table.vac.2, table.sl.2) * Double.pi / 180
         var m = PlumeMember(exit: exit, axis: axis, exitRadius: re, family: family)
+        m.flowFraction = fraction
         // The cone's tail reached over a length of 2ℓ.
         let tail = re + length * tan(halfAngle)
         m.radiusGrowth = (tail - re) / (1 - exp(-2))
@@ -780,12 +839,15 @@ public enum PlumeLook {
 
     /// Readable plumes: a member whose light through its axis near the exit
     /// is under `readableFloor` gets a glow making up the difference, in its
-    /// family's colour, over M1.5's vacuum length.
-    public static func applyReadableFloor(_ m: inout PlumeMember) {
+    /// family's colour, over M1.5's vacuum length; at `flowFraction` of its
+    /// rated flow, as M1.5 did, the floor times it (at most 1) and the
+    /// length times 0.5 + 0.5 of it.
+    public static func applyReadableFloor(_ m: inout PlumeMember, flowFraction: Double = 1) {
+        let f = min(max(flowFraction, 0), 1)
         let x = min(m.exitRadius, 0.25 * m.length)
         let seen = march([m], from: m.exit + m.axis * x - perpendicular(m.axis) * (4 * m.radius(atX: x)),
                          direction: perpendicular(m.axis), range: 0...(8 * m.radius(atX: x)), steps: 64)
-        let missing = readableFloor - seen.radiance.luminance
+        let missing = readableFloor * f - seen.radiance.luminance
         guard missing > 0 else { return }
         let vacuumLength: Double
         switch m.family {
@@ -798,7 +860,7 @@ public enum PlumeLook {
         // and its fall along), so the floor is met where it is measured.
         var unit = m
         unit.glow = Photometry.RGB(1, 1, 1)
-        unit.glowLength = max(m.glowLength, vacuumLength * m.exitRadius, m.isJet ? 0.6 : 0)
+        unit.glowLength = max(m.glowLength, vacuumLength * m.exitRadius * (0.5 + 0.5 * f), m.isJet ? 0.6 : 0)
         unit.length = max(m.length, unit.glowLength)
         var bare = unit
         bare.glow = Photometry.RGB(0, 0, 0)
@@ -874,23 +936,39 @@ public enum PlumeLook {
     /// `origin` along unit `direction` over `range` (m), in `steps` equal
     /// steps at their middles, with Hillaire's energy-conserving step; the
     /// scattering lit by `sun` (lux, the unit direction to it, unshadowed)
-    /// and an isotropic `ambient` (lux). The shader's march without its
-    /// jitter, noise and shadows.
+    /// and an isotropic `ambient` (lux: 4π times a mean radiance), the
+    /// Sun's phase taken along `phaseDirection` (the view ray's; the march's
+    /// own direction when nil). With `around`, the steps are equiangular
+    /// about the ray's point at `around.t` (Kulla and Fajardo 2012), as
+    /// dense as 1 / (h² + (t - around.t)²), as the shader steps across a
+    /// small dense core. The shader's march without its jitter, noise and
+    /// shadows.
     public static func march(_ members: [PlumeMember], from origin: Vec3, direction: Vec3,
                              range: ClosedRange<Double>, steps: Int,
                              sun: (direction: Vec3, illuminance: Photometry.RGB)? = nil,
-                             ambient: Photometry.RGB = Photometry.RGB(0, 0, 0))
+                             ambient: Photometry.RGB = Photometry.RGB(0, 0, 0), phaseDirection: Vec3? = nil,
+                             around: (t: Double, h: Double)? = nil)
         -> (radiance: Photometry.RGB, transmittance: Double) {
-        let ds = (range.upperBound - range.lowerBound) / Double(max(steps, 1))
+        let n = max(steps, 1)
+        let uniform = (range.upperBound - range.lowerBound) / Double(n)
+        let a = around.map { atan((range.lowerBound - $0.t) / max($0.h, 1e-9)) } ?? 0
+        let dphi = around.map { (atan((range.upperBound - $0.t) / max($0.h, 1e-9)) - a) / Double(n) } ?? 0
+        let cosPhase = sun.map { (phaseDirection ?? direction).dot($0.direction) } ?? 0
         var t = 1.0, l = Photometry.RGB(0, 0, 0)
-        for i in 0..<max(steps, 1) {
-            let p = origin + direction * (range.lowerBound + (Double(i) + 0.5) * ds)
+        for i in 0..<n {
+            var at = range.lowerBound + (Double(i) + 0.5) * uniform, ds = uniform
+            if let around {
+                let phi = a + (Double(i) + 0.5) * dphi, c = cos(phi), h = max(around.h, 1e-9)
+                at = around.t + h * tan(phi)
+                ds = h * dphi / (c * c)
+            }
+            let p = origin + direction * at
             var s = PlumeMember.Sample(), phase = 0.0, weight = 0.0
             for m in members {
                 let x = m.sample(at: p)
                 s = s + x
                 weight += x.scattering
-                if let sun { phase += x.scattering * henyeyGreenstein(direction.dot(sun.direction), m.phaseG) }
+                if sun != nil { phase += x.scattering * henyeyGreenstein(cosPhase, m.phaseG) }
             }
             let sigma = s.extinction
             guard sigma > 0 || s.emission.luminance > 0 else { continue }

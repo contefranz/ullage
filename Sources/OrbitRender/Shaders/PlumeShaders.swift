@@ -12,7 +12,7 @@ struct PlumeFrame {
     float4 sun;         // xyz: unit to the Sun (world), w: 1 with the clouds' layer bound
     float4 sunLight;    // rgb: the Sun's lux at the plumes, w: 1 to take R4's shadow
     float4 ambient;     // rgb: the ambient stub's mean radiance (cd/m², not pre-exposed)
-    float4 params;      // x: frame index, y: 1 with aerial perspective
+    float4 params;      // x: frame index, y: 1 with aerial perspective, z: a half-res texel's angle (rad)
     float4 wienC;       // rgb: c2 (K²)
 };
 
@@ -45,8 +45,11 @@ struct PlumeMember {
     float4 diskLight;   // rgb: the disk's blackbody, w: the density's scale (merged)
     float4 noise;       // eddy size, phase (tiles), depth, tile (m)
     float4 glow;        // rgb (cd/m²), w: length
-    float4 extent;      // x: tan of the 1 % Simons angle (0 none), y: the particles', z: flame hold (m), w: flame spread
+    float4 extent;      // x: tan of the 1 % Simons angle (0 none), y: the particles', z: flame length (m), w: flame spread
 };
+
+// How far out the eddies may carry the boundary, over R (PlumeMember.turbulentReach).
+constant float PLUME_TURBULENT_REACH = 1.15;
 
 constant int PLUME_RINGS = 8;
 constant int PLUME_SIDES = 24;
@@ -231,7 +234,7 @@ inline void plume_member(thread PlumeSample &s, const device PlumeMember &m, flo
                   + m.shape.z * max(0.0, xp - m.shape.w) + m.extent.w * max(0.0, xp - m.flame.y), 0.2 * re);
     float k = m.diskLight.w;
     // The early reject: PlumeMember.extent.
-    float e = x < 0.0 ? 1.6 * re : 1.55 * R;
+    float e = x < 0.0 ? 1.6 * re : 1.55 * PLUME_TURBULENT_REACH * R;
     if (x >= 0.0) {
         if (m.extent.x > 0.0) { e = max(e, (x + m.simons.w) * m.extent.x); }
         if (m.extent.y > 0.0) { e = max(e, (x + m.particles2.y) * m.extent.y); }
@@ -239,8 +242,11 @@ inline void plume_member(thread PlumeSample &s, const device PlumeMember &m, flo
     }
     if (r > e) { return; }
 
-    // The turbulence's depth here (the noise is the sample's).
-    float depth = m.noise.z * plume_smoothstep(0.0, 4.0 * de, xp);
+    // The turbulence's depth here (the noise is the sample's), faded out
+    // where its eddies are under a few texels across.
+    float eddy = m.noise.x * pow(max(R / re, 1.0), 0.7);
+    float footprint = length(p) * pf.params.z;
+    float depth = m.noise.z * plume_smoothstep(0.0, 4.0 * de, xp) * plume_smoothstep(1.5, 4.0, eddy / max(footprint, 1e-6));
     float turb = max(1.0 + depth * 3.0 * nv, 0.05);
     float hot = 1.0 + depth * 0.15 * nv;                            // hot and cool pockets
 
@@ -253,8 +259,9 @@ inline void plume_member(thread PlumeSample &s, const device PlumeMember &m, flo
         plume_add(s, m.base.w * mb * turb, 0.0, m.base.rgb, k);
     }
     if (x >= 0.0) {
-        // The boundary ragged by the eddies.
-        float q = r / R * (1.0 - depth * 0.5 * nv);
+        // The boundary ragged by the eddies, outwards no further than the
+        // proxy and the reject hold.
+        float q = r / R * max(1.0 - depth * 0.5 * nv, 1.0 / PLUME_TURBULENT_REACH);
         float w = clamp(0.06 + 0.45 * x / (x + 6.0 * de), 0.06, 0.5);
         float pc = 1.0 - plume_smoothstep(1.0 - w, 1.0 + w, q);
         float v = m.simons.x;
@@ -291,7 +298,7 @@ inline void plume_member(thread PlumeSample &s, const device PlumeMember &m, flo
                 t += (max(t, tFlame) - t) * m.flame.w * fx * fr;
             }
             float burnt = 1.0;
-            if (m.sheath.w > 0.0) { burnt -= 0.75 * plume_smoothstep(m.sheath.w, 1.5 * m.sheath.w, x); }
+            if (m.sheath.w > 0.0) { burnt -= 0.75 * m.flame.w * plume_smoothstep(m.sheath.w, 1.5 * m.sheath.w, x); }
             plume_add(s, m.gas.x * rho * cells * burnt * turb, m.gas.y, plume_blackbody(t * hot, pf), k);
         }
         // The film.
@@ -427,6 +434,40 @@ fragment EffectVolumeOut plume_march_fragment(PlumeProxyOut in [[stage_in]],
             n0 = steps / 2;
         }
     }
+    // A single member seen across (more than 30° off its axis): its steps
+    // equiangular about its axis (Kulla and Fajardo 2012), as dense as
+    // 1 / (h² + distance²) along the ray, h the ray's closest approach or
+    // half the member's dense radius there, so a small dense core (a
+    // retro's alumina) is not stepped over.
+    int first_ = int(c.axis.w), count = int(c.u.w);
+    bool equiangular = false;
+    float t0 = 0.0, hk = 1.0, phiA = 0.0, dphi = 0.0;
+    if (count == 1) {
+        const device PlumeMember &m0 = members[first_];
+        float3 ma = m0.axis.xyz, w0 = -m0.exit.xyz;
+        float3 dpm = dir - ma * dot(dir, ma), opm = w0 - ma * dot(w0, ma);
+        float k2 = dot(dpm, dpm), k = sqrt(k2);
+        if (k > 0.5 * len) {
+            t0 = -dot(opm, dpm) / k2;
+            float rho0 = length(opm + dpm * t0);
+            float re0 = m0.exit.w;
+            float x0 = max(dot(dir * t0 - m0.exit.xyz, ma), 0.0);
+            float dense = re0 + m0.shape.x * (1.0 - exp(-x0 / max(m0.shape.y, 1e-6))) + m0.shape.z * max(0.0, x0 - m0.shape.w);
+            if (m0.simons.x > 0.02) {
+                float half_ = 2.0 * m0.simons.z / M_PI_F * acos(pow(0.5, 1.0 / max(m0.simons.y, 1e-3)));
+                float cone = (x0 + m0.simons.w) * tan(min(half_, 1.4));
+                if (m0.particles.x > 0.0) { cone = max(cone, (x0 + m0.particles2.y) * tan(min(m0.particles2.x, 1.4))); }
+                dense = min(dense, cone);
+            }
+            float h = max(rho0, 0.5 * max(dense, re0));
+            if ((exit - enter) * k > 4.0 * h) {
+                equiangular = true;
+                hk = h / k;
+                phiA = atan((enter - t0) / hk);
+                dphi = (atan((exit - t0) / hk) - phiA) / float(steps);
+            }
+        }
+    }
     float jitter = plume_jitter(in.position.xy, pf.params.x);
     float3 sunDir = pf.sun.xyz;
     float3 sunLux = pf.sunLight.rgb * c.v.w;
@@ -444,7 +485,14 @@ fragment EffectVolumeOut plume_march_fragment(PlumeProxyOut in [[stage_in]],
     if (pf.sun.w > 0.5) {
         float2 uv = in.position.xy * e.target.zw;
         cloudAlpha = clamp(cloudLayer.sample(linear, uv).a, 0.0, 0.9999);
-        float4 z = cloudDepth.sample(linear, uv);
+        // The depth codes are not filtered across the no-depth code (60):
+        // the nearest of the four, as C2's slot reads them.
+        float4 fronts = cloudDepth.gather(linear, uv, int2(0), component::x);
+        float4 means = cloudDepth.gather(linear, uv, int2(0), component::y);
+        float4 entries = cloudDepth.gather(linear, uv, int2(0), component::z);
+        float4 z = float4(min(min(fronts.x, fronts.y), min(fronts.z, fronts.w)),
+                          min(min(means.x, means.y), min(means.z, means.w)),
+                          min(min(entries.x, entries.y), min(entries.z, entries.w)), 0.0);
         if (cloudAlpha > 1e-4 && z.z < 59.5) {
             cloudFront = exp2(z.x);
             cloudEntry = exp2(min(z.z, z.x));
@@ -453,7 +501,6 @@ fragment EffectVolumeOut plume_march_fragment(PlumeProxyOut in [[stage_in]],
         }
     }
 
-    int first_ = int(c.axis.w), count = int(c.u.w);
     float mergeX = c.reserved[0].y;
     float3 lightCentre = c.light.xyz, lightAxis = c.lightAxis.xyz;
     float lightLength = c.light.w, lightRadius = c.lightAxis.w;
@@ -466,10 +513,18 @@ fragment EffectVolumeOut plume_march_fragment(PlumeProxyOut in [[stage_in]],
     float meanDepth = 0.0, meanWeight = 0.0;
     float exposure = frame.exposure.x;
     for (int i = 0; i < steps; i++) {
-        bool second = i >= n0;
-        float2 seg = second ? seg1 : seg0;
-        float ds = (seg.y - seg.x) / float(second ? steps - n0 : n0);
-        float s = seg.x + (float(second ? i - n0 : i) + jitter) * ds;
+        float s, ds;
+        if (equiangular) {
+            float phi = phiA + (float(i) + jitter) * dphi;
+            float cp = cos(phi);
+            s = t0 + hk * tan(phi);
+            ds = hk * dphi / (cp * cp);
+        } else {
+            bool second = i >= n0;
+            float2 seg = second ? seg1 : seg0;
+            ds = (seg.y - seg.x) / float(second ? steps - n0 : n0);
+            s = seg.x + (float(second ? i - n0 : i) + jitter) * ds;
+        }
         float3 p = dir * s;
         PlumeSample x = {0.0, 0.0, float3(0.0), 0.0};
         float sunDepth = 0.0;
