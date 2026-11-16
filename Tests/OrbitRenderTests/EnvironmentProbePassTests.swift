@@ -261,6 +261,36 @@ final class EnvironmentProbePassTests: XCTestCase {
         XCTAssertEqual(capture2.values, [SIMD4<Float>](repeating: .zero, count: 11))
     }
 
+    /// The faces two a frame in turn while frames follow each other at 1×;
+    /// all six on the first frame, a temporal reset, a skipped frame, a warp
+    /// above 10×, a Sun that turned or new settings.
+    func testFacesRoundRobin() throws {
+        let device = try device()
+        let probe = EnvironmentProbePass()
+        let r = try SceneRenderer(device: device, outputFormat: .bgra8Unorm_srgb, passes: [probe],
+                                  plan: DirectTargetPlan(colorFormat: .bgra8Unorm_srgb, sampleCount: 1))
+        let target = try XCTUnwrap(OffscreenTarget(device: device, width: 8, height: 8))
+        var scene = LookDevScenes.materialSpheres(width: 8, height: 8)
+        func faces(_ index: Int, reset: Bool = false, warp: Double = 1) -> Int {
+            scene.clock.frameIndex = index
+            scene.clock.temporalReset = reset
+            scene.clock.warp = warp
+            r.renderAndWait(scene, into: target)
+            return probe.lastFrame.facesDrawn
+        }
+        XCTAssertEqual([faces(1), faces(2), faces(3), faces(4)], [6, 2, 2, 2])
+        XCTAssertEqual(faces(5, reset: true), 6)
+        XCTAssertEqual([faces(6), faces(8)], [2, 6], "a skipped frame")
+        XCTAssertEqual([faces(9, warp: 100), faces(10, warp: 10)], [6, 2])
+        let sun = scene.sun.direction
+        scene.sun.direction = (sun + Vec3(0, 0, 0.01)).normalized
+        XCTAssertEqual(faces(11), 6, "the Sun turned 0.4°")
+        var s = r.settings
+        s.probe.nightFloor = 0.03
+        r.settings = s
+        XCTAssertEqual([faces(12), faces(13)], [6, 2], "new settings")
+    }
+
     // MARK: Through the vessel pass
 
     /// The app's renderer at EV 15 with the probe's environment `env`, the

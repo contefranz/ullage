@@ -21,6 +21,51 @@ import OrbitScene
 /// ORBITSIM_PROBE_SETTINGS='{"clouds": false}' for the on frames' probe.
 @MainActor
 final class ProbeCostTests: XCTestCase {
+    /// The probe alone, its derived maps over an analytic furnace (no
+    /// faces): frames with only the probe and frames with it off, back to
+    /// back, three in flight, the difference of the medians. Its own GPU
+    /// time, which the whole frame hides under other passes' (ORBITSIM_TIMINGS=1).
+    func testDerivedMapsAlone() throws {
+        let env = ProcessInfo.processInfo.environment
+        guard env["ORBITSIM_TIMINGS"] != nil else { throw XCTSkip("a performance run: ORBITSIM_TIMINGS=1") }
+        let lock = GPULock { print("ProbeCostTests: waiting for the GPU lock") }
+        defer { withExtendedLifetime(lock) {} }
+        let device = try XCTUnwrap(RenderDevice.shared)
+        let probe = EnvironmentProbePass()
+        let r = try SceneRenderer(device: device, outputFormat: .bgra8Unorm_srgb, passes: [probe],
+                                  plan: DirectTargetPlan(colorFormat: .bgra8Unorm_srgb, sampleCount: 1))
+        var on = RenderSettings(), off = RenderSettings()
+        on.probe.environment = .furnace
+        if let json = env["ORBITSIM_PROBE_SETTINGS"] {
+            on.probe = try JSONDecoder().decode(ProbeSettings.self, from: Data(json.utf8))
+            on.probe.environment = .furnace
+        }
+        off.probe.enabled = false
+        let target = try XCTUnwrap(OffscreenTarget(device: device, width: 64, height: 64))
+        let scene = LookDevScenes.materialSpheres(width: 64, height: 64)
+        final class Times: @unchecked Sendable {
+            let lock = NSLock()
+            var a: [Double] = [], b: [Double] = []
+        }
+        let times = Times()
+        var last: MTLCommandBuffer?
+        for k in 0..<840 {
+            let measure = k >= 40, isOn = k % 2 == 0
+            r.settings = isOn ? on : off
+            last = r.render(scene, to: target.texture) { cb in
+                guard measure else { return }
+                times.lock.withLock {
+                    if isOn { times.a.append(cb.gpuEndTime - cb.gpuStartTime) } else { times.b.append(cb.gpuEndTime - cb.gpuStartTime) }
+                }
+            }
+        }
+        last?.waitUntilCompleted()
+        Thread.sleep(forTimeInterval: 0.2)
+        func median(_ x: [Double]) -> Double { x.sorted()[x.count / 2] }
+        print(String(format: "probe derived maps alone: %.3f ms (with %.3f, without %.3f)",
+                     (median(times.a) - median(times.b)) * 1_000, median(times.a) * 1_000, median(times.b) * 1_000))
+    }
+
     func testCostReport() throws {
         let env = ProcessInfo.processInfo.environment
         guard env["ORBITSIM_TIMINGS"] != nil else { throw XCTSkip("a performance run: ORBITSIM_TIMINGS=1") }
@@ -64,6 +109,7 @@ final class ProbeCostTests: XCTestCase {
             final class Times: @unchecked Sendable {
                 let lock = NSLock()
                 var a: [Double] = [], b: [Double] = []
+                var byFrame: [Int: Double] = [:]
             }
             let times = Times()
             var last: MTLCommandBuffer?
@@ -77,7 +123,9 @@ final class ProbeCostTests: XCTestCase {
                 last = r.render(scene, to: target.texture) { cb in
                     guard measure else { return }
                     times.lock.withLock {
-                        if isOn { times.a.append(cb.gpuEndTime - cb.gpuStartTime) } else { times.b.append(cb.gpuEndTime - cb.gpuStartTime) }
+                        let t = cb.gpuEndTime - cb.gpuStartTime
+                        if isOn { times.a.append(t) } else { times.b.append(t) }
+                        times.byFrame[k] = t
                     }
                 }
                 if isOn { drawn = probe.lastFrame.drawn }
@@ -87,8 +135,14 @@ final class ProbeCostTests: XCTestCase {
             XCTAssertTrue(drawn)
             func median(_ x: [Double]) -> Double { x.sorted()[x.count / 2] }
             let cost = (median(times.a) - median(times.b)) * 1_000
-            print(String(format: "probe %@ at %dx%d: %.3f ms (frame %.2f ms, without the probe %.2f ms, %d rounds)",
-                         name, w, h, cost, median(times.a) * 1_000, median(times.b) * 1_000, rounds))
+            // Each on frame against the off frame after it: the two share
+            // whatever else loads the GPU then.
+            let pairs = stride(from: 40, to: 2 * rounds + 40, by: 2).compactMap { k -> Double? in
+                guard let on = times.byFrame[k], let off = times.byFrame[k + 1] else { return nil }
+                return on - off
+            }
+            print(String(format: "probe %@ at %dx%d: %.3f ms, paired %.3f ms (frame %.2f ms, without the probe %.2f ms, %d rounds)",
+                         name, w, h, cost, median(pairs) * 1_000, median(times.a) * 1_000, median(times.b) * 1_000, rounds))
         }
     }
 }

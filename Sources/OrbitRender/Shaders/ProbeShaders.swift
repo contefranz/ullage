@@ -139,15 +139,18 @@ inline float2 probe_hammersley(uint i, uint n) {
 // n = v = r, sum L(l) n.l / sum n.l over GGX-sampled half vectors, each
 // sample reading the source mip its solid angle covers (Krivanek and
 // Colbert 2008: lod = log2(Omega_s / Omega_p) / 2 + bias). Its limit is
-// EnvironmentProbe.prefilterReference.
+// EnvironmentProbe.prefilterReference. A SIMD group of 32 per texel, each
+// lane a 32nd of the samples (the grid is 32 wide per texel): the loop is
+// short, so the few texels of the rough mips do not wait on it.
 kernel void probe_prefilter(texturecube<float> source [[texture(0)]],
                             texture2d_array<float, access::write> out [[texture(1)]],
                             constant ProbePrefilter &u [[buffer(0)]],
-                            uint3 gid [[thread_position_in_grid]]) {
+                            uint3 gid [[thread_position_in_grid]],
+                            uint lane [[thread_index_in_simdgroup]]) {
     constexpr sampler trilinear(filter::linear, mip_filter::linear, address::clamp_to_edge);
     uint n = out.get_width();
-    if (gid.x >= n || gid.y >= n || gid.z >= 6u) { return; }
-    float3 normal = probe_texelDirection(gid.xy, gid.z, float(n));
+    uint2 xy = uint2(gid.x / 32u, gid.y);
+    float3 normal = probe_texelDirection(xy, gid.z, float(n));
     float alpha = u.params.x, a2 = alpha * alpha;
     uint count = max(uint(u.params.y), 1u);
     float3 up = abs(normal.z) < 0.999 ? float3(0.0, 0.0, 1.0) : float3(1.0, 0.0, 0.0);
@@ -156,7 +159,7 @@ kernel void probe_prefilter(texturecube<float> source [[texture(0)]],
     float maxLod = clamp(u.lod.y, 0.0, max(u.params.w - 1.0, 0.0));
     float3 sum = float3(0.0);
     float weight = 0.0;
-    for (uint i = 0; i < count; i++) {
+    for (uint i = lane; i < count; i += 32u) {
         float2 xi = probe_hammersley(i, count);
         float phi = 2.0 * PROBE_PI * xi.x;
         float cosT = sqrt((1.0 - xi.y) / (1.0 + (a2 - 1.0) * xi.y));
@@ -171,7 +174,11 @@ kernel void probe_prefilter(texturecube<float> source [[texture(0)]],
         sum += source.sample(trilinear, l, level(lod)).rgb * nl;
         weight += nl;
     }
-    out.write(probe_clean(weight > 0.0 ? sum / weight : float3(0.0)), gid.xy, gid.z);
+    sum = simd_sum(sum);
+    weight = simd_sum(weight);
+    if (lane == 0u && xy.x < n && xy.y < n) {
+        out.write(probe_clean(weight > 0.0 ? sum / weight : float3(0.0)), xy, gid.z);
+    }
 }
 
 // ---------------------------------------------- irradiance and SH9 ---
@@ -179,40 +186,50 @@ kernel void probe_prefilter(texturecube<float> source [[texture(0)]],
 // The source texels (a 32^2 downsample): xyz their direction, w their solid
 // angle (EnvironmentProbe.texels), face by face, row by row.
 
-// One texel of the irradiance cube per threadgroup of 64: E/pi =
-// (1/pi) sum L max(0, n.l) Omega over every source texel, by brute force
-// (EnvironmentProbe.irradianceReference): exact, without SH's ringing at
-// the terminator.
+// The irradiance cube: E/pi = (1/pi) sum L max(0, n.l) Omega over every
+// source texel, by brute force (EnvironmentProbe.irradianceReference):
+// exact, without SH's ringing at the terminator. A threadgroup of 256 holds
+// one row of 16 texels of one face, 16 threads to a texel each taking a
+// sixteenth of every chunk of 256 source texels, which the group loads into
+// threadgroup memory once (96 groups, each source texel read 96 times).
+#define PROBE_IRRADIANCE_CHUNK 256u
 kernel void probe_irradiance(texture2d_array<float> source [[texture(0)]],
                              texture2d_array<float, access::write> out [[texture(1)]],
                              const device float4 *texels [[buffer(0)]],
                              uint3 group [[threadgroup_position_in_grid]],
-                             uint ti [[thread_index_in_threadgroup]],
-                             uint3 threadsPerGroup [[threads_per_threadgroup]],
-                             uint si [[simdgroup_index_in_threadgroup]],
-                             uint li [[thread_index_in_simdgroup]],
-                             uint simdgroups [[simdgroups_per_threadgroup]]) {
-    threadgroup float3 partial[32];
-    uint threads = threadsPerGroup.x;
+                             uint ti [[thread_index_in_threadgroup]]) {
+    threadgroup float4 directions[PROBE_IRRADIANCE_CHUNK];
+    threadgroup float4 radiance[PROBE_IRRADIANCE_CHUNK];
+    threadgroup float3 partial[16][16];
     uint n = out.get_width(), m = source.get_width();
     uint perFace = m * m, total = 6u * perFace;
-    float3 normal = probe_texelDirection(group.xy, group.z, float(n));
+    uint o = ti % 16u, q = ti / 16u;
+    uint2 xy = uint2(o, group.y);
+    float3 normal = probe_texelDirection(xy, group.z, float(n));
     float3 e = float3(0.0);
-    for (uint k = ti; k < total; k += threads) {
-        float4 t = texels[k];
-        float c = dot(normal, t.xyz);
-        if (c > 0.0) {
+    for (uint base = 0; base < total; base += PROBE_IRRADIANCE_CHUNK) {
+        uint k = base + ti;
+        if (k < total) {
             uint face = k / perFace, r = k - face * perFace;
-            e += source.read(uint2(r % m, r / m), face).rgb * (c * t.w);
+            directions[ti] = texels[k];
+            radiance[ti] = source.read(uint2(r % m, r / m), face);
+        } else {
+            directions[ti] = float4(0.0);
+            radiance[ti] = float4(0.0);
         }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        for (uint j = q * 16u; j < q * 16u + 16u; j++) {
+            float4 t = directions[j];
+            e += radiance[j].rgb * (max(dot(normal, t.xyz), 0.0) * t.w);
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
     }
-    e = simd_sum(e);
-    if (li == 0u) { partial[si] = e; }
+    partial[q][o] = e;
     threadgroup_barrier(mem_flags::mem_threadgroup);
-    if (ti == 0u) {
+    if (q == 0u && xy.x < n && xy.y < n) {
         float3 s = float3(0.0);
-        for (uint g = 0; g < simdgroups; g++) { s += partial[g]; }
-        out.write(probe_clean(s / PROBE_PI), group.xy, group.z);
+        for (uint k = 0; k < 16u; k++) { s += partial[k][o]; }
+        out.write(probe_clean(s / PROBE_PI), xy, group.z);
     }
 }
 

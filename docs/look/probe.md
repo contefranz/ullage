@@ -131,7 +131,24 @@ lights.
 
 ## Cost
 
-Drawn whole every frame, so the Earth turning under the vessel at 1000×
-is never stale. A one-command blit ends the pass, so the driver does not
-merge its compute with the next P0 pass's. Measured by `ProbeCostTests`
-(see the PR for the numbers).
+- **Faces:** two a frame in turn while nothing moves enough to make one
+  stale; all six on a temporal reset, a frame that does not follow the last,
+  new settings, a warp above 10× (so the Earth turning under the vessel at
+  1000× is never stale), a centre moved over 1 km or a Sun turned over 0.05°
+  (`EnvironmentProbePass.fullUpdate`). At 1× a face is at most two frames
+  old: 400 m of LEO, 0.0002° of Sun.
+- **Derived maps** every frame, their dispatches concurrent: the prefilter
+  a SIMD group of 32 to a texel (the rough mips' few texels do not wait on
+  long loops), the irradiance tiled through threadgroup memory (each group
+  loads every source texel once).
+- **No stall:** the lighting uniforms live in a buffer of their own while
+  the SH9 copy writes them (`FrameArena.pushSeparately`). In the arena,
+  Metal's per-buffer hazard tracking made every later encoder wait for the
+  copy and the copy for C2's march: 6.2 ms on the pad.
+- A one-command blit ends the pass, so the driver does not merge its
+  compute with the next P0 pass's.
+- **Measured** (`ProbeCostTests`, ORBITSIM_TIMINGS=1, 3024×1964, High, the
+  whole frame with every default pass, the probe on and off on alternate
+  frames, three runs of 300 rounds, medians of the on/off pairs): 0.18 ms on
+  the pad, 0.20 ms at 60 s of ascent, 0.25 ms in LEO, against 0.3 ms; the
+  runs scatter by about ±0.15 ms.

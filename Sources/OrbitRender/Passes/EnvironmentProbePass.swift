@@ -26,9 +26,15 @@ import OrbitScene
 /// 5. `LightingUniforms.probe` (centre, mip count) and `ambient` (the night
 ///    floor as E/π relative to the exposure, the light's scale).
 ///
-/// The probe is drawn whole every frame, so the Earth turning under the
-/// vessel at 1000× is never stale. A one-command blit ends it, so the
-/// driver does not merge its compute with the next pass's.
+/// The faces are drawn two a frame in turn while nothing moves enough to
+/// make one stale, and all six on any jump, new settings, a warp above 10×
+/// (the Earth turning under the vessel at 1000× is never stale), a centre
+/// moved over 1 km or a Sun turned over 0.05° (`fullUpdate`); the derived
+/// maps every frame. Their dispatches run concurrently; a one-command blit
+/// ends the pass, so the driver does not merge its compute with the next
+/// pass's. The lighting uniforms then live in a buffer of their own
+/// (`FrameArena.pushSeparately`): the SH9 copy into the arena made every
+/// later encoder wait for C2's march (6.2 ms on the pad).
 @MainActor
 public final class EnvironmentProbePass: RenderPass {
     public let name = "Environment probe"
@@ -57,6 +63,13 @@ public final class EnvironmentProbePass: RenderPass {
 
     /// Steps of the ground's haze marched in the probe's faces from above the air.
     public static let groundSteps = 8
+    /// Steps of the air marched in front of the clouds in the faces.
+    public static let cloudHazeSteps = 6
+    /// Faces drawn a frame while nothing moves enough to make a face stale
+    /// (`fullUpdate`): the six in three frames.
+    public static let facesPerFrame = 2
+    /// Above this warp every face is drawn every frame.
+    public static let roundRobinMaximumWarp = 10.0
     /// Beyond this distance from the camera the probe stays at the camera:
     /// A2's sky is the camera's.
     public static let maximumTargetDistance = 50_000.0
@@ -98,6 +111,33 @@ public final class EnvironmentProbePass: RenderPass {
         public var faceSize = 0
         public var mips = 0
         public var nightFloor: Float = 0
+        /// Faces drawn this frame: 6 on a full update, else `facesPerFrame`.
+        public var facesDrawn = 0
+    }
+
+    /// What the faces were last drawn for.
+    struct FaceState {
+        var frameIndex: Int
+        var center: Vec3
+        var toSun: Vec3
+        var settings: ProbeSettings
+        var size: Int
+    }
+    private var lastFaces: FaceState?
+    private var faceCursor = 0
+
+    /// Whether every face is drawn this frame: the first, or after a
+    /// temporal reset (a jump, a new target, a warp change), a frame that
+    /// does not follow the last one drawn, new settings or maps, a warp above
+    /// `roundRobinMaximumWarp` (the Earth turns under the vessel), the centre
+    /// moved more than 1 km or the Sun more than 0.05° since last frame. At
+    /// 1× a face is then at most two frames old: 400 m of LEO, 0.0002° of Sun.
+    static func fullUpdate(_ now: FaceState, after last: FaceState?, clock: RenderScene.Clock) -> Bool {
+        guard let last else { return true }
+        return clock.temporalReset || now.frameIndex != last.frameIndex + 1 || now.settings != last.settings
+            || now.size != last.size || clock.warp > roundRobinMaximumWarp
+            || (now.center - last.center).length > 1_000
+            || now.toSun.dot(last.toSun) < cos(0.05 * Double.pi / 180)
     }
 
     public init() {}
@@ -151,10 +191,18 @@ public final class EnvironmentProbePass: RenderPass {
         else { return }
         let center = Self.center(f.scene)
 
-        // 1. The radiance.
+        // 1. The radiance: every face when anything may have made one stale,
+        // else two a frame in turn.
+        let state = FaceState(frameIndex: f.scene.clock.frameIndex, center: center, toSun: f.scene.sun.direction,
+                              settings: settings, size: maps.size)
+        let full = Self.fullUpdate(state, after: lastFaces, clock: f.scene.clock)
         switch settings.environment {
         case .scene:
-            drawFaces(f, maps: maps, center: center, settings: settings)
+            let faces = full ? EnvironmentProbe.Face.allCases
+                : (0..<Self.facesPerFrame).compactMap { EnvironmentProbe.Face(rawValue: (faceCursor + $0) % 6) }
+            if !full { faceCursor = (faceCursor + Self.facesPerFrame) % 6 }
+            drawFaces(f, maps: maps, center: center, settings: settings, faces: faces)
+            lastFrame.facesDrawn = faces.count
         case .furnace, .earthBelow, .earthUniform:
             guard let enc = f.makeComputeEncoder() else { return }
             var u = Self.lookDevUniforms(settings, scene: f.scene)
@@ -172,8 +220,13 @@ public final class EnvironmentProbePass: RenderPass {
                   destinationLevel: 0, sliceCount: 6, levelCount: 1)
         blit.endEncoding()
 
-        // 3. The prefiltered mips, the irradiance and SH9.
-        guard let enc = f.makeComputeEncoder() else { return }
+        // 3. The prefiltered mips, the irradiance and SH9, which depend on
+        // none of each other: their dispatches run concurrently.
+        let concurrent = MTLComputePassDescriptor()
+        concurrent.dispatchType = .concurrent
+        f.profile?.attach(concurrent, pass: name)
+        guard let enc = f.commandBuffer.makeComputeCommandEncoder(descriptor: concurrent) else { return }
+        enc.label = name
         enc.setComputePipelineState(pipelines.prefilter)
         enc.setTexture(maps.radiance, index: 0)
         for (k, level) in maps.specularLevels.enumerated() {
@@ -185,14 +238,16 @@ public final class EnvironmentProbePass: RenderPass {
                                   0, 0))
             enc.setTexture(level, index: 1)
             enc.setBytes(&u, length: 32, index: 0)
-            Self.dispatch(enc, pipelines.prefilter, width: level.width, height: level.height, depth: 6)
+            // 32 lanes to a texel.
+            enc.dispatchThreads(MTLSize(width: 32 * level.width, height: level.height, depth: 6),
+                                threadsPerThreadgroup: MTLSize(width: 32, height: min(level.height, 8), depth: 1))
         }
         enc.setComputePipelineState(pipelines.irradiance)
         enc.setTexture(maps.source, index: 0)
         enc.setTexture(maps.irradianceFaces, index: 1)
         enc.setBuffer(sourceTexels, offset: 0, index: 0)
-        enc.dispatchThreadgroups(MTLSize(width: Self.irradianceSize, height: Self.irradianceSize, depth: 6),
-                                 threadsPerThreadgroup: MTLSize(width: 64, height: 1, depth: 1))
+        enc.dispatchThreadgroups(MTLSize(width: 1, height: Self.irradianceSize, depth: 6),
+                                 threadsPerThreadgroup: MTLSize(width: 256, height: 1, depth: 1))
         enc.setComputePipelineState(pipelines.sh9)
         enc.setBuffer(sh9Buffer, offset: 0, index: 1)
         enc.dispatchThreadgroups(MTLSize(width: 1, height: 1, depth: 1),
@@ -216,8 +271,10 @@ public final class EnvironmentProbePass: RenderPass {
         if let member = MemoryLayout<LightingUniforms>.offset(of: \.sh9) {
             f.copyIntoLighting(from: sh9Buffer, offset: 0, member: member, length: 9 * 16)
         }
+        let facesDrawn = settings.environment == .scene ? lastFrame.facesDrawn : 6
         lastFrame = Report(drawn: true, environment: settings.environment, center: center, faceSize: maps.size,
-                           mips: maps.mips, nightFloor: floor)
+                           mips: maps.mips, nightFloor: floor, facesDrawn: facesDrawn)
+        lastFaces = state
     }
 
     /// The probe's centre, camera-relative: the camera target's when it is a
@@ -230,7 +287,8 @@ public final class EnvironmentProbePass: RenderPass {
 
     /// The six faces of the scene, each its own render pass: the planets
     /// (depth written), the sky behind them, the clouds over both.
-    private func drawFaces(_ f: FrameContext, maps: Maps, center: Vec3, settings: ProbeSettings) {
+    private func drawFaces(_ f: FrameContext, maps: Maps, center: Vec3, settings: ProbeSettings,
+                           faces: [EnvironmentProbe.Face]) {
         let formats = SceneFormats(color: maps.radiance.pixelFormat, depth: maps.depth.pixelFormat, sampleCount: 1,
                                    output: maps.radiance.pixelFormat)
         // The frame's uniforms in cd/m²: pre-exposure 1.
@@ -238,7 +296,7 @@ public final class EnvironmentProbePass: RenderPass {
         frame.exposure.x = 1
         var atmosphere = f.atmosphere
         let near = max(f.scene.camera.near, 0.25)
-        for face in EnvironmentProbe.Face.allCases {
+        for face in faces {
             let pass = MTLRenderPassDescriptor()
             let c = pass.colorAttachments[0]!
             c.texture = maps.radiance
@@ -269,7 +327,8 @@ public final class EnvironmentProbePass: RenderPass {
             sky?.encodeProbe(f, on: enc, formats: formats, viewToWorld: viewToWorld, tanHalfFov: 1,
                              faceSize: maps.size, preExposure: 1, depth: 0)
             if settings.clouds {
-                clouds?.encodeProbe(f, on: enc, formats: formats, viewToWorld: viewToWorld, faceSize: maps.size)
+                clouds?.encodeProbe(f, on: enc, formats: formats, viewToWorld: viewToWorld, faceSize: maps.size,
+                                    hazeSteps: Self.cloudHazeSteps)
             }
             enc.endEncoding()
         }
