@@ -72,8 +72,10 @@ enum Plumes {
     }
 
     /// A cluster's header: its frame, proxy and light, its members at
-    /// `memberStart` in the member buffer.
-    static func gpu(_ c: PlumeCluster, memberStart: Int, light: PlumeLight?, sunlit: Double) -> PlumeClusterGPU {
+    /// `memberStart` in the member buffer, marched in `steps` (0: the
+    /// frame's).
+    static func gpu(_ c: PlumeCluster, memberStart: Int, light: PlumeLight?, sunlit: Double,
+                    steps: Int = 0) -> PlumeClusterGPU {
         var rings = [SIMD4<Float>](repeating: .zero, count: 4)
         for (i, r) in c.rings.prefix(PlumeClusters.maximumRings).enumerated() {
             if i % 2 == 0 {
@@ -95,7 +97,7 @@ enum Plumes {
         let near = c.members.map { m in
             (m.exit - c.origin).dot(c.axis) + min(m.length, max(10 * m.exitDiameter, m.glowLength))
         }.max() ?? c.end
-        g.reserved.0 = SIMD4(Float(min(near, c.end)), Float(c.merged == nil ? 0 : c.mergeX), 0, 0)
+        g.reserved.0 = SIMD4(Float(min(near, c.end)), Float(c.merged == nil ? 0 : c.mergeX), Float(steps), 0)
         if let l = light {
             g.light = f4(l.centre, l.length)
             g.lightAxis = f4(l.axis, l.radius)
@@ -209,7 +211,8 @@ struct PlumeClusterGPU {
     var lightColor = SIMD4<Float>.zero
     /// x: where the near field ends along the axis (m), which the march
     /// gives half its steps; y: where the merged member takes over (0:
-    /// none; it follows the members in the buffer).
+    /// none; it follows the members in the buffer); z: the cluster's steps
+    /// (0: the frame's).
     var reserved = (SIMD4<Float>.zero, SIMD4<Float>.zero, SIMD4<Float>.zero, SIMD4<Float>.zero)
 }
 
@@ -501,10 +504,14 @@ public final class PlumeSystem {
                 break
             }
         }
-        // Far to near: R6's volumes layer blends them in draw order.
+        // Far to near: R6's volumes layer blends them in draw order. A
+        // cluster only its glow shows (emission alone, smooth) takes a
+        // quarter of the steps, at least 8.
         for e in marched.sorted(by: { $0.distance > $1.distance }) {
             let c = e.cluster
-            data.marched.append(Plumes.gpu(c, memberStart: data.members.count, light: e.light, sunlit: e.sunlit))
+            let steps = c.members.allSatisfy(\.glowOnly) ? max(8, settings.quality.steps / 4) : 0
+            data.marched.append(Plumes.gpu(c, memberStart: data.members.count, light: e.light, sunlit: e.sunlit,
+                                           steps: steps))
             data.members += (c.members + (c.merged.map { [$0] } ?? [])).map {
                 Plumes.gpu($0, turbulenceTime: turbulence, turbulent: settings.turbulence)
             }

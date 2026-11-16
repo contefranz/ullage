@@ -417,7 +417,8 @@ fragment EffectVolumeOut plume_march_fragment(PlumeProxyOut in [[stage_in]],
     }
     if (exit <= enter) { discard_fragment(); }
 
-    int steps = max(int(pf.wienK.w), 1);
+    // The frame's steps, or the cluster's own (a glow-only one's fewer).
+    int steps = c.reserved[0].z > 0.5 ? int(c.reserved[0].z) : max(int(pf.wienK.w), 1);
     float len = length(dir);
     float3 view = dir / len;
     // Half the steps in the near field (x up to c.reserved[0].x), where the
