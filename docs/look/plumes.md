@@ -89,7 +89,7 @@ medium, L low (visual, calibrated or assumed).
 | Base recirculation at high n | depth 1.5 over an exit diameter, 1,750-2,000 K, from n ≈ 3 | L: the base glow at altitude |
 | Hydrogen and hypergolic gas | depth 0.002 / 0.004 | L: nearly invisible (S69-39958) |
 | Their condensate | depth 0.01 / 0.005, albedo 0.95, g 0.6, from 4 / 2 De | L |
-| Their near-exit light | (18, 22, 40) / (60, 34, 26) cd/m² over 1.5 De | L, about invisible in daylight |
+| Their near-exit light | (2, 2.4, 4.4) / (6, 3.4, 2.6) cd/m² over 1.5 De | L: invisible in daylight, under the SPS glow at night |
 | Mach disk | P1's distance and radius; 0.85 Tc; emissivity 0.5 soot/alumina, 0.02 hydrogen, 0.05 hypergols; diluted as the free expansion there | L |
 | Shock cells | P1's length and count; ±30 % of temperature and density, times P1's structure visibility | L |
 | Alumina | depth 80 × alumina mass fraction across the exit; leaves at Te + (Tc − Te)/2; cools by radiation (3 µm, ε 0.3); cone lip + 5°; albedo 0.5 hot, 0.9 cold | L |

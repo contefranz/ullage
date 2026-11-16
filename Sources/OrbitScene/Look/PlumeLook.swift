@@ -392,10 +392,11 @@ public enum PlumeLook {
         /// light physical (nearly nothing).
         public static let hydrogenGasDepth = 0.002, hypergolicGasDepth = 0.004
         /// The near-exit light of a clear exhaust, cd/m² through the axis,
-        /// over 1.5 exit diameters: OH and NH bands (L, about invisible in
-        /// daylight).
-        public static let hydrogenGlow = Photometry.RGB(18, 22, 40)
-        public static let hypergolicGlow = Photometry.RGB(60, 34, 26)
+        /// over 1.5 exit diameters: OH and NH bands (L). Invisible in
+        /// daylight; at night well under the SPS extension's glow, which is
+        /// the cue that the engine runs.
+        public static let hydrogenGlow = Photometry.RGB(2, 2.4, 4.4)
+        public static let hypergolicGlow = Photometry.RGB(6, 3.4, 2.6)
         /// Henyey-Greenstein g by family.
         public static func phaseG(_ f: PlumeFamily) -> Double {
             switch f {
