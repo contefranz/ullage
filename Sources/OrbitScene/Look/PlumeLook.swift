@@ -938,7 +938,9 @@ public enum PlumeLook {
     /// scattering lit by `sun` (lux, the unit direction to it, unshadowed)
     /// and an isotropic `ambient` (lux: 4π times a mean radiance), the
     /// Sun's phase taken along `phaseDirection` (the view ray's; the march's
-    /// own direction when nil). With `around`, the steps are equiangular
+    /// own direction when nil); `ambientResponse` is the radiance it adds per
+    /// cd/m² of mean ambient radiance (its scattering seen through it). With
+    /// `around`, the steps are equiangular
     /// about the ray's point at `around.t` (Kulla and Fajardo 2012), as
     /// dense as 1 / (h² + (t - around.t)²), as the shader steps across a
     /// small dense core. The shader's march without its jitter, noise and
@@ -948,13 +950,13 @@ public enum PlumeLook {
                              sun: (direction: Vec3, illuminance: Photometry.RGB)? = nil,
                              ambient: Photometry.RGB = Photometry.RGB(0, 0, 0), phaseDirection: Vec3? = nil,
                              around: (t: Double, h: Double)? = nil)
-        -> (radiance: Photometry.RGB, transmittance: Double) {
+        -> (radiance: Photometry.RGB, transmittance: Double, ambientResponse: Double) {
         let n = max(steps, 1)
         let uniform = (range.upperBound - range.lowerBound) / Double(n)
         let a = around.map { atan((range.lowerBound - $0.t) / max($0.h, 1e-9)) } ?? 0
         let dphi = around.map { (atan((range.upperBound - $0.t) / max($0.h, 1e-9)) - a) / Double(n) } ?? 0
         let cosPhase = sun.map { (phaseDirection ?? direction).dot($0.direction) } ?? 0
-        var t = 1.0, l = Photometry.RGB(0, 0, 0)
+        var t = 1.0, l = Photometry.RGB(0, 0, 0), response = 0.0
         for i in 0..<n {
             var at = range.lowerBound + (Double(i) + 0.5) * uniform, ds = uniform
             if let around {
@@ -986,9 +988,10 @@ public enum PlumeLook {
             let step = exp(-sigma * ds)
             let k = sigma > 1e-9 ? (1 - step) / sigma : ds
             l = Photometry.RGB(l.r + t * source.r * k, l.g + t * source.g * k, l.b + t * source.b * k)
+            response += t * s.scattering * k
             t *= step
         }
-        return (l, t)
+        return (l, t, response)
     }
 
     /// Henyey-Greenstein's phase, normalised over the sphere (1/sr).

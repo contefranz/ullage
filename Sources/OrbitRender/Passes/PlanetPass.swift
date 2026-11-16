@@ -40,6 +40,8 @@ public final class PlanetPass: RenderPass {
     }
 
     public func setUp(_ s: PassSetup) throws {
+        probeLibraries = (s.device, try s.shaders.library(.planet), tiles == nil ? nil : try? s.shaders.library(.planetTiled))
+        probePipelines = [:]
         pipeline = try PipelineBuilder.scene(try s.shaders.library(.planet), vertex: "planet_vertex",
                                              fragment: "planet_fragment", blend: .premultiplied, setup: s)
         // E2 replaces: a tile module that does not compile leaves the Earth untiled.
@@ -137,6 +139,91 @@ public final class PlanetPass: RenderPass {
                 baseColor: SIMD4(style.color.x, style.color.y, style.color.z, texture == nil ? 0 : 1),
                 atmosphere: SIMD4(air && body.id == AtmosphereFrame.planetID ? 1 : 0, groundSteps, haze == nil ? 0 : 1, 0),
                 options: SIMD4(texture == nil && tiled == nil ? 1 : 0, 0.015, 0, 0),
+                origin: SIMD4(origin, Float(c)),
+                figure: SIMD4(Float(stretch), 0, 0, 0))
+            enc.setFragmentBytes(&u, length: MemoryLayout<PlanetUniforms>.stride, index: 0)
+            enc.setFragmentTexture(texture ?? fallbackTexture, index: 0)
+            enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
+        }
+    }
+
+    // MARK: R3's probe entry point
+
+    /// The device and the two planet modules, for the probe's pipelines.
+    private var probeLibraries: (device: MTLDevice, plain: MTLLibrary, tiled: MTLLibrary?)?
+    private var probePipelines: [String: (plain: MTLRenderPipelineState, tiled: MTLRenderPipelineState?)] = [:]
+
+    /// R3's probe entry point: the bodies drawn into one 90° face of a
+    /// radiance cube on `enc`, whose attachments have `formats`, seen from
+    /// `center` (camera-relative, m), farthest first, as `encode` draws them
+    /// but in cd/m² (the encoder's frame uniforms, buffer 30, carry a
+    /// pre-exposure of 1), with no night floor and no grid, and from above
+    /// the air with the ground's haze marched in the shader (`groundSteps`
+    /// steps: A2's reduced-resolution haze is the camera's view). Inside the
+    /// air the ground's haze is A2's sky-view LUT, the camera's (within a few
+    /// hundred metres of `center`). `viewToWorld`: the face's view basis
+    /// (`EnvironmentProbe.basis`). Bodies under a texel across are left out
+    /// (`faceSize` texels to the face's side). The encoder must have the
+    /// atmosphere's uniforms (buffer 28) and its slots (25, 28, 29) bound.
+    /// The pixels `encode` draws do not depend on this.
+    public func encodeProbe(_ f: FrameContext, on enc: MTLRenderCommandEncoder, formats: SceneFormats,
+                            viewToWorld: simd_float4x4, center: Vec3, faceSize: Int, groundSteps: Int, near: Double) {
+        guard let libraries = probeLibraries, let fallbackTexture else { return }
+        let key = "\(formats.color.rawValue) \(formats.depth.rawValue) \(formats.sampleCount)"
+        if probePipelines[key] == nil {
+            func make(_ library: MTLLibrary) -> MTLRenderPipelineState? {
+                try? PipelineBuilder.make(library, vertex: "planet_vertex", fragment: "planet_fragment",
+                                          blend: .premultiplied, color: formats.color, depth: formats.depth,
+                                          sampleCount: formats.sampleCount, device: libraries.device)
+            }
+            guard let plain = make(libraries.plain) else { return }
+            probePipelines[key] = (plain, libraries.tiled.flatMap(make))
+        }
+        guard let pipelines = probePipelines[key] else { return }
+        enc.setRenderPipelineState(pipelines.plain)
+        if formats.depth != .invalid { enc.setDepthStencilState(f.states.depthWrite) }
+        enc.setFragmentSamplerState(f.states.equirectSampler, index: 0)
+        enc.setFragmentTexture(f.textures[.atmosphereIrradiance] ?? fallbackTexture, index: 1)
+        enc.setFragmentTexture(f.textures[.atmosphereProfile] ?? fallbackTexture, index: 2)
+        enc.setFragmentTexture(fallbackTexture, index: 3)
+        enc.setFragmentTexture(fallbackTexture, index: 4)
+        let air = f.atmosphere.radii.w > 0.5 && f.textures[.atmosphereProfile] != nil
+        let albedoTiles = f.settings.planetTile.enabled
+            ? tiles?.layer(.albedo).flatMap { $0.residency.residentCount > 0 ? $0 : nil } : nil
+        // A texel's angle at the face's centre.
+        let texel = 2 / Double(max(faceSize, 1))
+        let bodies = f.scene.bodies.filter { !$0.isSun }.sorted { ($0.position - center).length > ($1.position - center).length }
+        for body in bodies {
+            let rel = body.position - center
+            let distance = rel.length
+            let orientation = body.orientation, figure = body.figure
+            let a = figure.equatorialRadius, stretch = a / figure.polarRadius
+            let probeBody = orientation.toBody(-rel)
+            let origin = Vec3(probeBody.x, probeBody.y, probeBody.z * stretch)
+            let c = (origin.length - a) * (origin.length + a)
+            // Outside the figure (its ellipsoid: on the pad the geocentric
+            // radius is 4.9 km under the equatorial), and over a texel across.
+            guard c > 0, 2 * asin(min(1, body.radius / max(distance, 1))) >= texel else { continue }
+            let style = Self.style(for: body.id)
+            let altitude = figure.geodetic(probeBody).height
+            let texture = textures[body.id]
+            let tiled = body.id == AtmosphereFrame.planetID ? albedoTiles : nil
+            if let tiled, let tiledPipeline = pipelines.tiled {
+                enc.setRenderPipelineState(tiledPipeline)
+                tiled.bindFragment(enc, atlas: 5, indirection: 6, deep: 1, uniforms: 2)
+                enc.setFragmentSamplerState(tiled.sampler, index: 1)
+            } else {
+                enc.setRenderPipelineState(pipelines.plain)
+            }
+            var u = PlanetUniforms(
+                viewToWorld: viewToWorld,
+                worldToBody: simd_float4x4(rotation: orientation.icrfToBody),
+                centerRadius: SIMD4(rel, Float(a)),
+                params: SIMD4(Float(altitude), 1, 1, Float(near)),
+                sunDir: SIMD4(body.toSun, 0),
+                baseColor: SIMD4(style.color.x, style.color.y, style.color.z, texture == nil ? 0 : 1),
+                atmosphere: SIMD4(air && body.id == AtmosphereFrame.planetID ? 1 : 0, Float(groundSteps), 0, 0),
+                options: SIMD4(0, 0, 0, 0),
                 origin: SIMD4(origin, Float(c)),
                 figure: SIMD4(Float(stretch), 0, 0, 0))
             enc.setFragmentBytes(&u, length: MemoryLayout<PlanetUniforms>.stride, index: 0)

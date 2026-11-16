@@ -50,7 +50,8 @@ final class SnapshotToolTests: XCTestCase {
         // C2's clouds draw through R6's slots, which break the scene: their
         // half-resolution pass and composite run, and the overhead is
         // measured at the break.
-        XCTAssertEqual(timed.timings.map(\.pass), ["Atmosphere LUTs", "Clouds", "Shadows", "Stars", "Planets",
+        XCTAssertEqual(timed.timings.map(\.pass), ["Atmosphere LUTs", "Clouds", "Shadows", "Environment probe",
+                                                   "Stars", "Planets",
                                                    "Vessels", "Atmosphere composite", "Vessel wires",
                                                    FrameProfile.splitOverhead,
                                                    "Half-resolution transparents", "Far points",

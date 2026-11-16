@@ -79,6 +79,8 @@ public final class SceneRenderer {
         pool = TexturePool(device: device)
         history = HistoryTargets(device: device)
         graph = FrameGraph(passes: passes, plan: plan)
+        // R3's probe draws through the graph's own planet, sky and cloud passes.
+        for case let probe as EnvironmentProbePass in graph.passes { probe.connect(graph.passes) }
         profiler = GPUProfiler(device: device)
         arenas = (0..<Self.framesInFlight).compactMap { _ in FrameArena(device: device, capacity: 1 << 18) }
         guard arenas.count == Self.framesInFlight else { throw Failure.noResources }

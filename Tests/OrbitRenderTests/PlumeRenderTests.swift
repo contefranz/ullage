@@ -21,7 +21,7 @@ final class PlumeRenderTests: XCTestCase {
     }
 
     /// One engine on R6's black backdrop in low Earth orbit, side-on, no
-    /// air, no clouds, manual exposure.
+    /// air, no clouds, no probe, manual exposure.
     static func lookDev(_ engines: [PlumeTestEngine], distance: Double = 150, ev: Double = 17,
                         configure: (inout PlumeSettings) -> Void = { _ in }) -> SnapshotSpec.Shot {
         var shot = SnapshotSpec.Shot(name: "p2-test", scenario: "leo",
@@ -33,6 +33,7 @@ final class PlumeRenderTests: XCTestCase {
         shot.settings.post.exposure.ev100 = ev
         shot.settings.cloud.enabled = false
         shot.settings.atmosphere.enabled = false
+        shot.settings.probe.enabled = false
         shot.settings.transparency.testBackdrop = true
         shot.settings.plume.testEngines = engines
         configure(&shot.settings.plume)
@@ -127,7 +128,8 @@ final class PlumeRenderTests: XCTestCase {
     /// the GPU shares, `testMarchMatchesTheReference`), so a cluster does
     /// not change brightness as it crosses from impostor to march. A
     /// sunlit S-IC retro in vacuum (alumina smoke, g 0.6), side-on 60 m
-    /// ahead; the ambient a mean radiance, as the march takes it.
+    /// ahead; the ambient a mean radiance, which the impostor's fragment
+    /// adds through the station's response, as the march takes it.
     func testImpostorLightsAsTheMarch() throws {
         let spec = ApolloExhaust.sICRetro.spec
         let state = PlumeModel.state(spec, flowFraction: 1, ambient: .vacuum)
@@ -137,7 +139,7 @@ final class PlumeRenderTests: XCTestCase {
         var seen: [Double] = []
         for toSun in [Vec3(0.3, 0.2, -1).normalized, Vec3(0.3, 0.2, 1).normalized] {
             var strip: [PlumeVertex] = []
-            Plumes.impostor(m, sun: (toSun, lux), ambient: ambient, to: &strip)
+            Plumes.impostor(m, sun: (toSun, lux), to: &strip)
             // The station at a fifth of the length: its two vertices.
             let station = strip[6 * 4 + 2]
             let p = Vec3(Double(station.position.x), Double(station.position.y), Double(station.position.z))
@@ -146,7 +148,10 @@ final class PlumeRenderTests: XCTestCase {
             let e = m.extent(atX: x)
             let reference = PlumeLook.march([m], from: c - view * (2 * e), direction: view, range: 0...(4 * e),
                                             steps: 400, sun: (toSun, lux), ambient: ambient.scaled(by: 4 * Double.pi))
+            // The fragment adds the ambient's in-scatter (isotropic here: its
+            // mean radiance) times the station's response.
             let got = 0.2126 * Double(station.color.x) + 0.7152 * Double(station.color.y) + 0.0722 * Double(station.color.z)
+                + Double(station.shape.z) * ambient.luminance
             XCTAssertEqual(got / reference.radiance.luminance, 1, accuracy: 0.1, "Sun \(toSun)")
             seen.append(got)
         }

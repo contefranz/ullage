@@ -8,14 +8,15 @@ import OrbitScene
 final class SceneRendererTests: XCTestCase {
     static let system = try! SolarSystem.bundled()
 
-    /// Today's passes, R1's, A2's, C2's clouds and R4's shadows are set up and active, every
-    /// track's stub is off. R6's effect slots are set up too; they run only on
+    /// Today's passes, R1's, A2's, C2's clouds, R4's shadows and R3's probe are set up and active,
+    /// every track's stub is off. R6's effect slots are set up too; they run only on
     /// frames an effect draws in.
     func testDefaultPasses() throws {
         let r = try SceneRenderer(device: try XCTUnwrap(RenderDevice.shared), loadsUserTextures: false)
         XCTAssertEqual(r.failures, [:])
         XCTAssertEqual(r.graph.active.map(\.name), ["Exposure", "Atmosphere LUTs", "Clouds", "Shadows",
-                                                    "Particle simulation", "Plume lights", "Stars", "Planets", "Vessels",
+                                                    "Environment probe", "Particle simulation", "Plume lights", "Stars",
+                                                    "Planets", "Vessels",
                                                     "Effect test opaque", "Particle chunks", "Atmosphere composite",
                                                     "Vessel wires", "Half-resolution transparents", "Plumes", "Far points",
                                                     "Transparent composite", "Effect test sparks", "Particles",
@@ -63,7 +64,12 @@ final class SceneRendererTests: XCTestCase {
         // A2's sky over AOD 0.1 of aerosol, through AgX: blue, if paler than M1.5's.
         XCTAssertGreaterThan(sky.b, sky.r + 20, "blue sky at the top: \(sky)")
         XCTAssertLessThan(ground.b + ground.g + ground.r, sky.b + sky.g + sky.r, "darker ground below: \(ground)")
-        XCTAssertGreaterThan(vehicle.r + vehicle.g + vehicle.b, 300, "the white stack in the middle: \(vehicle)")
+        // R3's probe lights the shaded side with the sky and the ground the
+        // planet pass draws (the untextured Earth's sea here), half the sky
+        // a vertical surface sees: darker than R2's stand-in's whole sky.
+        XCTAssertGreaterThan(vehicle.r + vehicle.g + vehicle.b, 150, "the white stack in the middle: \(vehicle)")
+        XCTAssertGreaterThan(vehicle.r + vehicle.g + vehicle.b, ground.b + ground.g + ground.r,
+                             "the stack brighter than the ground: \(vehicle), \(ground)")
         XCTAssertEqual(try image(), pixels, "deterministic")
     }
 }

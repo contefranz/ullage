@@ -127,6 +127,8 @@ public final class CloudPass: RenderPass, HalfResEffect {
 
     public func setUp(_ s: PassSetup) throws {
         let library = try s.shaders.library(.cloud)
+        probeLibrary = library
+        probePipelines = [:]
         func compute(_ name: String) throws -> MTLComputePipelineState {
             guard let f = library.makeFunction(name: name) else { throw ShaderLibrary.Failure.missingFunction(name) }
             return try s.device.makeComputePipelineState(function: f)
@@ -211,7 +213,20 @@ public final class CloudPass: RenderPass, HalfResEffect {
         return earth
     }
 
-    public func isActive(in f: FrameContext) -> Bool { earth(f) != nil }
+    /// The Earth, when R3's probe draws the clouds this frame: enabled, with
+    /// weather, the probe on and asking for them; on screen or not, so the
+    /// vessels' light does not change as the camera turns.
+    func probeEarth(_ f: FrameContext) -> RenderScene.Body? {
+        let c = f.settings.cloud, probe = f.settings.probe
+        guard probe.enabled, probe.clouds, probe.environment == .scene, c.enabled, c.weather != "clear",
+              c.lookDev == nil, pipelines != nil, !f.settings.transparency.testBackdrop else { return nil }
+        return CloudFrame.earth(in: f.scene)
+    }
+
+    /// When the clouds draw (`earth`), or when only R3's probe needs this
+    /// frame's state (`probeEarth`): then the weather and the uniforms are
+    /// prepared, and the shadow map, the march and the slot are not.
+    public func isActive(in f: FrameContext) -> Bool { earth(f) != nil || probeEarth(f) != nil }
 
     /// Asked before P0 has run (R6 plans its frame first): the same test
     /// as `isActive`, not this frame's results.
@@ -225,8 +240,10 @@ public final class CloudPass: RenderPass, HalfResEffect {
         resolved = nil
         lastFrame = Report()
         frameAir = nil
-        guard case .commandBuffer(let cb) = e, let earth = earth(f), let p = pipelines, let noise, let tables,
-              let samplers, let weatherMap, let airTables = air?.tables(f) else { return }
+        probeState = nil
+        let onScreen = earth(f)
+        guard case .commandBuffer(let cb) = e, let earth = onScreen ?? probeEarth(f), let p = pipelines, let noise,
+              let tables, let samplers, let weatherMap, let airTables = air?.tables(f) else { return }
         frameAir = airTables
         noise.generate(on: cb, pipelines: (p.shape, p.detail, p.curl))
         let settings = f.settings.cloud
@@ -281,6 +298,14 @@ public final class CloudPass: RenderPass, HalfResEffect {
         let marchSize = RenderSize(width: size.width, height: size.height)
         var u = uniforms(f, frame: frame, settings: settings, sample: sample, regimes: regimes, size: marchSize,
                          scale: scale, hasField: params.snapshots != nil, airTop: airTables.top)
+
+        // Off screen, only R3's probe reads this frame's state: no shadow
+        // map, march or slot.
+        guard onScreen != nil else {
+            enc.endEncoding()
+            probeState = ProbeState(frame: f, uniforms: u, air: airTables)
+            return
+        }
 
         // The shadow map.
         let shadowN = settings.shadowTexels
@@ -358,6 +383,7 @@ public final class CloudPass: RenderPass, HalfResEffect {
 
         resolved = (hc.current, hd.current)
         uniformsForSlot = u
+        probeState = ProbeState(frame: f, uniforms: u, air: airTables)
         f.textures[.cloudLayer] = hc.current
         f.textures[.cloudDepth] = hd.current
         previous = frame
@@ -413,6 +439,90 @@ public final class CloudPass: RenderPass, HalfResEffect {
         enc.setFragmentSamplerState(samplers.weather, index: 1)
         enc.setFragmentSamplerState(f.states.linearClamp, index: Binding.linearClampSampler)
         enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
+    }
+
+    // MARK: R3's probe entry point
+
+    private var probePipelines: [String: MTLRenderPipelineState] = [:]
+    private var probeLibrary: MTLLibrary?
+    /// This frame's uniforms and air tables for R3's probe, keyed to the
+    /// frame that prepared them (held weakly, so a later frame never sees
+    /// them): a frame the pass did not run has none.
+    private struct ProbeState {
+        weak var frame: FrameContext?
+        let uniforms: CloudUniforms
+        let air: CloudAir.Tables
+    }
+    private var probeState: ProbeState?
+
+    /// R3's probe entry point: this frame's far cloud layers (low and mid,
+    /// `cloud_probe_fragment`) drawn premultiplied over one 90° face of a
+    /// radiance cube on `encoder` (attachments of `formats`, `faceSize`²), in
+    /// cd/m², along the face's rays from the camera (the probe's centre is
+    /// within a few hundred metres of it), with the air between marched in
+    /// front when A2 is on. `viewToWorld`: the face's view basis. The state
+    /// is this frame's, prepared by `encode` whether the clouds are on screen
+    /// or not (`probeEarth`); a frame the pass did not run draws nothing. The
+    /// encoder must have the atmosphere's uniforms (buffer 28) and its slots
+    /// (25, 28) bound. What `encode` and `encodeHalfRes` draw does not depend
+    /// on it.
+    @discardableResult
+    public func encodeProbe(_ f: FrameContext, on encoder: MTLRenderCommandEncoder, formats: SceneFormats,
+                            viewToWorld: simd_float4x4, faceSize: Int, hazeSteps: Int = 6) -> Bool {
+        guard let state = probeState, state.frame === f, let noise, let tables, let weatherMap, let samplers,
+              let probeLibrary else { return false }
+        let frameAir = state.air
+        // Without A2 (its profile absent) the air in front is not marched.
+        let profile = f.textures[.atmosphereProfile]
+        let key = "\(formats.color.rawValue) \(formats.depth.rawValue) \(formats.sampleCount)"
+        if probePipelines[key] == nil {
+            let d = MTLRenderPipelineDescriptor()
+            guard let vf = probeLibrary.makeFunction(name: "cloud_slot_vertex"),
+                  let ff = probeLibrary.makeFunction(name: "cloud_probe_fragment") else { return false }
+            d.label = "Clouds (probe)"
+            d.vertexFunction = vf
+            d.fragmentFunction = ff
+            d.rasterSampleCount = formats.sampleCount
+            d.depthAttachmentPixelFormat = formats.depth
+            let c = d.colorAttachments[0]!
+            c.pixelFormat = formats.color
+            c.isBlendingEnabled = true
+            c.rgbBlendOperation = .add
+            c.alphaBlendOperation = .add
+            c.sourceRGBBlendFactor = .one
+            c.destinationRGBBlendFactor = .oneMinusSourceAlpha
+            c.sourceAlphaBlendFactor = .zero
+            c.destinationAlphaBlendFactor = .one
+            guard let p = try? f.device.makeRenderPipelineState(descriptor: d) else { return false }
+            probePipelines[key] = p
+        }
+        guard let pipeline = probePipelines[key] else { return false }
+        var u = state.uniforms
+        let sun = f.scene.sun
+        var view = CloudProbeView(viewToWorld: viewToWorld,
+                                  params: SIMD4(1 / max(f.frame.exposure.x, 1e-30), Float(hazeSteps), Float(faceSize),
+                                                profile == nil ? 0 : 1),
+                                  sunWorld: SIMD4(sun.direction, Float(sun.angularRadius)),
+                                  solar: SIMD4(f.frame.sunIlluminance.x, f.frame.sunIlluminance.y,
+                                               f.frame.sunIlluminance.z, 0))
+        encoder.setRenderPipelineState(pipeline)
+        if formats.depth != .invalid { encoder.setDepthStencilState(f.states.noDepth) }
+        encoder.setFragmentBytes(&u, length: MemoryLayout<CloudUniforms>.stride, index: 0)
+        encoder.setFragmentBytes(&view, length: MemoryLayout<CloudProbeView>.stride, index: 1)
+        encoder.setFragmentTexture(noise.shape, index: 2)
+        encoder.setFragmentTexture(noise.detail, index: 3)
+        encoder.setFragmentTexture(noise.curl, index: 4)
+        encoder.setFragmentTexture(weatherMap.a, index: 5)
+        encoder.setFragmentTexture(weatherMap.b, index: 6)
+        encoder.setFragmentTexture(tables.slab, index: 7)
+        encoder.setFragmentTexture(frameAir.transmittance, index: 8)
+        encoder.setFragmentTexture(frameAir.irradiance, index: 9)
+        encoder.setFragmentTexture(profile ?? frameAir.irradiance, index: 10)
+        encoder.setFragmentSamplerState(samplers.wrap, index: 0)
+        encoder.setFragmentSamplerState(samplers.weather, index: 1)
+        encoder.setFragmentSamplerState(f.states.linearClamp, index: Binding.linearClampSampler)
+        encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
+        return true
     }
 
     // MARK: Parts
@@ -792,4 +902,12 @@ struct CloudResolveUniforms {
     var reprojection = matrix_identity_float4x4
     var target = SIMD4<Float>.zero
     var checker = SIMD4<Float>.zero
+}
+
+/// Swift mirror of CloudShaders' `CloudProbeView` (R3's probe faces).
+struct CloudProbeView {
+    var viewToWorld: simd_float4x4
+    var params: SIMD4<Float>
+    var sunWorld: SIMD4<Float>
+    var solar: SIMD4<Float>
 }

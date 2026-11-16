@@ -11,7 +11,7 @@ struct PlumeFrame {
     float4 wienA;       // rgb: c1 (K), w: the turbulence clock (s)
     float4 sun;         // xyz: unit to the Sun (world), w: 1 with the clouds' layer bound
     float4 sunLight;    // rgb: the Sun's lux at the plumes, w: 1 to take R4's shadow
-    float4 ambient;     // rgb: the ambient stub's mean radiance (cd/m², not pre-exposed)
+    float4 ambient;     // rgb: the mean radiance where R3's probe is not drawn (cd/m², not pre-exposed)
     float4 params;      // x: frame index, y: 1 with aerial perspective, z: a half-res texel's angle (rad)
     float4 wienC;       // rgb: c2 (K²)
 };
@@ -364,13 +364,12 @@ inline void plume_member(thread PlumeSample &s, const device PlumeMember &m, flo
 // adds its own light.
 
 // The ambient light scattered towards the eye along view ray v by a medium
-// of Henyey-Greenstein asymmetry g (cd/m², not pre-exposed), with R3's
-// orbit_sh9InScatter(lighting, v, g)'s signature and meaning; once R3
-// merges its body becomes that call (with the .sphericalHarmonics header).
-// Until then the stub: the mean radiance about the plumes, isotropic (A2's
-// sky in air, the earthshine stand-in in vacuum; PlumeSystem.prepare).
+// of Henyey-Greenstein asymmetry g (cd/m², not pre-exposed): R3's probe's
+// SH9 when it is drawn (lighting.probe.w), else the mean radiance about the
+// plumes, isotropic (A2's sky in air, the earthshine stand-in in vacuum;
+// PlumeSystem.prepare).
 inline float3 plume_sh9InScatter(constant LightingUniforms &lighting, float3 v, float g, constant PlumeFrame &pf) {
-    return pf.ambient.rgb;
+    return lighting.probe.w > 0.5 ? orbit_sh9InScatter(lighting, v, g) : pf.ambient.rgb;
 }
 
 fragment EffectVolumeOut plume_march_fragment(PlumeProxyOut in [[stage_in]],
@@ -610,13 +609,15 @@ fragment EffectVolumeOut plume_march_fragment(PlumeProxyOut in [[stage_in]],
 
 // --------------------------------------------------------- the impostors ---
 // Camera-facing strips along each member: the light and opacity seen
-// through its axis at each station (PlumeLook's march on the CPU), fading
-// across; premultiplied over the scene, hazed by A2's air.
+// through its axis at each station (PlumeLook's march on the CPU), plus the
+// ambient's in-scatter times the station's response to it (as the march
+// lights it), fading across; premultiplied over the scene, hazed by A2's
+// air.
 
 struct PlumeVertex {
     float4 position;   // camera-relative world position, w = 1
     float4 color;      // rgb: radiance through the axis (cd/m²), a: opacity
-    float4 shape;      // x: across (-1...1), y: along (0 exit ... 1 tail)
+    float4 shape;      // x: across (-1...1), y: along (0 exit ... 1 tail), z: ambient response, w: phase g
 };
 
 struct PlumeImpostorOut {
@@ -641,13 +642,15 @@ vertex PlumeImpostorOut plume_impostor_vertex(uint vid [[vertex_id]],
 fragment float4 plume_impostor_fragment(PlumeImpostorOut in [[stage_in]],
                                         constant FrameUniforms &frame [[buffer(ORBIT_BUFFER_FRAME)]],
                                         constant AtmosphereUniforms &air [[buffer(ORBIT_BUFFER_ATMOSPHERE)]],
+                                        constant LightingUniforms &lighting [[buffer(ORBIT_BUFFER_LIGHTING)]],
                                         constant PlumeFrame &pf [[buffer(0)]],
                                         texture3d<float> froxels [[texture(ORBIT_TEXTURE_AERIAL_PERSPECTIVE)]],
                                         sampler linear [[sampler(ORBIT_SAMPLER_LINEAR_CLAMP)]]) {
     float x2 = in.shape.x * in.shape.x;
     float across = pow(max(1.0 - x2, 0.0), 1.5);
     float alpha = clamp(in.color.a * across, 0.0, 1.0);
-    float3 c = in.color.rgb * across;
+    float3 ambient = plume_sh9InScatter(lighting, normalize(in.world), in.shape.w, pf);
+    float3 c = (in.color.rgb + in.shape.z * ambient) * across;
     if (pf.params.y > 0.5) {
         float4 haze = atmo_aerialPerspective(froxels, linear, in.position.xy * frame.viewport.zw, length(in.world), air);
         c = c * haze.a + haze.rgb * alpha;
@@ -718,6 +721,7 @@ fragment float4 plume_glow_fragment(PlumeGlowOut in [[stage_in]],
 
 extension ShaderModule {
     public static let plume = ShaderModule(name: "Plume",
-                                           headers: [.effectSlots, .atmosphereCommon, .shadowCommon, .cloudShadow],
+                                           headers: [.effectSlots, .atmosphereCommon, .shadowCommon, .cloudShadow,
+                                                     .sphericalHarmonics],
                                            source: plumeShaderSource)
 }

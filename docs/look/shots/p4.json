@@ -4,15 +4,15 @@
     {"name": "p4-pad-ignition", "scenario": "as506-pad", "showOrbit": false,
      "reference": "P4's particles alone: R6's backdrop, no air, no clouds",
      "camera": {"yaw": 90, "pitch": 2, "distance": 380, "fov": 50},
-     "settings": {"post": {"exposure": {"mode": "manual", "ev100": 15}}, "cloud": {"enabled": false},
+     "settings": {"post": {"exposure": {"mode": "manual", "ev100": 15}}, "cloud": {"enabled": false}, "probe": {"enabled": false},
                   "atmosphere": {"enabled": false}, "transparency": {"testBackdrop": true}}},
     {"name": "p4-liftoff", "scenario": "as506-pad", "showOrbit": false, "advance": ["met:8"],
      "camera": {"yaw": 90, "pitch": 4, "distance": 480, "fov": 50},
-     "settings": {"post": {"exposure": {"mode": "manual", "ev100": 15}}, "cloud": {"enabled": false},
+     "settings": {"post": {"exposure": {"mode": "manual", "ev100": 15}}, "cloud": {"enabled": false}, "probe": {"enabled": false},
                   "atmosphere": {"enabled": false}, "transparency": {"testBackdrop": true}}},
     {"name": "p4-trail-chase", "scenario": "as506-pad", "showOrbit": false, "advance": ["met:75"],
      "camera": {"yaw": 20, "pitch": -8, "distance": 2500, "fov": 50},
-     "settings": {"post": {"exposure": {"mode": "manual", "ev100": 15}}, "cloud": {"enabled": false},
+     "settings": {"post": {"exposure": {"mode": "manual", "ev100": 15}}, "cloud": {"enabled": false}, "probe": {"enabled": false},
                   "atmosphere": {"enabled": false}, "transparency": {"testBackdrop": true}}}
   ]
 }

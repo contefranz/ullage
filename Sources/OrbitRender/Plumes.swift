@@ -107,16 +107,16 @@ enum Plumes {
     /// Strips facing the camera along each member of an impostor cluster,
     /// shaded from the look: at each of `samples` stations its light and
     /// opacity seen through the axis from the camera's side (the reference
-    /// march, lit by the Sun at the view ray's phase and by `ambient`, the
-    /// mean radiance about it, cd/m²), fading across; and, as M1.5's did, a
-    /// disc over the exit facing the camera that carries the plume seen end
-    /// on, weighted by how nearly it is.
+    /// march, lit by the Sun at the view ray's phase), and its response to
+    /// the ambient, which the fragment lights as the march does (R3's SH9,
+    /// or the stub), fading across; and, as M1.5's did, a disc over the exit
+    /// facing the camera that carries the plume seen end on, weighted by how
+    /// nearly it is.
     static func impostor(_ m: PlumeMember, sun: (direction: Vec3, illuminance: Photometry.RGB)?,
-                         ambient: Photometry.RGB, to out: inout [PlumeVertex]) {
+                         to out: inout [PlumeVertex]) {
         guard m.length > 0 else { return }
         let samples = 10
-        // The march's ambient is the fluence: 4π times the mean radiance.
-        let fluence = ambient.scaled(by: 4 * Double.pi)
+        let g = Float(m.phaseG)
         let middle = m.exit + m.axis * (0.5 * m.length)
         var side = m.axis.cross((-middle).normalized)
         if side.length < 1e-6 { side = PlumeLook.perpendicular(m.axis) }
@@ -132,12 +132,12 @@ enum Plumes {
             widest = max(widest, w)
             let c = m.exit + m.axis * x
             let seen = PlumeLook.march([m], from: c + towards * e, direction: -towards, range: 0...(2 * e), steps: 24,
-                                       sun: sun, ambient: fluence, phaseDirection: c.normalized,
-                                       around: (e, 0.5 * m.denseRadius(atX: x)))
+                                       sun: sun, phaseDirection: c.normalized, around: (e, 0.5 * m.denseRadius(atX: x)))
             let alpha = 1 - seen.transmittance
             let color = SIMD4(Float(seen.radiance.r), Float(seen.radiance.g), Float(seen.radiance.b), Float(alpha))
-            return (PlumeVertex(position: f4(c - side * w, 1), color: color, shape: SIMD4(-1, Float(t), 0, 0)),
-                    PlumeVertex(position: f4(c + side * w, 1), color: color, shape: SIMD4(1, Float(t), 0, 0)))
+            let a = Float(seen.ambientResponse)
+            return (PlumeVertex(position: f4(c - side * w, 1), color: color, shape: SIMD4(-1, Float(t), a, g)),
+                    PlumeVertex(position: f4(c + side * w, 1), color: color, shape: SIMD4(1, Float(t), a, g)))
         }
         var previous = ring(0)
         for i in 1...samples {
@@ -150,16 +150,17 @@ enum Plumes {
         let endOn = PlumeMember.smoothstep(0.3, 0.9, abs(view.dot(m.axis)))
         guard endOn > 0 else { return }
         let seen = PlumeLook.march([m], from: m.exit - view * m.length, direction: view, range: 0...(2 * m.length),
-                                   steps: 48, sun: sun, ambient: fluence)
+                                   steps: 48, sun: sun)
         let color = SIMD4(Float(seen.radiance.r * endOn), Float(seen.radiance.g * endOn),
                           Float(seen.radiance.b * endOn), Float((1 - seen.transmittance) * endOn))
+        let a = Float(seen.ambientResponse * endOn)
         let u = PlumeLook.perpendicular(view), v = view.cross(u).normalized
-        let centre = PlumeVertex(position: f4(m.exit, 1), color: color, shape: .zero)
+        let centre = PlumeVertex(position: f4(m.exit, 1), color: color, shape: SIMD4(0, 0, a, g))
         let sides = 16
         func rim(_ k: Int) -> PlumeVertex {
             let a = 2 * Double.pi * Double(k) / Double(sides)
             return PlumeVertex(position: f4(m.exit + (u * cos(a) + v * sin(a)) * widest, 1), color: color,
-                               shape: SIMD4(1, 0, 0, 0))
+                               shape: SIMD4(1, 0, Float(seen.ambientResponse * endOn), g))
         }
         for k in 0..<sides { out += [centre, rim(k), rim(k + 1)] }
     }
@@ -178,8 +179,9 @@ struct PlumeFrameGPU {
     var sun = SIMD4<Float>.zero
     /// rgb: the Sun's illuminance at the plumes (lux), w: 1 to shadow it (R4).
     var sunLight = SIMD4<Float>.zero
-    /// rgb: the ambient stub's mean radiance (cd/m², not pre-exposed): A2's
-    /// sky in air, the earthshine stand-in in vacuum, until R3's SH9.
+    /// rgb: the ambient's mean radiance where R3's probe is not drawn
+    /// (cd/m², not pre-exposed): A2's sky in air, the earthshine stand-in in
+    /// vacuum.
     var ambient = SIMD4<Float>.zero
     /// x: frame index (the jitter), y: 1 with aerial perspective.
     var params = SIMD4<Float>.zero
@@ -239,7 +241,8 @@ struct PlumeVertex {
     var position: SIMD4<Float>
     /// rgb: radiance seen through the axis (cd/m², not pre-exposed), a: opacity.
     var color: SIMD4<Float>
-    /// x: across (-1...1), y: along (0 exit ... 1 tail).
+    /// x: across (-1...1), y: along (0 exit ... 1 tail), z: the radiance
+    /// added per cd/m² of the ambient's in-scatter, w: the phase's g.
     var shape: SIMD4<Float>
 }
 
@@ -471,8 +474,8 @@ public final class PlumeSystem {
                              Double(a.sunTransmitted.y * a.sunTransmitted.w),
                              Double(a.sunTransmitted.z * a.sunTransmitted.w))
             : Photometry.sunColor.scaled(by: sun.illuminance)
-        // The ambient stub until R3's probe: A2's sky in air, the
-        // earthshine of the focus vessel's stand-in in vacuum.
+        // The ambient where R3's probe is not drawn (lighting.probe.w): A2's
+        // sky in air, the earthshine of the focus vessel's stand-in in vacuum.
         let focus = scene.vessels.first { $0.isFocus } ?? scene.vessels.first
         let earth = focus.map { v in
             Photometry.RGB(Double(v.light.earthColor.r), Double(v.light.earthColor.g), Double(v.light.earthColor.b))
@@ -493,7 +496,7 @@ public final class PlumeSystem {
                 marched.append((centre.length, c, light, sunlit))
             case .impostor:
                 let lit = sunlit > 0 ? (direction: sun.direction, illuminance: sunLux.scaled(by: sunlit)) : nil
-                for m in c.members { Plumes.impostor(m, sun: lit, ambient: ambient, to: &data.impostors) }
+                for m in c.members { Plumes.impostor(m, sun: lit, to: &data.impostors) }
             case .none:
                 break
             }
