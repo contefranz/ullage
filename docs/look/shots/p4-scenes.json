@@ -1,0 +1,15 @@
+{
+  "goldens": "scene",
+  "shots": [
+    {"name": "p4-scene-pad-ignition", "scenario": "as506-pad", "showOrbit": false,
+     "reference": "S69-39961, the Camera E-8 film; Apollo 8 S68-56050",
+     "camera": {"yaw": 90, "pitch": 2, "distance": 380, "fov": 50},
+     "settings": {"post": {"exposure": {"mode": "manual", "ev100": 15}}, "cloud": {"enabled": false}}},
+    {"name": "p4-scene-liftoff", "scenario": "as506-pad", "showOrbit": false, "advance": ["met:8"],
+     "camera": {"yaw": 90, "pitch": 4, "distance": 480, "fov": 50},
+     "settings": {"post": {"exposure": {"mode": "manual", "ev100": 15}}, "cloud": {"enabled": false}}},
+    {"name": "p4-scene-trail-chase", "scenario": "as506-pad", "showOrbit": false, "advance": ["met:75"],
+     "camera": {"yaw": 20, "pitch": -8, "distance": 2500, "fov": 50},
+     "settings": {"post": {"exposure": {"mode": "manual", "ev100": 15}}, "cloud": {"enabled": false}}}
+  ]
+}

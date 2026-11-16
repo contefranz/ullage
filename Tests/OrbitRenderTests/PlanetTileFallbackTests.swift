@@ -54,7 +54,10 @@ final class PlanetTileFallbackTests: XCTestCase {
                 shot.userTextures = true
                 shot.width = 320
                 shot.height = 200
-                // A fixed exposure: one frame is the whole image.
+                // A fixed exposure: one frame is the whole image. No pad
+                // smoke (P4): P3's OIT sums it in the GPU's atomic order,
+                // which moves a few bytes between renderers.
+                shot.settings.particle.quality = .off
                 shot.settings.post.exposure = ExposureSettings(mode: .manual)
                 shot.settings.post.exposure.ev100 = 13
                 let scene = shot.scene(try shot.prepare(system: system))

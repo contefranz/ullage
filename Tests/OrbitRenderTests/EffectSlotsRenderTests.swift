@@ -505,8 +505,9 @@ final class EffectSlotsRenderTests: XCTestCase {
         var shot = SnapshotToolTests.pad
         shot.width = 160
         shot.height = 100
-        // No effect at all: C2's clouds off too.
+        // No effect at all: C2's clouds and P4's pad smoke off too.
         shot.settings.cloud.enabled = false
+        shot.settings.particle.quality = .off
         let with = try render(shot)
         XCTAssertNil(with.capture.images[.halfResDepth], "the slots did not run")
         let s = try snapper()
