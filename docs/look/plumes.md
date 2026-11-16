@@ -66,10 +66,14 @@ medium, L low (visual, calibrated or assumed).
    blackbody at each phase's temperature); single scattering of the Sun
    (Henyey-Greenstein, R4's shadow at four points, C2's cloud shadow, the
    Sun's chord through the plume as self-shadowing); the ambient behind
-   one function, `plume_sh9InScatter` (A2's sky irradiance in air, the
-   camera below the air's top; the earthshine stand-in in vacuum; until
-   R3's SH9); the cluster's own light on its smoke outside the luminous
-   column.
+   one function, `plume_sh9InScatter`: R3's probe's SH9 in-scatter
+   (`orbit_sh9InScatter`, the Earth and the sky the probe draws, in air
+   and in vacuum alike) while the probe is drawn, else a fallback (A2's
+   sky irradiance with the camera below the air's top, the earthshine
+   stand-in above it); the cluster's own light on its smoke outside the
+   luminous column. The impostors carry each station's response to the
+   ambient and add the same in-scatter in their fragment, so they light as
+   the march does.
 6. **Air and clouds:** A2's froxels at the plume's light-weighted depth dim
    it and add their light (L·T + a·S). C2's clouds: the march keeps a
    second accumulation dimmed by the cloud layer's opacity from its entry
@@ -103,7 +107,7 @@ medium, L low (visual, calibrated or assumed).
 | Kerosene soot, optical depth across the exit at rated flow | 8 × soot index | L: the opaque yellow flame of S68-56050, S69-39961 |
 | Soot albedo | 0.25 | L, soot aggregates |
 | Afterburning flame | 2,300 K, from P1's flame front (0.75 De) to P1's flame length, beyond it Ta + (Tf − Ta) L_f/x (the mixture fraction's 1/x); fading 28-40 km | P1 (D5-15796-1 §4.1.1) |
-| Flame length | P1's: Delichatsios's jet flame, L_f = 23 Dj √(ρj/ρa)/f_s on the fully expanded jet, f_s the stoichiometric mixture fraction of the exhaust's CO and H2 in air (0.426 for the F-1): 51.5 m at the pad, 105 m at 13 km, 381 m at 30 km | M (Delichatsios 1993, as arXiv:2008.12209 Table 6 quotes it; docs/exhaust-datasheet.md §3) |
+| Flame length | P1's: Delichatsios's jet flame into still air, L_f = L* Dj √(ρj/ρa)/f_s on the fully expanded jet, L* about 23 (momentum-dominated: Fr 96 at the pad, 28 at 40 km), f_s the stoichiometric mixture fraction of CEA's exhaust (its CO and H2, diluted by its CO2, H2O and N2: 0.426 for the F-1): 51.5 m at the pad, 105 m at 13 km, 381 m at 30 km | M (Delichatsios 1993, as Turns and arXiv:2008.12209 Table 6 quote it; docs/exhaust-datasheet.md §3) |
 | Flame brush spread | 0.035 dR/dx from the front | L: the five flames one column within 15-20 m |
 | Far-field spread | 0.06 dR/dx beyond the core (or 3 boundary lengths) | L, turbulent jets; S69-39957's billowing plume |
 | The film (turbine exhaust) | optical depth 1.5 through 0.15 R, 887 K, to the flame front | P1's film (R-3896-1, M); band L |
@@ -135,6 +139,24 @@ medium, L low (visual, calibrated or assumed).
   billowing sunlit plume with a glowing cone at the base.
 - **S69-39958** (ALOTS, at separation): the S-II's J-2s nearly invisible,
   only faint lines at the plume's edges.
+
+## The flame as the air thins
+
+Two things happen at once, both P1's. The flame lengthens as √(ρj/ρa)
+(Delichatsios: the jet's momentum carries the exhaust further before it
+has entrained enough air to burn), and from 28 to 40 km the afterburning
+fades (D5-15796-1's films: luminous to 25-28 km, greying from 28 to 40,
+grey above). The look takes the length from the first and the strength
+from the second: the flame's temperature excess over the jet's, and how
+much of its soot it burns, both scale with `afterburning`. So above 28 km
+the flame grows longer while it dims and greys (its soot unburnt, cooler),
+and at 40 km it is gone, leaving the inert jet; nowhere is a several
+hundred metre flame at full brightness where the films show grey.
+
+The correlation is for a jet into still air. The vehicle's airspeed is a
+coflow (u∞/uj near 0.2 at max-Q) that cuts the entrainment and lengthens a
+jet flame; it is left out here, with the plume turning into the relative
+wind, for the airflow follow-up.
 
 ## The photographs as checks
 

@@ -105,15 +105,21 @@ public struct PlumeState: Equatable {
     public var potentialCoreLength: Double
     /// The exhaust's stoichiometric mixture fraction in air: the mass share
     /// of exhaust in the mixture whose oxygen just burns its CO and H2
-    /// (`stoichiometricMixtureFraction`); 0 for an exhaust without them.
+    /// (`stoichiometricMixtureFraction`, from CEA's composition, its inert
+    /// CO2, H2O and N2 diluting it through the mixture's molar mass); 0 for
+    /// an exhaust without them.
     public var stoichiometricMixtureFraction: Double
     /// The afterburning flame's length in air, m: Delichatsios's (1993)
-    /// turbulent jet flame, L_f = L* Dj √(ρj/ρa) / f_s, on the fully
-    /// expanded jet's diameter and density (Thring and Newby's, as the
-    /// core's), L* = 23 for a momentum-dominated flame
-    /// (`jetFlameLength`). The length the flame has wherever the jet mixes
-    /// with air (0 in vacuum and free-molecular flow, and for an exhaust
-    /// with nothing to burn); how strongly it burns is `afterburning`.
+    /// turbulent jet diffusion flame, L_f = L* Dj √(ρj/ρa) / f_s, on the
+    /// fully expanded jet's diameter and density (Thring and Newby's, as the
+    /// core's), L* about 23 where momentum dominates, as it does for every
+    /// Apollo jet (`jetFlameLength`). The correlation is for a jet issuing
+    /// into still air: the vehicle's airspeed, a coflow that cuts the
+    /// entrainment and lengthens the flame (u∞/uj near 0.2 at max-Q), is
+    /// left out (P2's airflow work). The length the flame has wherever the
+    /// jet mixes with air (0 in vacuum and free-molecular flow, and for an
+    /// exhaust with nothing to burn); how strongly it burns is
+    /// `afterburning`, which fades from 28 to 40 km as the length grows.
     public var flameLength: Double
     /// How far the plume glows, for the visual calibration: the longer of
     /// the free expansion's, to where Simons' axial density has cooled the
@@ -293,12 +299,13 @@ public enum PlumeModel {
         stoichiometricMixtureFraction(fuelRich: spec.fuelRichFraction, molarMass: spec.molarMass)
     }
 
-    /// Delichatsios's (1993, Combust. Flame 92:349) turbulent jet diffusion
-    /// flame length, m: L_f = L* d √(ρe/ρa) / f_s, with L* = 13.5 Fr^(2/5)
-    /// / (1 + 0.07 Fr²)^(1/5) below a flame Froude number of 5 and 23 (the
-    /// momentum-dominated limit) above it; Fr = u f_s^(3/2) / ((ρe/ρa)^(1/4)
-    /// ((Tf - Ta)/Ta g d)^(1/2)). `diameter` and `velocity` are the jet's at
-    /// its source (m, m/s), `densityRatio` ρe/ρa.
+    /// Delichatsios's (1993, Combust. Flame 92:349; as Turns and
+    /// arXiv:2008.12209 Table 6 quote it) turbulent jet diffusion flame
+    /// length, m: L_f = L* d √(ρe/ρa) / f_s, Fr = u f_s^(3/2) / ((ρe/ρa)^(1/4)
+    /// ((Tf - Ta)/Ta g d)^(1/2)) the flame Froude number
+    /// (`flameLengthStar`). For a jet issuing into still air; `diameter`,
+    /// `velocity` and `densityRatio` ρe/ρa are the jet's where it is fully
+    /// expanded (m, m/s).
     public static func jetFlameLength(diameter d: Double, densityRatio: Double, stoichiometricMixtureFraction fs: Double,
                                       velocity u: Double, flameTemperature tf: Double,
                                       ambientTemperature ta: Double) -> Double {
@@ -318,10 +325,13 @@ public enum PlumeModel {
     }
 
     /// Delichatsios's dimensionless flame length L* at flame Froude number
-    /// `froude`: 13.5 Fr^(2/5) / (1 + 0.07 Fr²)^(1/5) below 5, 23 above.
+    /// `froude`: 13.5 Fr^(2/5) / (1 + 0.07 Fr²)^(1/5), buoyancy-dominated
+    /// below Fr 5, tending to the momentum-dominated 13.5 / 0.07^(1/5) =
+    /// 22.97 above it. The published form takes 23 from Fr 5 on, a step
+    /// from 21.0; this one expression throughout is continuous, and within
+    /// 0.5 % of 23 from Fr 30 (the Apollo engines' are 30-100).
     public static func flameLengthStar(froude fr: Double) -> Double {
-        guard fr < 5 else { return 23 }
-        return 13.5 * pow(max(fr, 0), 0.4) / pow(1 + 0.07 * fr * fr, 0.2)
+        13.5 * pow(max(fr, 0), 0.4) / pow(1 + 0.07 * fr * fr, 0.2)
     }
 
     /// The plume of `thruster` on `part` in `ambient`, at its flow this step
