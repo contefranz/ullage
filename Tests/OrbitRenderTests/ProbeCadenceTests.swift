@@ -158,8 +158,10 @@ final class ProbeCadenceTests: XCTestCase {
 
     /// Each full-update guard alone: a new target with the same centre
     /// source; the same target with the centre moved to the camera (past
-    /// 50 km); the sky switched from the camera's LUT to the centre's march
-    /// (past 2 km). And in a scene: the target 60 km from the camera.
+    /// 50 km); the sky switched from the camera's LUT to the centre's march.
+    /// And in scenes: the target 60 km from the camera (the centre moves to
+    /// it), 10 km (the centre stays; the pass then marches its sky, which
+    /// EnvironmentProbePassTests checks on the GPU).
     func testCentreGuards() throws {
         let leo = try Self.scene("as506-parking-orbit")
         let a = state(leo)
@@ -195,11 +197,28 @@ final class ProbeCadenceTests: XCTestCase {
         mid.camera.position = mid.camera.position + m
         for i in mid.vessels.indices { mid.vessels[i].position = mid.vessels[i].position - m }
         for i in mid.bodies.indices { mid.bodies[i].position = mid.bodies[i].position - m }
-        let e = state(mid)
+        var e = state(mid)
         XCTAssertTrue(e.onTarget)
-        XCTAssertTrue(e.skyFromCentre)
         XCTAssertEqual((e.anchor - a.anchor).length, 0, accuracy: 1e-3, "the camera moved, not the centre")
+        XCTAssertEqual(Pass.update(e, after: a, clock: mid.clock, size: Self.size), .steady)
+        e.skyFromCentre = true
         XCTAssertEqual(Pass.update(e, after: a, clock: mid.clock, size: Self.size), .full)
+    }
+
+    /// A2's rule for a probe reading the camera's sky-view LUT: both inside
+    /// the air (A2 draws the LUT only for a camera inside it), within 2 km
+    /// and 300 m of altitude.
+    func testSkyViewRule() {
+        typealias A = AtmosphereCompositePass
+        XCTAssertTrue(A.probeReadsSkyView(cameraInside: true, centreInside: true, distance: 1_900, heightDifference: 100))
+        XCTAssertFalse(A.probeReadsSkyView(cameraInside: true, centreInside: true, distance: 2_100, heightDifference: 0),
+                       "2 km away")
+        XCTAssertFalse(A.probeReadsSkyView(cameraInside: true, centreInside: true, distance: 1_900, heightDifference: 1_900),
+                       "1.9 km above")
+        XCTAssertFalse(A.probeReadsSkyView(cameraInside: false, centreInside: true, distance: 500, heightDifference: 400),
+                       "the camera above the air: no LUT drawn")
+        XCTAssertFalse(A.probeReadsSkyView(cameraInside: true, centreInside: false, distance: 500, heightDifference: -400),
+                       "the centre above the air")
     }
 
     /// The schedule: two a frame in turn, each face once in three frames;

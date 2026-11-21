@@ -1472,7 +1472,9 @@ struct CloudProbeView {
 };
 
 // R3's probe entry point: the far layers (low and mid, CloudPass's regime
-// for the whole Earth) along one face texel's ray from the camera, in cd/m2,
+// for the whole Earth) along one face texel's ray from the probe's centre
+// (u.cameraFigure and the shells' constants, which CloudPass.encodeProbe
+// sets for it), in cd/m2,
 // premultiplied over what the face holds (the ground or the sky): the air
 // between them and the probe marched (A2's optics), so the face becomes
 // (1 - a) face + T cloud + a in-scatter, the haze in front of the cloud

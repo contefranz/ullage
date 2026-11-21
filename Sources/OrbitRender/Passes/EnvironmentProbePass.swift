@@ -13,8 +13,10 @@ import OrbitScene
 ///    E1's albedo tiles, its haze), A2's sky (`AtmosphereCompositePass.
 ///    encodeProbe`), C2's far cloud layers (`CloudPass.encodeProbe`) and
 ///    the pad (`VesselPass.encodeProbe`), all seen from the probe's centre:
-///    within 2 km of the camera the sky and the ground's haze from its
-///    sky-view LUT, farther marched from the centre (`skyFromCentre`).
+///    the sky and the ground's haze from the camera's sky-view LUT where A2
+///    allows (both inside the air, within 2 km and 300 m of altitude:
+///    `AtmosphereCompositePass.probeReadsSkyView`), else marched from the
+///    centre; switching between the two redraws every face.
 ///    The Sun is not in it: it stays the analytic light. Or an analytic
 ///    look-dev environment (`ProbeSettings.environment`). Then its mips.
 /// 2. **Specular** (texture slot 20): mip 0 the radiance, mip k ≥ 1 GGX-
@@ -35,7 +37,8 @@ import OrbitScene
 /// the centre moves over the ground, or the Sun turns, by more than half a
 /// texel a frame as seen from the centre (LEO from about 11×, and the
 /// extractor's turn-only resets at 1e4× and up); all six on a new target,
-/// warp, settings, nearest body or centre (target or camera), or a skipped
+/// warp, settings, nearest body or centre (target or camera), a switch of
+/// the sky between the camera's LUT and the centre's march, or a skipped
 /// frame. While paused they finish their turn and stop, but redraw on motion
 /// and when E1's tiles stream in (`FaceSchedule`). The derived maps on every
 /// frame that draws a face; their dispatches run concurrently; a
@@ -81,13 +84,6 @@ public final class EnvironmentProbePass: RenderPass {
     /// surroundings light what is near it.
     public static let maximumTargetDistance = 50_000.0
 
-    /// Whether the probe's sky (A2's) and the planet's haze are marched from
-    /// its centre: more than `AtmosphereCompositePass.probeSkyViewRange` from
-    /// the camera, whose sky-view LUT they otherwise read.
-    nonisolated static func skyFromCentre(_ center: Vec3) -> Bool {
-        center.length > AtmosphereCompositePass.probeSkyViewRange
-    }
-
     private weak var planets: PlanetPass?
     private weak var vessels: VesselPass?
     private weak var sky: AtmosphereCompositePass?
@@ -107,12 +103,10 @@ public final class EnvironmentProbePass: RenderPass {
         let size: Int
         let mips: Int
         let radiance: MTLTexture
-        let radianceFaces: MTLTexture
-        let source: MTLTexture
+        /// The radiance's mip read as the 32² source (irradiance, SH9).
+        let sourceMip: Int
         let specular: MTLTexture
-        let specularLevels: [MTLTexture]
         let irradiance: MTLTexture
-        let irradianceFaces: MTLTexture
         let depth: MTLTexture
     }
     private(set) var maps: Maps?
@@ -135,6 +129,9 @@ public final class EnvironmentProbePass: RenderPass {
         public var faces: [Int] = []
         /// Whether the derived maps were rebuilt (not while paused and current).
         public var derived = false
+        /// Whether the sky and the planet's haze were marched from the centre
+        /// (else read from the camera's sky-view LUT).
+        public var skyFromCentre = false
         public var facesDrawn: Int { faces.count }
     }
 
@@ -159,17 +156,18 @@ public final class EnvironmentProbePass: RenderPass {
         /// E1's resident albedo tiles (−1 without the store).
         var tiles: Int
         /// Whether the sky and the planet's haze are marched from the centre
-        /// rather than read from the camera's sky-view LUT (`skyFromCentre`).
+        /// rather than read from the camera's sky-view LUT
+        /// (`AtmosphereCompositePass.probeReadsSkyView`).
         var skyFromCentre: Bool
 
-        init(_ scene: RenderScene, center: Vec3, settings: RenderSettings, tiles: Int = -1) {
+        init(_ scene: RenderScene, center: Vec3, settings: RenderSettings, tiles: Int = -1, skyFromCentre: Bool = false) {
             frameIndex = scene.clock.frameIndex
             self.settings = settings
             target = scene.camera.target
             warp = scene.clock.warp
             onTarget = center != .zero
             self.tiles = tiles
-            skyFromCentre = EnvironmentProbePass.skyFromCentre(center)
+            self.skyFromCentre = skyFromCentre
             if let b = scene.bodies.filter({ !$0.isSun }).min(by: {
                 ($0.position - center).length < ($1.position - center).length }) {
                 body = b.id
@@ -300,7 +298,8 @@ public final class EnvironmentProbePass: RenderPass {
         // paused, the turn since the last change, then none until motion, a
         // full update or new tiles).
         let tiles = planets?.tiles?.layer(.albedo)?.residency.residentCount ?? -1
-        let state = FaceState(f.scene, center: center, settings: f.settings, tiles: tiles)
+        let skyFromCentre = !(sky?.probeReadsSkyView(f, center: center) ?? false)
+        let state = FaceState(f.scene, center: center, settings: f.settings, tiles: tiles, skyFromCentre: skyFromCentre)
         let update = Self.update(state, after: lastFaces, clock: f.scene.clock, size: maps.size)
         let tilesChanged = lastFaces.map { $0.tiles != tiles } ?? false
         lastFaces = state
@@ -310,13 +309,14 @@ public final class EnvironmentProbePass: RenderPass {
             drawn = schedule.next(update, paused: f.scene.clock.paused, steady: settings.facesPerFrame,
                                   tilesChanged: tilesChanged)
             if !drawn.isEmpty {
-                drawFaces(f, maps: maps, center: center, settings: settings,
+                drawFaces(f, maps: maps, center: center, settings: settings, skyFromCentre: skyFromCentre,
                           faces: drawn.compactMap { EnvironmentProbe.Face(rawValue: $0) })
                 // Blends of terms each below 6e4 can store +inf: clean the
                 // faces before their mips and the derived maps read them.
                 if let enc = f.makeComputeEncoder() {
                     enc.setComputePipelineState(pipelines.clean)
-                    enc.setTexture(maps.radianceFaces, index: 0)
+                    enc.setTexture(maps.radiance, index: 0)
+                    enc.setTexture(maps.radiance, index: 1)
                     Self.dispatch(enc, pipelines.clean, width: maps.size, height: maps.size, depth: 6)
                     enc.endEncoding()
                 }
@@ -326,7 +326,7 @@ public final class EnvironmentProbePass: RenderPass {
             guard let enc = f.makeComputeEncoder() else { return }
             var u = Self.lookDevUniforms(settings, scene: f.scene)
             enc.setComputePipelineState(pipelines.lookDev)
-            enc.setTexture(maps.radianceFaces, index: 0)
+            enc.setTexture(maps.radiance, index: 0)
             enc.setBytes(&u, length: MemoryLayout<ProbeLookDevUniforms>.stride, index: 0)
             Self.dispatch(enc, pipelines.lookDev, width: maps.size, height: maps.size, depth: 6)
             enc.endEncoding()
@@ -337,7 +337,8 @@ public final class EnvironmentProbePass: RenderPass {
                                               sourceTexels: sourceTexels, sh9Buffer: sh9Buffer) }
         publish(f, maps: maps, settings: settings, center: center, sh9Buffer: sh9Buffer)
         lastFrame = Report(drawn: true, environment: settings.environment, center: center, faceSize: maps.size,
-                           mips: maps.mips, nightFloor: f.lighting.ambient.x, faces: drawn, derived: !drawn.isEmpty)
+                           mips: maps.mips, nightFloor: f.lighting.ambient.x, faces: drawn, derived: !drawn.isEmpty,
+                           skyFromCentre: state.skyFromCentre)
     }
 
     /// The radiance's mips, the specular cube, the irradiance and SH9.
@@ -362,27 +363,30 @@ public final class EnvironmentProbePass: RenderPass {
         enc.label = name
         enc.setComputePipelineState(pipelines.prefilter)
         enc.setTexture(maps.radiance, index: 0)
-        for (k, level) in maps.specularLevels.enumerated() {
-            let mip = k + 1
+        enc.setTexture(maps.specular, index: 1)
+        for mip in 1..<maps.mips {
             let alpha = BRDF.alpha(roughness: EnvironmentProbe.roughness(mip: mip, count: maps.mips))
             var u = (SIMD4<Float>(Float(alpha), Float(Self.prefilterSamples(mip: mip, settings: settings)),
                                   Float(maps.size), Float(maps.radiance.mipmapLevelCount)),
                      SIMD4<Float>(Float(Self.lodBias), Float(maps.radiance.mipmapLevelCount - 1 - Self.coarsestSourceSkipped),
-                                  0, 0))
-            enc.setTexture(level, index: 1)
+                                  Float(mip), 0))
+            let n = max(maps.size >> mip, 1)
             enc.setBytes(&u, length: 32, index: 0)
             // 32 lanes to a texel.
-            enc.dispatchThreads(MTLSize(width: 32 * level.width, height: level.height, depth: 6),
-                                threadsPerThreadgroup: MTLSize(width: 32, height: min(level.height, 8), depth: 1))
+            enc.dispatchThreads(MTLSize(width: 32 * n, height: n, depth: 6),
+                                threadsPerThreadgroup: MTLSize(width: 32, height: min(n, 8), depth: 1))
         }
+        var sourceMip = UInt32(maps.sourceMip)
         enc.setComputePipelineState(pipelines.irradiance)
-        enc.setTexture(maps.source, index: 0)
-        enc.setTexture(maps.irradianceFaces, index: 1)
+        enc.setTexture(maps.radiance, index: 0)
+        enc.setTexture(maps.irradiance, index: 1)
         enc.setBuffer(sourceTexels, offset: 0, index: 0)
+        enc.setBytes(&sourceMip, length: 4, index: 1)
         enc.dispatchThreadgroups(MTLSize(width: 1, height: Self.irradianceSize, depth: 6),
                                  threadsPerThreadgroup: MTLSize(width: 256, height: 1, depth: 1))
         enc.setComputePipelineState(pipelines.sh9)
         enc.setBuffer(sh9Buffer, offset: 0, index: 1)
+        enc.setBytes(&sourceMip, length: 4, index: 2)
         enc.dispatchThreadgroups(MTLSize(width: 1, height: 1, depth: 1),
                                  threadsPerThreadgroup: MTLSize(width: min(256, pipelines.sh9.maxTotalThreadsPerThreadgroup),
                                                                 height: 1, depth: 1))
@@ -418,7 +422,7 @@ public final class EnvironmentProbePass: RenderPass {
 
     /// The six faces of the scene, each its own render pass: the planets
     /// (depth written), the sky behind them, the clouds over both.
-    private func drawFaces(_ f: FrameContext, maps: Maps, center: Vec3, settings: ProbeSettings,
+    private func drawFaces(_ f: FrameContext, maps: Maps, center: Vec3, settings: ProbeSettings, skyFromCentre: Bool,
                            faces: [EnvironmentProbe.Face]) {
         let formats = SceneFormats(color: maps.radiance.pixelFormat, depth: maps.depth.pixelFormat, sampleCount: 1,
                                    output: maps.radiance.pixelFormat)
@@ -426,10 +430,10 @@ public final class EnvironmentProbePass: RenderPass {
         var frame = f.frame
         frame.exposure.x = 1
         var atmosphere = f.atmosphere
-        // Far from the camera, the planet's haze is marched from the centre
+        // Where A2's sky is marched from the centre, the planet's haze is
         // too: its in-air path reads the camera's sky-view LUT, which the
-        // altitude in `radii.z` selects (A2's sky does the same, `probeUniforms`).
-        if Self.skyFromCentre(center) { atmosphere.radii.z = atmosphere.radii.y - atmosphere.radii.x + 1 }
+        // camera's altitude in `radii.z` selects.
+        if skyFromCentre { atmosphere.radii.z = atmosphere.radii.y - atmosphere.radii.x + 1 }
         let near = max(f.scene.camera.near, 0.25)
         for face in faces {
             let pass = MTLRenderPassDescriptor()
@@ -489,10 +493,6 @@ public final class EnvironmentProbePass: RenderPass {
             t?.label = label
             return t
         }
-        func faces(_ t: MTLTexture, level: Int) -> MTLTexture? {
-            t.makeTextureView(pixelFormat: t.pixelFormat, textureType: .type2DArray, levels: level..<(level + 1),
-                              slices: 0..<6)
-        }
         let sourceLevel = max(0, Int(log2(Double(size))) - Int(log2(Double(Self.sourceSize))))
         let dd = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .depth32Float, width: size, height: size,
                                                           mipmapped: false)
@@ -500,17 +500,12 @@ public final class EnvironmentProbePass: RenderPass {
         dd.storageMode = .memoryless
         guard let radiance = cube(size, levels: full, usage: [.renderTarget, .shaderRead, .shaderWrite],
                                   label: "Probe radiance"),
-              let radianceFaces = faces(radiance, level: 0), let source = faces(radiance, level: sourceLevel),
               let specular = cube(size, levels: mips, usage: [.shaderRead, .shaderWrite], label: "Probe specular"),
               let irradiance = cube(Self.irradianceSize, levels: 1, usage: [.shaderRead, .shaderWrite],
                                     label: "Probe irradiance"),
-              let irradianceFaces = faces(irradiance, level: 0),
               let depth = device.makeTexture(descriptor: dd) else { return nil }
-        let levels = (1..<mips).compactMap { faces(specular, level: $0) }
-        guard levels.count == mips - 1 else { return nil }
-        maps = Maps(size: size, mips: mips, radiance: radiance, radianceFaces: radianceFaces, source: source,
-                    specular: specular, specularLevels: levels, irradiance: irradiance, irradianceFaces: irradianceFaces,
-                    depth: depth)
+        maps = Maps(size: size, mips: mips, radiance: radiance, sourceMip: sourceLevel, specular: specular,
+                    irradiance: irradiance, depth: depth)
         return maps
     }
 
