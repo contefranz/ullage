@@ -1,7 +1,7 @@
 import Foundation
 import Metal
 import XCTest
-import OrbitCore
+@testable import OrbitCore
 @testable import OrbitScene
 @testable import OrbitRender
 
@@ -175,5 +175,171 @@ final class RenderDeterminismTests: XCTestCase {
             XCTAssertEqual(differing, 0, "\(names.last!) after \(names.dropLast().joined()): \(differing) bytes differ")
             XCTAssertEqual(after.record.ev100, alone.record.ev100, names.last!)
         }
+    }
+
+    // MARK: R3's face schedule and E1's tiles
+
+    /// R3: a frame whose index follows the last one's, with the same body,
+    /// target and settings, redraws only some faces of the probe and keeps
+    /// the last frame's in the others. After `startOver` it redraws them all,
+    /// and renders the bytes a fresh renderer does.
+    func testProbeRedrawsEveryFaceAfterStartingOver() throws {
+        let scenario = try XCTUnwrap(Scenario.named("as506-pad"))
+        let sim = scenario.build(Self.system)
+        var camera = OrbitCamera()
+        camera.target = .vessel(try XCTUnwrap(sim.focus).id)
+        camera.distance = 120
+        camera.update(sim: sim)
+        let viewport = RenderScene.Viewport(width: 160, height: 100)
+        let a = SceneExtractor().extract(sim: sim, camera: camera, viewport: viewport, realTime: 0)
+        var b = a
+        b.clock.frameIndex += 1
+        func renderer() throws -> (SceneRenderer, OffscreenTarget, EnvironmentProbePass) {
+            let r = try SceneRenderer(device: try device(), loadsUserTextures: false)
+            var s = RenderSettings()
+            s.post.exposure.mode = .manual
+            s.post.exposure.ev100 = 15
+            s.particle.quality = .off
+            r.settings = s
+            let probe = try XCTUnwrap(r.graph.passes.first { $0 is EnvironmentProbePass } as? EnvironmentProbePass)
+            return (r, try XCTUnwrap(OffscreenTarget(device: r.device, width: 160, height: 100)), probe)
+        }
+        let (kept, keptTarget, keptProbe) = try renderer()
+        kept.renderAndWait(a, into: keptTarget)
+        kept.renderAndWait(b, into: keptTarget)
+        XCTAssertLessThan(keptProbe.lastFrame.faces.count, 6, "without starting over, b keeps some of a's faces")
+        let (over, overTarget, overProbe) = try renderer()
+        over.renderAndWait(a, into: overTarget)
+        over.startOver()
+        over.renderAndWait(b, into: overTarget)
+        XCTAssertEqual(overProbe.lastFrame.faces, Array(0 ..< 6))
+        let (fresh, freshTarget, _) = try renderer()
+        fresh.renderAndWait(b, into: freshTarget)
+        XCTAssertTrue(overTarget.bytes() == freshTarget.bytes(), "b after a and starting over, against b alone")
+    }
+
+    /// A raw RGBA8 layer to `maxLevel`, every tile one colour of its own.
+    func tileLayer(maxLevel: Int) throws -> URL {
+        let layout = PlanetTileLayout(format: .uint8, tileSize: 8, border: 2, channels: 4, maxLevel: maxLevel, bodyID: 399,
+                                      figure: .wgs84)
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("determinism-\(UUID().uuidString).ostiles")
+        addTeardownBlock { try? FileManager.default.removeItem(at: url) }
+        let w = try PlanetTileWriter(url: url, layout: layout)
+        for k in PlanetTileBuilder.keys(levels: 0 ... maxLevel, figure: .wgs84).sorted() {
+            let texel = [40 * k.level + k.face.rawValue, k.x % 251, k.y % 251, 255]
+            try w.add(k, rawSamples: (0 ..< 12 * 12).flatMap { _ in texel })
+        }
+        try w.finish()
+        return url
+    }
+
+    func tileCache(_ url: URL) throws -> PlanetTileCache {
+        let catalog = try PlanetTileCatalog(files: [(url.lastPathComponent, try PlanetTileFile(contentsOf: url))])
+        return try PlanetTileCache(device: try device(), name: "determinism", catalog: catalog, color: false, slots: 64,
+                                   maxTextureLevel: 3, pinnedLevel: 1, fileURLs: [url])
+    }
+
+    /// Each resident tile's slot.
+    func slots(_ c: PlanetTileCache) -> [TileKey: Int] {
+        Dictionary(uniqueKeysWithValues: c.residency.residentKeys.map { ($0, c.residency.slot(of: $0)!) })
+    }
+
+    /// Every level and face of the cache's indirection texture, as the GPU has it.
+    func indirectionBytes(_ c: PlanetTileCache) throws -> [UInt8] {
+        let t = c.indirection, queue = try XCTUnwrap(c.device.makeCommandQueue())
+        let cb = try XCTUnwrap(queue.makeCommandBuffer()), blit = try XCTUnwrap(cb.makeBlitCommandEncoder())
+        var copies: [(MTLBuffer, Int)] = []
+        for level in 0 ..< t.mipmapLevelCount {
+            let side = max(1, t.width >> level)
+            for face in 0 ..< t.arrayLength {
+                let b = try XCTUnwrap(c.device.makeBuffer(length: side * side * 4, options: .storageModeShared))
+                blit.copy(from: t, sourceSlice: face, sourceLevel: level, sourceOrigin: MTLOrigin(x: 0, y: 0, z: 0),
+                          sourceSize: MTLSize(width: side, height: side, depth: 1), to: b, destinationOffset: 0,
+                          destinationBytesPerRow: side * 4, destinationBytesPerImage: side * side * 4)
+                copies.append((b, side * side * 4))
+            }
+        }
+        blit.endEncoding()
+        cb.commit()
+        cb.waitUntilCompleted()
+        return copies.flatMap { Array(UnsafeRawBufferPointer(start: $0.0.contents(), count: $0.1)) }
+    }
+
+    /// E1's cache started over loads and maps as a new cache: the same tiles
+    /// in the same slots, the same indirection and deep table on the GPU,
+    /// none of the last shot's tiles kept (pinned levels' included).
+    func testTileCacheStartsOverAsANewCache() throws {
+        let url = try tileLayer(maxLevel: 4)
+        let used = try tileCache(url), fresh = try tileCache(url)
+        let queue = try XCTUnwrap(used.device.makeCommandQueue())
+        func frame(_ c: PlanetTileCache, around d: Vec3) throws {
+            let centre = TileKey.containing(d, level: 4)
+            var keys = [centre] + TileKey.Edge.allCases.map { centre.neighbor($0) }
+            for k in 0 ..< 4 { if let g = centre.diagonalNeighbor(corner: k) { keys.append(g.key) } }
+            let tiles = keys.map { PlanetQuadtree.Tile(key: $0, distance: ($0.centre - d).length, morphStart: 0, morphEnd: 1,
+                                                       seams: 0) }
+            let cb = try XCTUnwrap(queue.makeCommandBuffer()), blit = try XCTUnwrap(cb.makeBlitCommandEncoder())
+            c.update(current: PlanetTileWants.ordered(tiles, finestAvailable: c.catalog.finestAvailable), commandBuffer: cb,
+                     blit: blit, synchronous: true)
+            blit.endEncoding()
+            cb.commit()
+            cb.waitUntilCompleted()
+        }
+        let a = Vec3(1, 0.2, 0.1).normalized, b = Vec3(-0.3, 1, 0.4).normalized
+        try frame(used, around: a)
+        XCTAssertGreaterThan(used.residency.residentCount, 30)
+        used.startOver()
+        XCTAssertEqual(used.residency.residentCount, 0)
+        try frame(used, around: b)
+        try frame(fresh, around: b)
+        XCTAssertNil(used.residency.validate())
+        XCTAssertEqual(slots(used), slots(fresh))
+        XCTAssertTrue(try indirectionBytes(used) == indirectionBytes(fresh), "the indirection on the GPU")
+        XCTAssertEqual(used.deepTable.length, fresh.deepTable.length)
+        XCTAssertTrue(Array(UnsafeRawBufferPointer(start: used.deepTable.contents(), count: used.deepTable.length))
+                      == Array(UnsafeRawBufferPointer(start: fresh.deepTable.contents(), count: fresh.deepTable.length)),
+                      "the deep table")
+    }
+
+    /// E1's pass started over selects and loads as a fresh pass's first
+    /// frame: no level-of-detail hysteresis, prediction or tiles of the
+    /// frames before.
+    func testTilePassStartsOverAsANewPass() throws {
+        let url = try tileLayer(maxLevel: 4)
+        let used = PlanetTilePass(loadsUserTiles: false), fresh = PlanetTilePass(loadsUserTiles: false)
+        used.install([.albedo: try tileCache(url)])
+        fresh.install([.albedo: try tileCache(url)])
+        var settings = PlanetTileSettings()
+        settings.synchronous = true
+        let queue = try XCTUnwrap(try device().makeCommandQueue())
+        func frame(_ pass: PlanetTilePass, _ v: PlanetTilePass.PlanetTileView) throws {
+            let cb = try XCTUnwrap(queue.makeCommandBuffer()), blit = try XCTUnwrap(cb.makeBlitCommandEncoder())
+            pass.frame(v, settings: settings, commandBuffer: cb, blit: blit)
+            blit.endEncoding()
+            cb.commit()
+            cb.waitUntilCompleted()
+        }
+        // From 400 km, looking 30° below the horizon along an orbit; the
+        // third view half an orbit on.
+        func view(_ u: Double, reset: Bool) -> PlanetTilePass.PlanetTileView {
+            let r = 6_778_137.0, p = Vec3(cos(u), sin(u), 0.2).normalized * r
+            let along = Vec3(-sin(u), cos(u), 0).normalized, down = -p.normalized
+            let forward = (along * cos(Double.pi / 6) + down * sin(Double.pi / 6)).normalized
+            let up = (p.normalized - forward * p.normalized.dot(forward)).normalized
+            return .init(camera: p, worldToView: Mat3(rows: forward.cross(up), up, -forward), fovY: Double.pi / 4, width: 640,
+                         height: 400, orientation: BodyOrientation(icrfToBody: .identity, angularVelocity: .zero),
+                         figure: .wgs84, simTime: u * 900, warp: 1, realDt: 1.0 / 60, reset: reset)
+        }
+        try frame(used, view(0, reset: true))
+        try frame(used, view(0.01, reset: false))
+        used.startOver()
+        XCTAssertTrue(used.lastSelections.isEmpty)
+        XCTAssertEqual(used.layer(.albedo)?.residency.residentCount, 0)
+        try frame(used, view(3, reset: false))
+        try frame(fresh, view(3, reset: false))
+        let u = try XCTUnwrap(used.lastSelections[.albedo]), f = try XCTUnwrap(fresh.lastSelections[.albedo])
+        XCTAssertTrue(u == f, "the selection")
+        XCTAssertGreaterThan(f.tiles.count, 6)
+        XCTAssertEqual(slots(try XCTUnwrap(used.layer(.albedo))), slots(try XCTUnwrap(fresh.layer(.albedo))))
     }
 }
