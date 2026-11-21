@@ -177,6 +177,47 @@ final class RenderDeterminismTests: XCTestCase {
         }
     }
 
+    /// P2 keeps its visible extents under a coarser key than its trims: the
+    /// S-IC's retros and the S-II's ullage motors at staging (clusters of
+    /// one or two, whose proxies their members' extents set; a merged far
+    /// field's are its own) at two exposures 0.14 stop apart (the least
+    /// light drawn e^3.952 and e^4.048 cd/m², 10 %) share the extents'
+    /// bucket (0.1 in its log) but not the trims' (0.01), and the extents
+    /// found at the two differ. The second after the first in one renderer renders the
+    /// bytes it does alone: `PlumeSystem.startOver` clears the extents with
+    /// the rest (particles off, as above).
+    func testPlumeExtentsStartOverWithEachShot() throws {
+        let all = try SnapshotSpec.load(Self.shots.appendingPathComponent("p2-cost.json")).shots
+        func shot(logFaintest: Double) throws -> SnapshotSpec.Shot {
+            var s = try XCTUnwrap(all.first { $0.name == "p2-cost-staging" })
+            s.aovs = []
+            s.settings.particle.quality = .off
+            s.settings.post.exposure.mode = .manual
+            s.settings.post.exposure.ev100 = (logFaintest - log(PlumeSystem.faintest * 1.2)) / log(2)
+            return s
+        }
+        func caches(_ s: SnapshotRenderer) throws -> (extents: [String: [Double]], trims: Set<String>) {
+            let r = try s.renderer(userTextures: false)
+            let system = try XCTUnwrap(r.graph.passes.compactMap { ($0 as? PlumePreparePass)?.system }.first)
+            return (system.extents.mapValues(\.radii), Set(system.trims.keys))
+        }
+        let a = try shot(logFaintest: 3.952), b = try shot(logFaintest: 4.048)
+        let used = try SnapshotRenderer(device: try device())
+        _ = try used.render(a)
+        let first = try caches(used)
+        let after = try used.render(b)
+        let fresh = try SnapshotRenderer(device: try device())
+        let alone = try fresh.render(b)
+        let second = try caches(fresh)
+        XCTAssertFalse(first.extents.isEmpty, "the plume's extents are kept")
+        XCTAssertEqual(Set(first.extents.keys), Set(second.extents.keys), "the same extents' bucket")
+        XCTAssertTrue(first.trims.isDisjoint(with: second.trims), "not the same trims' bucket")
+        XCTAssertTrue(first.extents.contains { second.extents[$0.key] != $0.value }, "extents that differ")
+        let differing = zip(after.pixels, alone.pixels).filter { $0 != $1 }.count
+        XCTAssertEqual(differing, 0, "p2-cost-staging at e^4.048 after e^3.952: \(differing) bytes differ")
+        XCTAssertEqual(after.record.ev100, alone.record.ev100)
+    }
+
     // MARK: R3's face schedule and E1's tiles
 
     /// R3: a frame whose index follows the last one's, with the same body,

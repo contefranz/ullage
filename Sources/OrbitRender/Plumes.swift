@@ -335,8 +335,8 @@ public final class PlumeSystem {
     /// quantised (`key`): the members at a canonical pose, their trims at
     /// an exposure and Sun, and their lights' profiles. Cleared when large.
     private var templates: [String: PlumeMember?] = [:]
-    private var trims: [String: PlumeMember?] = [:]
-    private var extents: [String: (radii: [Double], length: Double)] = [:]
+    private(set) var trims: [String: PlumeMember?] = [:]
+    private(set) var extents: [String: (radii: [Double], length: Double)] = [:]
     private var profiles: [Int: PlumeLights.Profile?] = [:]
     static let cacheLimit = 512
     /// CPU time of the last frame's planning and lighting (s), for the cost
@@ -492,6 +492,7 @@ public final class PlumeSystem {
         exposure = nil
         templates = [:]
         trims = [:]
+        extents = [:]
         profiles = [:]
     }
 
