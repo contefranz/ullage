@@ -234,6 +234,17 @@ public final class CloudPass: RenderPass, HalfResEffect {
         slotPipeline != nil && earth(f) != nil ? .clouds : []
     }
 
+    /// A new sequence (`SceneRenderer.startOver`): the next frame starts as
+    /// in a fresh pass. The wind's drift, the cirrus and detail frames and
+    /// the shadow map's anchor start over as for a new scene (a frame with
+    /// no last epoch is a jump), and the weather map is made anew rather
+    /// than kept while its weights stay within 1/500 of the last shot's.
+    public func startOver() {
+        lastEpoch = nil
+        previous = nil
+        lastWeather = nil
+    }
+
     // MARK: P0
 
     public func encode(_ f: FrameContext, _ e: PassEncoding) {

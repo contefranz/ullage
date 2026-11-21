@@ -109,6 +109,10 @@ final class PlanetTileCacheTests: XCTestCase {
     /// (where float and double may choose differently).
     func probes(near d: Vec3, count: Int, maxLevel: Int) -> [(Vec3, Int)] {
         var rng = SystemRandomNumberGenerator()
+        return probes(near: d, count: count, maxLevel: maxLevel, using: &rng)
+    }
+
+    func probes<G: RandomNumberGenerator>(near d: Vec3, count: Int, maxLevel: Int, using rng: inout G) -> [(Vec3, Int)] {
         var out: [(Vec3, Int)] = []
         while out.count < count {
             let s = out.count % 2 == 0 ? 0.05 : 2.0
@@ -239,38 +243,65 @@ final class PlanetTileCacheTests: XCTestCase {
     }
 
     /// The camera moves across the face edges with a small atlas, three
-    /// frames in flight, no waiting: every frame's probes, run on the GPU
-    /// after its uploads, find what that frame's indirection said when it
-    /// was encoded, although slots are reused all the time.
+    /// frames in flight: every frame's probes, run on the GPU after its
+    /// uploads, find what that frame's indirection said when it was encoded,
+    /// although slots are reused all the time.
+    ///
+    /// Nothing here depends on how fast the machine is. Each frame's command
+    /// buffer waits on a gate, which the test opens for frame n − 3 (and
+    /// waits until the cache has seen it complete) before frame n updates, so
+    /// the cache always has frames n − 2 and n − 1 committed and not yet run:
+    /// any slot or staging buffer reused too soon is read by a frame that has
+    /// not run. Each frame's loads finish before the next frame updates, and
+    /// the probes are seeded. So the churn is the same on every run however
+    /// loaded the machine (213 evictions, 21,897 probes checked); it once
+    /// depended on how fast loads and frames came back.
     func testEvictionKeepsEveryFrameConsistentWithFramesInFlight() throws {
         let url = try identityLayer("moving.ostiles", maxLevel: 5)
         let c = try cache([url], slots: 48, maxTextureLevel: 3, pinnedLevel: 1)
         c.uploadsPerFrame = 4
         let device = try device()
         let queue = try XCTUnwrap(device.makeCommandQueue())
-        let inFlight = DispatchSemaphore(value: 3)
+        let gate = try XCTUnwrap(device.makeSharedEvent())
+        let inFlight = 3
         var frames: [(probes: [(Vec3, Int)], expected: [(TileKey, Int)?], values: MTLBuffer, hits: MTLBuffer)] = []
+        var buffers: [MTLCommandBuffer] = []
         var evicted = 0
+        var rng = SeededGenerator(seed: 0x711e)
+        /// Opens the gate through frame `n` (the cache counts from 1) and
+        /// waits until the cache has seen it complete.
+        func complete(through n: Int) throws {
+            guard n >= 1 else { return }
+            gate.signaledValue = UInt64(n)
+            buffers[n - 1].waitUntilCompleted()
+            XCTAssertEqual(buffers[n - 1].status, .completed)
+            let deadline = Date().addingTimeInterval(10)
+            while (c.completion.completedThrough ?? 0) < UInt64(n), Date() < deadline { usleep(100) }
+            XCTAssertEqual(c.completion.completedThrough, UInt64(n), "the cache sees exactly the frames let through")
+        }
         for step in 0 ..< 120 {
-            inFlight.wait()
+            let n = step + 1
+            try complete(through: n - inFlight)
             let a = Double(step) * 0.02
             let d = Vec3(cos(a), sin(a), 0.3 * sin(2 * a)).normalized
-            let cb = try XCTUnwrap(queue.makeCommandBuffer()), blit = try XCTUnwrap(cb.makeBlitCommandEncoder())
+            let cb = try XCTUnwrap(queue.makeCommandBuffer())
+            cb.encodeWaitForEvent(gate, value: UInt64(n))
+            let blit = try XCTUnwrap(cb.makeBlitCommandEncoder())
             c.update(current: wants(around: d, level: 5, catalog: c.catalog), commandBuffer: cb, blit: blit)
             blit.endEncoding()
             evicted += c.stats.evicted
-            let ps = probes(near: d, count: 200, maxLevel: 5)
+            let ps = probes(near: d, count: 200, maxLevel: 5, using: &rng)
             let expected = ps.map { c.residency.indirection.lookup($0.0, level: $0.1).map { ($0.key, $0.slot) } }
             let (values, hits) = try probe(c, ps.map { SIMD4(Float($0.0.x), Float($0.0.y), Float($0.0.z), Float($0.1)) },
                                            sampler: try nearestSampler(), commandBuffer: cb)
-            cb.addCompletedHandler { _ in inFlight.signal() }
             cb.commit()
+            buffers.append(cb)
             frames.append((ps, expected, values, hits))
             XCTAssertNil(c.residency.validate())
+            // This frame's loads are in before the next frame takes them.
+            c.loader.waitForAll()
         }
-        // Every frame done; the semaphore back at its start before it goes.
-        for _ in 0 ..< 3 { inFlight.wait() }
-        for _ in 0 ..< 3 { inFlight.signal() }
+        try complete(through: buffers.count)
         XCTAssertGreaterThan(evicted, 50, "the atlas must churn")
         var checked = 0
         for f in frames {
@@ -292,6 +323,7 @@ final class PlanetTileCacheTests: XCTestCase {
             }
         }
         XCTAssertGreaterThan(checked, 10_000)
+        print("PlanetTileCacheTests: \(evicted) evictions, \(checked) probes checked")
     }
 
     func testMemoryAndUniformsDescribeTheLayer() throws {

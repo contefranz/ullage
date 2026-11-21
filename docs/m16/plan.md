@@ -822,7 +822,7 @@ Defaults are in **bold**; "accept defaults" settles all of them.
 46. **Lunar field: GRGM900C to degree 100, adaptive by altitude.**
 47. **Moon data: LOLA LDEM_128 globally plus LDEM_256 within ±20°, with Hapke-normalised WAC colour. Never the morphologic mosaic.**
 48. **Burn planning: RTCC-like planners on TRANSFER with SET.**
-49. **SPS ignition: the pilot presses Z, the EMS counter cuts off, and the SCS holds the planned attitude.**
+49. **SPS ignition (amended 2026-11-21): under G&N, the computer's P40 lights the SPS at TIG after the crew's go (Return at V99), steers on VG and cuts off. Z with the EMS counter's cutoff stays the SCS mode for every burn.** Before the amendment the pilot pressed Z, the EMS counter cut off, and the SCS held the planned attitude. See `docs/m2/design-flight-controls.md`.
 50. **S-IVB slingshot: modelled.**
 51. **The CSM's lateral CG: one §17 re-baseline, in V8.**
 52. **Save/load: leg scenarios only.**

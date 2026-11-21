@@ -25,6 +25,8 @@ public final class PlumePreparePass: RenderPass {
         try system.setUp(device: s.device, shaders: s.shaders)
     }
 
+    public func startOver() { system.startOver() }
+
     public func encode(_ f: FrameContext, _ e: PassEncoding) {
         system.prepare(f)
         guard case .commandBuffer = e, let noise = system.noise, !noise.isReady,

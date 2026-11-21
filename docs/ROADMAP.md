@@ -194,6 +194,11 @@ order are there.
   parking-orbit venting); CSM separation and the S-IVB slingshot
 - A cislunar propagator and RTCC-style planners on a TRANSFER MFD; the GRGM900C lunar
   gravity field
+- Flight controls after launch (docs/m2/design-flight-controls.md):
+  - TRANSFER as the ground's RTCC desk, with live PADs and pilot-chosen targets, including the lunar orbit;
+  - the IU flying TLI, with the XLUNAR switch and a live prediction;
+  - a CMC-lite on a CMC MFD (P15, P30, P40, P41, P47, P61/P62);
+  - a warp governor, error needles and a HUD burn box.
 - CSM-103 with the SPS series feed and passive thermal control; LOI-1 and LOI-2, ten lunar
   orbits with LOS/AOS, TEI
 - The CMC's entry guidance (P63-P67) with constant-g as the backup; the lunar MAP and the

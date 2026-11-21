@@ -64,6 +64,22 @@ public final class PlanetTilePass: RenderPass {
         self.directory = directory ?? Self.defaultDirectory
     }
 
+    /// A new sequence (`SceneRenderer.startOver`): the next frame selects
+    /// and loads as a fresh pass's first. The selections (the quadtree's
+    /// level-of-detail hysteresis), the prefetch views and wants, the track
+    /// predictor and the frame count start over, and each layer's cache
+    /// drops every tile (`PlanetTileCache.startOver`); the layers' files stay
+    /// open.
+    public func startOver() {
+        lastSelections = [:]
+        prefetchSelections = [:]
+        prefetchWants = [:]
+        prefetchViews = []
+        predictor = PlanetTrackPredictor(mu: 3.986_004_418e14)
+        frames = 0
+        for cache in layers.values { cache.startOver() }
+    }
+
     /// The layer's cache, if its files were found.
     public func layer(_ kind: PlanetTileLayerKind) -> PlanetTileCache? { layers[kind] }
 

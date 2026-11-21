@@ -284,6 +284,9 @@ public enum PropellantFeed {
 
 public final class Thruster {
     public let name: String
+    /// Its identity for the life of the process, which the renderer keys its
+    /// nozzles and poses by (`ObjectSerial`: an address is reused).
+    public let serial = ObjectSerial.next()
     /// A point on the thrust line (the gimbal point for engines), part frame, m.
     public var position: Vec3
     /// Unit direction of the force applied to the vessel (opposite to the
@@ -635,6 +638,9 @@ public enum StagingRule: Equatable {
 /// are what staging separates.
 public final class VesselPart {
     public let name: String
+    /// Its identity for the life of the process, which the renderer keys its
+    /// cached meshes by (`ObjectSerial`: an address is reused).
+    public let serial = ObjectSerial.next()
     public var dryMass: Double
     /// Position of the part's reference point (the centre of its bounding
     /// cylinder) in the vessel frame, m. The simulation keeps the vessel

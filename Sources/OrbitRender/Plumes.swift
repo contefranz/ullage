@@ -482,6 +482,19 @@ public final class PlumeSystem {
         return PlumeLights.light(c, profiles: list)
     }
 
+    /// A new sequence (`SceneRenderer.startOver`): the next frame starts as
+    /// in a fresh system. Its turbulence clock starts over; its first frame
+    /// trims at R1's first exposure, not the last frame's (another shot's);
+    /// and the looks are made again, since each cached one is the first
+    /// frame's in its bucket of quantised inputs.
+    func startOver() {
+        last = nil
+        exposure = nil
+        templates = [:]
+        trims = [:]
+        profiles = [:]
+    }
+
     /// What the frame draws, from the scene alone: the members, clusters
     /// and their detail, the glowing nozzles. Once a frame, on the first
     /// question: the frame graph asks which passes run before P0 does.

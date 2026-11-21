@@ -147,6 +147,10 @@ public protocol RenderPass: AnyObject {
     func setUp(_ s: PassSetup) throws
     func resize(_ size: RenderSize)
     func encode(_ f: FrameContext, _ e: PassEncoding)
+    /// Drops what it keeps from earlier frames to continue them
+    /// (`SceneRenderer.startOver`), so that the next frame renders as in a
+    /// fresh renderer. Nothing by default.
+    func startOver()
 }
 
 extension RenderPass {
@@ -157,6 +161,7 @@ extension RenderPass {
     public func isActive(in f: FrameContext) -> Bool { true }
     public func setUp(_ s: PassSetup) throws {}
     public func resize(_ size: RenderSize) {}
+    public func startOver() {}
 }
 
 /// Depth and sampler states every pass may share.

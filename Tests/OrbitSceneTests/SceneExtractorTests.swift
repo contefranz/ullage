@@ -84,7 +84,7 @@ final class SceneExtractorTests: XCTestCase {
             let geometry = VesselGeometry(of: v)
             for p in v.parts {
                 for t in p.thrusters {
-                    guard let nozzle = geometry.nozzles[ObjectIdentifier(t)] else { continue }
+                    guard let nozzle = geometry.nozzles[t.serial] else { continue }
                     let spec = try XCTUnwrap(ExhaustLibrary.spec(for: t, in: p), t.name)
                     XCTAssertEqual(nozzle.radius, spec.exitRadius, accuracy: 1e-9, t.name)
                     XCTAssertGreaterThan(nozzle.exhaust.dot(-t.direction), cos(15 * Double.pi / 180), t.name)
@@ -113,7 +113,7 @@ final class SceneExtractorTests: XCTestCase {
                 let t = try XCTUnwrap(part.thrusters.first { $0.name == name })
                 let exit = port.position + part.offset - stack.structureOrigin
                 ports[name] = (exit, port.direction, port.radius)
-                let nozzle = try XCTUnwrap(geometry.nozzles[ObjectIdentifier(t)], name)
+                let nozzle = try XCTUnwrap(geometry.nozzles[t.serial], name)
                 XCTAssertEqual((nozzle.exit - exit).length, 0, accuracy: 1e-9, name)
                 XCTAssertEqual(nozzle.radius, port.radius, accuracy: 1e-12, name)
                 XCTAssertGreaterThan((t.position + part.offset - stack.structureOrigin - exit).length, 0.5, name)

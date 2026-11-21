@@ -208,7 +208,7 @@ E. PORT VERSUS REIMPLEMENT
 - **Worth porting with attribution, if wanted:**
   - the ground-track ring buffer's adaptive sampling (10° target step, dt scaled by cos(latitude), incremental refresh of future points; VectorMap.cpp, Groundtrack::Update);
   - the FloatStr/DistStr 4-significant-figure number formatting with k/M/G suffixes;
-  - later, Align's surface mode and TransX's planning structure for TLI.
+  - later, Align's surface mode. TransX's planning structure for TLI is not ported (decided 2026-11-21): M2's TRANSFER is an original RTCC-style desk, see `docs/m2/design-flight-controls.md`.
 - **Never use** D3D9Client (LGPL/GPL), NASSP or ProjectApollo MFDs (GPL), or add-ons outside the repo.
 
 F. WORK SPLIT (disjoint files)
