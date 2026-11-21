@@ -51,6 +51,13 @@
                   "plume": {"testEngines": [
                     {"engine": "S-IC retro", "position": [-12, 0, -10], "axis": [0, 0, 1], "altitude": 65000},
                     {"engine": "Tower jettison", "position": [12, 0, -10], "axis": [0, 0, 1], "altitude": 90000}]}}},
+    {"name": "p2-retro-pair", "scenario": "leo", "showOrbit": false,
+     "camera": {"yaw": 0, "pitch": 0, "distance": 30, "fov": 45},
+     "settings": {"post": {"exposure": {"mode": "manual", "ev100": 15}}, "cloud": {"enabled": false}, "probe": {"enabled": false},
+                  "transparency": {"testBackdrop": true},
+                  "plume": {"testEngines": [
+                    {"engine": "S-IC retro", "position": [0, 0, -5], "axis": [0, 0, 1], "altitude": 65000,
+                     "ring": 2, "ringRadius": 0.5, "centre": false}]}}},
     {"name": "p2-f1-legacy", "scenario": "leo", "showOrbit": false,
      "camera": {"yaw": 0, "pitch": 0, "distance": 150, "fov": 45},
      "settings": {"post": {"exposure": {"mode": "manual", "ev100": 15}}, "cloud": {"enabled": false}, "probe": {"enabled": false},

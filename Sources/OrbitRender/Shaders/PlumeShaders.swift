@@ -486,15 +486,24 @@ fragment EffectVolumeOut plume_march_fragment(PlumeProxyOut in [[stage_in]],
     float cloudAlpha = 0.0, cloudEntry = 1e30, cloudBack = 1e30, cloudFront = 1e30;
     if (pf.sun.w > 0.5) {
         float2 uv = in.position.xy * e.target.zw;
-        cloudAlpha = clamp(cloudLayer.sample(linear, uv).a, 0.0, 0.9999);
-        // The depth codes are not filtered across the no-depth code (60):
-        // the nearest of the four, as C2's slot reads them.
-        float4 fronts = cloudDepth.gather(linear, uv, int2(0), component::x);
-        float4 means = cloudDepth.gather(linear, uv, int2(0), component::y);
-        float4 entries = cloudDepth.gather(linear, uv, int2(0), component::z);
-        float4 z = float4(min(min(fronts.x, fronts.y), min(fronts.z, fronts.w)),
-                          min(min(means.x, means.y), min(means.z, means.w)),
-                          min(min(entries.x, entries.y), min(entries.z, entries.w)), 0.0);
+        uint2 size = uint2(cloudDepth.get_width(), cloudDepth.get_height());
+        float4 z;
+        if (abs(float(size.x) * e.target.z - 1.0) < 1e-3 && abs(float(size.y) * e.target.w - 1.0) < 1e-3) {
+            // The clouds' texels are the march's: read them exactly.
+            uint2 t = min(texel, size - 1u);
+            cloudAlpha = clamp(cloudLayer.read(t).a, 0.0, 0.9999);
+            z = cloudDepth.read(t);
+        } else {
+            cloudAlpha = clamp(cloudLayer.sample(linear, uv).a, 0.0, 0.9999);
+            // The depth codes are not filtered across the no-depth code
+            // (60): the nearest of the four, as C2's slot reads them.
+            float4 fronts = cloudDepth.gather(linear, uv, int2(0), component::x);
+            float4 means = cloudDepth.gather(linear, uv, int2(0), component::y);
+            float4 entries = cloudDepth.gather(linear, uv, int2(0), component::z);
+            z = float4(min(min(fronts.x, fronts.y), min(fronts.z, fronts.w)),
+                       min(min(means.x, means.y), min(means.z, means.w)),
+                       min(min(entries.x, entries.y), min(entries.z, entries.w)), 0.0);
+        }
         if (cloudAlpha > 1e-4 && z.z < 59.5) {
             cloudFront = exp2(z.x);
             cloudEntry = exp2(min(z.z, z.x));

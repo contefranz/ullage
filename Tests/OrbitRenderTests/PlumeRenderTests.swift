@@ -159,6 +159,20 @@ final class PlumeRenderTests: XCTestCase {
         XCTAssertGreaterThan(seen[0], 3 * seen[1])
     }
 
+    /// Marched clusters reach R6's volumes layer far to near (C5): three
+    /// F-1 plumes 50, 400 and 150 m ahead, in that order, draw 400, 150, 50.
+    func testMarchedClustersDrawFarToNear() {
+        let spec = ApolloExhaust.f1.spec
+        let air = USStandardAtmosphere1976().state(altitude: 10_000)
+        let state = PlumeModel.state(spec, flowFraction: 1, ambient: air)
+        let clusters = [50.0, 400, 150].map { z in
+            PlumeClusters.cluster([PlumeLook.member(spec, state: state, exit: Vec3(20, 0, -z), axis: Vec3(1, 0, 0),
+                                                    exitRadius: spec.exitRadius, ambient: air)])
+        }
+        let order = Plumes.farToNear(Array(clusters.enumerated()), { $0.element }).map(\.offset)
+        XCTAssertEqual(order, [1, 2, 0])
+    }
+
     /// R2's line light clipped to the receiver's horizon (Karis 2013): a
     /// vertical jet passing below an up-facing surface h off its axis,
     /// reaching a above it and b below, of intensity I spread along it,

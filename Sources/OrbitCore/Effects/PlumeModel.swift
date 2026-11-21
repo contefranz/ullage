@@ -127,8 +127,11 @@ public struct PlumeState: Equatable {
     /// the exit), and, in air, the mixing jet's, to where its centreline,
     /// decaying as 1/x beyond the core, falls to 1,000 K from the expanded
     /// jet's temperature, or beyond the afterburning flame's tip from its
-    /// 2,300 K (the two mixed by the afterburning's strength, so that the
-    /// length is continuous as it fades), times `structureVisibility`.
+    /// 2,300 K (the two mixed by the afterburning's strength), times
+    /// `structureVisibility`. Where that plateau is itself cooler than
+    /// 1,000 K, its length times its luminance over 1,000 K's (Wien at 555
+    /// nm, `luminanceRatio`): the luminous length then fades continuously
+    /// to 0 as the afterburning fades, rather than at once.
     public var luminousLength: Double
     /// The exhaust's ratio of specific heats, for the far field.
     public var gamma: Double
@@ -242,6 +245,11 @@ public enum PlumeModel {
             let reach = core + (max(core, flame) - core) * a
             if hot > visibleTemperature {
                 lumAir = reach * (hot - ta) / max(1, visibleTemperature - ta)
+            } else if hot > ta {
+                // The plateau itself cooler than the limit: its length
+                // weighted by its luminance over the limit's, so the length
+                // goes to 0 continuously as the afterburning fades.
+                lumAir = reach * luminanceRatio(hot, visibleTemperature)
             }
         }
         // The free expansion cools as ρ^(γ-1): the density at 1,000 K.
@@ -278,6 +286,16 @@ public enum PlumeModel {
             flameFrontDistance: spec.film != nil && ab > 0 && continuum ? 0.75 * de : nil,
             potentialCoreLength: core, stoichiometricMixtureFraction: fs, flameLength: flame,
             luminousLength: luminous, gamma: g)
+    }
+
+    /// c2 / 555 nm (K): Wien's exponent at the eye's peak sensitivity.
+    static let photopicWien = 0.014388 / 555e-9
+
+    /// A full radiator's luminance at `t` over that at `limit` (K), Wien's
+    /// limit at 555 nm: exp(-(c2/λ)(1/t - 1/limit)).
+    public static func luminanceRatio(_ t: Double, _ limit: Double) -> Double {
+        guard t > 0 else { return 0 }
+        return exp(-photopicWien * (1 / t - 1 / limit))
     }
 
     /// Dry air's oxygen mole fraction and molar mass (kg/mol), US 1976.

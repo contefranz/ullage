@@ -121,15 +121,28 @@ public enum PlumeLights {
             }
         }
         let total = 0.2126 * r + 0.7152 * g + 0.0722 * b
-        guard total > 0, total.isFinite else { return nil }
-        bins.sort { $0.x < $1.x }
-        var sum = 0.0, end = bins.last.map { $0.x + 0.5 * $0.width } ?? 0
+        guard total > 0, total.isFinite, let width = bins.map(\.width).min(), width > 0 else { return nil }
+        // The members' bins summed on one grid along the axis (each spread
+        // over the cells it covers), so that members side by side cross
+        // together, then the 90 % found within its cell.
+        let lo = bins.map { $0.x - 0.5 * $0.width }.min() ?? 0
+        let hi = bins.map { $0.x + 0.5 * $0.width }.max() ?? 0
+        let cells = max(1, Int(((hi - lo) / width).rounded(.up)))
+        var grid = [Double](repeating: 0, count: cells)
         for p in bins where p.i > 0 {
-            if sum + p.i >= 0.9 * total {
-                end = p.x - 0.5 * p.width + p.width * min(max((0.9 * total - sum) / p.i, 0), 1)
+            let a = p.x - 0.5 * p.width - lo, b = a + p.width
+            for k in max(0, Int(a / width))...min(cells - 1, Int(b / width)) {
+                let overlap = min(b, Double(k + 1) * width) - max(a, Double(k) * width)
+                if overlap > 0 { grid[k] += p.i * overlap / p.width }
+            }
+        }
+        var sum = 0.0, end = hi
+        for (k, i) in grid.enumerated() where i > 0 {
+            if sum + i >= 0.9 * total {
+                end = lo + (Double(k) + min(max((0.9 * total - sum) / i, 0), 1)) * width
                 break
             }
-            sum += p.i
+            sum += i
         }
         let length = max(end, c.members.map(\.exitDiameter).max() ?? 1)
         let radius = max(c.radius(atX: 0.5 * length) / PlumeClusters.margin, c.members.map(\.exitRadius).max() ?? 0)

@@ -95,24 +95,32 @@ final class PlumeClustersTests: XCTestCase {
     }
 
     /// Engines far apart, of different families or vessels, or pointing
-    /// different ways, stay apart; a cluster takes eight at most.
+    /// different ways, stay apart; a cluster takes eight at most. Solid
+    /// motors stay each its own, even side by side (the S-IC retros' pairs).
     func testClusteringRules() {
         let air = us76.state(altitude: 65_000)
         let retro = ApolloExhaust.sICRetro.spec
-        let s = PlumeModel.state(retro, flowFraction: 1, ambient: air)
-        func m(_ exit: Vec3, _ axis: Vec3, vessel: UUID? = nil) -> PlumeMember {
-            var x = PlumeLook.member(retro, state: s, exit: exit, axis: axis, exitRadius: retro.exitRadius,
-                                     ambient: air)
-            x.vesselID = vessel
-            return x
+        let rs = PlumeModel.state(retro, flowFraction: 1, ambient: air)
+        func r(_ exit: Vec3, _ axis: Vec3) -> PlumeMember {
+            PlumeLook.member(retro, state: rs, exit: exit, axis: axis, exitRadius: retro.exitRadius, ambient: air)
         }
-        // Retros around the interstage, 5 m out: each its own.
+        // Retros around the interstage, 5 m out, and a pair side by side.
         let ring = (0..<8).map { i -> PlumeMember in
             let a = 2 * Double.pi * Double(i) / 8
             let out = Vec3(cos(a), sin(a), 0)
-            return m(out * 5, (Vec3(0, 0, 1) + out * 0.13).normalized)
+            return r(out * 5, (Vec3(0, 0, 1) + out * 0.13).normalized)
         }
         XCTAssertEqual(PlumeClusters.clusters(ring).count, 8)
+        XCTAssertEqual(PlumeClusters.clusters([r(.zero, .unitZ), r(Vec3(0.5, 0, 0), .unitZ)]).count, 2)
+
+        let f1 = ApolloExhaust.f1.spec
+        let s = PlumeModel.state(f1, flowFraction: 1, ambient: us76.state(altitude: 0))
+        func m(_ exit: Vec3, _ axis: Vec3, vessel: UUID? = nil) -> PlumeMember {
+            var x = PlumeLook.member(f1, state: s, exit: exit, axis: axis, exitRadius: f1.exitRadius,
+                                     ambient: us76.state(altitude: 0))
+            x.vesselID = vessel
+            return x
+        }
         // Twelve close and aligned: eight and four.
         let tight = (0..<12).map { m(Vec3(Double($0) * 0.1, 0, 0), Vec3(0, 0, 1)) }
         XCTAssertEqual(PlumeClusters.clusters(tight).map(\.members.count).sorted(), [4, 8])

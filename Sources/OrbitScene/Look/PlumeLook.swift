@@ -774,6 +774,13 @@ public enum PlumeLook {
                 best = max(best, (s.emission.luminance + s.scattering * sun * forward) * chord,
                            s.extinction * chord > 0.02 ? 1e30 : 0)
             }
+            // A film's band (kerosene's turbine exhaust, the legacy look's
+            // dark core) off the axis: opaque enough, it shows against the
+            // background, so the member is never only its glow.
+            if p.sheathExtinction > 0 {
+                let band = 2 * p.sheathThickness * p.radius(atX: min(0.5 * p.exitDiameter, p.sheathLength))
+                if p.sheathExtinction * band > 0.02 { best = 1e30 }
+            }
             // The base's glow and the Mach disk off the stations: their
             // light through their thickness, thin.
             if p.baseExtinction > 0 {

@@ -20,7 +20,10 @@ medium, L low (visual, calibrated or assumed).
 2. **Clusters** (`OrbitScene/Look/PlumeClusters.swift`). Members of one
    family on one vessel whose axes agree within 12° and whose exits are
    within three of their summed radii join, up to eight: the S-IC's five
-   F-1s and the S-II's five J-2s are one cluster each, the S-IC retros eight.
+   F-1s and the S-II's five J-2s are one cluster each. Solid motors stay
+   each its own (the S-IC retros, in pairs in their fairings, eight
+   clusters): a small, dense alumina core needs the march's equiangular
+   steps about its own axis.
    Each cluster gets a convex proxy: the upper concave hull of every
    member's extent (sampled cross-sections at their offsets and tilts, the
    eddies' reach of 15 % beyond the jet included), with a 4 % margin,
@@ -35,9 +38,12 @@ medium, L low (visual, calibrated or assumed).
    in the Earth's shadow only the glow can show. Then by the cluster's size
    on screen at its nearest point: marched from 48 px, an impostor from
    6 px, nothing below (the vessel's far point carries it). A plume only
-   its readable glow shows is marched too when it is that large, so that
-   it lies in R6's volumes layer with the clouds and keeps its form seen
-   end on. Attitude jets are impostors beyond 20 m. Low draws only
+   its glow shows (readable in vacuum, or in the Earth's shadow; not one
+   with an opaque film band, as the legacy kerosene look's) is marched too
+   when it is that large, so that it lies in R6's volumes layer with the
+   clouds and keeps its form seen end on: with its proxy held to the glow
+   (1.15 R), at a quarter of the steps for one member (equiangular) and
+   half for several. Attitude jets are impostors beyond 20 m. Low draws only
    impostors; Off, or `enabled: false`, nothing. The looks, trims and light
    profiles are kept across frames, keyed on their inputs to 0.25 % (flow,
    the air) and 1 % (the exposure, the Sun). Beyond where a cluster's
@@ -75,7 +81,9 @@ medium, L low (visual, calibrated or assumed).
    ambient and add the same in-scatter in their fragment, so they light as
    the march does.
 6. **Air and clouds:** A2's froxels at the plume's light-weighted depth dim
-   it and add their light (L·T + a·S). C2's clouds: the march keeps a
+   it and add their light (L·T + a·S). C2's layer and depth codes are read
+   texel for texel where they are the march's size, else the nearest of
+   the four depth codes (never filtered across the no-depth code). C2's clouds: the march keeps a
    second accumulation dimmed by the cloud layer's opacity from its entry
    on; when the plume's front lies before the clouds' it is composited over
    them carrying that dimming, else the clouds lie over it.
@@ -83,15 +91,17 @@ medium, L low (visual, calibrated or assumed).
    coloured at ten stations by the reference march through the axis from
    the camera's side (lit by the Sun at the view ray's phase and the
    ambient as the march takes it, stepped equiangularly), and M1.5's disc
-   over the exit carrying the plume seen end on, weighted by how nearly
-   it is; premultiplied over the scene, hazed. `PlumeRenderTests` checks
+   over the exit carrying the plume seen end on, as wide as the jet near
+   its exit (two exit radii at most), weighed in from about 35° off the
+   axis; premultiplied over the scene, hazed. `PlumeRenderTests` checks
    the stations against the reference along the camera's own ray, the Sun
    ahead and behind.
 8. **Plume lights** (`OrbitScene/Look/PlumeLights.swift`): one line light
    per cluster that glows (kerosene, solids), from the exits to where
    nine-tenths of its light is reached; its intensity is the members'
-   side-on luminance times their width, summed (the end found within the
-   bin that crosses it). P2 writes them into the lighting uniforms in P0,
+   side-on luminance times their width, summed (the members' bins summed
+   on one grid along the axis, the end found within the cell that crosses
+   it, so that it moves smoothly). P2 writes them into the lighting uniforms in P0,
    with lightCount.y = 1 to say it ran (the vessel pass then takes them
    however many, and builds its own only without P2); R2's vessel pass
    shades the vehicle, the pad and the deck with them, each segment clipped

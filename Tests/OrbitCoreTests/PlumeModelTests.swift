@@ -318,38 +318,41 @@ final class PlumeModelTests: XCTestCase {
         XCTAssertEqual(PlumeModel.stoichiometricMixtureFraction(ApolloExhaust.f1.spec) / elemental, 1, accuracy: 0.04)
     }
 
-    // The luminous length is continuous as the afterburning fades out at
-    // 40 km's pressure (287.14 Pa) and in at 28 km's (1,616 Pa), the flame
-    // and the inert jet mixed by its strength; and the flame's length
-    // across the whole fade, which does not depend on it.
-    func testLuminousLengthContinuousAsAfterburningFades() {
+    // Through P1's whole afterburning fade (1,616 to 287 Pa) and either side
+    // of it, every 5 Pa: the luminous length moves by under 20 % of its
+    // length at the fade's start, with no step the size of the flame (it
+    // once fell by the flame's reach at once, where the plateau cooled
+    // through 1,000 K); below 1,000 K the plateau's length is weighted by
+    // its luminance over 1,000 K's (Wien at 555 nm). The flame's length,
+    // which does not depend on the fade, moves as 1/√ρa.
+    func testLengthsSmoothThroughTheAfterburningFade() {
         let spec = ApolloExhaust.f1.spec
-        func air(_ p: Double) -> AtmosphereState {
+        func state(_ p: Double) -> PlumeState {
             var a = AtmosphereState.vacuum
             a.temperature = 230
             a.pressure = p
             a.density = p / (287.05 * 230)
             a.speedOfSound = 304
-            return a
+            return PlumeModel.state(spec, flowFraction: 1, ambient: a)
         }
-        for edge in [287.14, 1_616.1] {
-            var last: Double?
-            for i in -20...20 {
-                let p = edge * pow(1.001, Double(i))
-                let s = PlumeModel.state(spec, flowFraction: 1, ambient: air(p))
-                if let last { XCTAssertEqual(s.luminousLength / last, 1, accuracy: 0.01, "\(p) Pa") }
-                last = s.luminousLength
+        let start = state(1_616.1)
+        var last: PlumeState?
+        var p = 1_700.0
+        while p >= 250 {
+            let s = state(p)
+            if let last {
+                XCTAssertLessThan(abs(s.luminousLength - last.luminousLength) / start.luminousLength, 0.2, "\(p) Pa")
+                // As 1/√ρa: half the pressure's step, and a little more.
+                XCTAssertEqual(s.flameLength / last.flameLength, 1, accuracy: 0.6 * 5 / p, "\(p) Pa")
             }
+            last = s
+            p -= 5
         }
-        var last: Double?
-        var p = 2_000.0
-        while p > 200 {
-            let s = PlumeModel.state(spec, flowFraction: 1, ambient: air(p))
-            XCTAssertGreaterThan(s.flameLength, 0)
-            if let last { XCTAssertEqual(s.flameLength / last, 1, accuracy: 0.002, "\(p) Pa") }
-            last = s.flameLength
-            p /= 1.002
-        }
+        // The weight: 1 at the limit, Wien's below it.
+        XCTAssertEqual(PlumeModel.luminanceRatio(1_000, 1_000), 1)
+        XCTAssertEqual(PlumeModel.luminanceRatio(900, 1_000), exp(-0.014388 / 555e-9 * (1.0 / 900 - 1.0 / 1_000)),
+                       accuracy: 1e-12)
+        XCTAssertLessThan(PlumeModel.luminanceRatio(900, 1_000), 0.06)
     }
 
     // The regimes along the flight: the J-2 at S-II ignition (67 km) is a

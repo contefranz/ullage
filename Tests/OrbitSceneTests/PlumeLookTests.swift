@@ -230,6 +230,43 @@ final class PlumeLookTests: XCTestCase {
         }
     }
 
+    /// The F-1 through P1's whole afterburning fade (1,616 to 287 Pa, 28 to
+    /// 40 km, T+105 to T+125 s or so), every 5 Pa (a few frames of the
+    /// ascent): P1's luminous length moves by under 20 % of its length at
+    /// the fade's start, the drawn length by under 6 % (before, both fell
+    /// by the flame's reach at once where the plateau cooled through 1,000
+    /// K, about 37 km: the drawn column 17 % in one frame). The luminous
+    /// length now fades there by its luminance over 1,000 K's.
+    func testLengthsSmoothThroughTheAfterburningFade() {
+        let spec = ApolloExhaust.f1.spec
+        func member(_ p: Double) -> (PlumeState, PlumeMember) {
+            let air = RenderScene.Emitter.air(pressureRatio: p / 101_325)
+            let s = PlumeModel.state(spec, flowFraction: 1, ambient: air)
+            return (s, PlumeLook.member(spec, state: s, exit: .zero, axis: Vec3(1, 0, 0), exitRadius: spec.exitRadius,
+                                        ambient: air))
+        }
+        // Steps against the lengths where the fade begins (1,616 Pa).
+        let start = member(1_616.1)
+        var last: (PlumeState, PlumeMember)?
+        var worst = (luminous: 0.0, drawn: 0.0)
+        var p = 1_700.0
+        while p >= 250 {
+            let now = member(p)
+            if let last {
+                let lum = abs(now.0.luminousLength - last.0.luminousLength) / start.0.luminousLength
+                let drawn = abs(now.1.length - last.1.length) / start.1.length
+                worst = (max(worst.luminous, lum), max(worst.drawn, drawn))
+                XCTAssertLessThan(lum, 0.2, "luminous length at \(p) Pa: \(last.0.luminousLength) to \(now.0.luminousLength)")
+                XCTAssertLessThan(drawn, 0.06, "drawn length at \(p) Pa: \(last.1.length) to \(now.1.length)")
+            }
+            last = now
+            p -= 5
+        }
+        print(String(format: "PlumeLookTests: through the fade, the largest step per 5 Pa: luminous %.1f %%, drawn %.1f %% "
+                     + "of their %.0f and %.0f m at 1,616 Pa", 100 * worst.luminous, 100 * worst.drawn,
+                     start.0.luminousLength, start.1.length))
+    }
+
     /// Prints the look across conditions (ORBITSIM_PLUME_TABLE=1), for the
     /// calibration notes.
     func testPrintCalibrationTable() throws {

@@ -85,10 +85,13 @@ public enum PlumeClusters {
 
     /// The clusters of `members`: by vessel and family, joined while their
     /// axes agree and their exits are close, at most `maximumMembers` each.
+    /// Solid motors stay each its own: a small, dense alumina core takes
+    /// the march's equiangular steps about its own axis, which a cluster of
+    /// several does not get (the S-IC retros, in pairs in their fairings).
     public static func clusters(_ members: [PlumeMember]) -> [PlumeCluster] {
         var groups: [[PlumeMember]] = []
         for m in members {
-            if let k = groups.firstIndex(where: { g in
+            if m.family != .solid, let k = groups.firstIndex(where: { g in
                 g.count < maximumMembers && g[0].vesselID == m.vesselID && g[0].family == m.family
                     && g[0].isJet == m.isJet && g.contains { joins($0, m) }
             }) {

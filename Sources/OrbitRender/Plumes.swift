@@ -71,6 +71,17 @@ enum Plumes {
             glow: f4(m.glow, m.glowLength), extent: f4(vacuumAngle, particleAngle, m.flameLength, m.flameSpread))
     }
 
+    /// How far a marched cluster is for R6's back-to-front order: its
+    /// proxy's middle on the axis, from the camera (m).
+    static func drawDistance(_ c: PlumeCluster) -> Double {
+        (c.origin + c.axis * (0.5 * (c.start + c.end))).length
+    }
+
+    /// `items` far to near by their clusters' `drawDistance`.
+    static func farToNear<T>(_ items: [T], _ cluster: (T) -> PlumeCluster) -> [T] {
+        items.map { ($0, drawDistance(cluster($0))) }.sorted { $0.1 > $1.1 }.map(\.0)
+    }
+
     /// A cluster's header: its frame, proxy and light, its members at
     /// `memberStart` in the member buffer, marched in `steps` (0: the
     /// frame's).
@@ -125,13 +136,11 @@ enum Plumes {
         side = side.normalized
         // Across the strip through the axis, pointing at the camera.
         let towards = side.cross(m.axis).normalized
-        var widest = 0.5 * m.exitRadius
         func ring(_ i: Int) -> (PlumeVertex, PlumeVertex) {
             let t = Double(i) / Double(samples)
             let x = m.length * (t * t)
             let e = m.extent(atX: x)
             let w = max(min(1.1 * m.radius(atX: x), e), 0.5 * m.exitRadius)
-            widest = max(widest, w)
             let c = m.exit + m.axis * x
             let seen = PlumeLook.march([m], from: c + towards * e, direction: -towards, range: 0...(2 * e), steps: 24,
                                        sun: sun, phaseDirection: c.normalized, around: (e, 0.5 * m.denseRadius(atX: x)))
@@ -147,10 +156,14 @@ enum Plumes {
             out += [previous.0, previous.1, next.1, previous.0, next.1, next.0]
             previous = next
         }
-        // End on, the strip is seen edge on: the disc carries the plume.
+        // End on, the strip is seen edge on: the disc carries the plume,
+        // as wide as the jet near its exit (at most two exit radii, as
+        // M1.5's), and only near end on (from about 35° off the axis).
         let view = m.exit.length > 1e-9 ? m.exit.normalized : m.axis
-        let endOn = PlumeMember.smoothstep(0.3, 0.9, abs(view.dot(m.axis)))
+        let endOn = PlumeMember.smoothstep(0.82, 0.97, abs(view.dot(m.axis)))
         guard endOn > 0 else { return }
+        let near = min(m.exitDiameter, 0.25 * m.length)
+        let disc = min(max(1.1 * m.radius(atX: near), m.exitRadius), 2 * m.exitRadius)
         let seen = PlumeLook.march([m], from: m.exit - view * m.length, direction: view, range: 0...(2 * m.length),
                                    steps: 48, sun: sun)
         let color = SIMD4(Float(seen.radiance.r * endOn), Float(seen.radiance.g * endOn),
@@ -161,7 +174,7 @@ enum Plumes {
         let sides = 16
         func rim(_ k: Int) -> PlumeVertex {
             let a = 2 * Double.pi * Double(k) / Double(sides)
-            return PlumeVertex(position: f4(m.exit + (u * cos(a) + v * sin(a)) * widest, 1), color: color,
+            return PlumeVertex(position: f4(m.exit + (u * cos(a) + v * sin(a)) * disc, 1), color: color,
                                shape: SIMD4(1, 0, Float(seen.ambientResponse * endOn), g))
         }
         for k in 0..<sides { out += [centre, rim(k), rim(k + 1)] }
@@ -495,8 +508,7 @@ public final class PlumeSystem {
             let sunlit = c.vesselID.flatMap { id in scene.vessels.first { $0.id == id }?.light.sunlit } ?? 1
             switch detail {
             case .march:
-                let centre = c.origin + c.axis * (0.5 * (c.start + c.end))
-                marched.append((centre.length, c, light, sunlit))
+                marched.append((Plumes.drawDistance(c), c, light, sunlit))
             case .impostor:
                 let lit = sunlit > 0 ? (direction: sun.direction, illuminance: sunLux.scaled(by: sunlit)) : nil
                 for m in c.members { Plumes.impostor(m, sun: lit, to: &data.impostors) }
@@ -507,9 +519,13 @@ public final class PlumeSystem {
         // Far to near: R6's volumes layer blends them in draw order. A
         // cluster only its glow shows (emission alone, smooth) takes a
         // quarter of the steps, at least 8.
-        for e in marched.sorted(by: { $0.distance > $1.distance }) {
+        for e in Plumes.farToNear(marched, { $0.cluster }) {
             let c = e.cluster
-            let steps = c.members.allSatisfy(\.glowOnly) ? max(8, settings.quality.steps / 4) : 0
+            // (Half, at least 16, for several members: only a single one
+            // gets the equiangular steps.)
+            let glowOnly = c.members.allSatisfy(\.glowOnly)
+            let steps = !glowOnly ? 0 : c.members.count == 1 ? max(8, settings.quality.steps / 4)
+                : max(16, settings.quality.steps / 2)
             data.marched.append(Plumes.gpu(c, memberStart: data.members.count, light: e.light, sunlit: e.sunlit,
                                            steps: steps))
             data.members += (c.members + (c.merged.map { [$0] } ?? [])).map {
