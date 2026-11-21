@@ -221,24 +221,31 @@ it, they do not set it.
 
 `PlumeCostTests` (`docs/look/shots/p2-cost.json`; `ORBITSIM_TIMINGS=1`):
 plumes on and off on alternate frames, the difference of the medians, at
-3024×1964 on the M3 Pro. Measured on c5d14b9 at High (32 steps); the
+3024×1964 on the M3 Pro. Measured on 5a0f84f at High (32 steps); the
 plan's budget is 1.5 ms on the pad and 0.5 ms in LEO, for the default
 physical look.
 
-- Pad 0.88-1.19 ms; ascent (T+30 s) 1.76 ms; max-Q 2.09 ms. The ascent
+- Pad 0.84-1.11 ms; ascent (T+30 s) 1.66 ms; max-Q 2.24 ms. The ascent
   and max-Q overrun is accepted: there the plume fills much of the frame,
   and P1's flame is long (105 m at 13 km). Medium (16 steps) is the lever
   R7's tiers have.
-- LEO, physical: 0.02-0.05 ms by day (the J-2s and the SPS culled by the
+- Staging (0.3 s after S-IC/S-II separation: the eight S-IC retros in
+  four pairs and the four S-II ullage motors, eight clusters): 2.68 ms.
+  It was 38 ms with each proxy as wide as P1's jet boundary; the proxies
+  now hold what can show, and solid motors' clusters march at half the
+  steps. The retros burn 0.64 s. The first frame of the burn builds the
+  looks (3 ms of CPU), kept after.
+- LEO, physical: 0.01-0.03 ms by day (the J-2s and the SPS culled by the
   exposure, the SPS bell's glow drawn), the same in forward scatter; the
-  SPS at night in eclipse 0.45 ms (glow-only, marched at a quarter of the
+  SPS at night in eclipse 0.42 ms (glow-only, marched at a quarter of the
   steps, its proxy held to the glow).
 - Readable plumes at High: 1.2-1.7 ms in LEO when large (opt-in). They
   are marched, so that they lie in R6's volumes layer with C2's clouds and
   keep their form seen end on; R7's tiers may bring back impostors at Low,
   where every cluster is drawn as one (0.05-0.10 ms in LEO).
-- CPU: P2's planning and lighting take 0.05-0.25 ms a frame with its
-  caches warm, 1.5 ms on the first frame at the pad.
+- CPU: P2's planning and lighting take 0.02-0.10 ms a frame with its
+  caches warm; 1.5 ms on the first frame at the pad and 3 ms at staging
+  (every look and its visible extents built).
 
 ## Known limits
 
