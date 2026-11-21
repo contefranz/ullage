@@ -112,10 +112,14 @@ public struct PlumeTestEngine: Codable, Equatable {
     public var ring = 0
     public var ringRadius = 0.0
     public var centre = true
+    /// The air's velocity relative to the engine (east, north, up; m/s):
+    /// the stream it fires into (the airspeed against the vehicle's
+    /// motion, any wind); none by default.
+    public var stream = [0.0, 0.0, 0.0]
 
     public init(engine: String, position: [Double] = [0, 0, 0], axis: [Double] = [0, 0, -1], altitude: Double = 0,
                 pressure: Double? = nil, flowFraction: Double = 1, ring: Int = 0, ringRadius: Double = 0,
-                centre: Bool = true) {
+                centre: Bool = true, stream: [Double] = [0, 0, 0]) {
         self.engine = engine
         self.position = position
         self.axis = axis
@@ -125,10 +129,11 @@ public struct PlumeTestEngine: Codable, Equatable {
         self.ring = ring
         self.ringRadius = ringRadius
         self.centre = centre
+        self.stream = stream
     }
 
     private enum CodingKeys: String, CodingKey {
-        case engine, position, axis, altitude, pressure, flowFraction, ring, ringRadius, centre
+        case engine, position, axis, altitude, pressure, flowFraction, ring, ringRadius, centre, stream
     }
 
     public init(from decoder: Decoder) throws {
@@ -142,5 +147,6 @@ public struct PlumeTestEngine: Codable, Equatable {
         ring = try c.decodeIfPresent(Int.self, forKey: .ring) ?? 0
         ringRadius = try c.decodeIfPresent(Double.self, forKey: .ringRadius) ?? 0
         centre = try c.decodeIfPresent(Bool.self, forKey: .centre) ?? true
+        stream = try c.decodeIfPresent([Double].self, forKey: .stream) ?? [0, 0, 0]
     }
 }

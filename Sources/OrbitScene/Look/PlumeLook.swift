@@ -554,9 +554,14 @@ public enum PlumeLook {
         if let p = t.pressure {
             air = p > 0 ? RenderScene.Emitter.air(pressureRatio: p / 101_325) : .vacuum
         }
-        let state = PlumeModel.state(engine.spec, flowFraction: t.flowFraction, ambient: air)
-        guard state.regime != .off else { return [] }
         let axis = frame.direction(t.axis), centre = frame.point(t.position)
+        // The stream, world axes.
+        let speed = (t.stream.count == 3 ? Vec3(t.stream[0], t.stream[1], t.stream[2]) : .zero).length
+        let wind = speed > 0 ? frame.direction(t.stream) * speed : .zero
+        let along = wind.dot(axis), across = (wind - axis * along).length
+        let state = PlumeModel.state(engine.spec, flowFraction: t.flowFraction, ambient: air, streamAlong: along,
+                                     streamAcross: across)
+        guard state.regime != .off else { return [] }
         var exits: [Vec3] = t.centre || t.ring == 0 ? [centre] : []
         if t.ring > 0 {
             let u = VisualShape.defaultReference(for: axis).normalized, v = axis.cross(u).normalized
@@ -574,6 +579,7 @@ public enum PlumeLook {
                          family: PlumeFamily(engine.spec.family), fraction: t.flowFraction,
                          pressureRatio: air.pressure / 101_325, jet: false)
             if settings.readable { applyReadableFloor(&m, flowFraction: t.flowFraction) }
+            m.relativeWind = wind
             return m
         }
     }
