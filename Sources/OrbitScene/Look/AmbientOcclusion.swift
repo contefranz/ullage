@@ -517,7 +517,8 @@ public struct BakedAmbientOcclusion {
     }
 
     public struct Part {
-        public let id: ObjectIdentifier
+        /// The part's `VesselPart.serial` (`VesselGeometry.Part.id`).
+        public let id: ObjectSerial
         /// The part's origin in the construction frame (m), as baked.
         public let offset: Vec3
         public var shapes: [Shape]
@@ -556,11 +557,11 @@ public final class AmbientOcclusionBaker: @unchecked Sendable {
         public let fade: Double
     }
 
-    /// The cache's key: the signature, with the parts' offsets and the
-    /// shapes' placements as a guard against a part's identifier being
-    /// reused by a new object after the old one is gone.
+    /// The cache's key: the signature (the parts' serials, which no later
+    /// part takes), with the parts' offsets and the shapes' placements, so
+    /// that a part whose shapes moved is baked again.
     struct Key: Hashable {
-        let parts: [ObjectIdentifier]
+        let parts: [ObjectSerial]
         let shapes: [Int]
         let placement: [Double]
 

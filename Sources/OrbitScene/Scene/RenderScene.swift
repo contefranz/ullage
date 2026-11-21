@@ -205,8 +205,10 @@ public struct RenderScene {
 
     // MARK: Vessels
 
-    /// A thruster's identity, stable while its part lives.
-    public typealias ThrusterKey = ObjectIdentifier
+    /// A thruster's identity (`Thruster.serial`), never another's: an
+    /// `ObjectIdentifier` is taken by a later thruster once the first is
+    /// freed, which let the mesh cache pose a new nozzle by a dead key.
+    public typealias ThrusterKey = ObjectSerial
 
     public struct Vessel {
         public var id: UUID

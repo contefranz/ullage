@@ -372,6 +372,25 @@ public final class PlanetTileCache {
         stats = s
     }
 
+    /// Starts over, as a new cache would (`SceneRenderer.startOver`, with
+    /// no frame in flight): no tile is resident, the pinned levels' neither,
+    /// so the next update loads what it wants afresh (a snapshot's at once)
+    /// and no tile of an earlier shot is drawn or keeps its tiles out. Loads
+    /// in flight finish and are dropped; the staging buffers are kept.
+    func startOver() {
+        loader.waitForAll()
+        for r in loader.drain() { freeStaging.append(r.staging) }
+        for r in ready.values { freeStaging.append(r.staging) }
+        ready = [:]
+        pending = []
+        freeStaging += busyStaging.map(\.buffer)
+        busyStaging = []
+        residency = PlanetTileResidency(slots: slots, maxLevel: catalog.maxLevel, pinnedLevel: residency.pinnedLevel,
+                                        maxTextureLevel: residency.indirection.textureMaxLevel)
+        // The whole indirection and the deep table go up again, empty.
+        residency.markIndirectionDirty()
+    }
+
     private func takeStaging() -> MTLBuffer? {
         if let b = freeStaging.popLast() { return b }
         // Enough for every load in flight and three frames of uploads.

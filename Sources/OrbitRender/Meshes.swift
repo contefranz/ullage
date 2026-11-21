@@ -278,22 +278,27 @@ struct AOBakeID: Equatable {
     let settings: AmbientOcclusionSettings
 }
 
-/// A part's identity in the cache: the object, guarded by everything it
-/// draws (a new part at a freed part's address is not taken for it unless
-/// it draws the same: its shapes' kinds and sizes too, not only where they
-/// sit).
+/// A part's identity in the cache: the object (`VesselPart.serial`, which
+/// no later part takes, as one took a freed part's address and was served
+/// its entry, nozzles posed by the old thrusters' keys), and everything its
+/// entry is made of: its shapes, their kinds and sizes as well as where they
+/// sit, and the thrusters its draws turn with.
 struct PartKey: Hashable {
-    let id: ObjectIdentifier
+    let id: ObjectSerial
     let name: String
     let variant: ApolloVariant?
     let shapes: [Double]
     let materials: [String]
     let kinds: [String]
+    let thrusters: [RenderScene.ThrusterKey]
+    let mounts: [Double]
 
     init(_ p: VesselGeometry.Part) {
         id = p.id
         name = p.name
         variant = p.appearance
+        thrusters = p.thrusters.map(\.key)
+        mounts = p.thrusters.flatMap { [$0.position.x, $0.position.y, $0.position.z, $0.isGimballed ? 1 : 0] }
         var shapes: [Double] = []
         for s in p.shapes {
             shapes += [s.origin.x, s.origin.y, s.origin.z, s.axis.x, s.axis.y, s.axis.z, s.length,

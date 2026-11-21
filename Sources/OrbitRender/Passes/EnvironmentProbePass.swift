@@ -187,6 +187,15 @@ public final class EnvironmentProbePass: RenderPass {
     private var lastFaces: FaceState?
     private var schedule = FaceSchedule()
 
+    /// A new sequence (`SceneRenderer.startOver`): the next frame draws every
+    /// face, as a fresh pass's first does. Else a shot whose frame index
+    /// follows the last shot's, with the same body, target and settings,
+    /// would redraw some faces and keep the last shot's sky in the others.
+    public func startOver() {
+        lastFaces = nil
+        schedule = FaceSchedule()
+    }
+
     /// How this frame's faces are drawn:
     /// - `full`, every face: the first frame, a frame that does not follow
     ///   the last one drawn, new render settings, another nearest body, a new

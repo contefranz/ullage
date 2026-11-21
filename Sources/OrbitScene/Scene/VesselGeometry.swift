@@ -8,12 +8,13 @@ import OrbitCore
 /// (`Signature`), as the renderer's mesh cache is.
 public struct VesselGeometry {
     public struct Signature: Equatable {
-        public let parts: [ObjectIdentifier]
+        public let parts: [ObjectSerial]
         public let shapes: [Int]
     }
 
     public struct Part {
-        public let id: ObjectIdentifier
+        /// The part's `VesselPart.serial`.
+        public let id: ObjectSerial
         /// The part's name and its Apollo variant (nil for a part with
         /// none), which its paint depends on.
         public let name: String
@@ -57,7 +58,7 @@ public struct VesselGeometry {
     public let nozzles: [RenderScene.ThrusterKey: Nozzle]
 
     public static func signature(of vessel: OrbitCore.Vessel) -> Signature {
-        Signature(parts: vessel.parts.map { ObjectIdentifier($0) }, shapes: vessel.parts.map(\.shapes.count))
+        Signature(parts: vessel.parts.map(\.serial), shapes: vessel.parts.map(\.shapes.count))
     }
 
     public init(of vessel: OrbitCore.Vessel) {
@@ -69,8 +70,8 @@ public struct VesselGeometry {
             for shape in part.shapes {
                 let thruster = shape.thruster.flatMap { name in part.thrusters.first { $0.name == name } }
                 if let t = thruster, let exit = Self.exit(of: shape) {
-                    nozzles[ObjectIdentifier(t)] = Nozzle(exit: exit.centre + offset, radius: exit.radius,
-                                                          pivot: t.position + offset, exhaust: Self.exhaust(of: shape))
+                    nozzles[t.serial] = Nozzle(exit: exit.centre + offset, radius: exit.radius,
+                                               pivot: t.position + offset, exhaust: Self.exhaust(of: shape))
                 }
                 if thruster == nil { unlinked.append(shape) }
             }
@@ -79,7 +80,7 @@ public struct VesselGeometry {
             // its plume starts at the port, which the dresser draws, not at
             // the physics' thrust point inside the fairing. A port of
             // unknown size takes the exhaust library's exit.
-            for t in part.thrusters where nozzles[ObjectIdentifier(t)] == nil {
+            for t in part.thrusters where nozzles[t.serial] == nil {
                 guard let port = part.attachments.first(where: { a in
                     a.thruster == t.name && (a.kind == .retroPort || a.kind == .ullageExit)
                 }) else { continue }
@@ -89,22 +90,22 @@ public struct VesselGeometry {
                 let radius = ApolloExhaust.engine(for: t, in: part)?.spec.exitRadius
                     ?? (port.radius > 0 ? port.radius
                         : PlumeStyle.nominalExitRadius(thrust: t.currentRating.thrustVacuum, solid: t.isSolid))
-                nozzles[ObjectIdentifier(t)] = Nozzle(exit: port.position + offset, radius: radius,
-                                                      pivot: t.position + offset, exhaust: port.direction)
+                nozzles[t.serial] = Nozzle(exit: port.position + offset, radius: radius,
+                                           pivot: t.position + offset, exhaust: port.direction)
             }
             // Vessels dressed without links (the M0 test vehicles): a cone
             // narrowing towards a thruster's position along its direction is
             // taken as its nozzle.
-            for t in part.thrusters where nozzles[ObjectIdentifier(t)] == nil {
+            for t in part.thrusters where nozzles[t.serial] == nil {
                 if let shape = unlinked.first(where: { Self.looksLikeNozzle($0, of: t) }), let exit = Self.exit(of: shape) {
-                    nozzles[ObjectIdentifier(t)] = Nozzle(exit: exit.centre + offset, radius: exit.radius,
-                                                          pivot: t.position + offset, exhaust: Self.exhaust(of: shape))
+                    nozzles[t.serial] = Nozzle(exit: exit.centre + offset, radius: exit.radius,
+                                               pivot: t.position + offset, exhaust: Self.exhaust(of: shape))
                 }
             }
-            parts.append(Part(id: ObjectIdentifier(part), name: part.name, appearance: part.appearance, offset: offset,
+            parts.append(Part(id: part.serial, name: part.name, appearance: part.appearance, offset: offset,
                               shapes: part.shapes,
                               thrusters: part.thrusters.map {
-                                  ThrusterMount(key: ObjectIdentifier($0), name: $0.name, position: $0.position,
+                                  ThrusterMount(key: $0.serial, name: $0.name, position: $0.position,
                                                 direction: $0.direction, isGimballed: !$0.gimbal.isEmpty)
                               }))
         }
