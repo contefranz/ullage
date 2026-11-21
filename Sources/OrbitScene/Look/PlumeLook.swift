@@ -65,6 +65,23 @@ public struct PlumeMember: Equatable {
     /// An identifier its maker gives it (the renderer's key for its look,
     /// kept across frames), carried through the clusters.
     public var tag = 0
+
+    // The airflow (`PlumeAirflow`).
+    /// The air's velocity relative to the vessel (world axes, m/s): the
+    /// stream the jet issues into; zero in vacuum.
+    public var relativeWind = Vec3.zero
+    /// P1's fully expanded jet: its speed (m/s) and momentum-equivalent
+    /// diameter (m); 0 where it does not mix with air.
+    public var jetVelocity = 0.0
+    public var momentumDiameter = 0.0
+    /// Its centreline bent into the stream (none in vacuum or still air).
+    public var bend = PlumeBend.none
+    /// Where it starts to fade out (m); nil for the last 30 % of its length.
+    /// Set where it is handed over to P4's trail.
+    public var fadeStart: Double?
+    /// Its length as built, before the exposure's trim (m): what the
+    /// hand-over to the trail is reckoned from, the same at any exposure.
+    public var builtLength = 0.0
     /// How far it reaches downstream and upstream of the exit (the base
     /// glow), m: the proxy's extent.
     public var length = 0.0
@@ -101,6 +118,8 @@ public struct PlumeMember: Equatable {
     /// beyond which its light and opacity cannot; the proxy holds no more.
     /// Empty: the field's extent alone.
     public var visibleExtents: [Double] = []
+    /// The length the stations span (m): the member's when they were found.
+    public var visibleExtentsLength = 0.0
     public static let visibleStations = 12
     /// How far the air confines the free expansion to the jet's boundary
     /// (P1's structure visibility in air, 0 in vacuum): the Simons field
@@ -215,9 +234,10 @@ public struct PlumeMember: Equatable {
         // carry its edge.
         if glowOnly { return PlumeMember.turbulentReach * radius(atX: x) }
         let e = fieldExtent(atX: x)
-        guard visibleExtents.count == PlumeMember.visibleStations, length > 0 else { return e }
-        // Between the stations (x = length t²), linearly in t.
-        let t = min(max((x / length).squareRoot(), 0), 1) * Double(PlumeMember.visibleStations - 1)
+        let span = visibleExtentsLength > 0 ? visibleExtentsLength : length
+        guard visibleExtents.count == PlumeMember.visibleStations, span > 0 else { return e }
+        // Between the stations (x = span t²), linearly in t.
+        let t = min(max((x / span).squareRoot(), 0), 1) * Double(PlumeMember.visibleStations - 1)
         let i = min(Int(t), PlumeMember.visibleStations - 2), f = t - Double(i)
         return min(e, visibleExtents[i] + (visibleExtents[i + 1] - visibleExtents[i]) * f)
     }
@@ -295,8 +315,9 @@ public struct PlumeMember: Equatable {
         let profile = pc + (pv - pc) * v
         let d2 = (x + sourceOffset) * (x + sourceOffset) + r * r
         let dilution = (re / rx) * (re / rx) * (1 - v) + sourceOffset * sourceOffset / max(d2, 1e-9) * v
-        // Everything fades out over the last 30 % of the length.
-        let fade = 1 - Self.smoothstep(0.7 * length, length, x)
+        // Everything fades out over the last 30 % of the length, or from
+        // where it is handed over to the trail.
+        let fade = 1 - Self.smoothstep(fadeStart ?? 0.7 * length, length, x)
         let rho = profile * dilution * fade
         let mixing = x > coreLength ? coreLength / x : 1
         var cells = 1.0
@@ -388,10 +409,17 @@ public struct PlumeMember: Equatable {
         return max(dense, exitRadius)
     }
 
-    /// The field at a camera-relative point.
+    /// The centreline's camera-relative point at x along the axis: the
+    /// exit's along the axis, bent into the stream.
+    public func centre(atX x: Double) -> Vec3 {
+        exit + axis * x + bend.direction * bend.offset(atX: x)
+    }
+
+    /// The field at a camera-relative point: x along the nozzle's axis, r
+    /// from the bent centreline there.
     public func sample(at p: Vec3) -> Sample {
         let d = p - exit, x = d.dot(axis)
-        let r = (d - axis * x).length
+        let r = (d - axis * x - bend.direction * bend.offset(atX: x)).length
         return sample(x: x, r: r)
     }
 }
@@ -499,7 +527,11 @@ public enum PlumeLook {
         guard e.thrustFraction > 0.005 || e.flowFraction > 0.005, e.exitRadius > 0 else { return nil }
         var m: PlumeMember
         if settings.model == .physical, let engine = ApolloExhaust.engine(thruster: e.name, part: e.part) {
-            let state = PlumeModel.state(engine.spec, flowFraction: e.flowFraction, ambient: e.ambient)
+            // The stream along the jet (the airspeed, a coflow) and across
+            // it lengthen and shorten its flame (P1).
+            let along = e.relativeWind.dot(e.axis), across = (e.relativeWind - e.axis * along).length
+            let state = PlumeModel.state(engine.spec, flowFraction: e.flowFraction, ambient: e.ambient,
+                                         streamAlong: along, streamAcross: across)
             guard state.regime != .off else { return nil }
             m = member(engine.spec, state: state, exit: e.exit, axis: e.axis, exitRadius: e.exitRadius,
                        ambient: e.ambient)
@@ -509,6 +541,7 @@ public enum PlumeLook {
         }
         m.isJet = e.isJet
         m.vesselID = e.vesselID
+        m.relativeWind = e.relativeWind
         if settings.readable { applyReadableFloor(&m, flowFraction: max(e.flowFraction, e.thrustFraction)) }
         return m
     }
@@ -553,6 +586,8 @@ public enum PlumeLook {
         var m = PlumeMember(exit: exit, axis: axis, exitRadius: re, family: family)
         let de = 2 * re, f = min(max(s.flowFraction, 0), 1.25)
         m.flowFraction = s.flowFraction
+        m.jetVelocity = s.jetVelocity
+        m.momentumDiameter = s.momentumDiameter
         let n = s.pressureRatio, w = s.structureVisibility
         let inAir = s.ambientPressure > 0 && n.isFinite
         // How far the plume is from a bounded jet: by the pressure ratio,
@@ -620,7 +655,9 @@ public enum PlumeLook {
         if let film = spec.film {
             m.sheathExtinction = Optics.sheathDepth / (Optics.sheathThickness * re) * f * (1 - 0.7 * v)
             m.sheathThickness = Optics.sheathThickness
-            m.sheathLength = s.flameFrontDistance ?? 3 * de
+            // The flame front while it afterburns, else 3 De: mixed by the
+            // afterburning's strength, so the band does not jump as it fades.
+            m.sheathLength = 0.75 * de + 2.25 * de * (1 - m.afterburning)
             m.sheathTemperature = film.temperature
         }
         // Particles.
@@ -725,6 +762,7 @@ public enum PlumeLook {
             cap = airCap + (vacuumCap - airCap) * PlumeMember.smoothstep(0.3, 0.7, v)
         }
         m.length = min(visibleLength(m), cap, 1_500)
+        m.builtLength = m.length
         return m
     }
 
@@ -772,8 +810,17 @@ public enum PlumeLook {
     /// forward peak (an upper bound), sets how much of the free expansion's
     /// cone can show; its length ends where neither its light nor its
     /// opacity (2 % against a bright background) can.
+    /// The Sun's lux on `m` weighted by its phase towards the camera over the
+    /// forward peak's: what `trim` and the visible extents light it with.
+    public static func sunAtPhase(_ m: PlumeMember, sun: Double, sunDirection: Vec3?) -> Double {
+        let view = (m.exit + m.axis * (0.25 * m.length)).normalized
+        return sun * henyeyGreenstein(sunDirection.map { view.dot($0) } ?? 1, m.phaseG) / henyeyGreenstein(1, m.phaseG)
+    }
+
+    /// `trim`, and its visible extents unless `extents` is false (the
+    /// renderer finds them through a cache of its own).
     public static func trim(_ m: inout PlumeMember, faintest: Double, sun: Double,
-                            sunDirection: Vec3? = nil) -> Bool {
+                            sunDirection: Vec3? = nil, extents: Bool = true) -> Bool {
         // The phase towards the camera (at the origin), or the forward peak.
         let view = (m.exit + m.axis * (0.25 * m.length)).normalized
         let forward = henyeyGreenstein(sunDirection.map { view.dot($0) } ?? 1, m.phaseG)
@@ -816,7 +863,10 @@ public enum PlumeLook {
             m.extentFraction = min(max(faintest / field, 0.01), 0.3)
             m.length = min(m.length, max(visibleLength(bare, faintest: faintest, opaque: 0.02, sun: sunAtPhase),
                                          m.glowLength))
-            m.visibleExtents = visibleExtents(m, faintest: faintest, sun: sunAtPhase)
+            if extents {
+                m.visibleExtents = visibleExtents(m, faintest: faintest, sun: sunAtPhase)
+                m.visibleExtentsLength = m.length
+            }
         } else {
             // The glow alone: within the jet, over its own length.
             m.glowOnly = true
@@ -849,7 +899,7 @@ public enum PlumeLook {
                 let half = max(e * e - r * r, 0).squareRoot()
                 let bound = (s.emission.luminance + s.scattering * sun * forward) * 2 * half
                 if bound > 0.5 * faintest || s.extinction * 2 * half > 0.02 {
-                    let from = m.exit + m.axis * x + u * r - across * half
+                    let from = m.centre(atX: x) + u * r - across * half
                     let seen = march([field], from: from, direction: across, range: 0...(2 * half), steps: 16,
                                      sun: (across, white), around: (half, max(r, 0.5 * dense)))
                     if seen.radiance.luminance > 0.5 * faintest || seen.transmittance < 0.98 {

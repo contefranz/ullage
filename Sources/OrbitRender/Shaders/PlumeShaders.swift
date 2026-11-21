@@ -46,7 +46,23 @@ struct PlumeMember {
     float4 noise;       // eddy size, phase (tiles), depth, tile (m)
     float4 glow;        // rgb (cd/m²), w: length
     float4 extent;      // x: tan of the 1 % Simons angle (0 none), y: the particles', z: flame length (m), w: flame spread
+    float4 bendDirection; // xyz: the bend's direction (unit, world; 0 none)
+    float4 bendSpan;    // x: the x its stations span, y: where it fades out (-1: its last 30 %), z: its largest offset
+    float4 bendNear;    // the centreline's offsets at x = span (k/7)², k 0-3
+    float4 bendFar;     // k 4-7
 };
+
+// The centreline's offset into the stream at x along the axis
+// (PlumeBend.offset): between the stations linearly in √(x/span).
+inline float plume_bendOffset(const device PlumeMember &m, float x) {
+    float span = m.bendSpan.x;
+    if (span <= 0.0 || x <= 0.0) { return 0.0; }
+    float t = min(sqrt(x / span), 1.0) * 7.0;
+    int i = min(int(t), 6);
+    float f = t - float(i);
+    float o[8] = {m.bendNear.x, m.bendNear.y, m.bendNear.z, m.bendNear.w, m.bendFar.x, m.bendFar.y, m.bendFar.z, m.bendFar.w};
+    return mix(o[i], o[i + 1], f);
+}
 
 // How far out the eddies may carry the boundary, over R (PlumeMember.turbulentReach).
 constant float PLUME_TURBULENT_REACH = 1.15;
@@ -212,6 +228,8 @@ inline void plume_add(thread PlumeSample &s, float sigma0, float albedo, float3 
 inline float plume_noise(const device PlumeMember &m, float3 p, texture3d<float> noise, sampler ns) {
     float3 d = p - m.exit.xyz;
     float x = max(dot(d, m.axis.xyz), 0.0);
+    // Carried along the bent centreline.
+    d -= m.bendDirection.xyz * plume_bendOffset(m, x);
     float re = m.exit.w;
     float R = re + m.shape.x * (1.0 - exp(-x / max(m.shape.y, 1e-6))) + m.shape.z * max(0.0, x - m.shape.w);
     float grow = pow(max(R / re, 1.0), 0.7);
@@ -226,7 +244,8 @@ inline void plume_member(thread PlumeSample &s, const device PlumeMember &m, flo
     float x = dot(d, m.axis.xyz);
     float upstream = m.structure.w, length_ = m.axis.w;
     if (x < -upstream || x > length_) { return; }
-    float3 radial = d - m.axis.xyz * x;
+    // r from the centreline bent into the stream.
+    float3 radial = d - m.axis.xyz * x - m.bendDirection.xyz * plume_bendOffset(m, x);
     float r = length(radial);
     float re = m.exit.w, de = 2.0 * re;
     float xp = max(x, 0.0);
@@ -277,7 +296,7 @@ inline void plume_member(thread PlumeSample &s, const device PlumeMember &m, flo
             float d2 = (x + m.simons.w) * (x + m.simons.w) + r * r;
             dilution = dilution * (1.0 - v) + m.simons.w * m.simons.w / max(d2, 1e-9) * v;
         }
-        float fade = 1.0 - plume_smoothstep(0.7 * length_, length_, x);
+        float fade = 1.0 - plume_smoothstep(m.bendSpan.y >= 0.0 ? m.bendSpan.y : 0.7 * length_, length_, x);
         float rho = profile * dilution * fade;
         float mixing = x > m.shape.w ? m.shape.w / x : 1.0;
         float cells = 1.0;
@@ -469,7 +488,7 @@ fragment EffectVolumeOut plume_march_fragment(PlumeProxyOut in [[stage_in]],
             for (int j = 0; j < count; j++) {
                 const device PlumeMember &mj = members[first_ + j];
                 float3 rel = mj.exit.xyz - c.origin.xyz;
-                spread = max(spread, length(rel - a * dot(rel, a)));
+                spread = max(spread, length(rel - a * dot(rel, a)) + mj.bendSpan.z);
                 dense = max(dense, plume_denseRadius(mj, max(dot(p0 - mj.exit.xyz, mj.axis.xyz), 0.0)));
             }
             float h = max(rho0, 0.5 * (spread + dense));

@@ -87,7 +87,7 @@ public enum PlumeLights {
         for j in 0..<samples {
             let x = (Double(j) + 0.5) * dx
             let e = m.extent(atX: x)
-            let seen = PlumeLook.march([m], from: m.exit + m.axis * x - across * e, direction: across,
+            let seen = PlumeLook.march([m], from: m.centre(atX: x) - across * e, direction: across,
                                        range: 0...(2 * e), steps: steps, around: (e, 0.5 * m.denseRadius(atX: x)))
             let k = 1.6 * min(m.radius(atX: x), e) * dx
             bins.append(RenderScene.RGB(Float(seen.radiance.r * k), Float(seen.radiance.g * k),

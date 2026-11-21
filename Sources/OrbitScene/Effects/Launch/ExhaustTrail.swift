@@ -41,8 +41,9 @@ public final class ExhaustTrail {
     /// The spacing of the puffs along the path, m: half their radius, so
     /// the ribbon reads as one.
     public static func spacing(altitude h: Double) -> Double { 0.5 * puffRadius(altitude: h) }
-    /// How far behind the nozzle exits the puffs are laid, m: past the
-    /// visible flame, where the exhaust has slowed to the air's speed (L).
+    /// How far behind the nozzle exits the puffs are laid, m, where P2's
+    /// plume gives none (`Vehicle.trailHead`): past the visible flame, where
+    /// the exhaust has slowed to the air's speed (L).
     public static func offset(altitude h: Double) -> Double { 30 + puffRadius(altitude: h) }
     /// The longest piece of path one request lays, s and m (one request
     /// has one velocity: the wind at the piece's middle), while the pieces
@@ -199,7 +200,10 @@ public final class ExhaustTrail {
             last = nil
             return
         }
-        let behind = Self.offset(altitude: frame.altitude(of: centre.position))
+        // Where P2's plume hands the exhaust over (on its path bent into the
+        // relative wind, slowed to the air), else the fixed offset behind.
+        let head = c.vehicle.trailHead
+        let behind = head?.x ?? Self.offset(altitude: frame.altitude(of: centre.position))
         let here: Point
         if c.rebuilt {
             // Behind along the path, from the vehicle now while the S-IC
@@ -216,10 +220,11 @@ public final class ExhaustTrail {
                 at = (p.position, p.velocity, e.epoch)
             }
             let along = at.velocity.length > 1 ? at.velocity.normalized : c.toAnchor * .unitZ
-            let back = Self.offset(altitude: frame.altitude(of: at.position))
+            let back = head?.x ?? Self.offset(altitude: frame.altitude(of: at.position))
             here = Point(epoch: at.epoch, position: at.position - along * back, velocity: at.velocity)
         } else {
-            guard let p = c.frame.place(exits - Vec3.unitX * behind, of: v, in: a) else { return }
+            let joint = head.map { exits + v.attitude.inverseRotate($0.point) } ?? exits - Vec3.unitX * behind
+            guard let p = c.frame.place(joint, of: v, in: a) else { return }
             here = Point(epoch: c.now, position: p.position, velocity: p.velocity)
         }
         defer { last = firing ? here : nil }
