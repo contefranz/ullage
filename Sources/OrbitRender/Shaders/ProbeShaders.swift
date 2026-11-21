@@ -102,11 +102,16 @@ inline float4 probe_clean(float3 c) {
 // the ground, the clouds over both) add terms each below 6e4, so a sum can
 // pass half float's 65504 and be stored as +inf, which would spread through
 // every mip, the irradiance and SH9.
-kernel void probe_cleanFaces(texture2d_array<float, access::read_write> faces [[texture(0)]],
+//
+// Every probe kernel binds the cubes themselves, the face and the mip as
+// arguments (no texture views). `faces` and `cleaned` are the same cube,
+// mip 0; each thread reads and writes its own texel.
+kernel void probe_cleanFaces(texturecube<float, access::read> faces [[texture(0)]],
+                             texturecube<float, access::write> cleaned [[texture(1)]],
                              uint3 gid [[thread_position_in_grid]]) {
     uint n = faces.get_width();
     if (gid.x >= n || gid.y >= n || gid.z >= 6u) { return; }
-    faces.write(probe_clean(faces.read(gid.xy, gid.z).rgb), gid.xy, gid.z);
+    cleaned.write(probe_clean(faces.read(gid.xy, gid.z).rgb), gid.xy, gid.z);
 }
 
 // ------------------------------------------ the look-dev environments ---
@@ -121,7 +126,7 @@ struct ProbeLookDev {
 };
 
 // EnvironmentProbe.LookDevEnvironment.radiance, into the radiance cube's mip 0.
-kernel void probe_lookDev(texture2d_array<float, access::write> out [[texture(0)]],
+kernel void probe_lookDev(texturecube<float, access::write> out [[texture(0)]],
                           constant ProbeLookDev &u [[buffer(0)]],
                           uint3 gid [[thread_position_in_grid]]) {
     uint n = out.get_width();
@@ -148,7 +153,8 @@ kernel void probe_lookDev(texture2d_array<float, access::write> out [[texture(0)
 
 struct ProbePrefilter {
     float4 params;        // x: alpha, y: samples, z: the source's face size (mip 0), w: the source's mips
-    float4 lod;           // x: the lod's bias (Krivanek and Colbert's 1), y: the coarsest source mip read
+    float4 lod;           // x: the lod's bias (Krivanek and Colbert's 1), y: the coarsest source mip read,
+                          // z: the specular mip written
 };
 
 inline float2 probe_hammersley(uint i, uint n) {
@@ -163,12 +169,13 @@ inline float2 probe_hammersley(uint i, uint n) {
 // lane a 32nd of the samples (the grid is 32 wide per texel): the loop is
 // short, so the few texels of the rough mips do not wait on it.
 kernel void probe_prefilter(texturecube<float> source [[texture(0)]],
-                            texture2d_array<float, access::write> out [[texture(1)]],
+                            texturecube<float, access::write> out [[texture(1)]],
                             constant ProbePrefilter &u [[buffer(0)]],
                             uint3 gid [[thread_position_in_grid]],
                             uint lane [[thread_index_in_simdgroup]]) {
     constexpr sampler trilinear(filter::linear, mip_filter::linear, address::clamp_to_edge);
-    uint n = out.get_width();
+    uint mip = uint(u.lod.z);
+    uint n = out.get_width(mip);
     uint2 xy = uint2(gid.x / 32u, gid.y);
     float3 normal = probe_texelDirection(xy, gid.z, float(n));
     float alpha = u.params.x, a2 = alpha * alpha;
@@ -197,7 +204,7 @@ kernel void probe_prefilter(texturecube<float> source [[texture(0)]],
     sum = simd_sum(sum);
     weight = simd_sum(weight);
     if (lane == 0u && xy.x < n && xy.y < n) {
-        out.write(probe_clean(weight > 0.0 ? sum / weight : float3(0.0)), xy, gid.z);
+        out.write(probe_clean(weight > 0.0 ? sum / weight : float3(0.0)), xy, gid.z, mip);
     }
 }
 
@@ -213,15 +220,16 @@ kernel void probe_prefilter(texturecube<float> source [[texture(0)]],
 // sixteenth of every chunk of 256 source texels, which the group loads into
 // threadgroup memory once (96 groups, each source texel read 96 times).
 #define PROBE_IRRADIANCE_CHUNK 256u
-kernel void probe_irradiance(texture2d_array<float> source [[texture(0)]],
-                             texture2d_array<float, access::write> out [[texture(1)]],
+kernel void probe_irradiance(texturecube<float, access::read> source [[texture(0)]],
+                             texturecube<float, access::write> out [[texture(1)]],
                              const device float4 *texels [[buffer(0)]],
+                             constant uint &sourceMip [[buffer(1)]],
                              uint3 group [[threadgroup_position_in_grid]],
                              uint ti [[thread_index_in_threadgroup]]) {
     threadgroup float4 directions[PROBE_IRRADIANCE_CHUNK];
     threadgroup float4 radiance[PROBE_IRRADIANCE_CHUNK];
     threadgroup float3 partial[16][16];
-    uint n = out.get_width(), m = source.get_width();
+    uint n = out.get_width(), m = source.get_width(sourceMip);
     uint perFace = m * m, total = 6u * perFace;
     uint o = ti % 16u, q = ti / 16u;
     uint2 xy = uint2(o, group.y);
@@ -232,7 +240,7 @@ kernel void probe_irradiance(texture2d_array<float> source [[texture(0)]],
         if (k < total) {
             uint face = k / perFace, r = k - face * perFace;
             directions[ti] = texels[k];
-            radiance[ti] = source.read(uint2(r % m, r / m), face);
+            radiance[ti] = source.read(uint2(r % m, r / m), face, sourceMip);
         } else {
             directions[ti] = float4(0.0);
             radiance[ti] = float4(0.0);
@@ -256,22 +264,23 @@ kernel void probe_irradiance(texture2d_array<float> source [[texture(0)]],
 // SH9 of the same source in one threadgroup: L_lm = sum L Y_lm Omega, then
 // the published E/pi coefficients A_l/pi L_lm (SH9.irradianceOverPi), into
 // nine float4 (rgb, w = 0) that the probe pass copies into LightingUniforms.
-kernel void probe_sh9(texture2d_array<float> source [[texture(0)]],
+kernel void probe_sh9(texturecube<float, access::read> source [[texture(0)]],
                       const device float4 *texels [[buffer(0)]],
                       device float4 *out [[buffer(1)]],
+                      constant uint &sourceMip [[buffer(2)]],
                       uint ti [[thread_index_in_threadgroup]],
                       uint threads [[threads_per_threadgroup]],
                       uint si [[simdgroup_index_in_threadgroup]],
                       uint li [[thread_index_in_simdgroup]],
                       uint simdgroups [[simdgroups_per_threadgroup]]) {
     threadgroup float3 partial[32][9];
-    uint m = source.get_width(), perFace = m * m, total = 6u * perFace;
+    uint m = source.get_width(sourceMip), perFace = m * m, total = 6u * perFace;
     float3 c[9];
     for (uint i = 0; i < 9u; i++) { c[i] = float3(0.0); }
     for (uint k = ti; k < total; k += threads) {
         float4 t = texels[k];
         uint face = k / perFace, r = k - face * perFace;
-        float3 l = source.read(uint2(r % m, r / m), face).rgb * t.w;
+        float3 l = source.read(uint2(r % m, r / m), face, sourceMip).rgb * t.w;
         float x = t.x, y = t.y, z = t.z;
         c[0] += l * 0.282095;
         c[1] += l * (0.488603 * y);

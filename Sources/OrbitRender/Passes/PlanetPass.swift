@@ -160,8 +160,11 @@ public final class PlanetPass: RenderPass {
     /// pre-exposure of 1), with no night floor and no grid, and from above
     /// the air with the ground's haze marched in the shader (`groundSteps`
     /// steps: A2's reduced-resolution haze is the camera's view). Inside the
-    /// air the ground's haze is A2's sky-view LUT, the camera's (within a few
-    /// hundred metres of `center`). `viewToWorld`: the face's view basis
+    /// air the ground's haze is read from A2's sky-view LUT, the camera's,
+    /// when the encoder's atmosphere uniforms carry the camera inside it
+    /// (`radii.z`); R3 sets them above the air where the probe marches from
+    /// its centre (`AtmosphereCompositePass.probeReadsSkyView`), so the haze
+    /// is then marched from `center`. `viewToWorld`: the face's view basis
     /// (`EnvironmentProbe.basis`). Bodies under a texel across are left out
     /// (`faceSize` texels to the face's side). The encoder must have the
     /// atmosphere's uniforms (buffer 28) and its slots (25, 28, 29) bound.

@@ -52,6 +52,8 @@ public final class AtmosphereLUTPass: RenderPass {
         let frame: AtmosphereFrame
         let uniforms: AtmospherePassUniforms
         let profile: MTLTexture
+        /// A1's tables, for a frame seen from elsewhere (R3's probe centre).
+        let lut: AtmosphereLUT
     }
 
     /// This frame's state, handed to the passes after P0 (the frame is held
@@ -165,7 +167,7 @@ public final class AtmosphereLUTPass: RenderPass {
             f.atmosphere.aerialPerspective = .zero
         }
         enc.endEncoding()
-        Self.handoff = Handoff(frame: f, state: State(frame: frame, uniforms: uniforms, profile: t.profile))
+        Self.handoff = Handoff(frame: f, state: State(frame: frame, uniforms: uniforms, profile: t.profile, lut: t.lut))
     }
 
     // MARK: The uniforms
@@ -328,6 +330,61 @@ public final class AtmosphereCompositePass: RenderPass {
     private var library: MTLLibrary?
     private var pipeline: MTLRenderPipelineState?
     private var probePipelines: [String: MTLRenderPipelineState] = [:]
+    /// This frame's uniforms from the probe's centre, made once a frame
+    /// (the frame held weakly, as A2's handoff is: a later frame at the same
+    /// address never sees them).
+    private struct ProbeCache {
+        weak var frame: FrameContext?
+        let center: Vec3
+        let uniforms: AtmospherePassUniforms
+    }
+    private var probeCache: ProbeCache?
+
+    /// The probe reads the camera's sky-view LUT within this distance of the
+    /// camera (m) and `probeSkyViewHeight` of its altitude, both inside the
+    /// air (`probeReadsSkyView`); beyond, it marches from its centre.
+    public nonisolated static let probeSkyViewRange = 2_000.0
+    /// The altitude difference (m) within which the camera's LUT stands for
+    /// the centre's: a 2 km range straight up is another sky.
+    public nonisolated static let probeSkyViewHeight = 300.0
+
+    /// Whether a probe reads the camera's sky-view LUT: the camera inside the
+    /// air (A2 draws the LUT only then), the centre inside it too, within
+    /// `probeSkyViewRange` of the camera and `probeSkyViewHeight` of its
+    /// altitude, where the LUT's height and Sun are as good as the centre's.
+    /// Otherwise its sky, and the planet's haze, are marched from the centre.
+    public nonisolated static func probeReadsSkyView(cameraInside: Bool, centreInside: Bool, distance: Double,
+                                                     heightDifference: Double) -> Bool {
+        cameraInside && centreInside && distance <= probeSkyViewRange && abs(heightDifference) <= probeSkyViewHeight
+    }
+
+    /// The pass uniforms as from `center` (camera-relative, m): the camera's
+    /// own at the camera; else A2's frame for the centre (its figure
+    /// position, zenith, Sun), reading the sky-view LUT only where
+    /// `probeReadsSkyView` allows (`sunAzimuth.w`).
+    func probeUniforms(_ f: FrameContext, state: AtmosphereLUTPass.State, center: Vec3) -> AtmospherePassUniforms {
+        guard center != .zero else { return state.uniforms }
+        if let c = probeCache, c.frame === f, c.center == center { return c.uniforms }
+        var shifted = f.scene
+        for i in shifted.bodies.indices { shifted.bodies[i].position = shifted.bodies[i].position - center }
+        let settings = f.settings.atmosphere
+        guard let frame = AtmosphereFrame(scene: shifted, tables: state.lut, froxelSlices: settings.froxelSlices,
+                                          froxelExponent: settings.froxelExponent) else { return state.uniforms }
+        var u = AtmosphereLUTPass.passUniforms(frame, settings: settings, sun: f.scene.sun)
+        let lut = Self.probeReadsSkyView(cameraInside: state.frame.isInside, centreInside: frame.isInside,
+                                         distance: center.length,
+                                         heightDifference: frame.cameraAltitude - state.frame.cameraAltitude)
+        u.sunAzimuth.w = lut ? 1 : 0
+        probeCache = ProbeCache(frame: f, center: center, uniforms: u)
+        return u
+    }
+
+    /// Whether R3's probe at `center` reads the camera's sky-view LUT this
+    /// frame (`probeReadsSkyView`); false without this frame's atmosphere.
+    public func probeReadsSkyView(_ f: FrameContext, center: Vec3) -> Bool {
+        guard let state = AtmosphereLUTPass.state(for: f) else { return false }
+        return probeUniforms(f, state: state, center: center).sunAzimuth.w > 0.5
+    }
 
     public init() {}
 
@@ -388,11 +445,13 @@ public final class AtmosphereCompositePass: RenderPass {
         enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
     }
 
-    /// R3's probe entry point: the sky as seen from the camera (the probe's
-    /// centre is the camera target, within a few hundred metres), drawn over
-    /// one face of a radiance cube on `encoder`, whose attachments have
-    /// `formats`: radiance + transmittance × what the face holds (the
-    /// planet's probe face, the stars), times `preExposure` (1 for cd/m²).
+    /// R3's probe entry point: the sky as seen from `center` (camera-
+    /// relative, m: the probe's centre), drawn over one face of a radiance
+    /// cube on `encoder`, whose attachments have `formats`: radiance +
+    /// transmittance × what the face holds (the planet's probe face, the
+    /// stars), times `preExposure` (1 for cd/m²): from the camera's sky-view
+    /// LUT where `probeReadsSkyView` allows, else marched from the centre
+    /// itself (`probeUniforms`).
     /// `viewToWorld` is the face's rotation and `tanHalfFov` its tan(fov/2)
     /// (1 for a 90° face); `depth` the reversed-Z depth the sky is drawn at
     /// (0 behind everything; with no depth attachment it is not tested).
@@ -401,7 +460,7 @@ public final class AtmosphereCompositePass: RenderPass {
     @discardableResult
     public func encodeProbe(_ f: FrameContext, on encoder: MTLRenderCommandEncoder, formats: SceneFormats,
                             viewToWorld: simd_float4x4, tanHalfFov: Float, faceSize: Int, preExposure: Float = 1,
-                            depth: Float = 0) -> Bool {
+                            depth: Float = 0, center: Vec3 = .zero) -> Bool {
         guard let state = AtmosphereLUTPass.state(for: f), let library, let device else { return false }
         let p: MTLRenderPipelineState
         let key = "\(formats.color.rawValue) \(formats.depth.rawValue) \(formats.sampleCount)"
@@ -413,7 +472,7 @@ public final class AtmosphereCompositePass: RenderPass {
             probePipelines[key] = made
             p = made
         }
-        var u = state.uniforms
+        var u = probeUniforms(f, state: state, center: center)
         let size = Float(max(faceSize, 1))
         var view = AtmosphereView(viewToWorld: viewToWorld, projection: SIMD4(tanHalfFov, tanHalfFov, depth, preExposure),
                                   viewport: SIMD4(size, size, 1 / size, 1 / size))

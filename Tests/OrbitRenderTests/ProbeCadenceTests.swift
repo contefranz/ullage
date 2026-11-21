@@ -1,6 +1,6 @@
 import Foundation
 import XCTest
-import OrbitCore
+@testable import OrbitCore
 import OrbitScene
 @testable import OrbitRender
 
@@ -123,6 +123,104 @@ final class ProbeCadenceTests: XCTestCase {
         var settings = RenderSettings()
         settings.cloud.enabled = false
         XCTAssertEqual(Pass.update(state(next, settings: settings), after: a, clock: next.clock, size: Self.size), .full)
+    }
+
+    /// The Earth turning under the stack on the pad is not motion: the
+    /// centre's anchor in the body's frame stays, while the Sun turns in it.
+    /// A turn of a frame at 1000× (0.07°) stays steady; one of 1.5° (the
+    /// extractor's 1e4× and up) moves through the Sun alone.
+    func testEarthTurningUnderThePad() throws {
+        let pad = try Self.scene("as506-pad")
+        let a = state(pad)
+        func turned(_ degrees: Double) -> RenderScene {
+            var s = pad
+            s.clock.frameIndex += 1
+            let e = s.bodies.firstIndex { $0.id == 399 }!
+            let body = s.bodies[e]
+            // The world turned about the pole by the angle: the body's axes
+            // with it, its centre about the stack, which is fixed on it.
+            let w = Quat(axis: body.orientation.pole, angle: degrees * Double.pi / 180).matrix
+            let center = Pass.center(s)
+            s.bodies[e].orientation = BodyOrientation(icrfToBody: body.orientation.icrfToBody * w.transposed,
+                                                      angularVelocity: body.orientation.angularVelocity)
+            s.bodies[e].position = center - w * (center - body.position)
+            return s
+        }
+        let slow = state(turned(0.07))
+        XCTAssertEqual((slow.anchor - a.anchor).length, 0, accuracy: 1e-3, "the stack stays on the turning ground")
+        XCTAssertEqual(slow.height, a.height, accuracy: 1e-3)
+        XCTAssertEqual(Pass.update(slow, after: a, clock: turned(0.07).clock, size: Self.size), .steady)
+        let fast = state(turned(1.5))
+        XCTAssertEqual((fast.anchor - a.anchor).length, 0, accuracy: 1e-3)
+        XCTAssertGreaterThan(acos(min(fast.toSun.dot(a.toSun), 1)), 1.3 * Double.pi / 180, "the Sun turned in its frame (1.5° × sin 69° off the pole)")
+        XCTAssertEqual(Pass.update(fast, after: a, clock: turned(1.5).clock, size: Self.size), .moving)
+    }
+
+    /// Each full-update guard alone: a new target with the same centre
+    /// source; the same target with the centre moved to the camera (past
+    /// 50 km); the sky switched from the camera's LUT to the centre's march.
+    /// And in scenes: the target 60 km from the camera (the centre moves to
+    /// it), 10 km (the centre stays; the pass then marches its sky, which
+    /// EnvironmentProbePassTests checks on the GPU).
+    func testCentreGuards() throws {
+        let leo = try Self.scene("as506-parking-orbit")
+        let a = state(leo)
+        XCTAssertTrue(a.onTarget)
+        XCTAssertFalse(a.skyFromCentre)
+        var next = leo
+        next.clock.frameIndex += 1
+        var b = state(next)
+        XCTAssertEqual(Pass.update(b, after: a, clock: next.clock, size: Self.size), .steady)
+        b.target = .body(399)
+        XCTAssertEqual(Pass.update(b, after: a, clock: next.clock, size: Self.size), .full, "the target alone")
+        b = state(next)
+        b.onTarget = false
+        XCTAssertEqual(Pass.update(b, after: a, clock: next.clock, size: Self.size), .full, "the centre's source alone")
+        b = state(next)
+        b.skyFromCentre = true
+        XCTAssertEqual(Pass.update(b, after: a, clock: next.clock, size: Self.size), .full, "the sky's source alone")
+
+        // The camera 60 km from its target, the same target: the probe moves
+        // to the camera.
+        var far = next
+        let d = Vec3(60_000, 0, 0)
+        far.camera.position = far.camera.position + d
+        for i in far.vessels.indices { far.vessels[i].position = far.vessels[i].position - d }
+        for i in far.bodies.indices { far.bodies[i].position = far.bodies[i].position - d }
+        let c = state(far)
+        XCTAssertEqual(c.target, a.target)
+        XCTAssertFalse(c.onTarget)
+        XCTAssertEqual(Pass.update(c, after: a, clock: far.clock, size: Self.size), .full)
+        // 10 km from it: the probe stays on the target, its sky marched.
+        var mid = next
+        let m = Vec3(10_000, 0, 0)
+        mid.camera.position = mid.camera.position + m
+        for i in mid.vessels.indices { mid.vessels[i].position = mid.vessels[i].position - m }
+        for i in mid.bodies.indices { mid.bodies[i].position = mid.bodies[i].position - m }
+        var e = state(mid)
+        XCTAssertTrue(e.onTarget)
+        XCTAssertEqual((e.anchor - a.anchor).length, 0, accuracy: 1e-3, "the camera moved, not the centre")
+        XCTAssertEqual(Pass.update(e, after: a, clock: mid.clock, size: Self.size), .steady)
+        e.skyFromCentre = true
+        XCTAssertEqual(Pass.update(e, after: a, clock: mid.clock, size: Self.size), .full)
+    }
+
+    /// A2's rule for a probe reading the camera's sky-view LUT: both inside
+    /// the air (A2 draws the LUT only for a camera inside it), within 2 km
+    /// and 300 m of altitude (`heightDifference`: the centre's altitude less
+    /// the camera's). Each inside guard is tested where the range and the
+    /// height alone would read the LUT: across the top of the air, 100 m apart.
+    func testSkyViewRule() {
+        typealias A = AtmosphereCompositePass
+        XCTAssertTrue(A.probeReadsSkyView(cameraInside: true, centreInside: true, distance: 1_900, heightDifference: 100))
+        XCTAssertFalse(A.probeReadsSkyView(cameraInside: true, centreInside: true, distance: 2_100, heightDifference: 0),
+                       "2 km away")
+        XCTAssertFalse(A.probeReadsSkyView(cameraInside: true, centreInside: true, distance: 1_900, heightDifference: 1_900),
+                       "1.9 km above")
+        XCTAssertFalse(A.probeReadsSkyView(cameraInside: false, centreInside: true, distance: 500, heightDifference: -100),
+                       "the camera just above the air, the centre just below it: no LUT drawn")
+        XCTAssertFalse(A.probeReadsSkyView(cameraInside: true, centreInside: false, distance: 500, heightDifference: 100),
+                       "the centre just above the air")
     }
 
     /// The schedule: two a frame in turn, each face once in three frames;

@@ -14,10 +14,17 @@ it in LightingCommon's `orbit_environmentLight`.
 
 - **Where:** at the camera target when it is a vessel within 50 km of the
   camera, else at the camera (`EnvironmentProbePass.center`), in
-  `LightingUniforms.probe.xyz` (camera-relative). The planets are drawn from
-  there exactly; A2's sky and C2's clouds from the camera, within a few
-  hundred metres of it in practice. The vessels are not in it, so they do
-  not reflect each other; the pad is (below).
+  `LightingUniforms.probe.xyz` (camera-relative). Everything is drawn from
+  there: the planets, C2's clouds (their ray origin and shells recomputed
+  for the centre), and A2's sky, read from the camera's sky-view LUT where
+  `AtmosphereCompositePass.probeReadsSkyView` allows (the camera inside the
+  air, as the LUT is drawn only then; the centre inside it too; within 2 km
+  of the camera and 300 m of its altitude, where the LUT's height and Sun
+  are as good as the centre's) and marched from the centre elsewhere, as
+  the planet's haze then is (switching between the two redraws every
+  face). The
+  vessels are not in it, so they do not reflect each other; the pad is
+  (below).
 - **What:** six 90° faces of `ProbeSettings.faceSize`² (128; 64 at Low;
   never under 32, the irradiance's and SH9's source),
   each its own render pass, drawn through the other tracks' probe entry
@@ -155,8 +162,9 @@ lights.
   target moves nothing.
   - **All six** (single frames): the first frame, a frame that does not
     follow the last, new render settings, another nearest body, a new
-    camera target or warp, or the centre switching between the target and
-    the camera (at 50 km).
+    camera target or warp, the centre switching between the target and the
+    camera (at 50 km), or the sky switching between the camera's sky-view
+    LUT and the centre's march (`AtmosphereCompositePass.probeReadsSkyView`).
   - **Three a frame** in turn, each face at most a frame old: the centre
     moving over the ground, or the Sun turning, by more than half a texel a
     frame as seen from the centre (LEO from about 11× warp; the first
