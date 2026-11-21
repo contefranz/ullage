@@ -458,9 +458,9 @@ public final class CloudPass: RenderPass, HalfResEffect {
     /// R3's probe entry point: this frame's far cloud layers (low and mid,
     /// `cloud_probe_fragment`) drawn premultiplied over one 90° face of a
     /// radiance cube on `encoder` (attachments of `formats`, `faceSize`²), in
-    /// cd/m², along the face's rays from the camera (the probe's centre is
-    /// within a few hundred metres of it), with the air between marched in
-    /// front when A2 is on. `viewToWorld`: the face's view basis. The state
+    /// cd/m², along the face's rays from `center` (camera-relative, m: the
+    /// probe's centre), with the air between marched in front when A2 is on.
+    /// `viewToWorld`: the face's view basis. The state
     /// is this frame's, prepared by `encode` whether the clouds are on screen
     /// or not (`probeEarth`); a frame the pass did not run draws nothing. The
     /// encoder must have the atmosphere's uniforms (buffer 28) and its slots
@@ -468,7 +468,7 @@ public final class CloudPass: RenderPass, HalfResEffect {
     /// on it.
     @discardableResult
     public func encodeProbe(_ f: FrameContext, on encoder: MTLRenderCommandEncoder, formats: SceneFormats,
-                            viewToWorld: simd_float4x4, faceSize: Int, hazeSteps: Int = 6) -> Bool {
+                            viewToWorld: simd_float4x4, faceSize: Int, hazeSteps: Int = 6, center: Vec3 = .zero) -> Bool {
         guard let state = probeState, state.frame === f, let noise, let tables, let weatherMap, let samplers,
               let probeLibrary else { return false }
         let frameAir = state.air
@@ -498,6 +498,19 @@ public final class CloudPass: RenderPass, HalfResEffect {
         }
         guard let pipeline = probePipelines[key] else { return false }
         var u = state.uniforms
+        // From the probe's centre: the far layers depend on the ray's origin
+        // and its shells' constants alone (the weather and the structure are
+        // read at absolute figure points), recomputed for the centre in double.
+        if center != .zero, var earth = CloudFrame.earth(in: f.scene) {
+            earth.position = earth.position - center
+            let at = CloudFrame(earth: earth)
+            u.cameraFigure = SIMD4(at.cameraFigure, Float(at.stretch))
+            u.radii.y = Float(at.altitude)
+            u.shell = SIMD4(Float(at.shellConstant(height: 0)), Float(at.shellConstant(height: Self.shellTop)),
+                            Float(at.shellConstant(height: Self.cirrusHeight)),
+                            Float(at.shellConstant(height: Self.lowReference)))
+            u.shellMid.x = Float(at.shellConstant(height: Self.midReference))
+        }
         let sun = f.scene.sun
         var view = CloudProbeView(viewToWorld: viewToWorld,
                                   params: SIMD4(1 / max(f.frame.exposure.x, 1e-30), Float(hazeSteps), Float(faceSize),

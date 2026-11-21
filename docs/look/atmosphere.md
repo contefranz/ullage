@@ -109,11 +109,17 @@ left alone):
   the plumes (P2) have not yet. Far points (R1's FarPointPass) are not
   hazed.
 - **R3's probe:** `AtmosphereCompositePass.encodeProbe(f, on:, formats:,
-  viewToWorld:, tanHalfFov:, faceSize:, preExposure:, depth:)` draws the sky
-  the camera sees over a face of the probe's cube (radiance + transmittance ×
-  what the face holds), in cd/m² at pre-exposure 1. It returns false when the
-  frame has no air. The planet shader marches the ground's haze itself when
-  P0's reduced-resolution haze is not bound (a probe face).
+  viewToWorld:, tanHalfFov:, faceSize:, preExposure:, depth:, center:)` draws
+  the sky seen from `center` (the probe's centre, camera-relative) over a face
+  of the probe's cube (radiance + transmittance × what the face holds), in
+  cd/m² at pre-exposure 1, with the pass uniforms of an `AtmosphereFrame` for
+  the centre. It reads the camera's sky-view LUT only where
+  `probeReadsSkyView` allows: the camera inside the air (the LUT is drawn
+  only then), the centre inside it too, within 2 km of the camera and 300 m
+  of its altitude; elsewhere it marches from the centre. It returns false
+  when the frame has no air. The planet shader marches the ground's haze
+  itself when P0's reduced-resolution haze is not bound (a probe face), and
+  from the centre where the probe's uniforms put the camera above the air.
 - **Settings** (`RenderSettings.atmosphere`): `enabled`, `waitForTables`,
   `aerosolOpticalDepth` (0.1), `groundAlbedo` (0.1), the sky view's size and
   steps (32), the froxels' size, slices, exponent and steps (12), the limb's

@@ -351,6 +351,79 @@ final class EnvironmentProbePassTests: XCTestCase {
         XCTAssertGreaterThan(sky, 200, "the sky above")
     }
 
+    /// The stack on the pad, its probe drawn with the camera `distance` m
+    /// away at `pitch`: the radiance cube, the local up, the centre, and
+    /// whether the sky was marched from the centre.
+    func padProbe(distance: Double, pitch: Double, clouds: Bool) throws
+        -> (cube: EnvironmentProbe.CubeMap, up: Vec3, center: Vec3, marched: Bool) {
+        let device = try device()
+        let snapper = try SnapshotRenderer(device: device)
+        var shot = SnapshotSpec.Shot(name: "pad", scenario: "as506-pad",
+                                     camera: SnapshotSpec.CameraSpec(yaw: -60, pitch: pitch, distance: distance, fov: 38))
+        shot.width = 64
+        shot.height = 40
+        let scene = shot.scene(try shot.prepare(system: snapper.system))
+        let r = try SceneRenderer(device: device, loadsUserTextures: false)
+        var s = r.settings
+        s.probe.sites = false
+        s.cloud.enabled = clouds
+        s.particle.quality = .off
+        r.settings = s
+        let target = try XCTUnwrap(OffscreenTarget(device: device, width: 64, height: 40))
+        r.renderAndWait(scene, into: target)
+        let pass = try XCTUnwrap(r.graph.passes.compactMap { $0 as? EnvironmentProbePass }.first)
+        let earth = try XCTUnwrap(scene.bodies.first { $0.id == 399 })
+        let center = pass.lastFrame.center
+        return (try read(try XCTUnwrap(pass.maps).radiance, level: 0, device: device),
+                (center - earth.position).normalized, center, pass.lastFrame.skyFromCentre)
+    }
+
+    /// Directions about the pad's up: the zenith, eight at 30° and eight at
+    /// 5° elevation, eight 20° below the horizon, the nadir.
+    static func padDirections(_ up: Vec3) -> [(String, [Vec3])] {
+        let e1 = up.cross(Vec3(0.3, 0.5, 0.8)).normalized, e2 = up.cross(e1)
+        func ring(_ elevation: Double) -> [Vec3] {
+            (0..<8).map { k in
+                let a = Double(k) * Double.pi / 4
+                return (up * sin(elevation * Double.pi / 180)
+                        + (e1 * cos(a) + e2 * sin(a)) * cos(elevation * Double.pi / 180)).normalized
+            }
+        }
+        return [("zenith", [up]), ("30° up", ring(30)), ("5° up", ring(5)), ("20° down", ring(-20)), ("nadir", [-up])]
+    }
+
+    /// The probe sees the same sky from its centre wherever the camera is:
+    /// the stack on the pad with the camera 210 m away (A2's sky-view LUT),
+    /// 1 km straight above it (within 2 km but 1 km of altitude off: marched)
+    /// and 30 km away and 10 km up (marched): each direction's mean within
+    /// 10 %, the clouds off and on. From the camera, the far camera's sky
+    /// would be the sky over 10 km of air, its clouds seen from above.
+    func testFarCameraSeesTheCentresSky() throws {
+        var zenith: [Bool: Double] = [:]
+        for clouds in [false, true] {
+            let near = try padProbe(distance: 210, pitch: 4, clouds: clouds)
+            zenith[clouds] = near.cube.nearest(near.up).g
+            let above = try padProbe(distance: 1_000, pitch: 89, clouds: clouds)
+            let far = try padProbe(distance: 30_000, pitch: 20, clouds: clouds)
+            XCTAssertFalse(near.marched, "near: the LUT")
+            XCTAssertLessThan(above.center.length, 1_100)
+            XCTAssertTrue(above.marched, "1 km above: marched")
+            XCTAssertGreaterThan(far.center.length, 25_000)
+            XCTAssertTrue(far.marched, "30 km away: marched")
+            for (name, dirs) in Self.padDirections(near.up) {
+                func mean(_ c: EnvironmentProbe.CubeMap) -> Double { dirs.map { c.nearest($0).g }.reduce(0, +) / Double(dirs.count) }
+                let a = mean(near.cube), b = mean(above.cube), c = mean(far.cube)
+                print(String(format: "pad probe %@ %@: camera near %.0f, 1 km above %.0f, 30 km away %.0f cd/m²",
+                             clouds ? "clouds" : "clear", name, a, b, c))
+                XCTAssertEqual(b, a, accuracy: 0.1 * a, "\(name), 1 km above, clouds \(clouds)")
+                XCTAssertEqual(c, a, accuracy: 0.1 * a, "\(name), 30 km away, clouds \(clouds)")
+            }
+        }
+        // The clouds are in the cloudy case (C2's far layers overhead, seen
+        // from below at the centre: from the far camera, 10 km up, from above).
+        XCTAssertGreaterThan(zenith[true]!, 1.3 * zenith[false]!, "the clouds overhead")
+    }
+
     /// C2's far clouds are in the probe whether or not they are on screen,
     /// and only while they are on: with the camera looking away from the
     /// Earth in LEO, the probe's nadir irradiance is higher with clouds than
@@ -429,13 +502,12 @@ final class EnvironmentProbePassTests: XCTestCase {
             cube.replace(region: MTLRegionMake2D(0, 0, 32, 32), mipmapLevel: 0, slice: face, withBytes: texels,
                          bytesPerRow: 32 * 8, bytesPerImage: 32 * 32 * 8)
         }
-        let faces = try XCTUnwrap(cube.makeTextureView(pixelFormat: .rgba16Float, textureType: .type2DArray,
-                                                       levels: 0..<1, slices: 0..<6))
         let clean = try device.makeComputePipelineState(function: try XCTUnwrap(library.makeFunction(name: "probe_cleanFaces")))
         cb = try XCTUnwrap(queue.makeCommandBuffer())
         let enc2 = try XCTUnwrap(cb.makeComputeCommandEncoder())
         enc2.setComputePipelineState(clean)
-        enc2.setTexture(faces, index: 0)
+        enc2.setTexture(cube, index: 0)
+        enc2.setTexture(cube, index: 1)
         enc2.dispatchThreads(MTLSize(width: 32, height: 32, depth: 6), threadsPerThreadgroup: MTLSize(width: 8, height: 8, depth: 1))
         enc2.endEncoding()
         cb.commit()
