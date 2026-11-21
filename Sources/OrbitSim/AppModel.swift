@@ -81,7 +81,8 @@ final class AppModel: ObservableObject {
     /// Builds each frame's scene for the renderer.
     private let extractor = SceneExtractor()
     /// What the renderer draws with: F9 cycles the debug view, F10 shows
-    /// each pass's GPU time.
+    /// each pass's GPU time, B toggles readable plumes (P2: M1.5's floor on
+    /// engines nearly invisible in vacuum; not F11, macOS's Show Desktop).
     private(set) var renderSettings = RenderSettings()
     /// F12 asked for a snapshot of the next frame.
     private var snapshotRequested = false
@@ -226,6 +227,7 @@ final class AppModel: ObservableObject {
             case .rightBracket: cycleFocus(sim: sim, by: +1)
             case .f9: cycleDebugView(sim: sim)
             case .f10: renderSettings.debug.showPassTimings.toggle()
+            case .b: renderSettings.plume.readable.toggle()
             case .f12: snapshotRequested = true
             default: break
             }

@@ -216,7 +216,7 @@ public enum ApolloExhaust {
     static let sIVBUllageExitDiameter = 6.222        // in, 3,390 lbf at 980 psia, 16:1 (L)
 
     /// Every family, by its row in tools/data/cea_apollo_exhaust.csv.
-    static let byTableRow: [String: Engine] = [
+    public static let byTableRow: [String: Engine] = [
         "F-1": f1, "J-2": j2, "SPS": sps, "SM RCS": smRCS, "CM RCS": cmRCS, "APS attitude": apsAttitude,
         "APS ullage": apsUllage, "Tower jettison": towerJettison, "S-IC retro": sICRetro,
         "S-II ullage": sIIUllage, "S-II retro": sIIRetro, "S-IVB ullage": sIVBUllage,

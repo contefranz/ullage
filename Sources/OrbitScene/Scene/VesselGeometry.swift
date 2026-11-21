@@ -34,11 +34,22 @@ public struct VesselGeometry {
     }
 
     /// A thruster's nozzle exit, construction frame, gimbal at null: where its
-    /// plume starts.
+    /// plume starts. From the nozzle shape linked to it, else the port
+    /// (`VisualAttachment`) it fires through.
     public struct Nozzle {
         public let exit: Vec3
         public let radius: Double
         public let pivot: Vec3
+        /// The drawn exhaust direction (unit, construction frame, gimbal at
+        /// null): out of the nozzle shape's exit, or the port's.
+        public let exhaust: Vec3
+
+        public init(exit: Vec3, radius: Double, pivot: Vec3, exhaust: Vec3) {
+            self.exit = exit
+            self.radius = radius
+            self.pivot = pivot
+            self.exhaust = exhaust
+        }
     }
 
     public let signature: Signature
@@ -59,9 +70,27 @@ public struct VesselGeometry {
                 let thruster = shape.thruster.flatMap { name in part.thrusters.first { $0.name == name } }
                 if let t = thruster, let exit = Self.exit(of: shape) {
                     nozzles[ObjectIdentifier(t)] = Nozzle(exit: exit.centre + offset, radius: exit.radius,
-                                                          pivot: t.position + offset)
+                                                          pivot: t.position + offset, exhaust: Self.exhaust(of: shape))
                 }
                 if thruster == nil { unlinked.append(shape) }
+            }
+            // A thruster with no nozzle drawn but a port (the S-IC retros'
+            // breaches in their fairings, the S-II ullage motors' exits):
+            // its plume starts at the port, which the dresser draws, not at
+            // the physics' thrust point inside the fairing. A port of
+            // unknown size takes the exhaust library's exit.
+            for t in part.thrusters where nozzles[ObjectIdentifier(t)] == nil {
+                guard let port = part.attachments.first(where: { a in
+                    a.thruster == t.name && (a.kind == .retroPort || a.kind == .ullageExit)
+                }) else { continue }
+                // The exhaust library's exit where it knows the motor (the
+                // S-IC retros' ports are their cases' breaches, wider than
+                // the nozzle), else the port's.
+                let radius = ApolloExhaust.engine(for: t, in: part)?.spec.exitRadius
+                    ?? (port.radius > 0 ? port.radius
+                        : PlumeStyle.nominalExitRadius(thrust: t.currentRating.thrustVacuum, solid: t.isSolid))
+                nozzles[ObjectIdentifier(t)] = Nozzle(exit: port.position + offset, radius: radius,
+                                                      pivot: t.position + offset, exhaust: port.direction)
             }
             // Vessels dressed without links (the M0 test vehicles): a cone
             // narrowing towards a thruster's position along its direction is
@@ -69,7 +98,7 @@ public struct VesselGeometry {
             for t in part.thrusters where nozzles[ObjectIdentifier(t)] == nil {
                 if let shape = unlinked.first(where: { Self.looksLikeNozzle($0, of: t) }), let exit = Self.exit(of: shape) {
                     nozzles[ObjectIdentifier(t)] = Nozzle(exit: exit.centre + offset, radius: exit.radius,
-                                                          pivot: t.position + offset)
+                                                          pivot: t.position + offset, exhaust: Self.exhaust(of: shape))
                 }
             }
             parts.append(Part(id: ObjectIdentifier(part), name: part.name, appearance: part.appearance, offset: offset,
@@ -95,6 +124,18 @@ public struct VesselGeometry {
             return (shape.origin, baseRadius)
         }
         return nil
+    }
+
+    /// The way a nozzle shape exhausts: from its narrowest point (the
+    /// throat, or a frustum's top) towards its exit.
+    public static func exhaust(of shape: VisualShape) -> Vec3 {
+        let axis = shape.axis.normalized
+        if case let .revolution(profile, _, _) = shape.kind, let first = profile.first,
+           let throat = profile.min(by: { $0.r < $1.r }), throat.x != first.x {
+            return first.x > throat.x ? axis : -axis
+        }
+        if case let .frustum(base, top) = shape.kind, base < top { return axis }
+        return -axis
     }
 
     static func looksLikeNozzle(_ shape: VisualShape, of t: Thruster) -> Bool {

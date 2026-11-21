@@ -20,127 +20,134 @@ public struct PlumeLight: Equatable {
     public var luminousIntensity: Double
 }
 
-/// The scene's plume lights, at most `maximum`, from its emitters and P1's
-/// exhaust specs (track R2; P2 may write its own into LightingUniforms,
-/// which the vessel pass then prefers). Visual grade (L):
+/// The plume lights (track P2; R2's vessel pass shades them): one line
+/// light per plume cluster (`PlumeClusters`), carrying the light the
+/// plume's own look gives off (`PlumeLook`), so the lights and the drawn
+/// plumes agree. The five F-1s light the S-IC's base, the pad and the deck
+/// as one column.
 ///
-/// - The luminous gas is a column of the exit's radius and the length the
-///   plume model gives (`PlumeState.luminousLength`), capped at ten exit
-///   diameters, the bright near field.
-/// - It radiates as a grey body (`Photometry.blackbody`) at the exit
-///   temperature, or at the afterburning flame's 2,300 K where the
-///   fuel-rich exhaust burns in air (`PlumeState.afterburning`), with an
-///   emissivity by propellant family:
-///   kerosene's soot near black, alumina in solids, little from hydrogen or
-///   hypergols, nothing from cold gas.
-/// - Its intensity broadside is that luminance times the column's
-///   projected area, 2 r ℓ; the strongest at the camera are kept.
+/// - Each member's broadside intensity is its light seen side-on through
+///   its axis (the reference march, `PlumeLook.march`) times the jet's
+///   width, summed along it: a luminance times a projected area.
+/// - The segment runs from the exits to where nine-tenths of that light
+///   is reached, about the axis, as wide as the proxy there.
+/// - Only the glowing families give one: kerosene's soot and the solids'
+///   alumina; a J-2's, the SPS's or an RCS jet's light is negligible.
+/// - The brightest at the camera are kept, `maximum` at most.
 public enum PlumeLights {
     public static let maximum = 8
-
-    /// Emissivity of the luminous column by propellant family (L).
-    public static func emissivity(_ family: ExhaustSpec.Family, sootIndex: Double) -> Double {
-        switch family {
-        case .keroseneLOX: return 0.2 + 0.6 * sootIndex
-        case .solidAluminized: return 0.5
-        case .solidOther: return 0.2
-        case .hypergolic: return 0.05
-        case .hydrogenLOX: return 0.02
-        case .coldGas: return 0
-        }
-    }
-
-    /// The column's length cap, in exit diameters.
-    public static let lengthCap = 10.0
     /// Lights dimmer than this at their range are cut, lux.
     public static let cutoffIlluminance = 1.0
+    /// Samples along a member, and steps across it.
+    static let samples = 12, steps = 24
 
-    /// The plume light of one emitter, nil when it gives none (an engine
-    /// the exhaust library does not know, or no flow).
-    public static func light(_ e: RenderScene.Emitter) -> PlumeLight? {
-        guard let engine = ApolloExhaust.engine(thruster: e.name, part: ""), e.thrustFraction > 0 else { return nil }
-        let spec = engine.spec
-        let ambient = atmosphere(pressureRatio: e.pressureRatio)
-        let state = PlumeModel.state(spec, flowFraction: e.thrustFraction, ambient: ambient)
-        let burning = spec.fuelRichFraction > 0 ? min(1, state.afterburning / spec.fuelRichFraction) : 0
-        let temperature = max(spec.exitTemperature, burning > 0 ? 2_300 * burning + spec.exitTemperature * (1 - burning)
-                                                                  : spec.exitTemperature)
-        let eps = emissivity(spec.family, sootIndex: spec.sootIndex)
-        guard eps > 0 else { return nil }
-        let body = Photometry.blackbody(temperature)
-        let luminance = eps * body.luminance
-        let radius = max(e.exitRadius, spec.exitRadius)
-        let length = min(max(state.luminousLength, 2 * radius), lengthCap * 2 * radius)
-        let intensity = luminance * 2 * radius * length
-        guard intensity > 0, intensity.isFinite else { return nil }
-        let c = body.color
-        return PlumeLight(centre: e.exit + e.axis * (0.5 * length), axis: e.axis, length: length, radius: radius,
-                          intensity: RenderScene.RGB(Float(c.r * intensity), Float(c.g * intensity),
-                                                     Float(c.b * intensity)),
-                          range: (intensity / cutoffIlluminance).squareRoot(), luminousIntensity: intensity)
+    /// The scene's brightest plume lights at the camera, from its emitters.
+    public static func lights(_ scene: RenderScene, settings: PlumeSettings = PlumeSettings(),
+                              maximum: Int = PlumeLights.maximum) -> [PlumeLight] {
+        guard maximum > 0 else { return [] }
+        let members = scene.emitters.compactMap { PlumeLook.member($0, settings: settings) }
+        return lights(PlumeClusters.clusters(members), maximum: maximum)
     }
 
-    /// The scene's brightest plume lights at the camera, at most `maximum`,
-    /// each engine cluster's merged into one (`merged`).
-    public static func lights(_ scene: RenderScene, maximum: Int = PlumeLights.maximum) -> [PlumeLight] {
-        let all = merged(scene.emitters.compactMap(light))
+    /// The brightest lights of `clusters` at the camera.
+    public static func lights(_ clusters: [PlumeCluster], maximum: Int = PlumeLights.maximum) -> [PlumeLight] {
+        guard maximum > 0 else { return [] }
+        let all = clusters.compactMap(light)
         func weight(_ l: PlumeLight) -> Double {
             l.luminousIntensity / max(l.centre.lengthSquared, l.length * l.length)
         }
         return Array(all.sorted { weight($0) > weight($1) }.prefix(maximum))
     }
 
-    /// Plumes side by side (axes within 10°, centres closer than three
-    /// columns' widths) lit as one column: the cluster's centre and axis
-    /// weighted by intensity, wide enough to hold every member, as long as
-    /// the longest, with their summed intensity. Five F-1s light the pad
-    /// as one line light, a fifth of the cost per pixel.
-    public static func merged(_ lights: [PlumeLight]) -> [PlumeLight] {
-        var clusters: [[PlumeLight]] = []
-        for l in lights {
-            if let k = clusters.firstIndex(where: { c in
-                c.contains { m in
-                    m.axis.dot(l.axis) > cos(10 * Double.pi / 180)
-                        && (m.centre - l.centre).length < 3 * (m.radius + l.radius)
-                }
-            }) {
-                clusters[k].append(l)
-            } else {
-                clusters.append([l])
-            }
-        }
-        return clusters.map { c in
-            guard c.count > 1 else { return c[0] }
-            let total = c.reduce(0) { $0 + $1.luminousIntensity }
-            var centre = Vec3.zero, axis = Vec3.zero
-            var r: Float = 0, g: Float = 0, b: Float = 0
-            for m in c {
-                let w = m.luminousIntensity / total
-                centre = centre + m.centre * w
-                axis = axis + m.axis * w
-                r += m.intensity.r
-                g += m.intensity.g
-                b += m.intensity.b
-            }
-            let radius = c.map { ($0.centre - centre).length + $0.radius }.max() ?? 0
-            return PlumeLight(centre: centre, axis: axis.normalized, length: c.map(\.length).max() ?? 0,
-                              radius: radius, intensity: RenderScene.RGB(r, g, b),
-                              range: (total / cutoffIlluminance).squareRoot(), luminousIntensity: total)
-        }
+    /// The light of one emitter alone, nil when it gives none.
+    public static func light(_ e: RenderScene.Emitter, settings: PlumeSettings = PlumeSettings()) -> PlumeLight? {
+        guard let m = PlumeLook.member(e, settings: settings) else { return nil }
+        return light(PlumeClusters.cluster([m]))
     }
 
-    /// Air at `pressureRatio` of sea level's for the plume model: the
-    /// pressure, with a 250 K mean temperature for the rest (the light
-    /// depends on the pressure through the afterburning and the length).
-    static func atmosphere(pressureRatio: Double) -> AtmosphereState {
-        let p = max(0, pressureRatio) * 101_325
-        guard p > 0 else { return .vacuum }
-        let t = 250.0
-        var air = AtmosphereState.vacuum
-        air.temperature = t
-        air.pressure = p
-        air.density = p / (287.05 * t)
-        air.speedOfSound = (1.4 * 287.05 * t).squareRoot()
-        return air
+    /// Whether a family's plume lights its surroundings.
+    public static func glows(_ f: PlumeFamily) -> Bool { f == .kerosene || f == .solid }
+
+    /// One member's light along its own axis: its broadside light (the
+    /// luminance seen side-on through the axis times the jet's width, cd
+    /// per m) in `samples` bins of `step` m from its exit; nil for a family
+    /// that does not glow. It depends on the member's look alone, not on
+    /// where it is, so the renderer keeps it across frames.
+    public struct Profile: Equatable {
+        public var step: Double
+        public var bins: [RenderScene.RGB]
+    }
+
+    /// `m`'s profile (`Profile`), nil when it gives no light.
+    public static func profile(_ m: PlumeMember) -> Profile? {
+        guard glows(m.family), m.length > 0 else { return nil }
+        let dx = m.length / Double(samples)
+        let across = PlumeLook.perpendicular(m.axis)
+        var bins: [RenderScene.RGB] = []
+        for j in 0..<samples {
+            let x = (Double(j) + 0.5) * dx
+            let e = m.extent(atX: x)
+            let seen = PlumeLook.march([m], from: m.exit + m.axis * x - across * e, direction: across,
+                                       range: 0...(2 * e), steps: steps, around: (e, 0.5 * m.denseRadius(atX: x)))
+            let k = 1.6 * min(m.radius(atX: x), e) * dx
+            bins.append(RenderScene.RGB(Float(seen.radiance.r * k), Float(seen.radiance.g * k),
+                                        Float(seen.radiance.b * k)))
+        }
+        return Profile(step: dx, bins: bins)
+    }
+
+    /// The light of cluster `c`, nil when it gives none.
+    public static func light(_ c: PlumeCluster) -> PlumeLight? {
+        light(c, profiles: c.members.map(profile))
+    }
+
+    /// The light of cluster `c` from its members' profiles (in the order of
+    /// its members), nil when it gives none. The segment runs from the
+    /// exits to where nine-tenths of the light is reached, found within
+    /// the bin that crosses it, so that it moves smoothly.
+    public static func light(_ c: PlumeCluster, profiles: [Profile?]) -> PlumeLight? {
+        var r = 0.0, g = 0.0, b = 0.0
+        var bins: [(x: Double, width: Double, i: Double)] = []
+        for (m, profile) in zip(c.members, profiles) {
+            guard let profile else { continue }
+            for (j, bin) in profile.bins.enumerated() {
+                r += Double(bin.r)
+                g += Double(bin.g)
+                b += Double(bin.b)
+                let x = (Double(j) + 0.5) * profile.step
+                let xc = (m.exit + m.axis * x - c.origin).dot(c.axis)
+                bins.append((xc, profile.step, 0.2126 * Double(bin.r) + 0.7152 * Double(bin.g)
+                             + 0.0722 * Double(bin.b)))
+            }
+        }
+        let total = 0.2126 * r + 0.7152 * g + 0.0722 * b
+        guard total > 0, total.isFinite, let width = bins.map(\.width).min(), width > 0 else { return nil }
+        // The members' bins summed on one grid along the axis (each spread
+        // over the cells it covers), so that members side by side cross
+        // together, then the 90 % found within its cell.
+        let lo = bins.map { $0.x - 0.5 * $0.width }.min() ?? 0
+        let hi = bins.map { $0.x + 0.5 * $0.width }.max() ?? 0
+        let cells = max(1, Int(((hi - lo) / width).rounded(.up)))
+        var grid = [Double](repeating: 0, count: cells)
+        for p in bins where p.i > 0 {
+            let a = p.x - 0.5 * p.width - lo, b = a + p.width
+            for k in max(0, Int(a / width))...min(cells - 1, Int(b / width)) {
+                let overlap = min(b, Double(k + 1) * width) - max(a, Double(k) * width)
+                if overlap > 0 { grid[k] += p.i * overlap / p.width }
+            }
+        }
+        var sum = 0.0, end = hi
+        for (k, i) in grid.enumerated() where i > 0 {
+            if sum + i >= 0.9 * total {
+                end = lo + (Double(k) + min(max((0.9 * total - sum) / i, 0), 1)) * width
+                break
+            }
+            sum += i
+        }
+        let length = max(end, c.members.map(\.exitDiameter).max() ?? 1)
+        let radius = max(c.radius(atX: 0.5 * length) / PlumeClusters.margin, c.members.map(\.exitRadius).max() ?? 0)
+        return PlumeLight(centre: c.origin + c.axis * (0.5 * length), axis: c.axis, length: length, radius: radius,
+                          intensity: RenderScene.RGB(Float(r), Float(g), Float(b)),
+                          range: (total / cutoffIlluminance).squareRoot(), luminousIntensity: total)
     }
 }

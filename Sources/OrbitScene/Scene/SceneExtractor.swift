@@ -180,9 +180,10 @@ public final class SceneExtractor {
         return LegacyLighting.glowLuminance(heatFlux: state.flux)
     }
 
-    /// One emitter per thruster delivering thrust, from its nozzle's exit
-    /// turned with its gimbal (or from its position, with a nominal exit, for
-    /// a jet without a nozzle shape).
+    /// One emitter per thruster delivering thrust, from its drawn nozzle's
+    /// exit turned with its gimbal, or its drawn port (`VesselGeometry
+    /// .nozzles`), or else from its position with a nominal exit (the M0
+    /// test vehicles' jets).
     static func emitters(of v: Vessel, geometry: VesselGeometry, at rel: Vec3) -> [RenderScene.Emitter] {
         var out: [RenderScene.Emitter] = []
         let pressure = v.atmosphere.pressure
@@ -193,19 +194,28 @@ public final class SceneExtractor {
                 let fraction = t.thrust(ambientPressure: pressure, seaLevelPressure: standardAtmosphere) / rating
                 let r = t.gimbal.isEmpty ? Mat3.identity : Mat3.rotation(from: t.direction, to: t.thrustDirection)
                 let exit: Vec3, radius: Double
+                // A fixed nozzle's plume leaves along the drawn nozzle (the
+                // TX-280s' are drawn 10° off the physics' thrust line); a
+                // gimballed one's along its thrust.
+                var exhaust = -t.thrustDirection
                 if let n = geometry.nozzles[ObjectIdentifier(t)] {
                     exit = n.pivot + r * (n.exit - n.pivot)
                     radius = n.radius
+                    if t.gimbal.isEmpty && n.exhaust.dot(exhaust) > cos(30 * Double.pi / 180) { exhaust = n.exhaust }
                 } else {
                     exit = t.position + part.offset - v.structureOrigin
                     radius = PlumeStyle.nominalExitRadius(thrust: rating, solid: t.isSolid)
                 }
+                // The flow over the engine family's rating: what P1's chamber
+                // pressure follows (the plume model).
+                let flow = ApolloExhaust.engine(for: t, in: part).map { t.massFlow / $0.ratedFlow }
                 out.append(RenderScene.Emitter(
                     vesselID: v.id, thruster: ObjectIdentifier(t), name: t.name,
-                    exit: rel + v.attitude.rotate(v.structureOrigin + exit), axis: v.attitude.rotate(-t.thrustDirection),
+                    exit: rel + v.attitude.rotate(v.structureOrigin + exit), axis: v.attitude.rotate(exhaust),
                     exitRadius: radius, style: PlumeStyle(t), thrustFraction: fraction,
                     pressureRatio: pressure / standardAtmosphere, isSolid: t.isSolid,
-                    isJet: !t.isSolid && !t.groups.contains(.main)))
+                    isJet: !t.isSolid && !t.groups.contains(.main), part: part.name, flowFraction: flow,
+                    ambient: v.atmosphere, burnTime: t.burnTime))
             }
         }
         return out

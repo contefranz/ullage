@@ -15,7 +15,8 @@ final class SceneRendererTests: XCTestCase {
         let r = try SceneRenderer(device: try XCTUnwrap(RenderDevice.shared), loadsUserTextures: false)
         XCTAssertEqual(r.failures, [:])
         XCTAssertEqual(r.graph.active.map(\.name), ["Exposure", "Atmosphere LUTs", "Clouds", "Shadows",
-                                                    "Environment probe", "Particle simulation", "Stars", "Planets", "Vessels",
+                                                    "Environment probe", "Particle simulation", "Plume lights", "Stars",
+                                                    "Planets", "Vessels",
                                                     "Effect test opaque", "Particle chunks", "Atmosphere composite",
                                                     "Vessel wires", "Half-resolution transparents", "Plumes", "Far points",
                                                     "Transparent composite", "Effect test sparks", "Particles",
