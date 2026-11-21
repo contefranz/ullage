@@ -76,10 +76,13 @@ public struct PlumeMember: Equatable {
     public var momentumDiameter = 0.0
     /// Its centreline bent into the stream (none in vacuum or still air).
     public var bend = PlumeBend.none
-    /// Where it starts to fade out (m), to its length; nil for the last
-    /// 30 % of its length. Set where it is handed over to P4's trail, with
-    /// its length: the window about the joint.
+    /// Where it starts to fade out to its length (m), its end's softening;
+    /// nil for the last 30 % of its length, none at its length.
     public var fadeStart: Double?
+    /// Where it is handed over to P4's trail, the window about the joint
+    /// it fades out over too (m along the axis; nil for none): set by its
+    /// cluster, the same whatever its length (`PlumeClusters.cluster`).
+    public var handoverFade: ClosedRange<Double>?
     /// Its length as built, before the exposure's trim (m): what the
     /// hand-over to the trail is reckoned from, the same at any exposure.
     public var builtLength = 0.0
@@ -316,9 +319,12 @@ public struct PlumeMember: Equatable {
         let profile = pc + (pv - pc) * v
         let d2 = (x + sourceOffset) * (x + sourceOffset) + r * r
         let dilution = (re / rx) * (re / rx) * (1 - v) + sourceOffset * sourceOffset / max(d2, 1e-9) * v
-        // Everything fades out over the last 30 % of the length, or from
-        // where it is handed over to the trail.
-        let fade = 1 - Self.smoothstep(fadeStart ?? 0.7 * length, length, x)
+        // Everything fades out over the last 30 % of the length (or from
+        // `fadeStart`), and over the window where it is handed over to the
+        // trail.
+        let start = fadeStart ?? 0.7 * length
+        var fade = start < length ? 1 - Self.smoothstep(start, length, x) : 1
+        if let w = handoverFade { fade *= 1 - Self.smoothstep(w.lowerBound, w.upperBound, x) }
         let rho = profile * dilution * fade
         let mixing = x > coreLength ? coreLength / x : 1
         var cells = 1.0
@@ -888,15 +894,21 @@ public enum PlumeLook {
     /// column across the field there, lit by `sun` lux at the forward peak,
     /// gives half of `faintest` or 2 % opacity (the light there times the
     /// chord, an upper bound, first; then the column marched); with 15 % to
-    /// spare for the eddies; at least half the exit's radius. Of the field
-    /// unfaded: they bound it under any fade, the trim's or the hand-over's
-    /// that its cluster sets later (`PlumeClusters.cluster`).
+    /// spare for the eddies; at least half the exit's radius. Under its own
+    /// fade, which is final but for a kerosene plume in a stream: its
+    /// cluster may hand it over to P4's trail (`PlumeClusters.cluster`),
+    /// fading it over a window of its own, so it is bounded unfaded.
     public static func visibleExtents(_ m: PlumeMember, faintest: Double, sun: Double) -> [Double] {
         let forward = henyeyGreenstein(1, m.phaseG)
         var field = m
         field.visibleExtents = []
-        field.length = 1e9
-        field.fadeStart = nil
+        if m.family == .kerosene && m.relativeWind.length > 1e-3 {
+            // Its cluster may hand it over to the trail, fading it over a
+            // window its own fade does not bound: unfaded.
+            field.length = 1e9
+            field.fadeStart = nil
+            field.handoverFade = nil
+        }
         let u = perpendicular(m.axis), across = m.axis.cross(u).normalized
         let white = Photometry.RGB(sun, sun, sun)
         let n = PlumeMember.visibleStations

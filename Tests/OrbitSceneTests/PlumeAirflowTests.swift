@@ -165,45 +165,51 @@ final class PlumeAirflowTests: XCTestCase {
         XCTAssertEqual(lengths[3] / lengths[2], 1, accuracy: 0.05, "the same straight on as just off it")
     }
 
-    // The hand-over does not move with the exposure or with the members'
-    // own lengths. Through exposures from night to bright day (every 5 %),
-    // in sunlight and in the dark, and with the members cut anywhere from
-    // 30 % of their built length to all of it (as a trim, or an engine's
-    // own shorter plume, would cut them; through the window's start, where
-    // the old fade switched from the last 30 % of the cut length to a
-    // near-hard cut at it), every member and the merged far field fade over
-    // the same window about the joint and end at its end, the trail's head
-    // is the same, and the drawn field there does not change. (The F-1's
-    // smoke holds 2 % opacity to its built length, so no exposure trims it
-    // in these states.)
-    func testHandoverIndependentOfTheExposure() throws {
+    // The hand-over's fade does not move with the exposure or with the
+    // members' own lengths, and the plume moves continuously as those cut
+    // it. Through exposures from night to bright day (every 5 %), in
+    // sunlight and in the dark (the F-1's smoke holds 2 % opacity to its
+    // built length, so none trims it in these states), every member and
+    // the merged far field fade over the same window about the joint and
+    // end at its end, the trail's head is the same and the drawn field
+    // does not change. With the members cut anywhere from 30 % of their
+    // built length to all of it (as a trim, or an engine's own shorter
+    // plume, would cut them), through the window's start, where the old
+    // fade switched from the cut's last 30 % to a near-hard cut at it:
+    // they fade over the same window, the field drawn along the merged far
+    // field grows with the cut, by under 3 % of the uncut field a step of
+    // 1 %, and the cut
+    // keeps a soft end until it reaches the window's end.
+    func testHandoverFadeIndependentOfTheTrim() throws {
         let deg = Double.pi / 180
         let built = five(altitude: 1_000, speed: 100, alpha: 3 * deg)
         let h = try XCTUnwrap(built.handover)
-        var drawn: [Double]?
-        func check(_ members: [PlumeMember], _ label: String) throws {
+        let window = max(h.x - h.window, 0)...(h.x + h.window)
+        func cluster(_ members: [PlumeMember], _ label: String) throws -> (PlumeCluster, PlumeMember) {
             let c = PlumeClusters.cluster(members)
             XCTAssertEqual(c.handover, h, "the joint, \(label)")
             for m in c.members + (c.merged.map { [$0] } ?? []) {
-                XCTAssertEqual(m.length, h.x + h.window, accuracy: 1e-9, label)
-                XCTAssertEqual(m.fadeStart ?? -1, h.x - h.window, accuracy: 1e-9, label)
+                XCTAssertEqual(m.handoverFade, window, label)
+                XCTAssertLessThanOrEqual(m.length, window.upperBound + 1e-9, label)
             }
-            let far = try XCTUnwrap(c.merged)
-            let field = stride(from: h.x - 1.2 * h.window, through: h.x + h.window, by: 0.1 * h.window).map {
-                far.sample(at: far.centre(atX: $0)).extinction
-            }
-            if let drawn {
-                for (a, b) in zip(field, drawn) { XCTAssertEqual(a, b, accuracy: 1e-9 * max(b, 1e-12), label) }
-            }
-            drawn = field
+            return (c, try XCTUnwrap(c.merged))
         }
         func fresh(_ m: PlumeMember) -> PlumeMember {
             var t = m
             t.bend = .none
             t.fadeStart = nil
+            t.handoverFade = nil
             t.length = t.builtLength
             return t
         }
+        // The field along the merged far field, from a fifth of the joint's
+        // distance to the window's end.
+        func drawn(_ far: PlumeMember) -> Double {
+            stride(from: 0.2 * h.x, through: window.upperBound, by: 0.01 * h.x).reduce(0) {
+                $0 + far.sample(at: far.centre(atX: $1)).extinction
+            }
+        }
+        var reference: Double?
         var exposures = 0
         for sun in [100_000.0, 0] {
             var faintest = 1e-3
@@ -213,22 +219,38 @@ final class PlumeAirflowTests: XCTestCase {
                     return PlumeLook.trim(&t, faintest: faintest, sun: sun) ? t : nil
                 }
                 XCTAssertEqual(members.count, 5)
-                try check(members, "faintest \(faintest), sun \(sun)")
+                let (c, far) = try cluster(members, "faintest \(faintest), sun \(sun)")
+                for m in c.members { XCTAssertEqual(m.length, window.upperBound, accuracy: 1e-9) }
+                let d = drawn(far)
+                if let reference { XCTAssertEqual(d, reference, accuracy: 1e-9 * reference) }
+                reference = d
                 exposures += 1
                 faintest *= 1.05
             }
         }
         let full = built.members[0].builtLength
         var crossed = (below: false, above: false)
+        var last: Double?
         for k in 30...100 {
             let cut = full * Double(k) / 100
-            if cut < h.x - h.window { crossed.below = true } else { crossed.above = true }
-            try check(built.members.map(fresh).map { m in
+            if cut < window.lowerBound { crossed.below = true } else { crossed.above = true }
+            let (c, far) = try cluster(built.members.map(fresh).map { m in
                 var t = m
                 t.length = cut
                 return t
             }, "cut at \(cut) m")
+            let m = c.members[0]
+            if cut < window.upperBound {
+                XCTAssertLessThan(m.fadeStart ?? m.length, m.length, "a soft end, cut at \(cut) m")
+            }
+            let d = drawn(far)
+            if let last {
+                XCTAssertGreaterThanOrEqual(d, last * (1 - 1e-9), "cut at \(cut) m")
+                XCTAssertLessThan(d - last, 0.03 * (reference ?? 0), "cut at \(cut) m")
+            }
+            last = d
         }
+        XCTAssertEqual(last ?? 0, reference ?? -1, accuracy: 1e-9 * (reference ?? 1), "uncut, as drawn at any exposure")
         XCTAssertGreaterThan(exposures, 300)
         XCTAssertTrue(crossed.below && crossed.above, "the cuts ran through the window's start")
     }

@@ -133,9 +133,12 @@ public enum PlumeClusters {
         // it turns back (a retro's into the oncoming air) the plumes end;
         // and where a kerosene cluster's exhaust has slowed to the air they
         // fade out, handed over to P4's trail: over the window about the
-        // joint, to its end, the same at any exposure (as the trail's head
-        // is), whatever the trim or a member's own length (an engine
-        // shutting down) would cut.
+        // joint, the same whatever a member's length (as the trail's head
+        // is), ending at the window's end. A member the exposure's trim (or
+        // its own shorter plume) cuts short of that end keeps its cut, its
+        // own soft end narrowing to none as the cut reaches the window's
+        // end: continuous in the cut, and nothing marched beyond what can
+        // show (the S-IC's ballooned plume at staging).
         var members = members
         var handover: PlumeAirflow.Handover?
         let reach = members.map(\.length).max() ?? 0
@@ -143,11 +146,15 @@ public enum PlumeClusters {
             handover = air.handover
             for i in members.indices {
                 members[i].bend = air.bend
-                if let h = air.handover {
-                    members[i].length = h.x + h.window
-                    members[i].fadeStart = max(h.x - h.window, 0)
-                }
                 if let end = air.end { members[i].length = min(members[i].length, max(end, members[i].exitDiameter)) }
+                if let h = air.handover {
+                    let start = max(h.x - h.window, 0), end = h.x + h.window
+                    let length = members[i].length
+                    let soft = min(0.3 * length, max(end - length, 0))
+                    members[i].length = min(length, end)
+                    members[i].fadeStart = members[i].length - soft
+                    members[i].handoverFade = start...end
+                }
             }
         }
         let merge = merged(members, origin: origin, axis: axis)

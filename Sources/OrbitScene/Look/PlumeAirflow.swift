@@ -108,15 +108,24 @@ public enum PlumeAirflow {
         }
         // Where it turns past the steepest (a jet straight into the stream
         // too, where it stops and is swept back), and the offsets along x.
+        // The end between the stations either side of the turn, on its
+        // cosine, so that it moves continuously with the path.
         var points: [(x: Double, y: Double)] = []
         var end: Double?
+        var previous: (x: Double, c: Double)?
         for s in path {
             let v = s.velocity.length > 1e-9 ? s.velocity.normalized : axis
-            if v.dot(axis) < cos(steepest) {
-                end = points.last?.x ?? 0
+            let c = v.dot(axis), x = s.position.dot(axis)
+            if c < cos(steepest) {
+                if let p = previous {
+                    let f = (p.c - cos(steepest)) / max(p.c - c, 1e-12)
+                    end = max(p.x + (x - p.x) * min(max(f, 0), 1), 0)
+                } else {
+                    end = 0
+                }
                 break
             }
-            let x = s.position.dot(axis)
+            previous = (x, c)
             if let last = points.last, x <= last.x { continue }
             points.append((x, s.position.dot(across)))
         }

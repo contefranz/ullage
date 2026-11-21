@@ -69,8 +69,8 @@ enum Plumes {
             diskLight: f4(PlumeLook.blackbody(m.machDiskTemperature), m.densityScale),
             noise: f4(m.noiseScale, noise.phase, turbulent ? m.turbulence : 0, noise.tile),
             glow: f4(m.glow, m.glowLength), extent: f4(vacuumAngle, particleAngle, m.flameLength, m.flameSpread),
-            bendDirection: f4(m.bend.direction, 0),
-            bendSpan: f4(m.bend.length, m.fadeStart ?? -1, m.bend.largest, 0),
+            bendDirection: f4(m.bend.direction, m.handoverFade?.lowerBound ?? -1),
+            bendSpan: f4(m.bend.length, m.fadeStart ?? -1, m.bend.largest, m.handoverFade?.upperBound ?? -1),
             bendNear: offsets(m.bend, 0), bendFar: offsets(m.bend, 4))
     }
 
@@ -259,9 +259,11 @@ struct PlumeMemberGPU {
     var glow: SIMD4<Float>        // rgb (cd/m²), w: length
     var extent: SIMD4<Float>      // x: tan of the 1 % Simons angle (0: none), y: the particles' (0: none),
                                   // z: the flame's length, w: its brush's spread
-    var bendDirection: SIMD4<Float> // xyz: the bend's direction (unit, world; 0 none)
-    var bendSpan: SIMD4<Float>    // x: the x its stations span, y: where it fades out (-1: its last 30 %),
-                                  // z: its largest offset
+    var bendDirection: SIMD4<Float> // xyz: the bend's direction (unit, world; 0 none), w: the hand-over's
+                                    // fade's start
+    var bendSpan: SIMD4<Float>    // x: the x its stations span, y: where it fades out to its length (-1:
+                                  // its last 30 %), z: its largest offset, w: the hand-over's fade's end
+                                  // (-1: none)
     var bendNear: SIMD4<Float>    // the offsets at the first four stations, x = span (k/7)²
     var bendFar: SIMD4<Float>     // and the last four
 }

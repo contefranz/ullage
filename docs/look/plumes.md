@@ -234,10 +234,17 @@ field stays on the nozzle, gimbal and all.
   are the member's of the most flow, so an engine shutting down does not
   lead the cluster.
   - The plume fades out over 15 % of that distance on either side of it
-    and ends at the window's end: every member and the merged far field,
-    whatever the exposure's trim or a member's own length would cut, so
-    the fade does not move with the exposure and the plume always reaches
-    the trail. The visible extents, which size the proxy, are found on the
+    and ends at the window's end: every member and the merged far field
+    (`PlumeMember.handoverFade`, its own pair of numbers in the shader), so
+    the fade does not move with the exposure or a member's length. Where
+    the exposure's trim (or an engine's own shorter plume) cuts a member
+    short of the window's end, the cut stays, with its own soft end
+    narrowing to none as the cut reaches the window's end: continuous in
+    the cut, and nothing marched beyond what can show (the S-IC's
+    ballooned plume at staging). The F-1's smoke holds 2 % opacity to its
+    built length in every state checked from 0.1 to 38 km (faintest light
+    10^-4 to 10^7 cd/m², in sunlight and the dark), so no exposure cuts it
+    short of the trail, which ends at 40 km. The visible extents, which size the proxy, are found on the
     field unfaded, so they hold it under any fade.
   - P4's trail lays its newest puff on the bent path there
     (`PlumeAirflow.trailHandover`: the firing F-1s' members through
@@ -302,23 +309,26 @@ it, they do not set it.
 
 `PlumeCostTests` (`docs/look/shots/p2-cost.json`; `ORBITSIM_TIMINGS=1`):
 plumes on and off on alternate frames, the difference of the medians, at
-3024×1964 on the M3 Pro. Measured with the airflow (39cc30f) at High (32
-steps); the plan's budget is 1.5 ms on the pad and 0.5 ms in LEO, for the
-default physical look.
+3024×1964 on the M3 Pro. Measured with the airflow after its review at
+High (32 steps); the plan's budget is 1.5 ms on the pad and 0.5 ms in
+LEO, for the default physical look.
 
-- Pad 0.96-1.39 ms; ascent (T+30 s) 2.22 ms; max-Q 2.37 ms. The ascent
+- Pad 1.02-1.42 ms; ascent (T+30 s) 2.24 ms; max-Q 2.42 ms. The ascent
   and max-Q overrun is accepted: there the plume fills much of the frame,
   and P1's flame is long, the more so in the airstream (184 m at max-Q).
   Medium (16 steps) is the lever R7's tiers have.
 - Staging (0.3 s after S-IC/S-II separation: the eight S-IC retros in
-  four pairs and the four S-II ullage motors, eight clusters): 2.94 ms at
-  EV 15, 2.90 ms under the app's auto exposure. It was 38 ms with each
+  four pairs and the four S-II ullage motors, eight clusters): 3.94 ms at
+  EV 15, 3.90 ms under the app's auto exposure. It was 38 ms with each
   proxy as wide as P1's jet boundary; the proxies now hold what can show,
-  and solid motors' clusters march at half the steps. The retros burn
-  0.64 s.
+  and solid motors' clusters march at half the steps. The retros' plumes
+  end where their jets turn back into the oncoming air (70°), found on
+  the path's finer steps near the turn and between them: 39 m, where the
+  coarser stepping before the review stopped at 35 m (2.94 ms then). The
+  retros burn 0.64 s.
 - LEO, physical: about 0.02 ms by day (the J-2s and the SPS culled by the
   exposure, the SPS bell's glow drawn), the same in forward scatter; the
-  SPS at night in eclipse 0.44 ms (glow-only, marched at a quarter of the
+  SPS at night in eclipse 0.45 ms (glow-only, marched at a quarter of the
   steps, its proxy held to the glow).
 - Readable plumes at High: 1.2-1.7 ms in LEO when large (opt-in). They
   are marched, so that they lie in R6's volumes layer with C2's clouds and
@@ -329,8 +339,8 @@ default physical look.
   In flight the looks change every frame (the air thins, the airspeed
   rises, the flow ramps), and the caches only keep what does not move
   visibly. Through staging, stepped a frame at a time (`PlumeCostTests
-  .testStagingCPUInFlight`), the frames' median is 0.48 ms, the 90th
-  percentile 1.2 ms and the largest 3.1 ms. The visible extents (a 5 %
+  .testStagingCPUInFlight`), the frames' median is 0.47 ms, the 90th
+  percentile 1.1 ms and the largest 2.4 ms. The visible extents (a 5 %
   key) and the light profiles (1-2 %) are kept across frames; the
   templates and trims (0.25 % in the air, flow and stream) are rebuilt as
   they move.

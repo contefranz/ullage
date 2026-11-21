@@ -46,8 +46,9 @@ struct PlumeMember {
     float4 noise;       // eddy size, phase (tiles), depth, tile (m)
     float4 glow;        // rgb (cd/m²), w: length
     float4 extent;      // x: tan of the 1 % Simons angle (0 none), y: the particles', z: flame length (m), w: flame spread
-    float4 bendDirection; // xyz: the bend's direction (unit, world; 0 none)
-    float4 bendSpan;    // x: the x its stations span, y: where it fades out (-1: its last 30 %), z: its largest offset
+    float4 bendDirection; // xyz: the bend's direction (unit, world; 0 none), w: the hand-over's fade's start
+    float4 bendSpan;    // x: the x its stations span, y: where it fades out to its length (-1: its last 30 %),
+                        // z: its largest offset, w: the hand-over's fade's end (-1: none)
     float4 bendNear;    // the centreline's offsets at x = span (k/7)², k 0-3
     float4 bendFar;     // k 4-7
 };
@@ -296,7 +297,9 @@ inline void plume_member(thread PlumeSample &s, const device PlumeMember &m, flo
             float d2 = (x + m.simons.w) * (x + m.simons.w) + r * r;
             dilution = dilution * (1.0 - v) + m.simons.w * m.simons.w / max(d2, 1e-9) * v;
         }
-        float fade = 1.0 - plume_smoothstep(m.bendSpan.y >= 0.0 ? m.bendSpan.y : 0.7 * length_, length_, x);
+        float fadeFrom = m.bendSpan.y >= 0.0 ? m.bendSpan.y : 0.7 * length_;
+        float fade = fadeFrom < length_ ? 1.0 - plume_smoothstep(fadeFrom, length_, x) : 1.0;
+        if (m.bendSpan.w > 0.0) { fade *= 1.0 - plume_smoothstep(m.bendDirection.w, m.bendSpan.w, x); }
         float rho = profile * dilution * fade;
         float mixing = x > m.shape.w ? m.shape.w / x : 1.0;
         float cells = 1.0;
