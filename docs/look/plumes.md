@@ -202,6 +202,29 @@ it, they do not set it.
 - **The SPS extension's temperatures** and its heating and cooling times:
   no source in hand.
 
+## Cost
+
+`PlumeCostTests` (`docs/look/shots/p2-cost.json`; `ORBITSIM_TIMINGS=1`):
+plumes on and off on alternate frames, the difference of the medians, at
+3024×1964 on the M3 Pro. Measured on c5d14b9 at High (32 steps); the
+plan's budget is 1.5 ms on the pad and 0.5 ms in LEO, for the default
+physical look.
+
+- Pad 0.88-1.19 ms; ascent (T+30 s) 1.76 ms; max-Q 2.09 ms. The ascent
+  and max-Q overrun is accepted: there the plume fills much of the frame,
+  and P1's flame is long (105 m at 13 km). Medium (16 steps) is the lever
+  R7's tiers have.
+- LEO, physical: 0.02-0.05 ms by day (the J-2s and the SPS culled by the
+  exposure, the SPS bell's glow drawn), the same in forward scatter; the
+  SPS at night in eclipse 0.45 ms (glow-only, marched at a quarter of the
+  steps, its proxy held to the glow).
+- Readable plumes at High: 1.2-1.7 ms in LEO when large (opt-in). They
+  are marched, so that they lie in R6's volumes layer with C2's clouds and
+  keep their form seen end on; R7's tiers may bring back impostors at Low,
+  where every cluster is drawn as one (0.05-0.10 ms in LEO).
+- CPU: P2's planning and lighting take 0.05-0.25 ms a frame with its
+  caches warm, 1.5 ms on the first frame at the pad.
+
 ## Known limits
 
 - The plume looks are calibrated to stills; the far field's mottling is
