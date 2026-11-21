@@ -464,7 +464,7 @@ D ──┼─ E2(PR1: CM parts) ─ C ─┐
    - **Apollo 11's SM jettison logic;**
    - **a CSM phase-plane law with 0.5°/5° dead bands;**
    - **both CM RCS systems.**
-9. Deorbit: **an EMS-style ΔV counter cuts the SPS off; the pilot ignites with Z at TIG. Automatic P40 waits for M3.**
+9. Deorbit: **an EMS-style ΔV counter cuts the SPS off; the pilot ignites with Z at TIG. Automatic P40 waits for M3.** (Amended for M2 on 2026-11-21: CMC-lite's P40 lights the SPS after the crew's go; see `docs/m2/design-flight-controls.md`.)
 10. **CM/SM separation needs two Space presses within 2 s.**
 
 **Entry**
