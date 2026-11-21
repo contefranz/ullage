@@ -129,6 +129,19 @@ public final class SceneRenderer {
         graph.failures.merging(shaders.errors.mapValues { "shader module: \($0)" }) { a, _ in a }
     }
 
+    /// The next frame starts afresh, as in a new renderer: the temporal
+    /// history (C2's reprojected clouds) and what passes keep to continue a
+    /// sequence of frames (C2's wind drift, anchors and weather map, P2's
+    /// last exposure and looks) are dropped; what does not depend on earlier
+    /// frames (meshes, bakes, pipelines, tables) is kept. Snapshots call it
+    /// before each shot, so that a shot renders the same bytes whatever the
+    /// renderer drew before it.
+    public func startOver() {
+        history.invalidate()
+        previousViewProjection = nil
+        for p in graph.passes { p.startOver() }
+    }
+
     /// The star catalogue the star pass draws.
     public func setStars(_ stars: [Star]) {
         (graph.passes.first { $0 is StarPass } as? StarPass)?.setStars(stars)

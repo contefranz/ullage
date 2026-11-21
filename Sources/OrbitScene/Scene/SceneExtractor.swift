@@ -119,8 +119,7 @@ public final class SceneExtractor {
             let rel = snap.position(v.reference) + v.position - cam.position
             var poses: [RenderScene.ThrusterKey: RenderScene.ThrusterPose] = [:]
             for t in v.thrusters {
-                poses[ObjectIdentifier(t)] = RenderScene.ThrusterPose(direction: t.direction,
-                                                                     thrustDirection: t.thrustDirection)
+                poses[t.serial] = RenderScene.ThrusterPose(direction: t.direction, thrustDirection: t.thrustDirection)
             }
             let tinted = v.thrusters.first { $0.isDelivering && ($0.groups.contains(.main) || $0.isSolid) }
             vessels.append(RenderScene.Vessel(
@@ -198,7 +197,7 @@ public final class SceneExtractor {
                 // TX-280s' are drawn 10° off the physics' thrust line); a
                 // gimballed one's along its thrust.
                 var exhaust = -t.thrustDirection
-                if let n = geometry.nozzles[ObjectIdentifier(t)] {
+                if let n = geometry.nozzles[t.serial] {
                     exit = n.pivot + r * (n.exit - n.pivot)
                     radius = n.radius
                     if t.gimbal.isEmpty && n.exhaust.dot(exhaust) > cos(30 * Double.pi / 180) { exhaust = n.exhaust }
@@ -210,7 +209,7 @@ public final class SceneExtractor {
                 // pressure follows (the plume model).
                 let flow = ApolloExhaust.engine(for: t, in: part).map { t.massFlow / $0.ratedFlow }
                 out.append(RenderScene.Emitter(
-                    vesselID: v.id, thruster: ObjectIdentifier(t), name: t.name,
+                    vesselID: v.id, thruster: t.serial, name: t.name,
                     exit: rel + v.attitude.rotate(v.structureOrigin + exit), axis: v.attitude.rotate(exhaust),
                     exitRadius: radius, style: PlumeStyle(t), thrustFraction: fraction,
                     pressureRatio: pressure / standardAtmosphere, isSolid: t.isSolid,

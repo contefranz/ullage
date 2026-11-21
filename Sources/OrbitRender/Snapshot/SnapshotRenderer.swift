@@ -62,6 +62,10 @@ public final class SnapshotRenderer {
         guard let target = OffscreenTarget(device: device, width: shot.width, height: shot.height) else {
             throw SceneRenderer.Failure.noResources
         }
+        // A shot starts afresh: nothing another shot left in the renderer
+        // (C2's clouds and anchors, P2's exposure) carries into it, so it
+        // renders as in a fresh renderer.
+        r.startOver()
         var gpuTimes: [Double] = []
         func frame(_ settings: RenderSettings) -> [UInt8] {
             r.settings = settings
