@@ -144,6 +144,139 @@ final class PlumeAirflowTests: XCTestCase {
         XCTAssertGreaterThan(largest, 0, "the plume bends at some point of the ascent")
     }
 
+    // Fired straight into the oncoming air (a retro's case, here the five
+    // F-1s at 13 km into 480 m/s), the plume ends where its jet has turned
+    // back, as it does a little off that line (no lateral offset to bend
+    // along is no exemption), well short of the plume in still air; and the
+    // counterflow shortens the flame rather than lengthening it.
+    func testStraightIntoTheStreamEnds() throws {
+        let deg = Double.pi / 180
+        let still = five(altitude: 13_000, speed: 0, alpha: 0).members[0]
+        var lengths: [Double] = []
+        for a in [175.0, 178, 179.5, 180] {
+            let c = five(altitude: 13_000, speed: 480, alpha: a * deg)
+            let m = c.members[0]
+            XCTAssertLessThan(m.length, 0.5 * still.length, "ends at \(a)°")
+            XCTAssertLessThanOrEqual(m.flameLength, still.flameLength + 1e-9, "flame at \(a)°")
+            lengths.append(m.length)
+        }
+        print("PlumeAirflowTests: into the stream at 175°, 178°, 179.5°, 180° the plume ends at "
+            + "\(lengths.map { String(format: "%.1f", $0) }) m (\(String(format: "%.0f", still.length)) m in still air)")
+        XCTAssertEqual(lengths[3] / lengths[2], 1, accuracy: 0.05, "the same straight on as just off it")
+    }
+
+    // The hand-over does not move with the exposure or with the members'
+    // own lengths. Through exposures from night to bright day (every 5 %),
+    // in sunlight and in the dark, and with the members cut anywhere from
+    // 30 % of their built length to all of it (as a trim, or an engine's
+    // own shorter plume, would cut them; through the window's start, where
+    // the old fade switched from the last 30 % of the cut length to a
+    // near-hard cut at it), every member and the merged far field fade over
+    // the same window about the joint and end at its end, the trail's head
+    // is the same, and the drawn field there does not change. (The F-1's
+    // smoke holds 2 % opacity to its built length, so no exposure trims it
+    // in these states.)
+    func testHandoverIndependentOfTheExposure() throws {
+        let deg = Double.pi / 180
+        let built = five(altitude: 1_000, speed: 100, alpha: 3 * deg)
+        let h = try XCTUnwrap(built.handover)
+        var drawn: [Double]?
+        func check(_ members: [PlumeMember], _ label: String) throws {
+            let c = PlumeClusters.cluster(members)
+            XCTAssertEqual(c.handover, h, "the joint, \(label)")
+            for m in c.members + (c.merged.map { [$0] } ?? []) {
+                XCTAssertEqual(m.length, h.x + h.window, accuracy: 1e-9, label)
+                XCTAssertEqual(m.fadeStart ?? -1, h.x - h.window, accuracy: 1e-9, label)
+            }
+            let far = try XCTUnwrap(c.merged)
+            let field = stride(from: h.x - 1.2 * h.window, through: h.x + h.window, by: 0.1 * h.window).map {
+                far.sample(at: far.centre(atX: $0)).extinction
+            }
+            if let drawn {
+                for (a, b) in zip(field, drawn) { XCTAssertEqual(a, b, accuracy: 1e-9 * max(b, 1e-12), label) }
+            }
+            drawn = field
+        }
+        func fresh(_ m: PlumeMember) -> PlumeMember {
+            var t = m
+            t.bend = .none
+            t.fadeStart = nil
+            t.length = t.builtLength
+            return t
+        }
+        var exposures = 0
+        for sun in [100_000.0, 0] {
+            var faintest = 1e-3
+            while faintest < 1e5 {
+                let members = built.members.map(fresh).compactMap { m -> PlumeMember? in
+                    var t = m
+                    return PlumeLook.trim(&t, faintest: faintest, sun: sun) ? t : nil
+                }
+                XCTAssertEqual(members.count, 5)
+                try check(members, "faintest \(faintest), sun \(sun)")
+                exposures += 1
+                faintest *= 1.05
+            }
+        }
+        let full = built.members[0].builtLength
+        var crossed = (below: false, above: false)
+        for k in 30...100 {
+            let cut = full * Double(k) / 100
+            if cut < h.x - h.window { crossed.below = true } else { crossed.above = true }
+            try check(built.members.map(fresh).map { m in
+                var t = m
+                t.length = cut
+                return t
+            }, "cut at \(cut) m")
+        }
+        XCTAssertGreaterThan(exposures, 300)
+        XCTAssertTrue(crossed.below && crossed.above, "the cuts ran through the window's start")
+    }
+
+    // P4's trail joins the plume where P2's cluster hands it over, frame by
+    // frame through an outboard F-1's shutdown (as506-sic-engine1-out:
+    // engine 1, the first emitter, fails at range 60 s, about 7 km): its
+    // tail-off and its leaving the cluster move neither the joint nor the
+    // trail's head, which never goes missing.
+    func testTrailHandoverFollowsTheClusterThroughAnEngineOut() throws {
+        let scenario = try XCTUnwrap(Scenario.named("as506-sic-engine1-out"))
+        let sim = scenario.build(Self.system)
+        sim.paused = false
+        sim.stepBudget = nil
+        var camera = OrbitCamera()
+        camera.target = .vessel(try XCTUnwrap(sim.focus).id)
+        camera.distance = 200
+        let extractor = SceneExtractor()
+        let zero = LaunchCountdown.epoch(0, in: .apollo11)
+        while sim.time - zero < 59.5 - 1e-6 { sim.advance(by: min(5, 59.5 - (sim.time - zero))) }
+        var last: Double?
+        var ramp = 0, gone = 0, worst = 0.0
+        for _ in 0..<60 {
+            sim.advance(by: 1.0 / 30)
+            camera.update(sim: sim)
+            let scene = extractor.extract(sim: sim, camera: camera, viewport: RenderScene.Viewport(width: 64, height: 40),
+                                          realTime: 0)
+            let f1 = scene.emitters.filter { $0.name.hasPrefix("S-IC engine") && !$0.isJet }
+            let members = f1.compactMap { PlumeLook.member($0, settings: PlumeSettings()) }
+            let c = try XCTUnwrap(PlumeClusters.clusters(members).first { $0.family == .kerosene })
+            XCTAssertEqual(c.members.count, members.count, "one cluster")
+            let joint = try XCTUnwrap(c.handover)
+            let trail = try XCTUnwrap(PlumeAirflow.trailHandover(f1), "the trail's head at \(sim.time - zero) s")
+            XCTAssertEqual(trail.x, joint.x, accuracy: 1e-9 * joint.x)
+            XCTAssertEqual((trail.point - joint.point).length, 0, accuracy: 1e-6 * joint.x)
+            if let last { worst = max(worst, abs(trail.x / last - 1)) }
+            last = trail.x
+            let one = f1.first { $0.name == "S-IC engine 1" }
+            if let one, one.flowFraction > 0.05, one.flowFraction < 0.95 { ramp += 1 }
+            if one == nil { gone += 1 }
+        }
+        print(String(format: "PlumeAirflowTests: through engine 1's shutdown the trail's head moved %.2f %% a frame at most",
+                     100 * worst))
+        XCTAssertGreaterThan(ramp, 5, "frames in the tail-off")
+        XCTAssertGreaterThan(gone, 5, "frames after it")
+        XCTAssertLessThan(worst, 0.01)
+    }
+
     // The film's dark band (the F-1's turbine exhaust) shortens with the
     // afterburning as it fades, rather than jumping from the flame front's
     // 0.75 De to 3 De where it ends (287.14 Pa): every 0.2 % of pressure

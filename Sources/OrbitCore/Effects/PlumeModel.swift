@@ -126,8 +126,9 @@ public struct PlumeState: Equatable {
     /// much as the still-air flame at its tip. The vehicle's airspeed is a
     /// coflow that cuts the entrainment and lengthens it (the velocity
     /// ratio near 0.2 at max-Q); a crossflow (an angle of attack, a wind)
-    /// shortens it. The length the flame has wherever the jet mixes with
-    /// air (0 in vacuum and free-molecular flow, and for an exhaust with
+    /// shortens it, and a counterflow (a retro's into the oncoming air) to
+    /// the jet's penetration into it. The length the flame has wherever the
+    /// jet mixes with air (0 in vacuum and free-molecular flow, and for an exhaust with
     /// nothing to burn); how strongly it burns is `afterburning`, which
     /// fades from 28 to 40 km as the length grows.
     public var flameLength: Double

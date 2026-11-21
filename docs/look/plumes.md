@@ -169,8 +169,9 @@ and at 40 km it is gone, leaving the inert jet; nowhere is a several
 hundred metre flame at full brightness where the films show grey.
 
 The correlation is for a jet into still air. The vehicle's airspeed is a
-coflow that cuts the entrainment and lengthens the flame, and an angle of
-attack or a wind is a crossflow that shortens it: P1 lengthens the still
+coflow that cuts the entrainment and lengthens the flame, an angle of
+attack or a wind is a crossflow that shortens it, and a stream against the
+jet (a retro's) shortens it to the jet's penetration: P1 lengthens the still
 air's flame by `JetPath.flameLengthening` (next section). At max-Q (480
 m/s against a 3,060 m/s jet at 13 km) the F-1's 104 m flame becomes 184 m.
 Above 30 km, where the airspeed nears half the jet's, the flame would run
@@ -186,7 +187,10 @@ field stays on the nozzle, gimbal and all.
   model (Morton, Taylor and Turner 1956's hypothesis, as Hoult, Fay and
   Forney 1969 and Lee and Cheung 1990 apply it to jets in a current).
   - Shear entrainment: α1 = 0.0757 (the Gaussian jet's 0.0535, Fischer
-    et al. 1979, times √2) on the jet's speed over the stream's along it.
+    et al. 1979, times √2) on the difference between the jet's speed and
+    the stream's along it, either way (Lee and Cheung's |u − U cos θ|): a
+    jet turned back, or slower than the stream's component along it,
+    still shears against it.
   - Forced entrainment: α2 = 0.6 on the stream across it.
   - The fluid taken in brings the stream's momentum, so the jet turns into
     the stream, slows to it and dilutes.
@@ -199,29 +203,49 @@ field stays on the nozzle, gimbal and all.
     1.2-2.6 and B over 0.28-0.34; Margason 1993);
   - the coflowing jet's excess speed falls as s^(-2/3) and its width grows
     as s^(1/3) far out, the weak jet's (Tennekes and Lumley 1972);
-  - a still jet runs straight, its speed falling as 1/s.
+  - a still jet runs straight, its speed falling as 1/s;
+  - straight into an opposing stream it penetrates about 2 r d for r 5 to
+    20, linear in the velocity ratio as measured (Lam and Chan 1997; the
+    measured coefficient not checked), then turns back.
 - **Validity.** A rocket's jet in flight runs nearly with the stream (an
   angle of attack of a few degrees) at velocity ratios of 2 to 10: at the
   edge of the transverse data and outside them. The coflow's lengthening
   of the flame follows from the same model, where the jet has diluted as
-  much as the still-air flame at its tip; no published turbulent
-  coflowing-flame correlation was found to test it against.
+  much as the still-air flame at its tip, or where the stream has turned
+  it back, if sooner (what is swept back lies behind the flame's front);
+  no published turbulent coflowing-flame correlation was found to test it
+  against. So a counterflow shortens the flame, to the jet's penetration,
+  and so does a weak crossflow for every Apollo exhaust (`JetPathTests`);
+  the factor moves continuously with the stream. For a stoichiometric
+  mixture fraction under about 0.3 (none of Apollo's) a jet no faster
+  than a crossflow would be lengthened slightly: the top-hat model's
+  bent-over jet nearly stops entraining.
 - **The bend** (`PlumeAirflow`, `PlumeBend`): each cluster's path, as the
   offsets of its centreline from the nozzles' axis towards the stream at
   eight stations. The field, its turbulence and the proxies are sheared
   onto the bent centreline: x stays along the axis, r is from the bent
   line. That is exact while the bend is moderate (an angle of attack, a
   wind). Where the path turns more than 70° from the axis (a retro firing
-  into the oncoming air) the plume ends.
+  into the oncoming air, straight into it too) the plume ends.
 - **The hand-over to P4's trail.** A kerosene cluster's exhaust counts as
   at rest in the air where its speed relative to the air is down to 2 % of
   what it left the nozzle with (about 160 momentum diameters out in still
-  air), at most 85 % of its built length.
-  - The plume fades out over 15 % of that distance on either side of it.
+  air), at most 85 % of its built length. The jet's speed, stream and kind
+  are the member's of the most flow, so an engine shutting down does not
+  lead the cluster.
+  - The plume fades out over 15 % of that distance on either side of it
+    and ends at the window's end: every member and the merged far field,
+    whatever the exposure's trim or a member's own length would cut, so
+    the fade does not move with the exposure and the plume always reaches
+    the trail. The visible extents, which size the proxy, are found on the
+    field unfaded, so they hold it under any fade.
   - P4's trail lays its newest puff on the bent path there
-    (`PlumeAirflow.trailHandover`, the same reckoning, independent of the
-    exposure), and its puffs fade in within a tenth of a second, inside
-    that window: no gap, no double (`p2-trail-joint`).
+    (`PlumeAirflow.trailHandover`: the firing F-1s' members through
+    `PlumeAirflow.airflow`, the function the cluster uses, so the two
+    agree through an engine's shutdown), and its puffs fade in over the
+    window's half past the joint at the airspeed they recede at
+    (`ExhaustTrail.fadeIn`, at most a second): in where the plume has gone
+    at any speed, no gap, no double (`p2-trail-joint`).
 - **Continuity** (`PlumeAirflowTests`): sweeps through the angle of attack
   (-10° to 10° every quarter degree), the airspeed to beyond max-Q (every
   5 m/s) and AS-506's ascent (every half second). Each step moves the far

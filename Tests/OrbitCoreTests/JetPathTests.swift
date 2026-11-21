@@ -100,6 +100,28 @@ final class JetPathTests: XCTestCase {
         }
     }
 
+    // Straight into an opposing stream a jet penetrates it by a distance
+    // linear in the velocity ratio, as measured (Lam and Chan 1997; the
+    // coefficient is not checked: here about 2 r d for r 5 to 20, the same
+    // within 15 %), then turns back and is swept downstream, still
+    // shearing against the stream and diluting.
+    func testCounterflowPenetration() throws {
+        var reach: [Double] = []
+        for r in [5.0, 10, 20] {
+            let path = JetPath.path(diameter: 1, speed: r, direction: Vec3(0, 0, 1), stream: Vec3(0, 0, -1),
+                                    length: 40 * r)
+            let deepest = try XCTUnwrap(path.map(\.position.z).max())
+            reach.append(deepest / r)
+            let last = try XCTUnwrap(path.last)
+            XCTAssertLessThan(last.velocity.z, 0, "turned back, r \(r)")
+            XCTAssertLessThan(last.dilution, path[path.count / 2].dilution, "still diluting, r \(r)")
+        }
+        print("JetPathTests: counterflow penetration over r d at r 5, 10, 20: \(reach.map { String(format: "%.2f", $0) })")
+        for x in reach { XCTAssertEqual(x / reach[1], 1, accuracy: 0.15) }
+        XCTAssertGreaterThan(reach[1], 1.5)
+        XCTAssertLessThan(reach[1], 2.5)
+    }
+
     // A coflow lengthens a jet flame, a crossflow shortens it; none, no
     // change; it grows continuously with the coflow.
     func testFlameLengthening() {
@@ -114,6 +136,35 @@ final class JetPathTests: XCTestCase {
         }
         XCTAssertLessThan(JetPath.flameLengthening(stillLength: 50, diameter: 1, speed: 1_000, streamAlong: 0,
                                                    streamAcross: 100), 1)
+        // A counterflow never lengthens it (straight against the jet, or
+        // with a little or more crossflow), down to the jet's penetration
+        // into the stream: it shortens as the stream grows, and the factor
+        // moves continuously with the stream from -500 to 500 m/s (the old
+        // clamp on the shear jumped from 0.67 to the cap of 20 between -60
+        // and -65 m/s).
+        for across in [0.0, 5, 50] {
+            var last: Double?
+            for along in stride(from: -500.0, through: 500, by: 10) {
+                let k = JetPath.flameLengthening(stillLength: 50, diameter: 1, speed: 1_000, streamAlong: along,
+                                                 streamAcross: across)
+                if along <= 0 { XCTAssertLessThanOrEqual(k, 1 + 1e-9, "counterflow \(along), across \(across)") }
+                if let last { XCTAssertLessThan(abs(k - last), 0.15, "along \(along), across \(across)") }
+                last = k
+            }
+        }
+        XCTAssertLessThan(JetPath.flameLengthening(stillLength: 50, diameter: 1, speed: 1_000, streamAlong: -500,
+                                                   streamAcross: 0), 0.1, "to the penetration, about 4 diameters")
+        // Nor does a weak crossflow (the jet at most as fast as the stream)
+        // for Apollo's exhausts (stoichiometric mixture fractions 0.38 for
+        // the J-2 to 0.76 for the solids: still flames of 23/fs momentum
+        // diameters).
+        for fs in [0.38, 0.43, 0.57, 0.63, 0.76] {
+            for r in [0.25, 0.5, 1] {
+                let k = JetPath.flameLengthening(stillLength: 23 / fs, diameter: 1, speed: 1_000, streamAlong: 0,
+                                                 streamAcross: 1_000 / r)
+                XCTAssertLessThan(k, 1, "fs \(fs), r \(r)")
+            }
+        }
         print(String(format: "JetPathTests: flame lengthening at coflow 0.02, 0.1, 0.2 of the jet: %.3f, %.3f, %.3f",
                      JetPath.flameLengthening(stillLength: 50, diameter: 1, speed: 1_000, streamAlong: 20, streamAcross: 0),
                      JetPath.flameLengthening(stillLength: 50, diameter: 1, speed: 1_000, streamAlong: 100, streamAcross: 0),

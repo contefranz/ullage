@@ -53,15 +53,45 @@ public enum PlumeAirflow {
     /// plume ends.
     public static let steepest = 70 * Double.pi / 180
 
+    /// The member a cluster's jet takes its speed, stream and kind from: the
+    /// one of the most flow (the first of those), so that an engine shutting
+    /// down does not lead it.
+    public static func lead(_ members: [PlumeMember]) -> PlumeMember? {
+        members.max { $0.flowFraction < $1.flowFraction }
+    }
+
     /// The path of a cluster's jets: one jet of their summed momentum
-    /// (momentum diameters in quadrature) at the first one's speed, along
-    /// `axis`, into the first one's relative wind; nil without one.
+    /// (momentum diameters in quadrature) at the lead's speed, along
+    /// `axis`, into the lead's relative wind; nil without one.
     public static func path(_ members: [PlumeMember], axis: Vec3, length: Double) -> [JetPath.Station]? {
-        guard let first = members.first, first.jetVelocity > 0, first.relativeWind.length > 1e-3 else { return nil }
+        guard let lead = lead(members), lead.jetVelocity > 0, lead.relativeWind.length > 1e-3 else { return nil }
         let d = members.reduce(0) { $0 + $1.momentumDiameter * $1.momentumDiameter }.squareRoot()
         guard d > 0 else { return nil }
-        return JetPath.path(diameter: d, speed: first.jetVelocity, direction: axis, stream: first.relativeWind,
+        return JetPath.path(diameter: d, speed: lead.jetVelocity, direction: axis, stream: lead.relativeWind,
                             length: length)
+    }
+
+    /// A cluster's jets in the stream: their centrelines' bend, where they
+    /// stop being drawable (along the axis), and for a kerosene cluster the
+    /// hand-over to P4's trail.
+    public struct Airflow: Equatable {
+        public var bend: PlumeBend
+        public var end: Double?
+        public var handover: Handover?
+    }
+
+    /// The airflow of `members` along `axis`, whose plumes reach `reach` m
+    /// where nothing hands them over: P2's cluster draws it and P4's trail
+    /// joins it (`trailHandover`), one reckoning. The path runs to twice
+    /// the members' reach or built length, the bend over what is drawn: to
+    /// the hand-over's window's end, or `reach`. Nil without a stream.
+    public static func airflow(_ members: [PlumeMember], axis: Vec3, reach: Double) -> Airflow? {
+        let built = members.map(\.builtLength).max() ?? 0
+        guard max(reach, built) > 0,
+              let path = path(members, axis: axis, length: 2 * max(reach, built)) else { return nil }
+        let handover = handover(members, path: path, axis: axis)
+        let (bend, end) = bend(path, axis: axis, length: handover.map { $0.x + $0.window } ?? reach)
+        return Airflow(bend: bend, end: end, handover: handover)
     }
 
     /// The bend of a path along `axis` over `length` of it, and where along
@@ -69,26 +99,28 @@ public enum PlumeAirflow {
     /// never).
     public static func bend(_ path: [JetPath.Station], axis: Vec3, length: Double) -> (bend: PlumeBend, end: Double?) {
         guard !path.isEmpty, length > 0 else { return (.none, nil) }
-        // The stream across the axis, from the far end's heading.
+        // The stream across the axis, from the far end's heading (none for
+        // a stream along the axis, either way).
         var across = Vec3.zero
         for s in path.reversed() {
             let lateral = s.position - axis * s.position.dot(axis)
             if lateral.length > 1e-9 { across = lateral.normalized; break }
         }
-        guard across.length > 0.5 else { return (.none, nil) }
-        // Where it turns past the steepest, and the offsets along x.
+        // Where it turns past the steepest (a jet straight into the stream
+        // too, where it stops and is swept back), and the offsets along x.
         var points: [(x: Double, y: Double)] = []
         var end: Double?
         for s in path {
             let v = s.velocity.length > 1e-9 ? s.velocity.normalized : axis
             if v.dot(axis) < cos(steepest) {
-                end = points.last?.x
+                end = points.last?.x ?? 0
                 break
             }
             let x = s.position.dot(axis)
             if let last = points.last, x <= last.x { continue }
             points.append((x, s.position.dot(across)))
         }
+        guard across.length > 0.5 else { return (.none, end) }
         let span = min(length, end ?? length)
         func y(at x: Double) -> Double {
             guard let k = points.firstIndex(where: { $0.x >= x }) else { return points.last?.y ?? 0 }
@@ -133,10 +165,11 @@ public enum PlumeAirflow {
     }
 
     public static func handover(_ members: [PlumeMember], path: [JetPath.Station], axis: Vec3) -> Handover? {
-        guard let first = members.first, first.family == .kerosene, first.builtLength > 0 else { return nil }
+        guard let lead = lead(members), lead.family == .kerosene else { return nil }
         let built = members.map(\.builtLength).max() ?? 0
+        guard built > 0 else { return nil }
         var x = 0.85 * built
-        if let rest = restDistance(path, stream: first.relativeWind) {
+        if let rest = restDistance(path, stream: lead.relativeWind) {
             x = min(x, point(path, at: rest).dot(axis))
         }
         guard x > 0 else { return nil }
@@ -150,21 +183,21 @@ public enum PlumeAirflow {
             let xa = a.position.dot(axis), xb = b.position.dot(axis)
             p = a.position + (b.position - a.position) * ((x - xa) / max(xb - xa, 1e-12))
         }
-        return Handover(x: x, point: p, window: max(0.15 * x, 2 * first.exitDiameter))
+        return Handover(x: x, point: p, window: max(0.15 * x, 2 * lead.exitDiameter))
     }
 
-    /// The trail's hand-over for a vessel's S-IC: from its F-1 emitters
-    /// (not jets, firing), as P2's cluster reckons it; the point is from
-    /// the exits' centroid, world axes. For P4's `ExhaustTrail`.
+    /// The trail's hand-over for a vessel's S-IC: its firing F-1s' members
+    /// (not jets), on their cluster's axis, through `airflow` exactly as
+    /// P2's cluster reckons it (the built lengths, the same at any
+    /// exposure); the point is from the cluster's origin, world axes. For
+    /// P4's `ExhaustTrail`.
     public static func trailHandover(_ emitters: [RenderScene.Emitter],
                                      settings: PlumeSettings = PlumeSettings()) -> Handover? {
-        let f1 = emitters.filter { $0.name.hasPrefix("S-IC engine") && !$0.isJet }
-        guard let e = f1.first, var m = PlumeLook.member(e, settings: settings) else { return nil }
-        let n = Double(f1.count)
-        m.momentumDiameter *= n.squareRoot()
-        let axis = f1.reduce(Vec3.zero) { $0 + $1.axis }.normalized
-        guard let path = path([m], axis: axis, length: 2 * m.builtLength) else { return nil }
-        return handover([m], path: path, axis: axis)
+        let members = emitters.filter { $0.name.hasPrefix("S-IC engine") && !$0.isJet }
+            .compactMap { PlumeLook.member($0, settings: settings) }
+        guard !members.isEmpty else { return nil }
+        let axis = PlumeClusters.frame(members).axis
+        return airflow(members, axis: axis, reach: members.map(\.builtLength).max() ?? 0)?.handover
     }
 
     /// The point on a path `distance` along it (from its source), m.

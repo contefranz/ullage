@@ -76,8 +76,9 @@ public struct PlumeMember: Equatable {
     public var momentumDiameter = 0.0
     /// Its centreline bent into the stream (none in vacuum or still air).
     public var bend = PlumeBend.none
-    /// Where it starts to fade out (m); nil for the last 30 % of its length.
-    /// Set where it is handed over to P4's trail.
+    /// Where it starts to fade out (m), to its length; nil for the last
+    /// 30 % of its length. Set where it is handed over to P4's trail, with
+    /// its length: the window about the joint.
     public var fadeStart: Double?
     /// Its length as built, before the exposure's trim (m): what the
     /// hand-over to the trail is reckoned from, the same at any exposure.
@@ -887,11 +888,15 @@ public enum PlumeLook {
     /// column across the field there, lit by `sun` lux at the forward peak,
     /// gives half of `faintest` or 2 % opacity (the light there times the
     /// chord, an upper bound, first; then the column marched); with 15 % to
-    /// spare for the eddies; at least half the exit's radius.
+    /// spare for the eddies; at least half the exit's radius. Of the field
+    /// unfaded: they bound it under any fade, the trim's or the hand-over's
+    /// that its cluster sets later (`PlumeClusters.cluster`).
     public static func visibleExtents(_ m: PlumeMember, faintest: Double, sun: Double) -> [Double] {
         let forward = henyeyGreenstein(1, m.phaseG)
         var field = m
         field.visibleExtents = []
+        field.length = 1e9
+        field.fadeStart = nil
         let u = perpendicular(m.axis), across = m.axis.cross(u).normalized
         let white = Photometry.RGB(sun, sun, sun)
         let n = PlumeMember.visibleStations

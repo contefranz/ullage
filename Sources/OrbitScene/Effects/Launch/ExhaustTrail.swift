@@ -45,6 +45,19 @@ public final class ExhaustTrail {
     /// plume gives none (`Vehicle.trailHead`): past the visible flame, where
     /// the exhaust has slowed to the air's speed (L).
     public static func offset(altitude h: Double) -> Double { 30 + puffRadius(altitude: h) }
+    /// The puffs' fade-in as a share of their life (the trail materials'
+    /// `fadeIn`): over the distance P2's plume fades out over past the
+    /// joint (the hand-over's `window`), at the airspeed the puffs, at rest
+    /// in the air, recede from it at, so that the longest-lived puff is in
+    /// where the plume has gone at any speed; at most a second (the pad's
+    /// slow first metres). Without a hand-over, 0.0002 (a tenth of a
+    /// second or less). Quantised to 2 %, so the materials change seldom.
+    public static func fadeIn(window: Double?, airspeed: Double) -> Double {
+        guard let w = window, w > 0 else { return 0.0002 }
+        let seconds = min(w / max(airspeed, 1), 1)
+        let share = max(seconds / lifetime.upperBound, 1e-7)
+        return exp((log(share) / 0.02).rounded(.down) * 0.02)
+    }
     /// The longest piece of path one request lays, s and m (one request
     /// has one velocity: the wind at the piece's middle), while the pieces
     /// a frame may lay suffice: `maxPieces`, or `maxRebuiltPieces` on a
@@ -201,8 +214,15 @@ public final class ExhaustTrail {
             return
         }
         // Where P2's plume hands the exhaust over (on its path bent into the
-        // relative wind, slowed to the air), else the fixed offset behind.
+        // relative wind, slowed to the air), else the fixed offset behind;
+        // the puffs fading in over the plume's fade, at this airspeed.
         let head = c.vehicle.trailHead
+        let share = Self.fadeIn(window: head?.window, airspeed: c.vehicle.airspeed)
+        for band in materials.indices where c.frame.materials[materials[band]].fadeIn != share {
+            var m = c.frame.materials[materials[band]]
+            m.fadeIn = share
+            c.frame.materials.register(m)
+        }
         let behind = head?.x ?? Self.offset(altitude: frame.altitude(of: centre.position))
         let here: Point
         if c.rebuilt {

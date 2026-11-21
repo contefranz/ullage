@@ -460,6 +460,47 @@ final class LaunchEffectsTests: XCTestCase {
         }
     }
 
+    /// The trail's puffs fade in over P2's plume's fade past the joint at
+    /// any airspeed: a puff laid at the joint, at rest in the air, is at
+    /// least 90 % in (the longest-lived, the slowest) by the time it lies
+    /// the hand-over's window behind it, where the plume has gone. For a
+    /// grid of windows and airspeeds to the S-IC's cutoff (2.4 km/s), and in
+    /// flight from T+10 s to CECO, from the materials the frames set.
+    func testTrailFadesInOverThePlumesFade() throws {
+        func fade(_ share: Double, window w: Double, airspeed v: Double) -> Double {
+            min(1, (w / v) / (share * ExhaustTrail.lifetime.upperBound))
+        }
+        for w in [7.0, 20, 40, 67] {
+            for v in [50.0, 100, 400, 800, 1_200, 1_460, 1_650, 2_400] {
+                XCTAssertGreaterThanOrEqual(fade(ExhaustTrail.fadeIn(window: w, airspeed: v), window: w, airspeed: v), 0.9,
+                                            "window \(w) m at \(v) m/s")
+            }
+        }
+        let (sim, camera) = try open()
+        let run = Run(sim, camera)
+        run.frame()
+        let zero = LaunchCountdown.epoch(0, in: .apollo11)
+        let materials = try XCTUnwrap(run.effects.materials)
+        var checked = 0
+        for t in [10.0, 30, 60, 90, 110, 125, 135] {
+            fly(run, step: 0.5, for: t - (sim.time - zero), test: self)
+            let scene = try XCTUnwrap(run.scene)
+            let own = scene.emitters.filter { $0.name.hasPrefix("S-IC engine") }
+            let head = try XCTUnwrap(PlumeAirflow.trailHandover(own), "T+\(t) s")
+            let v = try XCTUnwrap(own.first).relativeWind.length
+            for id in materials.trail {
+                let share = run.session.materials[id].fadeIn
+                XCTAssertEqual(share, ExhaustTrail.fadeIn(window: head.window, airspeed: v), "T+\(t) s")
+                XCTAssertGreaterThanOrEqual(fade(share, window: head.window, airspeed: v), 0.9, "T+\(t) s")
+            }
+            print(String(format: "LaunchEffectsTests: at T+%.0f s the trail fades in over %.0f m at %.0f m/s (%.3f s)",
+                         t, head.window, v, run.session.materials[materials.trail[0]].fadeIn
+                            * ExhaustTrail.lifetime.upperBound))
+            checked += 1
+        }
+        XCTAssertEqual(checked, 7)
+    }
+
     /// An outboard F-1 out at range 60 s (`as506-sic-engine1-out`): a
     /// rebuild at T+100 s lays the trail after the failure at the four
     /// engines' flow, as the frames did, from the journal's cutoff.

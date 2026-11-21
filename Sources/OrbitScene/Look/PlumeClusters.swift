@@ -108,9 +108,9 @@ public enum PlumeClusters {
             && (a.exit - b.exit).length < spacing * (a.exitRadius + b.exitRadius)
     }
 
-    /// One cluster of `members`: its frame (the exits' mean, weighted by
-    /// their areas, and the mean axis) and its proxy.
-    public static func cluster(_ members: [PlumeMember]) -> PlumeCluster {
+    /// A cluster's frame: the exits' mean, weighted by their areas, moved
+    /// onto the most upstream exit's plane, and the mean axis so weighted.
+    public static func frame(_ members: [PlumeMember]) -> (origin: Vec3, axis: Vec3) {
         var origin = Vec3.zero, axis = Vec3.zero, weight = 0.0
         for m in members {
             let w = m.exitRadius * m.exitRadius
@@ -120,28 +120,34 @@ public enum PlumeClusters {
         }
         origin = origin / max(weight, 1e-12)
         axis = axis.length > 0 ? axis.normalized : (members.first?.axis ?? .unitX)
-        // The origin onto the most upstream exit's plane.
         let lowest = members.map { ($0.exit - origin).dot(axis) }.min() ?? 0
-        origin = origin + axis * lowest
+        return (origin + axis * lowest, axis)
+    }
+
+    /// One cluster of `members`: its frame and its proxy.
+    public static func cluster(_ members: [PlumeMember]) -> PlumeCluster {
+        let (origin, axis) = frame(members)
         let u = PlumeLook.perpendicular(axis), v = axis.cross(u).normalized
-        // The far field in the stream: the cluster's path bends every
-        // member's centreline into it; past where it turns back (a retro's
-        // into the oncoming air) the plumes end; and where a kerosene
-        // cluster's exhaust has slowed to the air they fade out, handed over
-        // to P4's trail.
+        // The far field in the stream (`PlumeAirflow.airflow`): the
+        // cluster's path bends every member's centreline into it; past where
+        // it turns back (a retro's into the oncoming air) the plumes end;
+        // and where a kerosene cluster's exhaust has slowed to the air they
+        // fade out, handed over to P4's trail: over the window about the
+        // joint, to its end, the same at any exposure (as the trail's head
+        // is), whatever the trim or a member's own length (an engine
+        // shutting down) would cut.
         var members = members
         var handover: PlumeAirflow.Handover?
         let reach = members.map(\.length).max() ?? 0
-        if reach > 0, let path = PlumeAirflow.path(members, axis: axis, length: 2 * max(reach, members.map(\.builtLength).max() ?? 0)) {
-            let (bend, end) = PlumeAirflow.bend(path, axis: axis, length: reach)
-            handover = PlumeAirflow.handover(members, path: path, axis: axis)
+        if reach > 0, let air = PlumeAirflow.airflow(members, axis: axis, reach: reach) {
+            handover = air.handover
             for i in members.indices {
-                members[i].bend = bend
-                if let end { members[i].length = min(members[i].length, max(end, members[i].exitDiameter)) }
-                if let h = handover, members[i].length > h.x - h.window {
-                    members[i].length = min(members[i].length, h.x + h.window)
+                members[i].bend = air.bend
+                if let h = air.handover {
+                    members[i].length = h.x + h.window
                     members[i].fadeStart = max(h.x - h.window, 0)
                 }
+                if let end = air.end { members[i].length = min(members[i].length, max(end, members[i].exitDiameter)) }
             }
         }
         let merge = merged(members, origin: origin, axis: axis)

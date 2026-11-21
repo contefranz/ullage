@@ -467,10 +467,14 @@ public final class PlumeSystem {
     func light(_ c: PlumeCluster) -> PlumeLight? {
         let list = c.members.map { m -> PlumeLights.Profile? in
             guard m.tag != 0 else { return PlumeLights.profile(m) }
-            if let p = profiles[m.tag] { return p }
+            // With the cluster's hand-over, which sets the member's fade and
+            // length (at 1 %).
+            let tag = c.handover.map { "\(m.tag)|\(Self.qlog($0.x, 0.01))|\(Self.qlog($0.window, 0.01))".hashValue }
+                ?? m.tag
+            if let p = profiles[tag] { return p }
             let p = PlumeLights.profile(m)
             if profiles.count > Self.cacheLimit { profiles.removeAll() }
-            profiles[m.tag] = p
+            profiles[tag] = p
             return p
         }
         return PlumeLights.light(c, profiles: list)
