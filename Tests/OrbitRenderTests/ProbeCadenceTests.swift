@@ -207,7 +207,9 @@ final class ProbeCadenceTests: XCTestCase {
 
     /// A2's rule for a probe reading the camera's sky-view LUT: both inside
     /// the air (A2 draws the LUT only for a camera inside it), within 2 km
-    /// and 300 m of altitude.
+    /// and 300 m of altitude (`heightDifference`: the centre's altitude less
+    /// the camera's). Each inside guard is tested where the range and the
+    /// height alone would read the LUT: across the top of the air, 100 m apart.
     func testSkyViewRule() {
         typealias A = AtmosphereCompositePass
         XCTAssertTrue(A.probeReadsSkyView(cameraInside: true, centreInside: true, distance: 1_900, heightDifference: 100))
@@ -215,10 +217,10 @@ final class ProbeCadenceTests: XCTestCase {
                        "2 km away")
         XCTAssertFalse(A.probeReadsSkyView(cameraInside: true, centreInside: true, distance: 1_900, heightDifference: 1_900),
                        "1.9 km above")
-        XCTAssertFalse(A.probeReadsSkyView(cameraInside: false, centreInside: true, distance: 500, heightDifference: 400),
-                       "the camera above the air: no LUT drawn")
-        XCTAssertFalse(A.probeReadsSkyView(cameraInside: true, centreInside: false, distance: 500, heightDifference: -400),
-                       "the centre above the air")
+        XCTAssertFalse(A.probeReadsSkyView(cameraInside: false, centreInside: true, distance: 500, heightDifference: -100),
+                       "the camera just above the air, the centre just below it: no LUT drawn")
+        XCTAssertFalse(A.probeReadsSkyView(cameraInside: true, centreInside: false, distance: 500, heightDifference: 100),
+                       "the centre just above the air")
     }
 
     /// The schedule: two a frame in turn, each face once in three frames;
