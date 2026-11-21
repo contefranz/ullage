@@ -330,11 +330,14 @@ public struct RenderScene {
         /// Seconds it has been commanded on since it last started
         /// (`Thruster.burnTime`): the nozzle glow's history on a first frame.
         public var burnTime: Double
+        /// The air's velocity relative to the vessel (world axes, m/s): the
+        /// stream its plume issues into, the wind included; zero in vacuum.
+        public var relativeWind: Vec3
 
         public init(vesselID: UUID, thruster: ThrusterKey, name: String, exit: Vec3, axis: Vec3, exitRadius: Double,
                     style: PlumeStyle, thrustFraction: Double, pressureRatio: Double, isSolid: Bool, isJet: Bool,
                     part: String = "", flowFraction: Double? = nil, ambient: AtmosphereState? = nil,
-                    burnTime: Double = 0) {
+                    burnTime: Double = 0, relativeWind: Vec3 = .zero) {
             self.vesselID = vesselID
             self.thruster = thruster
             self.name = name
@@ -350,6 +353,7 @@ public struct RenderScene {
             self.flowFraction = flowFraction ?? thrustFraction
             self.ambient = ambient ?? Self.air(pressureRatio: pressureRatio)
             self.burnTime = burnTime
+            self.relativeWind = relativeWind
         }
 
         /// Air at `pressureRatio` of sea level's, at a 250 K mean

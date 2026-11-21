@@ -215,7 +215,8 @@ public final class SceneExtractor {
                     exitRadius: radius, style: PlumeStyle(t), thrustFraction: fraction,
                     pressureRatio: pressure / standardAtmosphere, isSolid: t.isSolid,
                     isJet: !t.isSolid && !t.groups.contains(.main), part: part.name, flowFraction: flow,
-                    ambient: v.atmosphere, burnTime: t.burnTime))
+                    ambient: v.atmosphere, burnTime: t.burnTime,
+                    relativeWind: v.atmosphere.density > 0 ? -v.airVelocity : .zero))
             }
         }
         return out
