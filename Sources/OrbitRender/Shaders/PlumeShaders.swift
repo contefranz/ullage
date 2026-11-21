@@ -351,6 +351,20 @@ inline void plume_member(thread PlumeSample &s, const device PlumeMember &m, flo
     s.g += (s.scattering - g0) * m.particles2.w;
 }
 
+// The radius about the axis at x within which most of a member's field
+// lies: PlumeMember.denseRadius.
+inline float plume_denseRadius(const device PlumeMember &m, float x) {
+    float re = m.exit.w;
+    float dense = re + m.shape.x * (1.0 - exp(-x / max(m.shape.y, 1e-6))) + m.shape.z * max(0.0, x - m.shape.w);
+    if (m.simons.x > 0.02) {
+        float half_ = 2.0 * m.simons.z / M_PI_F * acos(pow(0.5, 1.0 / max(m.simons.y, 1e-3)));
+        float cone = (x + m.simons.w) * tan(min(half_, 1.4));
+        if (m.particles.x > 0.0) { cone = max(cone, (x + m.particles2.y) * tan(min(m.particles2.x, 1.4))); }
+        dense = min(dense, cone);
+    }
+    return max(dense, re);
+}
+
 // ------------------------------------------------------------- the march ---
 // The fragment intersects its ray with the cluster's proxy (the slab
 // between its end rings and each edge's cone), clamps it at the scene and
@@ -434,32 +448,31 @@ fragment EffectVolumeOut plume_march_fragment(PlumeProxyOut in [[stage_in]],
             n0 = steps / 2;
         }
     }
-    // A single member seen across (more than 30° off its axis): its steps
+    // A cluster seen across (more than 30° off its axis): its steps
     // equiangular about its axis (Kulla and Fajardo 2012), as dense as
-    // 1 / (h² + distance²) along the ray, h the ray's closest approach or
-    // half the member's dense radius there, so a small dense core (a
-    // retro's alumina) is not stepped over.
+    // 1 / (h² + distance²) along the ray, h the ray's closest approach to
+    // the axis or half the members' spread about it and their dense radius
+    // there (PlumeMember.denseRadius), so a small dense core (a retro's
+    // alumina, a pair of them) is not stepped over; a single member's own
+    // axis and dense radius.
     int first_ = int(c.axis.w), count = int(c.u.w);
     bool equiangular = false;
     float t0 = 0.0, hk = 1.0, phiA = 0.0, dphi = 0.0;
-    if (count == 1) {
-        const device PlumeMember &m0 = members[first_];
-        float3 ma = m0.axis.xyz, w0 = -m0.exit.xyz;
-        float3 dpm = dir - ma * dot(dir, ma), opm = w0 - ma * dot(w0, ma);
+    {
+        float3 dpm = dir - a * dx, opm = op;
         float k2 = dot(dpm, dpm), k = sqrt(k2);
         if (k > 0.5 * len) {
             t0 = -dot(opm, dpm) / k2;
             float rho0 = length(opm + dpm * t0);
-            float re0 = m0.exit.w;
-            float x0 = max(dot(dir * t0 - m0.exit.xyz, ma), 0.0);
-            float dense = re0 + m0.shape.x * (1.0 - exp(-x0 / max(m0.shape.y, 1e-6))) + m0.shape.z * max(0.0, x0 - m0.shape.w);
-            if (m0.simons.x > 0.02) {
-                float half_ = 2.0 * m0.simons.z / M_PI_F * acos(pow(0.5, 1.0 / max(m0.simons.y, 1e-3)));
-                float cone = (x0 + m0.simons.w) * tan(min(half_, 1.4));
-                if (m0.particles.x > 0.0) { cone = max(cone, (x0 + m0.particles2.y) * tan(min(m0.particles2.x, 1.4))); }
-                dense = min(dense, cone);
+            float3 p0 = dir * t0;
+            float spread = 0.0, dense = 0.0;
+            for (int j = 0; j < count; j++) {
+                const device PlumeMember &mj = members[first_ + j];
+                float3 rel = mj.exit.xyz - c.origin.xyz;
+                spread = max(spread, length(rel - a * dot(rel, a)));
+                dense = max(dense, plume_denseRadius(mj, max(dot(p0 - mj.exit.xyz, mj.axis.xyz), 0.0)));
             }
-            float h = max(rho0, 0.5 * max(dense, re0));
+            float h = max(rho0, 0.5 * (spread + dense));
             if ((exit - enter) * k > 4.0 * h) {
                 equiangular = true;
                 hk = h / k;

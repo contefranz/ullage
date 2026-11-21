@@ -95,8 +95,8 @@ final class PlumeClustersTests: XCTestCase {
     }
 
     /// Engines far apart, of different families or vessels, or pointing
-    /// different ways, stay apart; a cluster takes eight at most. Solid
-    /// motors stay each its own, even side by side (the S-IC retros' pairs).
+    /// different ways, stay apart; a cluster takes eight at most. The S-IC
+    /// retros' pairs, side by side in their fairings, are one cluster each.
     func testClusteringRules() {
         let air = us76.state(altitude: 65_000)
         let retro = ApolloExhaust.sICRetro.spec
@@ -111,7 +111,7 @@ final class PlumeClustersTests: XCTestCase {
             return r(out * 5, (Vec3(0, 0, 1) + out * 0.13).normalized)
         }
         XCTAssertEqual(PlumeClusters.clusters(ring).count, 8)
-        XCTAssertEqual(PlumeClusters.clusters([r(.zero, .unitZ), r(Vec3(0.5, 0, 0), .unitZ)]).count, 2)
+        XCTAssertEqual(PlumeClusters.clusters([r(.zero, .unitZ), r(Vec3(0.5, 0, 0), .unitZ)]).count, 1)
 
         let f1 = ApolloExhaust.f1.spec
         let s = PlumeModel.state(f1, flowFraction: 1, ambient: us76.state(altitude: 0))

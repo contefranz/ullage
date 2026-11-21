@@ -20,10 +20,8 @@ medium, L low (visual, calibrated or assumed).
 2. **Clusters** (`OrbitScene/Look/PlumeClusters.swift`). Members of one
    family on one vessel whose axes agree within 12° and whose exits are
    within three of their summed radii join, up to eight: the S-IC's five
-   F-1s and the S-II's five J-2s are one cluster each. Solid motors stay
-   each its own (the S-IC retros, in pairs in their fairings, eight
-   clusters): a small, dense alumina core needs the march's equiangular
-   steps about its own axis.
+   F-1s and the S-II's five J-2s are one cluster each, the S-IC retros
+   four (their pairs, side by side in their fairings).
    Each cluster gets a convex proxy: the upper concave hull of every
    member's extent (sampled cross-sections at their offsets and tilts, the
    eddies' reach of 15 % beyond the jet included), with a 4 % margin,
@@ -34,8 +32,13 @@ medium, L low (visual, calibrated or assumed).
    at the phase towards the camera) decides whether it is drawn at all, how
    far out the free expansion's cone is cut, and how long it is. A J-2's,
    the SPS's or an RCS jet's physical plume in vacuum is therefore not
-   drawn, at no cost. The Sun counted is the member's vessel's sunlight, so
-   in the Earth's shadow only the glow can show. Then by the cluster's size
+   drawn, at no cost. The trim also finds, at twelve stations along the
+   member, how far out it can show (the column across it marched where an
+   upper bound says it might, half the least light or 2 % opacity, 15 %
+   spare): the proxy holds no more. Without it a strongly underexpanded
+   jet's proxy (a retro's at 65 km, P1's boundary some 27 m out) is many
+   times its visible alumina cone. The Sun counted is the member's
+   vessel's sunlight, so in the Earth's shadow only the glow can show. Then by the cluster's size
    on screen at its nearest point: marched from 48 px, an impostor from
    6 px, nothing below (the vessel's far point carries it). A plume only
    its glow shows (readable in vacuum, or in the Earth's shadow; not one
@@ -43,7 +46,8 @@ medium, L low (visual, calibrated or assumed).
    when it is that large, so that it lies in R6's volumes layer with the
    clouds and keeps its form seen end on: with its proxy held to the glow
    (1.15 R), at a quarter of the steps for one member (equiangular) and
-   half for several. Attitude jets are impostors beyond 20 m. Low draws only
+   half for several. Solid motors' clusters, small dense cores the
+   equiangular steps resolve, march at half the steps (at least 16). Attitude jets are impostors beyond 20 m. Low draws only
    impostors; Off, or `enabled: false`, nothing. The looks, trims and light
    profiles are kept across frames, keyed on their inputs to 0.25 % (flow,
    the air) and 1 % (the exposure, the Sun). Beyond where a cluster's
@@ -60,11 +64,12 @@ medium, L low (visual, calibrated or assumed).
    scene, and marches 16/32/48 steps (Medium/High/Ultra), half of them in
    the near field (ten exit diameters), jittered by interleaved gradient
    noise, Hillaire's energy-conserving step, stopping under 2 %
-   transmittance. A single member seen more than 30° off its axis is
-   stepped equiangularly about its axis instead (Kulla and Fajardo 2012:
-   the steps as dense as 1/(h² + d²) along the ray, h the ray's closest
-   approach or half the member's dense radius), so a small dense core (a
-   retro's alumina) is not stepped over. The marched clusters blend far to
+   transmittance. A cluster seen more than 30° off its axis is stepped
+   equiangularly about its axis instead (Kulla and Fajardo 2012: the steps
+   as dense as 1/(h² + d²) along the ray, h the ray's closest approach or
+   half the members' spread about the axis and their dense radius), so a
+   small dense core (a retro's alumina, or a pair of them) is not stepped
+   over. The marched clusters blend far to
    near. The field is `PlumeMember.sample`, line by line, plus the
    turbulence. `PlumeRenderTests` checks the GPU against the CPU reference
    through the same rays (within 1 % on average; the test allows 10 %).

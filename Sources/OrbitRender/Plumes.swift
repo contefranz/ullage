@@ -386,6 +386,7 @@ public final class PlumeSystem {
                 m.length = d.length
                 m.extentFraction = d.extentFraction
                 m.glowOnly = d.glowOnly
+                m.visibleExtents = d.visibleExtents
             } else {
                 let visible = PlumeLook.trim(&m, faintest: faintest, sun: sun, sunDirection: toSun)
                 if trims.count > Self.cacheLimit { trims.removeAll() }
@@ -521,11 +522,14 @@ public final class PlumeSystem {
         // quarter of the steps, at least 8.
         for e in Plumes.farToNear(marched, { $0.cluster }) {
             let c = e.cluster
-            // (Half, at least 16, for several members: only a single one
-            // gets the equiangular steps.)
+            // (Half, at least 16, for several members.) Solid motors' small
+            // dense cores, which the equiangular steps resolve, take half
+            // the steps too (at least 16): at staging eight of them fire.
             let glowOnly = c.members.allSatisfy(\.glowOnly)
-            let steps = !glowOnly ? 0 : c.members.count == 1 ? max(8, settings.quality.steps / 4)
-                : max(16, settings.quality.steps / 2)
+            let solid = c.members.allSatisfy { $0.family == .solid }
+            let steps = glowOnly ? (c.members.count == 1 ? max(8, settings.quality.steps / 4)
+                                                         : max(16, settings.quality.steps / 2))
+                : solid ? max(16, settings.quality.steps / 2) : 0
             data.marched.append(Plumes.gpu(c, memberStart: data.members.count, light: e.light, sunlit: e.sunlit,
                                            steps: steps))
             data.members += (c.members + (c.merged.map { [$0] } ?? [])).map {

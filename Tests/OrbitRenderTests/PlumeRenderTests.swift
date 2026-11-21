@@ -101,8 +101,10 @@ final class PlumeRenderTests: XCTestCase {
         XCTAssertEqual(system.frame.lights.count, 1, "the five F-1s as one light")
         let scene = shot.scene(try shot.prepare(system: s.system))
         let expected = try XCTUnwrap(PlumeLights.lights(scene).first)
+        // P2's members are trimmed to the exposure (their light marched
+        // across what can show) and kept on quantised keys: within 1 %.
         XCTAssertEqual(system.frame.lights[0].luminousIntensity, expected.luminousIntensity,
-                       accuracy: 1e-3 * expected.luminousIntensity)
+                       accuracy: 1e-2 * expected.luminousIntensity)
         XCTAssertTrue(system.lastClusters.contains { $0.detail == .march })
     }
 

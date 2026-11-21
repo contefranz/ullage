@@ -94,8 +94,14 @@ public struct PlumeMember: Equatable {
     /// (`PlumeLook.trim`).
     public var extentFraction = 0.01
     /// Only its glow shows at the frame's exposure (a readable plume in
-    /// vacuum): drawn as an impostor, M1.5's way, however large.
+    /// vacuum, or one in the Earth's shadow).
     public var glowOnly = false
+    /// How far out it can show at the frame's exposure (`PlumeLook.trim`):
+    /// the radius at `visibleStations` stations, x = length (i/(n-1))²,
+    /// beyond which its light and opacity cannot; the proxy holds no more.
+    /// Empty: the field's extent alone.
+    public var visibleExtents: [Double] = []
+    public static let visibleStations = 12
     /// How far the air confines the free expansion to the jet's boundary
     /// (P1's structure visibility in air, 0 in vacuum): the Simons field
     /// is cut beyond R(x) as much.
@@ -208,6 +214,17 @@ public struct PlumeMember: Equatable {
         // Only the glow shows: it lies within the jet, as far as the eddies
         // carry its edge.
         if glowOnly { return PlumeMember.turbulentReach * radius(atX: x) }
+        let e = fieldExtent(atX: x)
+        guard visibleExtents.count == PlumeMember.visibleStations, length > 0 else { return e }
+        // Between the stations (x = length t²), linearly in t.
+        let t = min(max((x / length).squareRoot(), 0), 1) * Double(PlumeMember.visibleStations - 1)
+        let i = min(Int(t), PlumeMember.visibleStations - 2), f = t - Double(i)
+        return min(e, visibleExtents[i] + (visibleExtents[i + 1] - visibleExtents[i]) * f)
+    }
+
+    /// The radius (m) beyond which the field itself is negligible at x
+    /// (x ≥ 0), however bright the frame shows it.
+    public func fieldExtent(atX x: Double) -> Double {
         var e = 1.55 * PlumeMember.turbulentReach * radius(atX: x)
         if vacuumBlend > 0.02 && confinement < 0.98 {
             let theta = min(simonsAngle(fraction: extentFraction), 85 * Double.pi / 180)
@@ -799,6 +816,7 @@ public enum PlumeLook {
             m.extentFraction = min(max(faintest / field, 0.01), 0.3)
             m.length = min(m.length, max(visibleLength(bare, faintest: faintest, opaque: 0.02, sun: sunAtPhase),
                                          m.glowLength))
+            m.visibleExtents = visibleExtents(m, faintest: faintest, sun: sunAtPhase)
         } else {
             // The glow alone: within the jet, over its own length.
             m.glowOnly = true
@@ -806,6 +824,42 @@ public enum PlumeLook {
             m.length = min(m.length, max(m.glowLength, 2 * m.exitDiameter))
         }
         return true
+    }
+
+    /// How far out `m` can show at each of its visible stations: from the
+    /// field's extent inwards in 10 % steps, the first radius where the
+    /// column across the field there, lit by `sun` lux at the forward peak,
+    /// gives half of `faintest` or 2 % opacity (the light there times the
+    /// chord, an upper bound, first; then the column marched); with 15 % to
+    /// spare for the eddies; at least half the exit's radius.
+    public static func visibleExtents(_ m: PlumeMember, faintest: Double, sun: Double) -> [Double] {
+        let forward = henyeyGreenstein(1, m.phaseG)
+        var field = m
+        field.visibleExtents = []
+        let u = perpendicular(m.axis), across = m.axis.cross(u).normalized
+        let white = Photometry.RGB(sun, sun, sun)
+        let n = PlumeMember.visibleStations
+        return (0..<n).map { i in
+            let t = Double(i) / Double(n - 1), x = m.length * t * t
+            let e = field.fieldExtent(atX: x)
+            let dense = field.denseRadius(atX: x)
+            var r = e
+            while r > 0.25 * m.exitRadius {
+                let s = field.sample(x: x, r: r)
+                let half = max(e * e - r * r, 0).squareRoot()
+                let bound = (s.emission.luminance + s.scattering * sun * forward) * 2 * half
+                if bound > 0.5 * faintest || s.extinction * 2 * half > 0.02 {
+                    let from = m.exit + m.axis * x + u * r - across * half
+                    let seen = march([field], from: from, direction: across, range: 0...(2 * half), steps: 16,
+                                     sun: (across, white), around: (half, max(r, 0.5 * dense)))
+                    if seen.radiance.luminance > 0.5 * faintest || seen.transmittance < 0.98 {
+                        return min(e, max(1.15 * r, 0.5 * m.exitRadius))
+                    }
+                }
+                r *= 0.9
+            }
+            return min(e, 0.5 * m.exitRadius)
+        }
     }
 
     /// M1.5's look, through the march: today's colour, intensity, length and
