@@ -53,10 +53,11 @@ public enum JetPath {
 
     /// The path of a jet of momentum-equivalent diameter `diameter` at
     /// `speed` along the unit `direction`, into a stream of velocity
-    /// `stream`, out to `length` along the path: stations at steps of a
-    /// tenth of the jet's half-width (second-order Runge-Kutta).
+    /// `stream`, out to `length` along the path (or until it has diluted to
+    /// `dilution`): stations at steps of a fifth of the jet's half-width
+    /// (second-order Runge-Kutta; within 0.1 % of a tenth's).
     public static func path(diameter d: Double, speed uj: Double, direction: Vec3, stream: Vec3,
-                            length: Double) -> [Station] {
+                            length: Double, until dilution: Double = 0) -> [Station] {
         guard d > 0, uj > 0, length > 0 else { return [] }
         let b0 = 0.5 * d
         let q0 = Double.pi * b0 * b0 * uj
@@ -77,7 +78,7 @@ public enum JetPath {
         var out = [station()]
         while s < length {
             let b = out[out.count - 1].halfWidth
-            let ds = min(0.1 * b, length - s)
+            let ds = min(0.2 * b, length - s)
             let k1 = rates(q, p)
             let k2 = rates(q + 0.5 * ds * k1.dq, p + k1.dp * (0.5 * ds))
             q += ds * k2.dq
@@ -85,7 +86,7 @@ public enum JetPath {
             x = x + k2.dx * ds
             s += ds
             out.append(station())
-            if out.count > 20_000 { break }
+            if out.count > 20_000 || q0 / q <= dilution { break }
         }
         return out
     }
@@ -101,10 +102,11 @@ public enum JetPath {
         guard l0 > 0, d > 0, uj > 0 else { return 1 }
         if streamAlong == 0 && streamAcross == 0 { return 1 }
         let axis = Vec3(0, 0, 1)
-        let still = path(diameter: d, speed: uj, direction: axis, stream: .zero, length: l0)
-        guard let target = still.last?.dilution else { return 1 }
+        // In still air the top-hat jet's flux grows linearly, Q/Q0 = 1 +
+        // 2 α1 s / b0: the dilution at the still flame's tip.
+        let target = 1 / (1 + 2 * shearEntrainment * l0 / (0.5 * d))
         let moving = path(diameter: d, speed: uj, direction: axis, stream: Vec3(streamAcross, 0, streamAlong),
-                          length: 20 * l0)
+                          length: 20 * l0, until: target)
         guard let k = moving.firstIndex(where: { $0.dilution <= target }) else { return 20 }
         guard k > 0 else { return 0 }
         let a = moving[k - 1], b = moving[k]

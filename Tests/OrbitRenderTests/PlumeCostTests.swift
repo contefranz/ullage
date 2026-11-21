@@ -143,4 +143,48 @@ final class PlumeCostTests: XCTestCase {
         }
         XCTAssertEqual(lines.count, spec.shots.count)
     }
+
+    /// P2's CPU time through staging in flight: AS-506 from the S-IC/S-II
+    /// separation, the simulation stepped a frame (1/60 s) at a time for
+    /// four seconds (the retros' 0.64 s, the ullage motors, the J-2s'
+    /// start), each frame extracted and drawn, so the looks change as
+    /// they do in the app rather than staying warm in a frozen scene. The
+    /// median, the 90th percentile and the largest frame. A performance run:
+    /// ORBITSIM_TIMINGS=1.
+    func testStagingCPUInFlight() throws {
+        guard ProcessInfo.processInfo.environment["ORBITSIM_TIMINGS"] != nil else {
+            throw XCTSkip("a performance run: ORBITSIM_TIMINGS=1")
+        }
+        let device = try XCTUnwrap(RenderDevice.shared)
+        let snapper = try SnapshotRenderer(device: device)
+        var shot = SnapshotSpec.Shot(name: "p2-staging-cpu", scenario: "as506-pad", advance: ["ev:S-IC/S-II separation"],
+                                     camera: SnapshotSpec.CameraSpec(yaw: 69, pitch: 17, distance: 80, fov: 60))
+        shot.width = 480
+        shot.height = 300
+        shot.showOrbit = false
+        let p = try shot.prepare(system: snapper.system)
+        let r = try SceneRenderer(device: device, loadsUserTextures: false)
+        r.setStars(snapper.stars)
+        let target = try XCTUnwrap(OffscreenTarget(device: device, width: shot.width, height: shot.height))
+        let system = try XCTUnwrap(r.graph.passes.compactMap { ($0 as? PlumePreparePass)?.system }.first)
+        let sim = p.sim
+        sim.paused = false
+        sim.stepBudget = nil
+        var camera = p.camera
+        var cpu: [Double] = []
+        for k in 0..<240 {
+            sim.advance(by: 1.0 / 60)
+            camera.update(sim: sim)
+            var scene = p.extractor.extract(sim: sim, camera: camera, viewport: shot.viewport, realTime: Double(k) / 60)
+            scene.clock.frameIndex = k + 1
+            _ = r.renderAndWait(scene, into: target)
+            cpu.append((system.cpuTime.plan + system.cpuTime.prepare) * 1e3)
+        }
+        let sorted = cpu.sorted()
+        print(String(format: "PlumeCostTests: staging in flight, P2's CPU a frame: median %.3f ms, 90th %.3f ms, "
+                     + "largest %.3f ms, %d of %d frames over 1 ms", sorted[sorted.count / 2],
+                     sorted[sorted.count * 9 / 10], sorted.last ?? 0, cpu.filter { $0 > 1 }.count, cpu.count))
+        print("PlumeCostTests:   by stage over the 240 frames (ms): " + system.cpuStages.sorted { $0.value > $1.value }
+            .map { String(format: "%@ %.1f", $0.key, $0.value * 1e3) }.joined(separator: ", "))
+    }
 }

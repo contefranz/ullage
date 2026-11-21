@@ -340,6 +340,14 @@ public final class PlumeSystem {
     /// CPU time of the last frame's planning and lighting (s), for the cost
     /// report.
     public private(set) var cpuTime = (plan: 0.0, prepare: 0.0)
+    /// The CPU time by stage since the system began (s): templates, trims,
+    /// visible extents, clusters, lights, impostors.
+    public private(set) var cpuStages: [String: Double] = [:]
+    func timed<T>(_ stage: String, _ body: () -> T) -> T {
+        let t0 = CFAbsoluteTimeGetCurrent()
+        defer { cpuStages[stage, default: 0] += CFAbsoluteTimeGetCurrent() - t0 }
+        return body()
+    }
 
     /// `x` to steps of `step` (0.25 % for the logarithmic ones), for keys.
     static func q(_ x: Double, _ step: Double) -> Int { Int((x / step).rounded()) }
@@ -347,11 +355,12 @@ public final class PlumeSystem {
 
     /// An emitter's member: its look from the cache (built at the origin
     /// along +x the first time its quantised inputs are met), placed.
-    /// The member, its template's key, and the coarser key its visible
-    /// extents are kept under (a 5 % change in the air or the stream does
-    /// not move what can show visibly; the extents have 15 % to spare).
+    /// The member, its template's key, the coarser key its visible extents
+    /// are kept under (a 5 % change in the air or the stream does not move
+    /// what can show visibly; the extents have 15 % to spare), and the key
+    /// its light's profile is kept under (1-2 %).
     func member(_ e: RenderScene.Emitter, settings: PlumeSettings)
-        -> (member: PlumeMember, key: (fine: String, coarse: String))? {
+        -> (member: PlumeMember, key: (fine: String, coarse: String, light: String))? {
         let engine = settings.model == .physical ? ApolloExhaust.engine(thruster: e.name, part: e.part) : nil
         let what = engine.map { $0.spec.source } ?? "legacy \(e.style)"
         let a = e.ambient
@@ -370,7 +379,7 @@ public final class PlumeSystem {
             canonical.exit = .zero
             canonical.axis = .unitX
             canonical.relativeWind = Vec3(along, across, 0)
-            template = PlumeLook.member(canonical, settings: settings)
+            template = timed("templates") { PlumeLook.member(canonical, settings: settings) }
             if templates.count > Self.cacheLimit { templates.removeAll() }
             templates[key] = template
         }
@@ -381,7 +390,10 @@ public final class PlumeSystem {
         m.relativeWind = e.relativeWind
         return (m, (key, "\(what)|\(e.exitRadius)|\(Self.q(e.flowFraction, 0.02))|\(Self.qlog(a.pressure, 0.05))|"
             + "\(Self.q(a.temperature, 5))|\(e.isJet)|\(settings.readable)|\(settings.model)|"
-            + "\(Self.qlog(along, 0.05))|\(Self.q(across, 10))"))
+            + "\(Self.qlog(along, 0.05))|\(Self.q(across, 10))",
+            "\(what)|\(e.exitRadius)|\(Self.q(e.flowFraction, 0.01))|\(Self.qlog(a.pressure, 0.02))|"
+            + "\(Self.q(a.temperature, 2))|\(e.isJet)|\(settings.readable)|\(settings.model)|"
+            + "\(Self.qlog(along, 0.02))|\(Self.q(across, 5))"))
     }
 
     /// The frame's members, trimmed to what the frame's exposure can show
@@ -418,7 +430,9 @@ public final class PlumeSystem {
                 m.visibleExtents = d.visibleExtents
                 m.visibleExtentsLength = d.visibleExtentsLength
             } else {
-                let visible = PlumeLook.trim(&m, faintest: faintest, sun: sun, sunDirection: toSun, extents: false)
+                let visible = timed("trims") {
+                    PlumeLook.trim(&m, faintest: faintest, sun: sun, sunDirection: toSun, extents: false)
+                }
                 if visible && !m.glowOnly {
                     // The visible extents, the costly part, under the coarse key.
                     let extentsKey = keys.coarse + "|\(Self.qlog(faintest, 0.1))|\(Self.qlog(sun, 0.1))|"
@@ -426,8 +440,11 @@ public final class PlumeSystem {
                     if let x = extents[extentsKey] {
                         (m.visibleExtents, m.visibleExtentsLength) = x
                     } else {
-                        m.visibleExtents = PlumeLook.visibleExtents(m, faintest: faintest, sun:
-                            PlumeLook.sunAtPhase(m, sun: sun, sunDirection: toSun))
+                        let probe = m
+                        m.visibleExtents = timed("extents") {
+                            PlumeLook.visibleExtents(probe, faintest: faintest,
+                                                     sun: PlumeLook.sunAtPhase(probe, sun: sun, sunDirection: toSun))
+                        }
                         m.visibleExtentsLength = m.length
                         if extents.count > Self.cacheLimit { extents.removeAll() }
                         extents[extentsKey] = (m.visibleExtents, m.visibleExtentsLength)
@@ -437,7 +454,10 @@ public final class PlumeSystem {
                 trims[trimKey] = visible ? m : nil
                 guard visible else { continue }
             }
-            m.tag = trimKey.hashValue
+            // The light's profile under its own key (with the exposure and
+            // the Sun at 5 %).
+            m.tag = (keys.light + "|\(Self.qlog(faintest, 0.05))|\(Self.qlog(sun, 0.05))|"
+                + "\(Self.q(view.dot(toSun), 0.05))").hashValue
             out.append(m)
         }
         return out
@@ -495,7 +515,7 @@ public final class PlumeSystem {
             let p = ev.map { 1 / (1.2 * pow(2, $0)) } ?? exposure ?? 1 / (1.2 * pow(2, 15))
             let members = members(scene, settings: settings, faintest: Self.faintest / max(p, 1e-12),
                                   drawn: { f.drawsMesh($0) })
-            let clusters = PlumeClusters.clusters(members)
+            let clusters = timed("clusters") { PlumeClusters.clusters(members) }
             data.clusters = clusters.map { ($0, PlumeClusters.detail($0, camera: scene.camera, settings: settings)) }
         }
         frame = data
@@ -547,7 +567,7 @@ public final class PlumeSystem {
         // irradiance E is E/π, a darker ground below, about E/2π over the
         // sphere; the Earth's disc in vacuum about E/4π.
         let ambient = air ? sky.scaled(by: 1 / (2 * Double.pi)) : earth.scaled(by: 1 / (4 * Double.pi))
-        let lights = data.clusters.map { light($0.cluster) }
+        let lights = timed("lights") { data.clusters.map { light($0.cluster) } }
         var marched: [(distance: Double, cluster: PlumeCluster, light: PlumeLight?, sunlit: Double)] = []
         for ((c, detail), light) in zip(data.clusters, lights) {
             let sunlit = c.vesselID.flatMap { id in scene.vessels.first { $0.id == id }?.light.sunlit } ?? 1
@@ -556,7 +576,7 @@ public final class PlumeSystem {
                 marched.append((Plumes.drawDistance(c), c, light, sunlit))
             case .impostor:
                 let lit = sunlit > 0 ? (direction: sun.direction, illuminance: sunLux.scaled(by: sunlit)) : nil
-                for m in c.members { Plumes.impostor(m, sun: lit, to: &data.impostors) }
+                timed("impostors") { for m in c.members { Plumes.impostor(m, sun: lit, to: &data.impostors) } }
             case .none:
                 break
             }
