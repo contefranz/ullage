@@ -69,20 +69,25 @@ medium, L low (visual, calibrated or assumed).
    as dense as 1/(h² + d²) along the ray, h the ray's closest approach or
    half the members' spread about the axis and their dense radius), so a
    small dense core (a retro's alumina, or a pair of them) is not stepped
-   over. A clear exhaust's ice in vacuum is stepped equiangularly about
-   its free expansion's virtual source, from any view (its density falls
-   as 1/d² off that point), so the bright condensing shell near the nozzle
-   is stepped finely and the jitter leaves no pattern there. The marched clusters blend far to
+   over. A clear exhaust's ice in vacuum seen across is stepped
+   equiangularly about its free expansion's virtual source instead (its
+   density falls as 1/d² off that point), so the bright condensing shell
+   near the nozzle is stepped finely and the jitter leaves no pattern
+   there; seen within 30° of its axis it keeps the near and far halves (the
+   ice is nil inside its onset surface, where source-centred steps would
+   crowd: `p2-j2-ice-behind`, 250 m behind five J-2s). The marched clusters blend far to
    near. The field is `PlumeMember.sample`, line by line, plus the
    turbulence. `PlumeRenderTests` checks the GPU against the CPU reference
    through the same rays (within 1 % on average; the test allows 10 %).
 5. **Lighting of the plume:** its own emission (absorption times the
    blackbody at each phase's temperature); single scattering of the Sun
-   (Henyey-Greenstein, R4's shadow at eight points along the ray, moved
-   with the steps by the pixel's jitter and interpolated, so a vessel's
-   shadow through its sunlit ice or smoke dithers into one column rather
-   than standing as copies at fixed points; R4 read at every step cost
-   about 2 ms more at max-Q. C2's cloud shadow, the
+   (Henyey-Greenstein; R4's shadow at eight points spread evenly over the
+   part of the ray the vessel's shadow can cover, interpolated, and lit
+   outside it: the vessel a capsule from its round shapes' extents along
+   and about its axis, swept away from the Sun, so its shadow through its
+   sunlit ice or smoke is one sharp column, neither copies at fixed points
+   nor a jittered stipple; R4 read at every step cost about 2 ms more at
+   max-Q. C2's cloud shadow, the
    Sun's chord through the plume as self-shadowing); the ambient behind
    one function, `plume_sh9InScatter`: R3's probe's SH9 in-scatter
    (`orbit_sh9InScatter`, the Earth and the sky the probe draws, in air
@@ -384,7 +389,10 @@ show that it fires, both from its physics:
   orange). It follows the flow at once (a choked throat's pressure), so the
   S-II's low mixture ratio dims it, the centre engine's cutoff and
   Apollo 13's engine 5 put it out, and it shows from any view into the
-  nozzles, in sunlight and in the Earth's shadow. The S-II's centre J-2 is
+  nozzles, in sunlight and in the Earth's shadow: only on the gas side and
+  only where the view ray reaches it through the throat (not on the
+  engine's outside, 19 mm away through the tube wall, which the glow pass's
+  depth bias would otherwise let through in views from the side). The S-II's centre J-2 is
   fixed, so its draws are its part's static ones, drawn again with the
   chamber picked out in the fragment. The water's blue continuum
   (chemiluminescent, growing as the pressure squared, the SSME's and
@@ -420,8 +428,9 @@ show that it fires, both from its physics:
   exits are dark.
 - **Vacuum plumes are still**: a free expansion has no mixing layer, so no
   eddies (the turbulence's depth goes to 0 in vacuum; it was 0.15, L). Ice
-  clusters march at half the steps (at least 16), equiangular about the
-  free expansion's virtual source (their density falls as 1/d² off it).
+  clusters march at half the steps (at least 16), seen across equiangular
+  about the free expansion's virtual source (their density falls as 1/d²
+  off it).
 - **Staging and transients** need nothing new: the S-II ullage motors and
   the S-IC retros are P1's solids as before; an engine's start and
   shutdown follow its flow, the ice and the chamber's glow with it.
@@ -447,10 +456,12 @@ it (`PlumeImpingement`):
   from two of its sides): none while an outboard jet fits the opening (to
   34 m of climb), 7 % at 38 m, 29 % at 53 m. Its reach is one and
   a half flame lengths less the climb: it dies away as the vehicle rises.
-- **The merged far field** meets the deck as its own, wider column does
-  (the cluster's merged member gets its own share, not the centre
-  engine's, whose jet fits the opening longest): where the deck lies past
-  the merge the march reads that member alone.
+- **The merged far field** meets the deck where its own, wider column does
+  (not where the centre engine's jet, which fits the opening longest,
+  does), with the flow the members it stands for bring onto the deck (their
+  shares weighted by their flow), so the fire carries on across the merge's
+  window: where the deck lies past the merge the march reads that member
+  alone.
 - **The seam with the launch track:** this reads the scene's LC-39A site
   and `LC39A`'s opening. Nothing of `Effects/Launch/*` is touched. P4's
   `PadExhaust` shares its smoke between the deck and the trench by its own

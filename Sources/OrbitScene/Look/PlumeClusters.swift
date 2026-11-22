@@ -179,9 +179,12 @@ public enum PlumeClusters {
     /// density times the members' flow over its own (N when they are
     /// alike: a centre engine shutting down neither carries nor empties
     /// the far field); no Mach disk or base of its own (the members keep
-    /// theirs upstream); meeting `deck` as its own, wider jet does (not as
-    /// the member it was moved from: the S-IC's centre engine's jet fits the
-    /// ML's opening long after the merged column's does not).
+    /// theirs upstream); meeting `deck` where its own, wider jet does (not
+    /// as the member it was moved from: the S-IC's centre engine's jet fits
+    /// the ML's opening long after the merged column's does not), with the
+    /// share of the flow the members it stands for bring onto the deck (their
+    /// shares weighted by their flow), so the deck's fire carries on across
+    /// the merge's window.
     static func merged(_ members: [PlumeMember], origin: Vec3, axis: Vec3,
                        deck: PlumeImpingement? = nil) -> (member: PlumeMember, x: Double)? {
         guard members.count >= 3 else { return nil }
@@ -207,7 +210,14 @@ public enum PlumeClusters {
         m.baseExtinction = 0
         m.upstream = 0
         m.visibleExtents = []
-        m.impingement = deck?.meeting(m)
+        if var i = deck?.meeting(m) {
+            let flow = members.reduce(0) { $0 + $1.flowFraction }
+            let onDeck = members.reduce(0) { $0 + $1.flowFraction * ($1.impingement?.deckShare ?? 0) }
+            i.deckShare = onDeck / max(flow, 1e-9)
+            m.impingement = i.deckShare > 1e-3 ? i : nil
+        } else {
+            m.impingement = nil
+        }
         return (m, start + x)
     }
 

@@ -31,6 +31,11 @@ final class PlumeTurbulenceRenderTests: XCTestCase {
             out[id] = plume_noiseAt(na, PlumeAsking{-1, 0.0, 0.0, 0.0}, p, pf, noise, ns);
         }
 
+        kernel void plume_shadow_probe(const device float4 *rays [[buffer(0)]], constant float4 *capsule [[buffer(1)]],
+                                       device float2 *out [[buffer(2)]], uint id [[thread_position_in_grid]]) {
+            out[id] = plume_shadowInterval(rays[id].xyz, capsule[2].xyz, capsule[0].xyz, capsule[1].xyz, capsule[0].w);
+        }
+
         kernel void plume_sizes(device uint *out [[buffer(0)]]) {
             out[0] = sizeof(PlumeFrame);
             out[1] = sizeof(PlumeMember);
@@ -225,6 +230,90 @@ final class PlumeTurbulenceRenderTests: XCTestCase {
         XCTAssertLessThan(next, 0.5 * unrelated)
     }
 
+    /// The march's shadow interval (`plume_shadowInterval`): where a ray is
+    /// in a capsule's shadow, swept away from the Sun, against a brute-force
+    /// walk along each ray (the capsule seen along the Sun within its
+    /// radius, and no nearer the Sun than its sunward side), within 5 cm.
+    func testShadowIntervalIsTheCapsulesShadow() throws {
+        let device = try XCTUnwrap(RenderDevice.shared)
+        let lib = try library(device)
+        let pipeline = try device.makeComputePipelineState(function: try XCTUnwrap(lib.makeFunction(name: "plume_shadow_probe")))
+        // A Saturn-V-like capsule 110 m long, 6 m in radius, 80 m off, the
+        // Sun low across it.
+        let a = Vec3(-20, 80, -30), b = Vec3(-20, 80 + 110, -30), radius = 6.0
+        let sun = Vec3(0.8, 0.3, 0.52).normalized
+        var state: UInt32 = 5
+        let rays = (0..<256).map { _ -> Vec3 in
+            let target = a + (b - a) * ParticleRandom.uniform(&state) - sun * (400 * ParticleRandom.uniform(&state))
+                + Vec3(ParticleRandom.uniform(&state) - 0.5, 0, ParticleRandom.uniform(&state) - 0.5) * 30
+            return target.normalized
+        }
+        var capsule = [Plumes.f4(a, radius), Plumes.f4(b, 0), Plumes.f4(sun, 0)]
+        let rayBuffer = try XCTUnwrap(device.makeBuffer(bytes: rays.map { SIMD4(Float($0.x), Float($0.y), Float($0.z), 0) },
+                                                        length: 16 * rays.count))
+        let out = try XCTUnwrap(device.makeBuffer(length: 8 * rays.count, options: .storageModeShared))
+        let queue = try XCTUnwrap(device.makeCommandQueue())
+        let cb = try XCTUnwrap(queue.makeCommandBuffer()), enc = try XCTUnwrap(cb.makeComputeCommandEncoder())
+        enc.setComputePipelineState(pipeline)
+        enc.setBuffer(rayBuffer, offset: 0, index: 0)
+        enc.setBytes(&capsule, length: 16 * capsule.count, index: 1)
+        enc.setBuffer(out, offset: 0, index: 2)
+        enc.dispatchThreads(MTLSize(width: rays.count, height: 1, depth: 1),
+                            threadsPerThreadgroup: MTLSize(width: 32, height: 1, depth: 1))
+        enc.endEncoding()
+        cb.commit()
+        cb.waitUntilCompleted()
+        let gpu = out.contents().bindMemory(to: SIMD2<Float>.self, capacity: rays.count)
+        func shadowed(_ p: Vec3) -> Bool {
+            func flat(_ v: Vec3) -> Vec3 { v - sun * v.dot(sun) }
+            let q = flat(p), pa = flat(a), pb = flat(b), ab = pb - pa
+            let t = min(max((q - pa).dot(ab) / ab.dot(ab), 0), 1)
+            let front = max(a.dot(sun), b.dot(sun)) + radius
+            return (q - (pa + ab * t)).length <= radius && p.dot(sun) <= front
+        }
+        var crossing = 0, worst = 0.0
+        for (i, d) in rays.enumerated() {
+            var lo = Double.infinity, hi = -Double.infinity
+            for k in 0..<20_000 {
+                let s = 0.05 * Double(k)
+                if shadowed(d * s) {
+                    lo = min(lo, s)
+                    hi = max(hi, s)
+                }
+            }
+            let g = gpu[i]
+            if lo <= hi {
+                crossing += 1
+                worst = max(worst, abs(Double(g.x) - lo), abs(Double(g.y) - hi))
+            } else {
+                XCTAssertTrue(g.x >= g.y || Double(g.y) < 0, "ray \(i): no shadow, the interval \(g)")
+            }
+        }
+        print(String(format: "PlumeTurbulenceRenderTests: %d of %d rays cross the capsule's shadow; its ends within %.3f m",
+                     crossing, rays.count, worst))
+        XCTAssertGreaterThan(crossing, 50)
+        XCTAssertLessThan(worst, 0.1)
+    }
+
+    /// The capsule a vessel's shadow is cast by (`Plumes.capsule`): the
+    /// Saturn V on the pad, 363 ft (110.6 m) tall, 33 ft (10.1 m) across
+    /// its stages, 63.3 ft (19.3 m) across its fins' tips; and its axis the
+    /// stack's.
+    func testVesselCapsule() throws {
+        let snapper = try SnapshotRenderer(device: try XCTUnwrap(RenderDevice.shared))
+        let shot = SnapshotSpec.Shot(name: "capsule", scenario: "as506-pad", camera: SnapshotSpec.CameraSpec())
+        let scene = shot.scene(try shot.prepare(system: snapper.system))
+        let v = try XCTUnwrap(scene.vessels.first { $0.isFocus })
+        let c = try XCTUnwrap(Plumes.capsule(v))
+        let length = (c.b - c.a).length
+        print(String(format: "PlumeTurbulenceRenderTests: the Saturn V's capsule %.1f m long, %.2f m in radius", length,
+                     c.radius))
+        XCTAssertEqual(length, 110.6, accuracy: 4)
+        XCTAssertGreaterThan(c.radius, 5.0)
+        XCTAssertLessThan(c.radius, 10.5)
+        XCTAssertGreaterThan(abs((c.b - c.a).normalized.dot(v.attitude.rotate(.unitX))), 0.999)
+    }
+
     /// The uniforms' Swift mirrors have MSL's sizes.
     func testStructLayoutsMatchMSL() throws {
         let device = try XCTUnwrap(RenderDevice.shared)
@@ -252,7 +341,8 @@ final class PlumeTurbulenceRenderTests: XCTestCase {
 /// shows its chamber's light at its throat, orange and as bright as the
 /// gas's emission over the chamber's length, where the same frame without
 /// the nozzles' glow is dark; after the centre engine's cutoff its throat
-/// is dark and the four others still glow.
+/// is dark and the four others still glow. Seen from the side, the S-IVB's
+/// J-2 shows none of it (its chamber is hidden behind the engine's wall).
 @MainActor
 final class ChamberGlowRenderTests: XCTestCase {
     struct Frame {
@@ -262,11 +352,11 @@ final class ChamberGlowRenderTests: XCTestCase {
         var width: Int, height: Int
     }
 
-    func render(_ advance: [String], glow: Bool = true) throws -> Frame {
+    func render(_ advance: [String], glow: Bool = true,
+                camera: SnapshotSpec.CameraSpec = .init(frame: "vessel", yaw: 180, pitch: 8, distance: 40, fov: 40))
+        throws -> Frame {
         let s = try SnapshotRenderer(device: try XCTUnwrap(RenderDevice.shared))
-        var shot = SnapshotSpec.Shot(name: "chambers", scenario: "as506-pad", advance: advance,
-                                     camera: SnapshotSpec.CameraSpec(yaw: 180, pitch: 8, distance: 40, fov: 40))
-        shot.camera.frame = "vessel"
+        var shot = SnapshotSpec.Shot(name: "chambers", scenario: "as506-pad", advance: advance, camera: camera)
         shot.showOrbit = false
         shot.settings.cloud.enabled = false
         shot.settings.plume.nozzleGlow = glow
@@ -278,13 +368,17 @@ final class ChamberGlowRenderTests: XCTestCase {
                      height: shot.height)
     }
 
+    /// Where camera-relative `p` projects (pixel column and row).
+    func pixel(_ f: Frame, _ p: Vec3) -> (col: Double, row: Double) {
+        let v = f.camera.worldToView * p, t = tan(f.camera.fovY / 2)
+        let aspect = Double(f.width) / Double(f.height)
+        return ((v.x / (-v.z) / (t * aspect) + 1) / 2 * Double(f.width), (1 - v.y / (-v.z) / t) / 2 * Double(f.height))
+    }
+
     /// The brightest light (cd/m², linear Rec. 709) within 2 px of where
     /// camera-relative `p` projects.
     func light(_ f: Frame, at p: Vec3) -> (r: Double, g: Double, b: Double) {
-        let v = f.camera.worldToView * p, t = tan(f.camera.fovY / 2)
-        let aspect = Double(f.width) / Double(f.height)
-        let col = (v.x / (-v.z) / (t * aspect) + 1) / 2 * Double(f.width)
-        let row = (1 - v.y / (-v.z) / t) / 2 * Double(f.height)
+        let (col, row) = pixel(f, p)
         var best = (r: 0.0, g: 0.0, b: 0.0)
         for dy in -2...2 {
             for dx in -2...2 {
@@ -339,5 +433,33 @@ final class ChamberGlowRenderTests: XCTestCase {
         let shown = outboard.filter { $0 > 1_000 }
         XCTAssertGreaterThanOrEqual(shown.count, 2, "the outboard engines glow on")
         XCTAssertLessThan(abs(glow(at: centre)), 0.02 * (shown.max() ?? 0), "the centre engine is off")
+    }
+
+    /// From the side the S-IVB's J-2, hanging below its aft skirt, shows no
+    /// chamber glow on its outside (the throat cannot be seen through the
+    /// exit beyond about 26° off the axis): p2-flight-s-ivb-burn's chase
+    /// camera, some 68° off the engine's axis, 100 m out, where the glow
+    /// pass's slope-scaled depth bias let the gas-side wall, 19 mm behind the
+    /// outer one, through (496 cd/m² at the throat's pixel). Every pixel is
+    /// the same with the glow and without it, within 1 % (or 5 cd/m²).
+    func testNoGlowOnTheEnginesOutside() throws {
+        let advance = ["ev:S-IVB ignition", "wait:30"]
+        let side = SnapshotSpec.CameraSpec(yaw: 150, pitch: -12, distance: 100, fov: 50)
+        let on = try render(advance, camera: side), off = try render(advance, glow: false, camera: side)
+        let c = try XCTUnwrap(on.chambers.first)
+        XCTAssertEqual(on.chambers.count, 1)
+        let (col, row) = pixel(on, c.exit - c.axis * c.chamber.throatDepth)
+        XCTAssertTrue(col > 0 && row > 0 && col < Double(on.width) && row < Double(on.height), "the J-2 is in the frame")
+        var worst = (excess: -Double.infinity, d: 0.0, x: 0, y: 0)
+        for i in stride(from: 0, to: on.light.count, by: 4) {
+            func y(_ l: [Float]) -> Double {
+                0.2126 * Double(l[i]) + 0.7152 * Double(l[i + 1]) + 0.0722 * Double(l[i + 2])
+            }
+            let d = abs(y(on.light) - y(off.light)), excess = d - max(0.01 * y(off.light), 5)
+            if excess > worst.excess { worst = (excess, d, (i / 4) % on.width, (i / 4) / on.width) }
+        }
+        print(String(format: "ChamberGlowRenderTests: from the side the glow changes a pixel by at most %.1f cd/m² "
+                     + "(at %d, %d; the throat projects to %.0f, %.0f)", worst.d, worst.x, worst.y, col, row))
+        XCTAssertLessThanOrEqual(worst.excess, 0, "no glow on the engine's outside")
     }
 }

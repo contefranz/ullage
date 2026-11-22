@@ -28,6 +28,34 @@ enum Plumes {
     /// past a cluster's last ring collapsed.
     static let proxyVertices = (PlumeClusters.maximumRings - 1) * proxySides * 6 + 2 * proxySides * 3
 
+    /// The capsule a vessel's shadow is cast by (camera-relative ends on its
+    /// axis, through the construction frame's x, and its radius): its round
+    /// shapes' extents along and about that axis (fins and other flat
+    /// shapes by their ends only). Nil for a vessel with no shapes.
+    static func capsule(_ v: RenderScene.Vessel) -> (a: Vec3, b: Vec3, radius: Double)? {
+        var lo = Double.infinity, hi = -Double.infinity, radius = 0.0
+        for part in v.geometry.parts {
+            for shape in part.shapes {
+                let p0 = part.offset + shape.origin, p1 = p0 + shape.axis * shape.length
+                var round = 0.0
+                switch shape.kind {
+                case let .frustum(base, top): round = max(base, top)
+                case let .sphere(r): round = r
+                case let .revolution(profile, _, _): round = profile.map(\.r).max() ?? 0
+                default: round = 0
+                }
+                for p in [p0, p1] {
+                    lo = min(lo, p.x - round)
+                    hi = max(hi, p.x + round)
+                    radius = max(radius, (p.y * p.y + p.z * p.z).squareRoot() + round)
+                }
+            }
+        }
+        guard lo < hi else { return nil }
+        let base = v.position + v.attitude.rotate(v.structureOrigin), axis = v.attitude.rotate(.unitX)
+        return (base + axis * lo, base + axis * hi, radius)
+    }
+
     /// A cluster's noise seed: its first member's by name (the S-IC's
     /// engine 1, a retro pair's lower motor), so that an engine shutting
     /// down does not re-seed its neighbours' turbulence.
@@ -124,7 +152,8 @@ enum Plumes {
     /// `memberStart` in the member buffer, marched in `steps` (0: the
     /// frame's).
     static func gpu(_ c: PlumeCluster, memberStart: Int, light: PlumeLight?, sunlit: Double,
-                    steps: Int = 0, ice: Bool = false) -> PlumeClusterGPU {
+                    steps: Int = 0, ice: Bool = false,
+                    caster: (a: Vec3, b: Vec3, radius: Double)? = nil) -> PlumeClusterGPU {
         var rings = [SIMD4<Float>](repeating: .zero, count: 4)
         for (i, r) in c.rings.prefix(PlumeClusters.maximumRings).enumerated() {
             if i % 2 == 0 {
@@ -153,6 +182,12 @@ enum Plumes {
             let n = Double(max(c.members.count, 1))
             let source = c.members.reduce(Vec3.zero) { $0 + ($1.exit - $1.axis * $1.sourceOffset) } / n
             g.reserved.1 = f4(source, c.members.map(\.exitRadius).max() ?? 1)
+        }
+        // The vessel whose shadow falls through it, as a capsule: R4's
+        // shadow is read only where a ray crosses that shadow.
+        if let caster {
+            g.reserved.2 = f4(caster.a, caster.radius)
+            g.reserved.3 = f4(caster.b, 1)
         }
         if let l = light {
             g.light = f4(l.centre, l.length)
@@ -751,8 +786,9 @@ public final class PlumeSystem {
                 : glowOnly ? (c.members.count == 1 ? max(8, settings.quality.steps / 4)
                                                    : max(16, settings.quality.steps / 2))
                 : solid ? max(16, settings.quality.steps / 2) : 0
+            let vessel = c.vesselID.flatMap { id in scene.vessels.first { $0.id == id } }
             data.marched.append(Plumes.gpu(c, memberStart: data.members.count, light: e.light, sunlit: e.sunlit,
-                                           steps: steps, ice: ice))
+                                           steps: steps, ice: ice, caster: vessel.flatMap(Plumes.capsule)))
             let seed = Plumes.noiseSeed(c)
             data.members += (c.members + (c.merged.map { [$0] } ?? [])).map {
                 Plumes.gpu($0, seed: seed, turbulent: settings.turbulence)

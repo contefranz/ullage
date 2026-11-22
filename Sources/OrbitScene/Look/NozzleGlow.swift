@@ -98,7 +98,8 @@ public enum ChamberGlow {
     /// the axis: the gas between the throat and it, at most twice the
     /// chamber's length; none in front of the throat, behind the injector
     /// face, or outside the gas side (the engine's outer wall, which the
-    /// chamber's gas does not light). PlumeShaders' chamber glow.
+    /// chamber's gas does not light). PlumeShaders' chamber glow, which also
+    /// asks that the view ray reach the surface through the throat.
     public static func luminance(_ e: Photometry.RGB, chamber c: ApolloExhaust.Chamber, depth: Double, r: Double = 0,
                                  cosine: Double) -> Photometry.RGB {
         guard depth >= c.throatDepth - 0.005, depth <= c.injectorDepth + 0.01,

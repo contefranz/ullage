@@ -704,6 +704,64 @@ inline float plume_denseRadius(const device PlumeMember &m, float x) {
     return max(dense, re);
 }
 
+// The interval of ray parameter s (points dir·s, the camera at the origin)
+// in the shadow of the capsule from a to b of `radius`, the Sun along
+// `sun`: where the ray, seen along the Sun, crosses the capsule's outline (a
+// stadium: the two end circles and the band between them, convex, so one
+// interval) on the side away from the Sun. Empty when x > y.
+inline float2 plume_shadowInterval(float3 dir, float3 sun, float3 a, float3 b, float radius) {
+    float3 d = dir - sun * dot(dir, sun);
+    float3 pa = a - sun * dot(a, sun), pb = b - sun * dot(b, sun);
+    float dd = dot(d, d);
+    float lo = INFINITY, hi = -INFINITY;
+    if (dd < 1e-12) { return float2(1.0, 0.0); }
+    // The end circles.
+    for (int k = 0; k < 2; k++) {
+        float3 c = k == 0 ? pa : pb;
+        float dc = dot(d, c), disc = dc * dc - dd * (dot(c, c) - radius * radius);
+        if (disc >= 0.0) {
+            float q = sqrt(disc);
+            lo = min(lo, (dc - q) / dd);
+            hi = max(hi, (dc + q) / dd);
+        }
+    }
+    // The band: within radius of the segment's line, between its ends.
+    float3 ab = pb - pa;
+    float len = length(ab);
+    if (len > 1e-6) {
+        float3 u = ab / len, n = normalize(cross(sun, u));
+        float2 band = float2(-INFINITY, INFINITY);
+        float dn = dot(d, n), an = dot(pa, n), du = dot(d, u), au = dot(pa, u);
+        // |s dn - an| <= radius
+        if (abs(dn) > 1e-9) {
+            float s0 = (an - radius) / dn, s1 = (an + radius) / dn;
+            band = float2(max(band.x, min(s0, s1)), min(band.y, max(s0, s1)));
+        } else if (abs(an) > radius) {
+            band = float2(1.0, 0.0);
+        }
+        // 0 <= s du - au <= len
+        if (abs(du) > 1e-9) {
+            float s0 = au / du, s1 = (au + len) / du;
+            band = float2(max(band.x, min(s0, s1)), min(band.y, max(s0, s1)));
+        } else if (-au < 0.0 || -au > len) {
+            band = float2(1.0, 0.0);
+        }
+        if (band.y > band.x) {
+            lo = min(lo, band.x);
+            hi = max(hi, band.y);
+        }
+    }
+    // Away from the Sun: no nearer the Sun than the capsule's sunward side.
+    float front = max(dot(a, sun), dot(b, sun)) + radius, ds = dot(dir, sun);
+    if (abs(ds) > 1e-9) {
+        float s = front / ds;
+        if (ds > 0.0) { hi = min(hi, s); } else { lo = max(lo, s); }
+    } else if (front < 0.0) {
+        return float2(1.0, 0.0);
+    }
+    return float2(lo, hi);
+}
+
 // ------------------------------------------------------------- the march ---
 // The fragment intersects its ray with the cluster's proxy (the slab
 // between its end rings and each edge's cone), clamps it at the scene and
@@ -820,13 +878,15 @@ fragment EffectVolumeOut plume_march_fragment(PlumeProxyOut in [[stage_in]],
             }
         }
     }
-    // A clear exhaust's ice in vacuum, seen from anywhere: its density falls
-    // as 1/d² off the free expansion's virtual source (c.reserved[1]), so
-    // its steps go equiangular about that point, as dense as 1/(h² + d²)
-    // along the ray (h the ray's closest approach to it, at least an exit
-    // radius): the bright condensing shell near the nozzle is stepped
-    // finely, the faint far cloud coarsely.
-    if (c.reserved[0].w > 0.5) {
+    // A clear exhaust's ice in vacuum seen across (more than 30° off its
+    // axis): its density falls as 1/d² off the free expansion's virtual
+    // source (c.reserved[1]), so its steps go equiangular about that point,
+    // as dense as 1/(h² + d²) along the ray (h the ray's closest approach to
+    // it, at least an exit radius): the bright condensing shell near the
+    // nozzle is stepped finely, the faint far cloud coarsely. Along the
+    // axis the ice is nil inside its onset surface, where those steps would
+    // crowd, so such rays keep the near and far halves.
+    if (c.reserved[0].w > 0.5 && length(dir - a * dx) > 0.5 * len) {
         float3 source = c.reserved[1].xyz;
         float ts = dot(source, dir) / (len * len);
         float h = max(length(source - dir * ts), c.reserved[1].w);
@@ -841,18 +901,23 @@ fragment EffectVolumeOut plume_march_fragment(PlumeProxyOut in [[stage_in]],
     float jitter = plume_jitter(in.position.xy, pf.params.x);
     float3 sunDir = pf.sun.xyz;
     float3 sunLux = pf.sunLight.rgb * c.v.w;
-    // R4's shadow at eight points along the ray, moved with the steps by
-    // the pixel's jitter and interpolated between them, so that a vessel's
-    // shadow through its sunlit ice or smoke dithers into one column rather
-    // than standing as copies at fixed points (R4 read at every step costs
-    // about 2 ms more at max-Q); and C2's at its middle; none of it for a
-    // cluster in the Earth's shadow.
+    // R4's shadow at eight points evenly over the part of the ray its
+    // vessel's shadow can cover (the cluster's capsule, c.reserved[2-3],
+    // swept away from the Sun), interpolated between them, and lit outside
+    // it: the vessel's shadow through its sunlit ice or smoke one sharp
+    // column (R4 read at every step costs about 2 ms more at max-Q); and
+    // C2's at its middle; none of it for a cluster in the Earth's shadow.
     float shadows[8] = {1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
     bool sunlit = c.v.w > 0.0 && max(sunLux.r, max(sunLux.g, sunLux.b)) > 0.0;
-    if (sunlit && pf.sunLight.w > 0.5) {
-        for (int i = 0; i < 8; i++) {
-            float3 p = dir * (enter + (float(i) + jitter) * 0.125 * (exit - enter));
-            shadows[i] = orbit_sunShadow(p, sunDir, lighting, shadowAtlas, shadowCompare);
+    float2 shade = float2(1.0, 0.0);
+    if (sunlit && pf.sunLight.w > 0.5 && c.reserved[3].w > 0.5) {
+        shade = plume_shadowInterval(dir, sunDir, c.reserved[2].xyz, c.reserved[3].xyz, c.reserved[2].w);
+        shade = float2(max(shade.x, enter), min(shade.y, exit));
+        if (shade.y > shade.x) {
+            for (int i = 0; i < 8; i++) {
+                float3 p = dir * (shade.x + float(i) / 7.0 * (shade.y - shade.x));
+                shadows[i] = orbit_sunShadow(p, sunDir, lighting, shadowAtlas, shadowCompare);
+            }
         }
     }
     if (sunlit) { sunLux *= orbit_cloudSunTransmittance(dir * (0.5 * (enter + exit)), air, cloudShadow, linear); }
@@ -939,9 +1004,12 @@ fragment EffectVolumeOut plume_march_fragment(PlumeProxyOut in [[stage_in]],
         if (x.scattering > 0.0) {
             float g = x.g / x.scattering;
             float3 ambient = plume_sh9InScatter(lighting, view, g, pf);
-            float u = clamp(8.0 * (s - enter) / max(exit - enter, 1e-6) - jitter, 0.0, 7.0);
-            int i0 = min(int(u), 6);
-            float shadow = mix(shadows[i0], shadows[i0 + 1], u - float(i0));
+            float shadow = 1.0;
+            if (s >= shade.x && s <= shade.y) {
+                float u = clamp(7.0 * (s - shade.x) / max(shade.y - shade.x, 1e-6), 0.0, 7.0);
+                int i0 = min(int(u), 6);
+                shadow = mix(shadows[i0], shadows[i0 + 1], u - float(i0));
+            }
             source += x.tinted * sunLux * (shadow * plume_phase(dot(view, sunDir), g) * exp(-sunDepth));
             // The cluster's own light on its smoke outside its luminous
             // column, isotropic: a line source's falloff, I / (d² + d L / 2
@@ -1112,6 +1180,16 @@ fragment float4 plume_glow_fragment(PlumeGlowOut in [[stage_in]],
         float rt = d.chamberThroat.x, convergent = d.chamberThroat.y;
         float gas = mix(rt, rc, clamp((depth - throat) / max(convergent - throat, 1e-6), 0.0, 1.0));
         if (depth < throat - 0.005 || depth > injector + 0.01 || r > gas + 0.004) { return float4(0.0); }
+        // Seen through the throat: the view ray crosses the throat's plane
+        // within it before it reaches the fragment (else the gas-side wall,
+        // 19 mm behind the engine's outer wall, shows through the glow
+        // pass's depth bias in views from the side).
+        if (depth > throat) {
+            float3 ray = normalize(in.world), centre = d.chamberExit.xyz - ax * throat;
+            float along = dot(ray, ax);
+            float t = abs(along) > 1e-6 ? dot(centre, ax) / along : -1.0;
+            if (t <= 0.0 || t >= length(in.world) || length(ray * t - centre) > rt + 0.004) { return float4(0.0); }
+        }
         float cosine = max(abs(dot(normalize(in.world), ax)), 0.2);
         float path = min(max(depth - throat, 0.0) / cosine, 2.0 * (injector - throat) + 2.0 * rc);
         c = d.chamberLight.rgb * path;

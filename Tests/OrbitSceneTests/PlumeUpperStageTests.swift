@@ -191,8 +191,9 @@ final class PlumeUpperStageTests: XCTestCase {
     /// the deck lies in the merged zone (past 1.15 mergeX, where the march
     /// reads the merged member alone) and an outboard jet meets it, so does
     /// the merged one, its share growing as the vehicle climbs until its
-    /// reach is spent; and it is not the centre engine's (whose jet fits
-    /// the opening longer).
+    /// reach is spent; it is not the centre engine's (whose jet fits the
+    /// opening longer), and its share is the members' flow on the deck (the
+    /// mean of their shares), so the fire does not jump across the merge.
     func testMergedFarFieldMeetsTheDeck() throws {
         var last = 0.0, merging = 0
         for h in stride(from: 0.0, through: 90, by: 1) {
@@ -207,6 +208,8 @@ final class PlumeUpperStageTests: XCTestCase {
                 XCTAssertNotNil(merged.impingement, "at \(h) m the merged far field meets the deck")
                 XCTAssertGreaterThanOrEqual(share, last - 1e-9, "at \(h) m its share grows")
                 XCTAssertNotEqual(merged.impingement, members[0].impingement, "not the centre engine's")
+                let mean = members.reduce(0) { $0 + ($1.impingement?.deckShare ?? 0) } / Double(members.count)
+                XCTAssertEqual(share, mean, accuracy: 1e-9, "at \(h) m the members' flow on the deck")
             }
             if merged.impingement != nil { last = share }
         }
