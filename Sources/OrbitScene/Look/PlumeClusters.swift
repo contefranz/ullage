@@ -87,8 +87,10 @@ public enum PlumeClusters {
 
     /// The clusters of `members`: by vessel and family, joined while their
     /// axes agree and their exits are close, at most `maximumMembers` each
-    /// (the S-IC retros in pairs, as in their fairings).
-    public static func clusters(_ members: [PlumeMember]) -> [PlumeCluster] {
+    /// (the S-IC retros in pairs, as in their fairings). `deck`: the ground
+    /// the plumes may meet (`PlumeImpingement.deck`), for the merged far
+    /// fields' wall jets.
+    public static func clusters(_ members: [PlumeMember], deck: PlumeImpingement? = nil) -> [PlumeCluster] {
         var groups: [[PlumeMember]] = []
         for m in members {
             if let k = groups.firstIndex(where: { g in
@@ -100,7 +102,7 @@ public enum PlumeClusters {
                 groups.append([m])
             }
         }
-        return groups.map(cluster)
+        return groups.map { cluster($0, deck: deck) }
     }
 
     static func joins(_ a: PlumeMember, _ b: PlumeMember) -> Bool {
@@ -124,8 +126,9 @@ public enum PlumeClusters {
         return (origin + axis * lowest, axis)
     }
 
-    /// One cluster of `members`: its frame and its proxy.
-    public static func cluster(_ members: [PlumeMember]) -> PlumeCluster {
+    /// One cluster of `members`: its frame and its proxy; its merged far
+    /// field meeting `deck` as its own jet does.
+    public static func cluster(_ members: [PlumeMember], deck: PlumeImpingement? = nil) -> PlumeCluster {
         let (origin, axis) = frame(members)
         let u = PlumeLook.perpendicular(axis), v = axis.cross(u).normalized
         // The far field in the stream (`PlumeAirflow.airflow`): the
@@ -157,7 +160,7 @@ public enum PlumeClusters {
                 }
             }
         }
-        let merge = merged(members, origin: origin, axis: axis)
+        let merge = merged(members, origin: origin, axis: axis, deck: deck)
         var c = PlumeCluster(members: members, origin: origin, axis: axis, u: u, v: v,
                              rings: proxy(members + (merge.map { [$0.member] } ?? []), origin: origin, axis: axis),
                              family: members.first?.family ?? .kerosene, isJet: members.first?.isJet ?? false,
@@ -176,9 +179,11 @@ public enum PlumeClusters {
     /// density times the members' flow over its own (N when they are
     /// alike: a centre engine shutting down neither carries nor empties
     /// the far field); no Mach disk or base of its own (the members keep
-    /// theirs upstream).
-    static func merged(_ members: [PlumeMember], origin: Vec3,
-                       axis: Vec3) -> (member: PlumeMember, x: Double)? {
+    /// theirs upstream); meeting `deck` as its own, wider jet does (not as
+    /// the member it was moved from: the S-IC's centre engine's jet fits the
+    /// ML's opening long after the merged column's does not).
+    static func merged(_ members: [PlumeMember], origin: Vec3, axis: Vec3,
+                       deck: PlumeImpingement? = nil) -> (member: PlumeMember, x: Double)? {
         guard members.count >= 3 else { return nil }
         let offsets = members.map { m -> Double in
             let d = m.exit - origin
@@ -202,6 +207,7 @@ public enum PlumeClusters {
         m.baseExtinction = 0
         m.upstream = 0
         m.visibleExtents = []
+        m.impingement = deck?.meeting(m)
         return (m, start + x)
     }
 

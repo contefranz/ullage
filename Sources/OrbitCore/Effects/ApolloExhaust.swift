@@ -44,18 +44,32 @@ public enum ApolloExhaust {
         public let injectorDepth: Double
         public let throatRadius: Double
         public let radius: Double
+        /// Where the convergent section meets the chamber's cylinder (m from
+        /// the exit plane).
+        public let convergentDepth: Double
+
+        /// The gas side's radius `depth` m into the nozzle, behind the
+        /// throat: the convergent cone's, then the chamber's.
+        public func gasRadius(atDepth depth: Double) -> Double {
+            guard depth < convergentDepth else { return radius }
+            let t = (depth - throatDepth) / max(convergentDepth - throatDepth, 1e-9)
+            return throatRadius + (radius - throatRadius) * min(max(t, 0), 1)
+        }
     }
 
     /// The J-2's, as `ApolloDresser.j2Profile` draws it: the throat
     /// (`AS506.j2ThroatDiameter`) at the end of the Rao-style bell over 80 %
-    /// of a 15° cone's length from the exit, the 18.3 in chamber, the
-    /// injector face 107 in up the chamber body from the exit (RJ1 §1-16).
+    /// of a 15° cone's length from the exit, the 30° convergent section to
+    /// the 18.3 in chamber, the injector face 107 in up the chamber body
+    /// from the exit (RJ1 §1-16).
     public static var j2Chamber: Chamber {
         let inch = D.inch
         let rt = D.j2ThroatDiameter / 2 * inch, re = ApolloShapeData.j2ExitRadius
+        let rc = ApolloShapeData.j2ChamberDiameter / 2 * inch
         let throat = ApolloShapeData.bellFraction * (re - rt) / tan(ApolloShapeData.bellConeHalfAngle * degree)
         return Chamber(throatDepth: throat, injectorDepth: ApolloShapeData.j2ChamberBodyLength * inch,
-                       throatRadius: rt, radius: ApolloShapeData.j2ChamberDiameter / 2 * inch)
+                       throatRadius: rt, radius: rc,
+                       convergentDepth: throat + (rc - rt) / tan(ApolloShapeData.convergentHalfAngle * degree))
     }
 
     typealias D = AS506

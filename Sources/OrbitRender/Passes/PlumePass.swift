@@ -147,11 +147,12 @@ public final class PlumePass: RenderPass {
         // The SPS extension's heat, and the chambers seen through their
         // throats (the J-2s'): each the thruster's own draws again.
         var items: [(vessel: UUID, thruster: RenderScene.ThrusterKey, heat: Double,
-                     chamber: (exit: SIMD4<Float>, axis: SIMD4<Float>, light: SIMD4<Float>)?)] =
+                     chamber: (exit: SIMD4<Float>, axis: SIMD4<Float>, light: SIMD4<Float>, throat: SIMD4<Float>)?)] =
             data.glows.map { ($0.vessel, $0.thruster, $0.heat, nil) }
         items += data.chambers.map { c in
             (c.vessel, c.thruster, 1, (Plumes.f4(c.exit, c.chamber.throatDepth), Plumes.f4(c.axis, c.chamber.injectorDepth),
-                                     Plumes.f4(c.light, c.chamber.radius)))
+                                     Plumes.f4(c.light, c.chamber.radius),
+                                     Plumes.f4(c.chamber.throatRadius, c.chamber.convergentDepth, 0, 0)))
         }
         for g in items {
             guard let v = f.scene.vessels.first(where: { $0.id == g.vessel }), let mesh = f.mesh(of: v) else { continue }
@@ -176,6 +177,7 @@ public final class PlumePass: RenderPass {
                         draw.chamberExit = c.exit
                         draw.chamberAxis = c.axis
                         draw.chamberLight = c.light
+                        draw.chamberThroat = c.throat
                     }
                     enc.setCullMode(.none)
                     enc.setVertexBytes(&draw, length: MemoryLayout<PlumeGlowGPU>.stride, index: 1)

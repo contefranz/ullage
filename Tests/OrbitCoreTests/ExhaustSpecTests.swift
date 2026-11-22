@@ -140,6 +140,18 @@ final class ExhaustSpecTests: XCTestCase {
                       "the throat")
         XCTAssertTrue(profile.contains { abs($0.x - c.injectorDepth) < 1e-9 && abs($0.r - c.radius) < 1e-9 },
                       "the injector face's rim")
+        XCTAssertTrue(profile.contains { abs($0.x - c.convergentDepth) < 1e-9 && abs($0.r - c.radius) < 1e-9 },
+                      "the convergent section's end, gas side")
+        XCTAssertEqual(c.gasRadius(atDepth: c.throatDepth), c.throatRadius, accuracy: 1e-12)
+        XCTAssertEqual(c.gasRadius(atDepth: 0.5 * (c.throatDepth + c.convergentDepth)),
+                       0.5 * (c.throatRadius + c.radius), accuracy: 1e-12)
+        XCTAssertEqual(c.gasRadius(atDepth: c.injectorDepth), c.radius, accuracy: 1e-12)
+        // The tube wall outside the convergent section and the chamber lies
+        // outside the gas side everywhere.
+        let outer = profile.filter { $0.x > c.throatDepth + 1e-6 && $0.x < c.injectorDepth - 1e-6
+            && $0.r > c.gasRadius(atDepth: $0.x) + 1e-6 }
+        XCTAssertFalse(outer.isEmpty)
+        for p in outer { XCTAssertGreaterThan(p.r, c.gasRadius(atDepth: p.x) + 0.01, "\(p)") }
         let inner = profile.filter { $0.x < c.throatDepth + 1e-9 && $0.r < c.radius }
         XCTAssertEqual(inner.map(\.r).min() ?? 0, c.throatRadius, accuracy: 1e-9)
         XCTAssertLessThan(c.throatDepth, c.injectorDepth)

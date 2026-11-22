@@ -298,12 +298,6 @@ constant float3 PLUME_NOISE_BASIS[3] = {
     float3(0.751791527, 0.655226729, -0.074077211),
     float3(-0.305811069, 0.445980458, 0.841178353)};
 
-// A member's radius at x ≥ 0 (PlumeMember.radius).
-inline float plume_radius(const device PlumeMember &m, float xp) {
-    float re = m.exit.w;
-    return max(re + m.sheathLight.w + m.shape.x * (1.0 - exp(-xp / max(m.shape.y, 1e-6)))
-               + m.shape.z * max(0.0, xp - m.shape.w) + m.extent.w * max(0.0, xp - m.flame.y), 0.2 * re);
-}
 
 // The early reject's radius at x (PlumeMember.fieldExtent downstream of the
 // exit), R the radius there.
@@ -357,13 +351,21 @@ inline PlumeFlow plume_flowAt(const device PlumeMember &m, float x, float r, flo
 }
 
 // Member m's flow at p, and whether its field reaches p
-// (PlumeTurbulence.flow, .reaches).
+// (PlumeTurbulence.flow, .reaches): in its wall jet on the deck, the
+// equivalent free jet's.
 inline bool plume_memberFlow(const device PlumeMember &m, float3 p, thread PlumeFlow &f) {
     float3 d = p - m.exit.xyz;
     float x = dot(d, m.axis.xyz);
+    float xw = 0.0, rw = 0.0, dilution = 1.0;
+    if (m.deckNormal.w > 0.0 && plume_wallJet(m, p, x, length(d - m.axis.xyz * x), xw, rw, dilution)) {
+        float big = plume_jetRadius(m, xw);
+        if (rw > plume_reach(m, xw, big)) { return false; }
+        f = plume_flowAt(m, xw, rw, big);
+        return true;
+    }
     if (x < 0.0 || x > m.axis.w) { return false; }
     float r = length(d - m.axis.xyz * x - m.bendDirection.xyz * plume_bendOffset(m, x));
-    float big = plume_radius(m, x);
+    float big = plume_jetRadius(m, x);
     if (r > plume_reach(m, x, big)) { return false; }
     f = plume_flowAt(m, x, r, big);
     return true;
@@ -410,13 +412,15 @@ inline bool plume_clusterFlow(const device PlumeMember *members, int first_, int
             // The member asking holds the sample already.
             best = plume_flowAt(members[first_ + nearest], asking.x, asking.r, asking.big);
             found = true;
-        } else if (count > 1) {
+        } else if (count > 1 && members[first_ + nearest].deckNormal.w <= 0.0) {
             const device PlumeMember &mn = members[first_ + nearest];
-            float big = plume_radius(mn, max(xn, 0.0)), rn = sqrt(rn2);
+            float big = plume_jetRadius(mn, max(xn, 0.0)), rn = sqrt(rn2);
             found = rn2 < INFINITY && rn <= plume_reach(mn, xn, big);
             if (found) { best = plume_flowAt(mn, xn, rn, big); }
         } else {
-            found = plume_memberFlow(members[first_], p, best);
+            // A lone member, or one meeting the deck (its wall jet's own
+            // geometry).
+            found = plume_memberFlow(members[first_ + nearest], p, best);
         }
         // Where the nearest does not reach p (an engine tailing off among
         // full ones), the member asking's flow, or the first that reaches.
@@ -562,7 +566,7 @@ inline void plume_member(thread PlumeSample &s, const device PlumeMember &m, int
     }
     float re = m.exit.w, de = 2.0 * re;
     float xp = max(x, 0.0);
-    float R = plume_radius(m, xp);
+    float R = plume_jetRadius(m, xp);
     float k = m.diskLight.w * (wall ? m.deckCentre.w * wallDilution : 1.0);
     // The early reject: PlumeMember.extent.
     if (r > plume_reach(m, x, R)) { return; }
@@ -816,18 +820,38 @@ fragment EffectVolumeOut plume_march_fragment(PlumeProxyOut in [[stage_in]],
             }
         }
     }
+    // A clear exhaust's ice in vacuum, seen from anywhere: its density falls
+    // as 1/d² off the free expansion's virtual source (c.reserved[1]), so
+    // its steps go equiangular about that point, as dense as 1/(h² + d²)
+    // along the ray (h the ray's closest approach to it, at least an exit
+    // radius): the bright condensing shell near the nozzle is stepped
+    // finely, the faint far cloud coarsely.
+    if (c.reserved[0].w > 0.5) {
+        float3 source = c.reserved[1].xyz;
+        float ts = dot(source, dir) / (len * len);
+        float h = max(length(source - dir * ts), c.reserved[1].w);
+        if ((exit - enter) * len > 4.0 * h) {
+            equiangular = true;
+            t0 = ts;
+            hk = h / len;
+            phiA = atan((enter - t0) / hk);
+            dphi = (atan((exit - t0) / hk) - phiA) / float(steps);
+        }
+    }
     float jitter = plume_jitter(in.position.xy, pf.params.x);
     float3 sunDir = pf.sun.xyz;
     float3 sunLux = pf.sunLight.rgb * c.v.w;
-    // R4's shadow at eight points along the march, interpolated between
-    // them (a sunlit cloud of ice shows its vessel's shadow as one column,
-    // not as copies at a few points), and C2's at its middle; none of it
-    // for a cluster in the Earth's shadow.
+    // R4's shadow at eight points along the ray, moved with the steps by
+    // the pixel's jitter and interpolated between them, so that a vessel's
+    // shadow through its sunlit ice or smoke dithers into one column rather
+    // than standing as copies at fixed points (R4 read at every step costs
+    // about 2 ms more at max-Q); and C2's at its middle; none of it for a
+    // cluster in the Earth's shadow.
     float shadows[8] = {1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
     bool sunlit = c.v.w > 0.0 && max(sunLux.r, max(sunLux.g, sunLux.b)) > 0.0;
     if (sunlit && pf.sunLight.w > 0.5) {
         for (int i = 0; i < 8; i++) {
-            float3 p = dir * (enter + (float(i) + 0.5) * 0.125 * (exit - enter));
+            float3 p = dir * (enter + (float(i) + jitter) * 0.125 * (exit - enter));
             shadows[i] = orbit_sunShadow(p, sunDir, lighting, shadowAtlas, shadowCompare);
         }
     }
@@ -915,7 +939,7 @@ fragment EffectVolumeOut plume_march_fragment(PlumeProxyOut in [[stage_in]],
         if (x.scattering > 0.0) {
             float g = x.g / x.scattering;
             float3 ambient = plume_sh9InScatter(lighting, view, g, pf);
-            float u = clamp(8.0 * (s - enter) / max(exit - enter, 1e-6) - 0.5, 0.0, 7.0);
+            float u = clamp(8.0 * (s - enter) / max(exit - enter, 1e-6) - jitter, 0.0, 7.0);
             int i0 = min(int(u), 6);
             float shadow = mix(shadows[i0], shadows[i0 + 1], u - float(i0));
             source += x.tinted * sunLux * (shadow * plume_phase(dot(view, sunDir), g) * exp(-sunDepth));
@@ -1039,6 +1063,7 @@ struct PlumeGlowDraw {
     float4 chamberExit; // a chamber's glow: xyz the exit's centre (world), w the throat's depth (m)
     float4 chamberAxis; // xyz the exhaust's axis (world), w the injector face's depth (m; 0: the SPS's glow)
     float4 chamberLight;// rgb the gas's light per metre (cd/m² per m), w the chamber's radius (m)
+    float4 chamberThroat;// x the throat's radius (m), y the convergent section's end's depth (m)
 };
 
 struct PlumeGlowOut {
@@ -1077,13 +1102,16 @@ fragment float4 plume_glow_fragment(PlumeGlowOut in [[stage_in]],
     if (d.chamberAxis.w > 0.0) {
         // ChamberGlow: the chamber's surfaces behind the throat show the
         // hot gas between the throat and them (the convergent section, the
-        // chamber wall, the injector face; nothing outside rc).
+        // chamber wall, the injector face): the gas side only, not the
+        // engine's outer wall about it (ChamberGlow.luminance).
         float3 ax = d.chamberAxis.xyz;
         float3 rel = in.world - d.chamberExit.xyz;
         float depth = -dot(rel, ax);
         float r = length(rel + ax * depth);
         float throat = d.chamberExit.w, injector = d.chamberAxis.w, rc = d.chamberLight.w;
-        if (depth < throat - 0.005 || depth > injector + 0.01 || r > rc + 0.004) { return float4(0.0); }
+        float rt = d.chamberThroat.x, convergent = d.chamberThroat.y;
+        float gas = mix(rt, rc, clamp((depth - throat) / max(convergent - throat, 1e-6), 0.0, 1.0));
+        if (depth < throat - 0.005 || depth > injector + 0.01 || r > gas + 0.004) { return float4(0.0); }
         float cosine = max(abs(dot(normalize(in.world), ax)), 0.2);
         float path = min(max(depth - throat, 0.0) / cosine, 2.0 * (injector - throat) + 2.0 * rc);
         c = d.chamberLight.rgb * path;

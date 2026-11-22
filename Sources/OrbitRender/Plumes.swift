@@ -124,7 +124,7 @@ enum Plumes {
     /// `memberStart` in the member buffer, marched in `steps` (0: the
     /// frame's).
     static func gpu(_ c: PlumeCluster, memberStart: Int, light: PlumeLight?, sunlit: Double,
-                    steps: Int = 0) -> PlumeClusterGPU {
+                    steps: Int = 0, ice: Bool = false) -> PlumeClusterGPU {
         var rings = [SIMD4<Float>](repeating: .zero, count: 4)
         for (i, r) in c.rings.prefix(PlumeClusters.maximumRings).enumerated() {
             if i % 2 == 0 {
@@ -146,7 +146,14 @@ enum Plumes {
         let near = c.members.map { m in
             (m.exit - c.origin).dot(c.axis) + min(m.length, max(10 * m.exitDiameter, m.glowLength))
         }.max() ?? c.end
-        g.reserved.0 = SIMD4(Float(min(near, c.end)), Float(c.merged == nil ? 0 : c.mergeX), Float(steps), 0)
+        g.reserved.0 = SIMD4(Float(min(near, c.end)), Float(c.merged == nil ? 0 : c.mergeX), Float(steps), ice ? 1 : 0)
+        if ice {
+            // The free expansion's virtual source, the members' mean, and an
+            // exit radius: the ice's steps' centre.
+            let n = Double(max(c.members.count, 1))
+            let source = c.members.reduce(Vec3.zero) { $0 + ($1.exit - $1.axis * $1.sourceOffset) } / n
+            g.reserved.1 = f4(source, c.members.map(\.exitRadius).max() ?? 1)
+        }
         if let l = light {
             g.light = f4(l.centre, l.length)
             g.lightAxis = f4(l.axis, l.radius)
@@ -366,8 +373,10 @@ struct PlumeGlowGPU {
     /// ...xyz the exhaust's axis (world, unit), w the injector face's depth
     /// (m; 0: the SPS extension's glow instead)...
     var chamberAxis = SIMD4<Float>.zero
-    /// ...rgb the gas's light per metre (cd/m² per m), w the chamber's radius.
+    /// ...rgb the gas's light per metre (cd/m² per m), w the chamber's radius...
     var chamberLight = SIMD4<Float>.zero
+    /// ...x the throat's radius, y the convergent section's end's depth (m).
+    var chamberThroat = SIMD4<Float>.zero
 }
 
 // MARK: The frame's plumes
@@ -385,6 +394,8 @@ struct PlumeFrameData {
     /// world), chamber, the gas's light per metre.
     var chambers: [(vessel: UUID, thruster: RenderScene.ThrusterKey, exit: Vec3, axis: Vec3,
                     chamber: ApolloExhaust.Chamber, light: Photometry.RGB)] = []
+    /// The camera the frame was planned for (tests project what it drew).
+    var camera: RenderScene.Camera?
     var uniforms = PlumeFrameGPU()
     var lights: [PlumeLight] = []
     /// Every cluster with its detail, for tests and the timings' report.
@@ -498,11 +509,11 @@ public final class PlumeSystem {
 
     /// The frame's members, trimmed to what the frame's exposure can show
     /// in their vessels' sunlight: the look-dev engines when a shot gives
-    /// them, else the emitters of the vessels drawn as meshes.
-    func members(_ scene: RenderScene, settings: PlumeSettings, faintest: Double,
+    /// them, else the emitters of the vessels drawn as meshes; each
+    /// meeting `deck` (`PlumeImpingement`) where its jet does.
+    func members(_ scene: RenderScene, settings: PlumeSettings, deck: PlumeImpingement?, faintest: Double,
                  drawn: (UUID) -> Bool) -> [PlumeMember] {
-        let deck = settings.model == .physical ? PlumeImpingement.deck(scene) : nil
-        return plainMembers(scene, settings: settings, faintest: faintest, drawn: drawn).map { m in
+        plainMembers(scene, settings: settings, faintest: faintest, drawn: drawn).map { m in
             var m = m
             m.impingement = deck?.meeting(m)
             return m
@@ -629,6 +640,7 @@ public final class PlumeSystem {
         last = (clock.frameIndex, clock.simTime)
 
         var data = PlumeFrameData()
+        data.camera = scene.camera
         let heats = glow.update(scene)
         let drawn = settings.enabled && settings.quality != .off
         if settings.nozzleGlow && drawn {
@@ -651,9 +663,10 @@ public final class PlumeSystem {
             // vessel's sunlight; those that cannot show at all are not drawn.
             let ev = f.settings.post.exposure.fixedEV100
             let p = ev.map { 1 / (1.2 * pow(2, $0)) } ?? exposure ?? 1 / (1.2 * pow(2, 15))
-            let members = members(scene, settings: settings, faintest: Self.faintest / max(p, 1e-12),
+            let deck = settings.model == .physical ? PlumeImpingement.deck(scene) : nil
+            let members = members(scene, settings: settings, deck: deck, faintest: Self.faintest / max(p, 1e-12),
                                   drawn: { f.drawsMesh($0) })
-            let clusters = timed("clusters") { PlumeClusters.clusters(members) }
+            let clusters = timed("clusters") { PlumeClusters.clusters(members, deck: deck) }
             data.clusters = clusters.map { ($0, PlumeClusters.detail($0, camera: scene.camera, settings: settings)) }
         }
         frame = data
@@ -729,17 +742,17 @@ public final class PlumeSystem {
             // the steps too (at least 16): at staging eight of them fire.
             let glowOnly = c.members.allSatisfy(\.glowOnly)
             let solid = c.members.allSatisfy { $0.family == .solid }
-            // A clear exhaust's ice in vacuum: thin and smooth (its density
-            // falls as 1/r² off a virtual source, no eddies), half the
-            // steps, however many engines (their cones merge at once); fewer
-            // leave the jitter's pattern over a cloud that fills the frame.
+            // A clear exhaust's ice in vacuum: smooth (no eddies), its
+            // density falling as 1/d² off the free expansion's virtual
+            // source, so half the steps, however many engines (their cones
+            // merge at once), equiangular about that source (PlumeShaders).
             let ice = c.members.allSatisfy { ($0.family == .hydrogen || $0.family == .hypergolic) && $0.vacuumBlend > 0.9 }
             let steps = ice ? max(16, settings.quality.steps / 2)
                 : glowOnly ? (c.members.count == 1 ? max(8, settings.quality.steps / 4)
                                                    : max(16, settings.quality.steps / 2))
                 : solid ? max(16, settings.quality.steps / 2) : 0
             data.marched.append(Plumes.gpu(c, memberStart: data.members.count, light: e.light, sunlit: e.sunlit,
-                                           steps: steps))
+                                           steps: steps, ice: ice))
             let seed = Plumes.noiseSeed(c)
             data.members += (c.members + (c.merged.map { [$0] } ?? [])).map {
                 Plumes.gpu($0, seed: seed, turbulent: settings.turbulence)

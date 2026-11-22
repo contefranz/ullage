@@ -23,9 +23,11 @@ import OrbitCore
 /// the share of each jet's cross-section at the deck that lands outside
 /// the opening's square.
 ///
-/// The seam with the launch effects (P4's `PadExhaust`, whose smoke follows
-/// the same shares): this reads the scene's LC-39A site and `LC39A`'s
-/// opening, nothing of the launch track's.
+/// The seam with the launch effects: this reads the scene's LC-39A site and
+/// `LC39A`'s opening, nothing of the launch track's. P4's `PadExhaust`
+/// shares its smoke between the deck and the trench by its own model (the
+/// five plumes as one widening envelope against the opening's area), not
+/// by these per-jet shares.
 public struct PlumeImpingement: Equatable {
     /// The deck: a camera-relative point on it (the opening's centre) and
     /// its unit normal (up).

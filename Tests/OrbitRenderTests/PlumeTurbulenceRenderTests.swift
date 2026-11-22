@@ -247,37 +247,97 @@ final class PlumeTurbulenceRenderTests: XCTestCase {
 }
 
 /// The J-2s' chambers glowing through their throats (`ChamberGlow`) in the
-/// real ascent: all five S-II engines mid-burn, the fixed centre one among
-/// them (drawn from its part's static draws), four after the centre
-/// engine's cutoff; seen from behind, the brightest pixels are the
-/// chambers' orange.
+/// real ascent, seen from behind: each of the five S-II engines mid-burn,
+/// the fixed centre one among them (drawn from its part's static draws),
+/// shows its chamber's light at its throat, orange and as bright as the
+/// gas's emission over the chamber's length, where the same frame without
+/// the nozzles' glow is dark; after the centre engine's cutoff its throat
+/// is dark and the four others still glow.
 @MainActor
 final class ChamberGlowRenderTests: XCTestCase {
-    func render(_ advance: [String]) throws -> (chambers: Int, brightest: (r: Double, g: Double, b: Double)) {
+    struct Frame {
+        var chambers: [(exit: Vec3, axis: Vec3, chamber: ApolloExhaust.Chamber, light: Photometry.RGB)]
+        var light: [Float]
+        var camera: RenderScene.Camera
+        var width: Int, height: Int
+    }
+
+    func render(_ advance: [String], glow: Bool = true) throws -> Frame {
         let s = try SnapshotRenderer(device: try XCTUnwrap(RenderDevice.shared))
         var shot = SnapshotSpec.Shot(name: "chambers", scenario: "as506-pad", advance: advance,
                                      camera: SnapshotSpec.CameraSpec(yaw: 180, pitch: 8, distance: 40, fov: 40))
         shot.camera.frame = "vessel"
         shot.showOrbit = false
         shot.settings.cloud.enabled = false
+        shot.settings.plume.nozzleGlow = glow
         let out = try s.render(shot)
-        let light = try XCTUnwrap(out.light)
-        var best = (r: 0.0, g: 0.0, b: 0.0, y: 0.0)
-        for i in stride(from: 0, to: light.count, by: 4) {
-            let r = Double(light[i]), g = Double(light[i + 1]), b = Double(light[i + 2])
-            let y = 0.2126 * r + 0.7152 * g + 0.0722 * b
-            if y > best.y { best = (r, g, b, y) }
-        }
         let r = try s.renderer(userTextures: false)
         let system = try XCTUnwrap(r.graph.passes.compactMap { ($0 as? PlumePreparePass)?.system }.first)
-        return (system.frame.chambers.count, (best.r, best.g, best.b))
+        return Frame(chambers: system.frame.chambers.map { ($0.exit, $0.axis, $0.chamber, $0.light) },
+                     light: try XCTUnwrap(out.light), camera: try XCTUnwrap(system.frame.camera), width: shot.width,
+                     height: shot.height)
+    }
+
+    /// The brightest light (cd/m², linear Rec. 709) within 2 px of where
+    /// camera-relative `p` projects.
+    func light(_ f: Frame, at p: Vec3) -> (r: Double, g: Double, b: Double) {
+        let v = f.camera.worldToView * p, t = tan(f.camera.fovY / 2)
+        let aspect = Double(f.width) / Double(f.height)
+        let col = (v.x / (-v.z) / (t * aspect) + 1) / 2 * Double(f.width)
+        let row = (1 - v.y / (-v.z) / t) / 2 * Double(f.height)
+        var best = (r: 0.0, g: 0.0, b: 0.0)
+        for dy in -2...2 {
+            for dx in -2...2 {
+                let x = Int(col) + dx, y = Int(row) + dy
+                guard x >= 0, y >= 0, x < f.width, y < f.height else { continue }
+                let i = 4 * (y * f.width + x)
+                let c = (r: Double(f.light[i]), g: Double(f.light[i + 1]), b: Double(f.light[i + 2]))
+                if c.r + c.g + c.b > best.r + best.g + best.b { best = c }
+            }
+        }
+        return best
+    }
+
+    /// Where a chamber's injector face shows through its throat.
+    func face(_ c: (exit: Vec3, axis: Vec3, chamber: ApolloExhaust.Chamber, light: Photometry.RGB)) -> Vec3 {
+        c.exit - c.axis * c.chamber.injectorDepth
     }
 
     func testChambersGlowThroughTheThroats() throws {
-        let mid = try render(["met:350"])
-        XCTAssertEqual(mid.chambers, 5)
-        XCTAssertGreaterThan(mid.brightest.r, mid.brightest.b, "orange")
-        let ceco = try render(["ev:S-II centre engine cutoff", "wait:3"])
-        XCTAssertEqual(ceco.chambers, 4)
+        let mid = try render(["met:350"]), dark = try render(["met:350"], glow: false)
+        XCTAssertEqual(mid.chambers.count, 5)
+        XCTAssertTrue(dark.chambers.isEmpty)
+        for (i, c) in mid.chambers.enumerated() {
+            let on = light(mid, at: face(c)), off = light(dark, at: face(c))
+            let cosine = abs(c.axis.dot(face(c).normalized))
+            let expected = ChamberGlow.luminance(c.light, chamber: c.chamber, depth: c.chamber.injectorDepth,
+                                                 cosine: cosine).luminance
+            let glow = 0.2126 * (on.r - off.r) + 0.7152 * (on.g - off.g) + 0.0722 * (on.b - off.b)
+            print(String(format: "ChamberGlowRenderTests: chamber %d: %.0f cd/m² (without the glow %.0f; expected %.0f), "
+                         + "rgb %.0f %.0f %.0f", i, glow, 0.2126 * off.r + 0.7152 * off.g + 0.0722 * off.b,
+                         expected, on.r, on.g, on.b))
+            XCTAssertGreaterThan(glow, 0.3 * expected, "chamber \(i) glows")
+            XCTAssertLessThan(glow, 1.5 * expected, "chamber \(i)")
+            XCTAssertGreaterThan(on.r - off.r, on.g - off.g, "orange")
+            XCTAssertGreaterThan(on.g - off.g, on.b - off.b, "orange")
+        }
+        let advance = ["ev:S-II centre engine cutoff", "wait:3"]
+        let ceco = try render(advance), cecoDark = try render(advance, glow: false)
+        XCTAssertEqual(ceco.chambers.count, 4)
+        // The glow's own light: with it less without it (the sunlit ice in
+        // front lights both alike).
+        func glow(at p: Vec3) -> Double {
+            let on = light(ceco, at: p), off = light(cecoDark, at: p)
+            return 0.2126 * (on.r - off.r) + 0.7152 * (on.g - off.g) + 0.0722 * (on.b - off.b)
+        }
+        // The centre engine on the stage's axis, among the four.
+        let centre = ceco.chambers.reduce(Vec3.zero) { $0 + face($1) } / 4
+        let outboard = ceco.chambers.map { glow(at: face($0)) }
+        print(String(format: "ChamberGlowRenderTests: after CECO the centre throat's glow %.0f cd/m², the outboard's %@ "
+                     + "(an engine gimballed off the line of sight hides its throat)", glow(at: centre),
+                     outboard.map { String(format: "%.0f", $0) }.joined(separator: ", ")))
+        let shown = outboard.filter { $0 > 1_000 }
+        XCTAssertGreaterThanOrEqual(shown.count, 2, "the outboard engines glow on")
+        XCTAssertLessThan(abs(glow(at: centre)), 0.02 * (shown.max() ?? 0), "the centre engine is off")
     }
 }

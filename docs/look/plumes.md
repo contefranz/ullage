@@ -69,13 +69,20 @@ medium, L low (visual, calibrated or assumed).
    as dense as 1/(h² + d²) along the ray, h the ray's closest approach or
    half the members' spread about the axis and their dense radius), so a
    small dense core (a retro's alumina, or a pair of them) is not stepped
-   over. The marched clusters blend far to
+   over. A clear exhaust's ice in vacuum is stepped equiangularly about
+   its free expansion's virtual source, from any view (its density falls
+   as 1/d² off that point), so the bright condensing shell near the nozzle
+   is stepped finely and the jitter leaves no pattern there. The marched clusters blend far to
    near. The field is `PlumeMember.sample`, line by line, plus the
    turbulence. `PlumeRenderTests` checks the GPU against the CPU reference
    through the same rays (within 1 % on average; the test allows 10 %).
 5. **Lighting of the plume:** its own emission (absorption times the
    blackbody at each phase's temperature); single scattering of the Sun
-   (Henyey-Greenstein, R4's shadow at four points, C2's cloud shadow, the
+   (Henyey-Greenstein, R4's shadow at eight points along the ray, moved
+   with the steps by the pixel's jitter and interpolated, so a vessel's
+   shadow through its sunlit ice or smoke dithers into one column rather
+   than standing as copies at fixed points; R4 read at every step cost
+   about 2 ms more at max-Q. C2's cloud shadow, the
    Sun's chord through the plume as self-shadowing); the ambient behind
    one function, `plume_sh9InScatter`: R3's probe's SH9 in-scatter
    (`orbit_sh9InScatter`, the Earth and the sky the probe draws, in air
@@ -413,8 +420,8 @@ show that it fires, both from its physics:
   exits are dark.
 - **Vacuum plumes are still**: a free expansion has no mixing layer, so no
   eddies (the turbulence's depth goes to 0 in vacuum; it was 0.15, L). Ice
-  clusters march at a quarter of the steps (their density falls as 1/r² off
-  a virtual source).
+  clusters march at half the steps (at least 16), equiangular about the
+  free expansion's virtual source (their density falls as 1/d² off it).
 - **Staging and transients** need nothing new: the S-II ullage motors and
   the S-IC retros are P1's solids as before; an engine's start and
   shutdown follow its flow, the ice and the chamber's glow with it.
@@ -436,13 +443,21 @@ it (`PlumeImpingement`):
   heat: the core recovers 0.89 (Pr^(1/3)) of its total temperature, the
   chamber's, so the deck holds a blinding, sooty fire.
 - **Its share** is each jet's cross-section at the deck outside the
-  opening's square: none while an outboard F-1's jet fits the opening
-  (about 20 m of climb), 13 % at 30 m, 25 % at 45 m. Its reach is one and
+  opening's square, the outboard F-1s on its diagonals (182 in out, 3.59 m
+  from two of its sides): none while an outboard jet fits the opening (to
+  34 m of climb), 7 % at 38 m, 29 % at 53 m. Its reach is one and
   a half flame lengths less the climb: it dies away as the vehicle rises.
+- **The merged far field** meets the deck as its own, wider column does
+  (the cluster's merged member gets its own share, not the centre
+  engine's, whose jet fits the opening longest): where the deck lies past
+  the merge the march reads that member alone.
 - **The seam with the launch track:** this reads the scene's LC-39A site
-  and `LC39A`'s opening; P4's `PadExhaust` sends the smoke across the deck
-  and out of the trench by the same shares. Nothing of
-  `Effects/Launch/*` is touched.
+  and `LC39A`'s opening. Nothing of `Effects/Launch/*` is touched. P4's
+  `PadExhaust` shares its smoke between the deck and the trench by its own
+  model (the five plumes as one envelope, 6.4 m at the exits spreading at
+  10°, against the opening's area), not by these per-jet shares: its deck
+  smoke starts at about 11 m of climb and runs to 400 m, the wall jet
+  from 34 m to its reach (Known limits).
 - **Larger plumes.** The far field now spreads as a round jet's half-value
   radius does, 0.094 (Hussein, Capp and George 1994; it was 0.06, L), and
   the flame brush as half the compressible mixing layer's growth: the
@@ -508,6 +523,16 @@ plumes on and off on alternate frames, the difference of the medians, at
 High (32 steps); the plan's budget is 1.5 ms on the pad and 0.5 ms in
 LEO, for the default physical look.
 
+- **After the upper stages' review** (2026-11-22: the shadow's points
+  jittered, the ice's steps equiangular about its source, the merged
+  far field's wall jet, the chamber glow on the gas side; on top of the
+  turbulence's review), against this PR's first version measured back to
+  back (first / now, ms): pad 1.23 / 1.34 and 2.52 / 2.65; ascent 2.96 /
+  3.71; max-Q 3.51 / 4.05; staging 4.87 / 5.07 (auto 5.52 / 5.71); the
+  S-II in LEO 4.38 / 4.89; the SPS at night 0.01 / 0.01. Most of the rise
+  at the ascent and max-Q is the turbulence's review (its cluster flow);
+  in LEO the equiangular ice steps, near the nozzles where all five J-2s'
+  fields are evaluated.
 - **The upper stages and the larger plumes** (2026-11-22, on top of the
   flow noise; main / now, ms): pad 0.89 / 1.28 and 1.40 / 2.60; ascent
   2.12 / 2.95; max-Q 2.41 / 3.47; staging 4.04 / 4.96 (auto 4.40 / 5.65);
@@ -582,6 +607,11 @@ LEO, for the default physical look.
 - The SPS glow's temperatures are not sourced (L). The J-2's chamber glow
   leaves out the water's blue continuum and the light it throws on the
   nozzle's inside.
+- The launch track's deck smoke (`PadExhaust`) and the wall jet share the
+  flow between the deck and the trench by different models (one envelope
+  against the opening's area; each jet's disc against the opening's
+  square), so the smoke reaches the deck earlier and stays longer than the
+  fire. A shared share function in the seam would join them.
 - The wall jet spreads on the deck's plane past the deck's edges, and the
   flow down the opening onto the flame deflector is hidden, not modelled
   (P4's smoke leaves the trench).

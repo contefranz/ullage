@@ -94,11 +94,15 @@ public enum ChamberGlow {
     }
 
     /// The light (cd/m²) a surface `depth` m into a nozzle (from its exit
-    /// plane) shows, seen along a ray at `cosine` of the axis: the gas
-    /// between the throat and it, at most twice the chamber's length; none
-    /// in front of the throat.
-    public static func luminance(_ e: Photometry.RGB, chamber c: ApolloExhaust.Chamber, depth: Double,
+    /// plane) and `r` off its axis shows, seen along a ray at `cosine` of
+    /// the axis: the gas between the throat and it, at most twice the
+    /// chamber's length; none in front of the throat, behind the injector
+    /// face, or outside the gas side (the engine's outer wall, which the
+    /// chamber's gas does not light). PlumeShaders' chamber glow.
+    public static func luminance(_ e: Photometry.RGB, chamber c: ApolloExhaust.Chamber, depth: Double, r: Double = 0,
                                  cosine: Double) -> Photometry.RGB {
+        guard depth >= c.throatDepth - 0.005, depth <= c.injectorDepth + 0.01,
+              r <= c.gasRadius(atDepth: depth) + 0.004 else { return Photometry.RGB(0, 0, 0) }
         let path = min(max(depth - c.throatDepth, 0) / max(abs(cosine), 0.2),
                        2 * (c.injectorDepth - c.throatDepth) + 2 * c.radius)
         return e.scaled(by: path)

@@ -126,41 +126,92 @@ final class PlumeUpperStageTests: XCTestCase {
 
     // MARK: Liftoff
 
+    /// The ML's deck in the test's frame: the opening's centre at the
+    /// origin, up +z, its sides along x (north) and y, as LC39A has it.
+    let deck = PlumeImpingement(centre: .zero, normal: .unitZ, openingHalf: 45 * 0.3048 / 2, openingAxis: .unitX)
+
+    /// The S-IC's F-1s with their exits `height` above the deck (-3.24 m at
+    /// rest): the centre one and the four outboard ones on the opening's
+    /// diagonals, 182 in out (SaturnV.cluster: under fins A-D, Position II
+    /// north), firing down; each meeting the deck as PlumeSystem has them.
+    func sIC(height: Double) -> [PlumeMember] {
+        let air = us76.state(altitude: 0)
+        let s = PlumeModel.state(ApolloExhaust.f1.spec, flowFraction: 1, ambient: air)
+        let d = 182 * 0.0254 / 2.squareRoot()
+        let exits = [Vec3(0, 0, height)] + [(1.0, 1.0), (-1, 1), (-1, -1), (1, -1)].map {
+            Vec3(d * $0.0, d * $0.1, height)
+        }
+        return exits.map { e in
+            var m = PlumeLook.member(ApolloExhaust.f1.spec, state: s, exit: e, axis: -.unitZ,
+                                     exitRadius: ApolloExhaust.f1.spec.exitRadius, ambient: air)
+            m.impingement = deck.meeting(m)
+            return m
+        }
+    }
+
     /// The F-1s' wall jet on the ML's deck: none while the exits are below
     /// the deck, in the opening, nor while an outboard jet still fits the
-    /// opening (some 20 m of climb); as the vehicle climbs on, the share of
-    /// each jet landing outside the opening grows; over the deck the wall jet's
-    /// core is hot (it recovers 0.89 of its total temperature) and glows
-    /// brighter than the free jet's at the same distance; inside the
+    /// opening (its exit 3.59 m from two of the square's sides; some 34 m of
+    /// climb); as the vehicle climbs on, the share of each jet landing
+    /// outside the opening grows; over the deck the wall jet's core is hot
+    /// (it recovers 0.89 of its total temperature) and glows; inside the
     /// opening and beyond its reach the free jet takes the sample.
     func testWallJetOnTheDeck() throws {
-        let deck = PlumeImpingement(centre: .zero, normal: .unitZ, openingHalf: 45 * 0.3048 / 2, openingAxis: .unitX)
-        var shares: [Double] = []
-        for height in [-3.24, 10, 30, 45] {
-            let air = us76.state(altitude: 0)
-            let s = PlumeModel.state(ApolloExhaust.f1.spec, flowFraction: 1, ambient: air)
-            let m = PlumeLook.member(ApolloExhaust.f1.spec, state: s, exit: Vec3(4.6, 0, height), axis: -.unitZ,
-                                     exitRadius: ApolloExhaust.f1.spec.exitRadius, ambient: air)
-            shares.append(deck.meeting(m)?.deckShare ?? 0)
+        let heights = [-3.24, 20, 35, 50]
+        let shares = heights.map { sIC(height: $0)[1].impingement?.deckShare ?? 0 }
+        var low = 0.0, high = 60.0
+        for _ in 0..<40 {
+            let h = 0.5 * (low + high)
+            if (sIC(height: h)[1].impingement?.deckShare ?? 0) > 0 { high = h } else { low = h }
         }
-        print("PlumeUpperStageTests: an outboard F-1's share on the deck at -3.24, 10, 30, 45 m:", shares)
+        print(String(format: "PlumeUpperStageTests: an outboard F-1's share on the deck at %@ m: "
+                     + "%@; it meets the deck from %.1f m (%.1f m of climb)", heights.map { String(format: "%.2f", $0) }
+                         .joined(separator: ", "),
+                     shares.map { String(format: "%.3f", $0) }.joined(separator: ", "), high, high + 3.24))
         XCTAssertEqual(shares[0], 0, "inside the opening")
         XCTAssertEqual(shares[1], 0, "the jet fits the opening")
         XCTAssertGreaterThan(shares[2], shares[1])
         XCTAssertGreaterThan(shares[3], shares[2])
+        XCTAssertGreaterThan(high, 25)
+        XCTAssertLessThan(high, 35)
 
-        let air = us76.state(altitude: 0)
-        let s = PlumeModel.state(ApolloExhaust.f1.spec, flowFraction: 1, ambient: air)
-        var m = PlumeLook.member(ApolloExhaust.f1.spec, state: s, exit: Vec3(4.6, 0, 35), axis: -.unitZ,
-                                 exitRadius: ApolloExhaust.f1.spec.exitRadius, ambient: air)
-        let impingement = try XCTUnwrap(deck.meeting(m))
-        m.impingement = impingement
+        let m = sIC(height: 35)[1]
+        let impingement = try XCTUnwrap(m.impingement)
         XCTAssertEqual(PlumeImpingement.recovered(static: 1_500, total: 3_600), 1_500 + 0.89 * 2_100, accuracy: 1e-9)
-        let onDeck = m.sample(at: Vec3(4.6 + 14, 0, 0.3))
+        let d = m.exit.x, out = Vec3(d, d, 0).normalized
+        let onDeck = m.sample(at: Vec3(d, d, 0) + out * 14 + Vec3(0, 0, 0.3))
         XCTAssertGreaterThan(onDeck.emission.luminance, 0, "the wall jet glows")
         XCTAssertNil(impingement.wallJet(m, at: Vec3(0, 0, 0.3)), "inside the opening")
-        XCTAssertNil(impingement.wallJet(m, at: Vec3(4.6 + impingement.reach + 5, 0, 0.3)), "beyond its reach")
-        XCTAssertNil(impingement.wallJet(m, at: Vec3(4.6 + 14, 0, -0.5)), "below the deck")
+        XCTAssertNil(impingement.wallJet(m, at: Vec3(d, d, 0) + out * (impingement.reach + 5) + Vec3(0, 0, 0.3)),
+                     "beyond its reach")
+        XCTAssertNil(impingement.wallJet(m, at: Vec3(d, d, 0) + out * 14 - Vec3(0, 0, 0.5)), "below the deck")
+    }
+
+    /// The merged far field meets the deck as its own column does: wherever
+    /// the deck lies in the merged zone (past 1.15 mergeX, where the march
+    /// reads the merged member alone) and an outboard jet meets it, so does
+    /// the merged one, its share growing as the vehicle climbs until its
+    /// reach is spent; and it is not the centre engine's (whose jet fits
+    /// the opening longer).
+    func testMergedFarFieldMeetsTheDeck() throws {
+        var last = 0.0, merging = 0
+        for h in stride(from: 0.0, through: 90, by: 1) {
+            let members = sIC(height: h)
+            let c = PlumeClusters.cluster(members, deck: deck)
+            guard let merged = c.merged else { continue }
+            let deckInMerged = h >= 1.15 * c.mergeX
+            let outboard = members[1].impingement?.deckShare ?? 0
+            let share = merged.impingement?.deckShare ?? 0
+            if deckInMerged && outboard > 0 && (members[1].impingement?.reach ?? 0) > 0 {
+                merging += 1
+                XCTAssertNotNil(merged.impingement, "at \(h) m the merged far field meets the deck")
+                XCTAssertGreaterThanOrEqual(share, last - 1e-9, "at \(h) m its share grows")
+                XCTAssertNotEqual(merged.impingement, members[0].impingement, "not the centre engine's")
+            }
+            if merged.impingement != nil { last = share }
+        }
+        print("PlumeUpperStageTests: the merged far field met the deck at", merging, "heights")
+        XCTAssertGreaterThan(merging, 5)
     }
 
     /// Beyond its core the jet's half-value radius grows as a round
