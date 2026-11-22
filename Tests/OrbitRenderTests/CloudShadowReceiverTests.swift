@@ -8,7 +8,7 @@ import OrbitScene
 
 /// C2's cloud shadow on its receivers: the vessels' Sun (the direct beam,
 /// e^−τ, `orbit_cloudSunTransmittance`) and the Earth's ground (the Sun's
-/// flux through a conservative slab, direct and diffuse,
+/// and the sky's light through a conservative slab, direct and diffuse,
 /// `orbit_cloudGroundTransmittance`). A P0 pass puts a uniform optical
 /// depth in slot 24 and AtmosphereUniforms' cloud members, as CloudPass
 /// would, with the clouds themselves off. (After R4's patch in its notes,
@@ -69,12 +69,12 @@ final class CloudShadowReceiverTests: XCTestCase {
         XCTAssertEqual((half - none) / (clear - none), 0.5, accuracy: 0.005)
     }
 
-    /// The ground from the parking orbit under a uniform deck: its Sun term
-    /// is the slab's flux transmittance 2 / (2 + 0.15 τ μ0), not e^−τ. With
-    /// L(τ) = A + B T(τ) and T(10⁶) ≈ 0, (L(τ) − L(10⁶)) / (L(0) − L(10⁶)) is
-    /// T(τ); the μ0 that τ 10 gives must give τ 40 its reading too (the
-    /// form), and lie in (0, 1]. Under τ 20 the ground keeps far more than
-    /// e^−20 of the Sun.
+    /// The ground from the parking orbit under a uniform deck: its light is
+    /// the slab's flux transmittance 2 / (2 + 0.15 τ μ), not e^−τ (μ the
+    /// Sun's ray's slope at the clouds). With L(τ) = A + B T(τ) and
+    /// T(10⁶) ≈ 0, (L(τ) − L(10⁶)) / (L(0) − L(10⁶)) is T(τ); the μ that τ 10
+    /// gives must give τ 40 its reading too (the form), and lie in (0, 1].
+    /// Under τ 20 the ground keeps far more than e^−20 of the light.
     func testCloudShadowOnTheGround() throws {
         var shot = SnapshotSpec.Shot(name: "ground", scenario: "as506-parking-orbit",
                                      camera: SnapshotSpec.CameraSpec(yaw: -34.4, pitch: 70, distance: 70, fov: 40))
@@ -107,6 +107,75 @@ final class CloudShadowReceiverTests: XCTestCase {
         XCTAssertLessThanOrEqual(mu0, 1.01)
         XCTAssertEqual(t40, 2 / (2 + 0.15 * 40 * mu0), accuracy: 0.01)
         XCTAssertGreaterThan(t20, 0.2, "the slab passes the Sun's flux on diffusely")
+    }
+}
+
+extension CloudShadowReceiverTests {
+    /// The sky's light on the ground passes the clouds as the Sun's does:
+    /// most of it is scattered in the air above them, and the slab passes it
+    /// down alike. Over the pad (the stack and the site taken away, 260 m of
+    /// air to the ground) with the Sun put 1.5° under the horizon, the ground
+    /// has the sky's light alone, and an opaque deck takes it (measured 18 %
+    /// of the pixel: the rest is the air's light in front of the ground and
+    /// PlanetPass's night floor, 1.5 % of the albedo). With the Sun's term
+    /// alone shadowed the deck left twilight ground exactly as it was, and
+    /// took 66 % of the light by day, not 86 %.
+    func testCloudShadowTakesTheSkysLightToo() throws {
+        var shot = SnapshotSpec.Shot(name: "pad-ground", scenario: "as506-pad",
+                                     camera: SnapshotSpec.CameraSpec(yaw: -60, pitch: 60, distance: 300, fov: 40))
+        shot.width = 160
+        shot.height = 100
+        shot.showOrbit = false
+        shot.settings = VesselPassTests.manual(shot.settings)
+        shot.settings.cloud.enabled = false
+        let s = try SnapshotRenderer(device: try XCTUnwrap(RenderDevice.shared))
+        let prepared = try shot.prepare(system: s.system)
+        var scene = shot.scene(prepared)
+        scene.vessels = []
+        scene.sites = []
+        let clouds = try CloudShadowInjection(device: s.device)
+        let r = try SceneRenderer(device: s.device, outputFormat: .bgra8Unorm_srgb,
+                                  passes: SceneRenderer.defaultPasses(loadsUserTextures: false) + [clouds],
+                                  plan: HDRTargetPlan(outputFormat: .bgra8Unorm_srgb, sampleCount: 4))
+        XCTAssertEqual(r.failures, [:])
+        r.settings = shot.settings
+        let earth = try XCTUnwrap(scene.bodies.first { $0.id == AtmosphereFrame.planetID })
+        let up = (-earth.position).normalized, east = Vec3(0, 0, 1).cross(up).normalized
+        func dimmed(sunElevation e: Double) throws -> Double {
+            let toSun = (east * cos(e) + up * sin(e)).normalized
+            scene.sun.direction = toSun
+            scene.sun.position = toSun * scene.sun.distance
+            for i in scene.bodies.indices { scene.bodies[i].toSun = toSun }
+            clouds.opticalDepth = 0
+            let clear = try luminance(scene, renderer: r)[50 * 160 + 80]
+            clouds.opticalDepth = 1e6
+            let opaque = try luminance(scene, renderer: r)[50 * 160 + 80]
+            XCTAssertGreaterThan(clear, 0)
+            return 1 - opaque / clear
+        }
+        let twilight = try dimmed(sunElevation: -1.5 * .pi / 180), day = try dimmed(sunElevation: 30 * .pi / 180)
+        print("the pad's ground dimmed by an opaque deck: in twilight \(twilight), by day \(day)")
+        XCTAssertGreaterThan(twilight, 0.1, "the deck takes the sky's light")
+        XCTAssertGreaterThan(day, 0.8)
+    }
+}
+
+/// R3's probe draws LC-39A relative to its centre: C2's cloud shadow map,
+/// which takes camera-relative points, reads it where the screen does.
+final class ProbeCloudShadowTests: XCTestCase {
+    func testProbeReadsTheCloudShadowWhereTheScreenDoes() {
+        var air = AtmosphereUniforms()
+        air.cloudShadowMatrix = simd_float4x4(rows: [SIMD4(1e-5, 2e-6, 0, 0.5), SIMD4(-3e-6, 1e-5, 0, 0.5),
+                                                     SIMD4(0.3, 0.2, 0.93, 1_200), SIMD4(0, 0, 0, 1)])
+        let center = Vec3(1_500, -4_000, 2_500)
+        let probe = VesselPass.probeAtmosphere(air, center: center)
+        for p in [Vec3(0, 0, 0), Vec3(1_520, -3_990, 2_480), Vec3(-800, 300, 90)] {
+            let screen = air.cloudShadowMatrix * SIMD4(Float(p.x), Float(p.y), Float(p.z), 1)
+            let q = p - center
+            let inProbe = probe.cloudShadowMatrix * SIMD4(Float(q.x), Float(q.y), Float(q.z), 1)
+            XCTAssertEqual(simd_distance(screen, inProbe), 0, accuracy: 0.01, "\(p)")
+        }
+        XCTAssertEqual(probe.aerialPerspective, .zero)
     }
 }
 

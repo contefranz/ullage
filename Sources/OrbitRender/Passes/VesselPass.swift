@@ -416,6 +416,24 @@ public final class VesselPass: RenderPass {
     /// floor (the receivers add theirs), no aerial perspective, no plume
     /// lights, no thin wires. What `encode` draws
     /// does not depend on it.
+    /// From the probe's points (relative to its centre) to the camera-relative
+    /// points R4's shadow maps and C2's cloud shadow map take.
+    nonisolated static func probeShift(center: Vec3) -> simd_float4x4 {
+        var shift = matrix_identity_float4x4
+        shift.columns.3 = SIMD4(center, 1)
+        return shift
+    }
+
+    /// The air for the probe's draws: no aerial perspective, and C2's cloud
+    /// shadow map read at the probe's points (relative to its centre), as R4's
+    /// maps are.
+    nonisolated static func probeAtmosphere(_ a: AtmosphereUniforms, center: Vec3) -> AtmosphereUniforms {
+        var air = a
+        air.aerialPerspective = .zero
+        air.cloudShadowMatrix = a.cloudShadowMatrix * probeShift(center: center)
+        return air
+    }
+
     public func encodeProbe(_ f: FrameContext, on enc: MTLRenderCommandEncoder, formats: SceneFormats,
                             viewProjection: simd_float4x4, center: Vec3, faceSize: Int) {
         let sites = f.scene.sites.filter { $0.name == "LC-39A" && ($0.origin - center).length < Self.probeSiteRange }
@@ -449,12 +467,10 @@ public final class VesselPass: RenderPass {
         lighting.ambient = .zero
         lighting.lightCount = .zero
         // R4's maps take camera-relative points; the draws are relative to the centre.
-        var shift = matrix_identity_float4x4
-        shift.columns.3 = SIMD4(center, 1)
+        let shift = Self.probeShift(center: center)
         lighting.shadowMatrices = (lighting.shadowMatrices.0 * shift, lighting.shadowMatrices.1 * shift,
                                    lighting.shadowMatrices.2 * shift, lighting.shadowMatrices.3 * shift)
-        var air = f.atmosphere
-        air.aerialPerspective = .zero
+        var air = Self.probeAtmosphere(f.atmosphere, center: center)
         var light = LocalLight()
         enc.setRenderPipelineState(pipeline)
         enc.setVertexBytes(&frame, length: MemoryLayout<FrameUniforms>.stride, index: Binding.frameBuffer)

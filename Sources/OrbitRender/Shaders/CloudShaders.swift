@@ -1174,7 +1174,10 @@ inline CloudResult cloud_cirrus(float3 of, float3 df, float3 d, float pixelAngle
     if (u.lookDev.x > 0.5) { return r; }
     float2 hit = cloud_shell(of, df, u.shell.z);
     float th = hit.x >= 0.0 ? hit.x : hit.y;
-    if (th < 0.0) { return r; }
+    // None where the ray meets the ground first (from below the shell, its
+    // far side beyond the Earth), as cloud_farLayer.
+    float2 ground = cloud_shell(of, df, u.shell.x);
+    if (th < 0.0 || (ground.x >= 0.0 && ground.x < th)) { return r; }
     float3 pf = of + df * th;
     float cover = t.weatherA.sample(weather, cloud_weatherUV(pf, u), level(0.0)).z;
     if (cover <= 0.002) { return r; }
@@ -1735,13 +1738,17 @@ inline void cloud_hazeFromSpace(thread CloudResult &r, float2 uv, float h, float
 }
 
 // The parts in order of distance: the march's and the far layers' by the
-// far weight wf, then the cirrus: in front of them with the camera above
-// its height (`cirrusFirst`), behind them below it. (By entry distance, a
-// texel's entry nudged by the reprojection flipped the cirrus behind a deck
-// or in front of it, bright and dark lines along the checkerboard's rows
-// from orbit.)
+// far weight wf, then the cirrus by height: in front of what the ray enters
+// on the shell's other side from the camera (below its height with the
+// camera outside the shell, above it with the camera inside), behind what it
+// enters on the camera's side (a convective top above the shell from orbit,
+// a deck from below). By entry distance, a texel's entry nudged by the
+// reprojection flipped the cirrus behind a deck or in front of it, bright
+// and dark lines along the checkerboard's rows from orbit; the decks lie
+// kilometres from the shell, so their heights do not flip. (The ray's
+// origin and direction in figure coordinates, of and df.)
 inline CloudResult cloud_compose(CloudResult m, CloudResult farMid, CloudResult farLow, CloudResult cirrus, float wf,
-                                 bool cirrusFirst) {
+                                 float3 of, float3 df, constant CloudUniforms &u) {
     CloudResult result = m;
     if (wf > 0.0) {
         CloudResult far = farLow.front < farMid.front ? cloud_over(farLow, farMid) : cloud_over(farMid, farLow);
@@ -1755,7 +1762,9 @@ inline CloudResult cloud_compose(CloudResult m, CloudResult farMid, CloudResult 
         result.entry = wf >= 1.0 ? far.entry : min(m.entry, far.entry);
     }
     if (cirrus.color.a > 0.0) {
-        result = cirrusFirst ? cloud_over(cirrus, result) : cloud_over(result, cirrus);
+        bool outside = u.shell.z > 0.0;
+        bool first = result.entry >= 1e29 || ((cloud_height(of + df * result.entry, u) < u.shellMid.y) == outside);
+        result = first ? cloud_over(cirrus, result) : cloud_over(result, cirrus);
     }
     return result;
 }
@@ -1836,7 +1845,7 @@ fragment EffectCloudOut cloud_slot_fragment(CloudSlotOut in [[stage_in]],
     CloudResult cirrus = cloud_cirrus(ray.of, ray.df, ray.d, u.footprint.x * e.scale.x * 0.5, t, trans, irr, wrap,
                                       linear, weather, u);
     CloudResult march = result;
-    result = cloud_compose(march, farMid, farLow, cirrus, wf, u.radii.y > u.shellMid.y);
+    result = cloud_compose(march, farMid, farLow, cirrus, wf, ray.of, ray.df, u);
     if (froxelsOn && wSpace < 1.0) { cloud_haze(result, screen, froxels, linear, air, exposure); }
     if (wSpace > 0.0) {
         float3 upCamera = normalize(float3(ray.of.x, ray.of.y, ray.of.z * u.cameraFigure.w));
@@ -1849,7 +1858,7 @@ fragment EffectCloudOut cloud_slot_fragment(CloudSlotOut in [[stage_in]],
                             linear, u, exposure);
         cloud_hazeFromSpace(cirrus, screen, u.shellMid.y, muCamera, rCamera, spaceScatter, trans,
                             linear, u, exposure);
-        result.color = mix(result.color, cloud_compose(march, farMid, farLow, cirrus, wf, u.radii.y > u.shellMid.y).color, wSpace);
+        result.color = mix(result.color, cloud_compose(march, farMid, farLow, cirrus, wf, ray.of, ray.df, u).color, wSpace);
     }
     c = result.color;
     if (orbit_isNotFinite(c.rgb) || orbit_isNotFinite(c.a)) { c = float4(0.0); }
@@ -1996,17 +2005,25 @@ inline float orbit_cloudSunTransmittance(float3 p, constant AtmosphereUniforms &
     return mix(1.0, exp(-d.x), d.y);
 }
 
-// The Sun's flux reaching a Lambertian ground through the clouds at p, the
-// Sun at cosine mu0 there: the direct beam and what the clouds pass on
-// diffusely, a conservative slab's two-stream transmittance, 2 / (2 + (1 - g)
-// tau mu0) for its normal optical depth tau mu0, g 0.85 (Bohren 1987;
-// CloudOptics.slabTransmittance, CloudLayerModel.waterAsymmetry). Under
-// thick cloud (tau 20, mu0 1) 0.4 of the flux, not e^-20; thin cirrus
-// (tau 0.4) dims the ground by 3 %.
+// The light reaching a Lambertian ground through the clouds at p, per unit
+// of the clear sky's, the Sun at cosine mu0 there (signed, the ellipsoid's
+// up): the Sun's direct beam and what the clouds pass on diffusely, and the
+// sky's light alike (most of it is scattered in the air above the clouds),
+// a conservative slab's two-stream transmittance, 2 / (2 + (1 - g) tau) for
+// its vertical optical depth tau, g 0.85 (Bohren 1987;
+// CloudOptics.slabTransmittance, CloudLayerModel.waterAsymmetry; C2's own
+// streams, CloudLighting.streams, pass the sky's light down so). The map
+// holds the depth along the Sun's ray, curved over the Earth: its vertical
+// depth is that times the ray's slope at the clouds (2 km), sqrt(mu0² +
+// 2 h / R), which stays above 0.025 at the terminator and with the Sun just
+// under the horizon, where the ray still climbs through the layer. Under
+// thick cloud (tau 20) 0.4 of the light, not e^-20; thin cirrus (tau 0.4)
+// dims the ground by 3 %.
 inline float orbit_cloudGroundTransmittance(float3 p, float mu0, constant AtmosphereUniforms &a, texture2d<float> map,
                                             sampler s) {
     float2 d = orbit_cloudShadowDepth(p, a, map, s);
-    return mix(1.0, 2.0 / (2.0 + 0.15 * d.x * max(mu0, 0.0)), d.y);
+    float slope = sqrt(mu0 * mu0 + 2.0 * 2000.0 / 6.371e6);
+    return mix(1.0, 2.0 / (2.0 + 0.15 * d.x * slope), d.y);
 }
 """#
 

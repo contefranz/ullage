@@ -263,6 +263,54 @@ final class CloudRenderTests: XCTestCase {
         XCTAssertEqual(withMid / alone, 1, accuracy: 0.03, "the mid layer beyond the ground leaves it as it is")
     }
 
+    /// The cirrus lies in front of the ground or not at all. From 2.9 km up
+    /// the ascent, rays to the ground met the 10 km shell only beyond the
+    /// Earth, and with the ground under the low clouds never cut (C2's slot)
+    /// that cirrus showed behind them; on a day launch it is the night's, a
+    /// dark veil over the clouds below the horizon.
+    func testCirrusStopsAtTheGround() throws {
+        var alpha: [Double: Double] = [:]
+        for high in [0.0, 0.6] {
+            let frame = try render(Self.padHorizonShot(regime: "far", advance: ["met:44"]),
+                                   weather: try Self.uniformWeather(low: 0.3, high: high))
+            let c = try XCTUnwrap(frame.capture.values(.halfResClouds))
+            let angles = try Self.rayAngles(frame, width: c.width, height: c.height)
+            var sum = 0.0
+            for (k, texel) in c.texels.enumerated() where angles[k].elevation < -1.9 * .pi / 180 { sum += texel[3] }
+            alpha[high] = sum
+        }
+        let alone = try XCTUnwrap(alpha[0]), withCirrus = try XCTUnwrap(alpha[0.6])
+        print("low layer under the horizon from 2.9 km: alone \(alone), with cirrus \(withCirrus)")
+        XCTAssertGreaterThan(alone, 1, "the low layer draws below the horizon")
+        XCTAssertEqual(withCirrus / alone, 1, accuracy: 0.03, "the cirrus beyond the ground leaves it as it is")
+    }
+
+    /// The cirrus goes behind cloud tops above its 10 km shell. From orbit
+    /// over a cumulonimbus deck (tops at 12 km, overcast), a cirrostratus at
+    /// 10 km lies inside the towers, hidden: the towers' light is what it was
+    /// without it. Ordered by the camera's height alone, it was laid over
+    /// the tops, dimming them by about its opacity.
+    func testCirrusGoesBehindTopsAboveIt() throws {
+        let epoch = VesselLibrary.apollo11Insertion
+        func towers(high: Double) throws -> Double {
+            var storm = CloudOverride(latitude: 0, longitude: 0, time: epoch,
+                                      observation: CloudObservation(low: 1, mid: 0, high: high, convective: true))
+            storm.radius = 4e7
+            let weather = try Self.uniformWeather(low: 1, high: high, overrides: [storm])
+            let c = try XCTUnwrap(render(Self.deckShot(regime: "march"), weather: weather).capture.values(.halfResClouds))
+            var sum = 0.0, n = 0
+            for texel in c.texels where texel[3] > 0.9 {
+                sum += 0.2126 * texel[0] + 0.7152 * texel[1] + 0.0722 * texel[2]
+                n += 1
+            }
+            XCTAssertGreaterThan(n, c.texels.count / 2, "the towers fill the view")
+            return sum / Double(max(n, 1))
+        }
+        let bare = try towers(high: 0), under = try towers(high: 1)
+        print("cumulonimbus tops from orbit, with cirrostratus at 10 km / without: \(under / bare)")
+        XCTAssertEqual(under / bare, 1, accuracy: 0.03)
+    }
+
     /// Under a cloud base above the low layer's 2 km reference shell, the far
     /// layer is not drawn below the camera: the clouds are above it. Before,
     /// at 2.2 km under a 2.8 km base, rays 0.3-1° down drew the 2 km shell's

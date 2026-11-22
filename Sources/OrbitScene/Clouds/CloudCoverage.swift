@@ -92,10 +92,11 @@ public enum CloudCoverage {
         public var cirrusScale: [Double]
         /// `columnDepth[layer]`: the march's optical depth down a cloudy
         /// column (one with any cloud) as a fraction of C1's in-cloud one,
-        /// β × the layer's depth: about 0.5-0.9 for the low layer, and for
-        /// the mid layer's lenses 0.1-0.2 at low cover, rising to 0.6 as
-        /// they merge into altostratus. The far mid layer takes its optical
-        /// depth from it.
+        /// β × the layer's depth, by cover (the baked table): 0.24-0.37 for
+        /// the low layer, and for the mid layer's lenses about a twelfth at
+        /// low cover rising to 0.14 at 31/32; both jump at full cover (0.83,
+        /// 0.75), where the threshold goes to zero. The far mid layer takes
+        /// its optical depth from it.
         public var columnDepth: [[Double]] = []
     }
 

@@ -125,12 +125,12 @@ fragment DepthColorOut planet_fragment(FullscreenOut in [[stage_in]],
         float3 sunF = normalize((u.worldToBody * float4(sun, 0.0)).xyz * float3(1.0, 1.0, s));
         float3 up = p / max(length(p), 1.0);
         float muS = dot(up, sunF);
-        // Per unit solar irradiance: the Sun through the air on the ground,
-        // through the clouds above it (direct and diffuse, C2), and the sky's
-        // light on a horizontal surface.
-        float clouds = u.atmosphere.w > 0.5 ? orbit_cloudGroundTransmittance(d * t, diffuse, air, cloudShadow, linear) : 1.0;
-        float3 e = atmo_transmittanceToSun(transmittance, linear, rb, muS, rb, rt, frame.sunDirection.w) * diffuse * clouds
-                 + atmo_sunTable(irradiance, linear, rb, muS, rb, rt);
+        // Per unit solar irradiance: the Sun through the air on the ground
+        // and the sky's light on a horizontal surface, both through the
+        // clouds above it (direct and diffuse, C2).
+        float clouds = u.atmosphere.w > 0.5 ? orbit_cloudGroundTransmittance(d * t, muS, air, cloudShadow, linear) : 1.0;
+        float3 e = (atmo_transmittanceToSun(transmittance, linear, rb, muS, rb, rt, frame.sunDirection.w) * diffuse
+                    + atmo_sunTable(irradiance, linear, rb, muS, rb, rt)) * clouds;
         float3 solar = frame.sunIlluminance.rgb;
         light = albedo / M_PI_F * e * solar;
         float topAltitude = rt - rb;

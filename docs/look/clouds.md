@@ -368,12 +368,17 @@ scene at the break), so the clouds' own share is the difference:
   camera-relative point: the direct beam, e^−τ, for what is lit by the Sun
   as a light (the vessels and LC-39A since the look follow-up, the plumes).
   The Earth's ground (the planet and tiled-planet modules) takes
-  `orbit_cloudGroundTransmittance(p, μ0, ...)` instead: the Sun's flux
-  through a conservative slab of normal optical depth τμ0, direct and
-  diffuse, 2 / (2 + (1 − g)τμ0) with g 0.85 (Bohren 1987;
-  `CloudOptics.slabTransmittance`): 0.4 of the flux under τ 20, 0.97 under
-  thin cirrus. R3's probe faces leave it out (their rays start at the probe,
-  not the camera). It reads `AtmosphereUniforms.cloudShadowMatrix`
+  `orbit_cloudGroundTransmittance(p, μ0, ...)` instead, on the Sun's light
+  and the sky's alike (most of the sky's is scattered in the air above the
+  clouds; C2's own streams pass it down so): a conservative slab of
+  vertical optical depth τ, direct and diffuse, 2 / (2 + (1 − g)τ) with g
+  0.85 (Bohren 1987; `CloudOptics.slabTransmittance`): 0.4 of the light
+  under τ 20, 0.97 under thin cirrus. τ is the map's depth along the Sun's
+  curved ray times the ray's slope at the clouds (2 km), √(μ0² + 2h/R),
+  which stays above 0.025 at the terminator and in twilight. R3's probe
+  faces of the planet leave it out (their rays start at the probe, not the
+  camera); its LC-39A takes the map shifted to the probe's centre, as R4's
+  maps are (`VesselPass.probeAtmosphere`). It reads `AtmosphereUniforms.cloudShadowMatrix`
   (camera-relative world to the map's u, v and the height above the ground)
   and `cloudLayer` (w is 1 when the clouds draw). Off the map it is 1; from
   orbit the far layer's own cover darkens the ground beyond it.
@@ -414,13 +419,19 @@ written beside each frame. Against the physics, worst first:
 1. **Rings of dashes over LEO views.** Three causes, in the slot copy and
    the resolve: the cirrus was put in front of or behind the other clouds by
    comparing entry distances, which the reprojection's depths nudged across
-   one another along the checkerboard's rows (it now goes by the camera's
-   height: in front above 10 km, behind below); the depths were half floats,
+   one another along the checkerboard's rows (it now goes by height: in
+   front of what the ray enters on the shell's far side from the camera,
+   behind what it enters on the camera's side, so a cumulonimbus top above
+   10 km stands over the cirrus from orbit, and from below 10 km the cirrus
+   lies behind the clouds; the decks lie kilometres from the shell and do
+   not flip); the depths were half floats,
    1 % steps (2 km at LEO), which put a deck's back and the ground behind it
    within a step or two of each other (now 32-bit); and the cut against the
    scene took the ground under a low deck for something inside it (the
    ground, within the depth spread of a half-resolution texel, now never
-   cuts). The resolve's front and entry for unmarched texels are now the
+   cuts; the cirrus, like the far layers, is drawn only where the ray meets
+   it before the ground, or the shell's far side beyond the Earth showed
+   through the clouds below the horizon from under 10 km). The resolve's front and entry for unmarched texels are now the
    nearest of this frame's marched neighbours: min'd with the history's
    they only ever came nearer. A texel with no cloud keeps the low layer's
    reference shell as its depth, so the resolve reprojects it from there,
@@ -434,8 +445,8 @@ written beside each frame. Against the physics, worst first:
    march and the far layer agree.
 3. **No cloud shadows on the ground or the vessels.** Only the plumes and
    the probe read the shadow map. The vessels' Sun now passes through it
-   (e^−τ, R4's patch), and the ground's through a slab, direct and diffuse
-   (above, For other tracks).
+   (e^−τ, R4's patch), and the ground's Sun and sky light through a slab,
+   direct and diffuse (above, For other tracks).
 
 Still open from the survey, worst first:
 - **From orbit, cumulus as 4-8 pixel blocks** (the steady state's march
