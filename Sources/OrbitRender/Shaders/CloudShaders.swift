@@ -1631,6 +1631,24 @@ inline float cloud_skyColumn(float3 pf, thread const CloudTextures &t, sampler w
     return sum;
 }
 
+// Where a line along the Sun from figure point pf0 (height hBase) is at
+// height h: the roots of |pf0 + sF t|² = (R + h)² in figure space (heights
+// are |pf| − R there, cloud_height), sF = cloud_figureDir(s), which
+// stretches z by a/b; t is world distance. A t² + 2 b t = (h − hBase)(2R +
+// h + hBase), A = |sF|², b = pf0 · sF, in a form exact in floats: x where
+// the line rises toward the Sun, y where it falls; where it never comes
+// down to h, both its lowest point, −b / A. (The sphere's own quadratic
+// with A 1 and b (R + hBase) μ0 dropped the stretch: the line's heights
+// were off by 0.3-1.4 km at mid latitudes, 2 km at a 20° Sun, and the
+// march's window missed up to 40 % of the low deck at one end. Before
+// that the parabola h = hBase + μ0 t + t²/2R, which drops 1 − μ0² as
+// well, marched the low layer kilometres under its heights from orbit.)
+inline float2 cloud_lineAt(float3 pf0, float3 sF, float hBase, float h, constant CloudUniforms &u) {
+    float A = dot(sF, sF), b = dot(pf0, sF);
+    float q = sqrt(max(b * b + A * (h - hBase) * (2.0 * u.radii.x + h + hBase), 0.0));
+    return float2(-b + q, -b - q) / A;
+}
+
 // Texel gid's Sun ray through the shell: the optical depth above each of
 // the four altitudes in u.shadowLevels; and in `sky` the sky's light on the
 // ground (cloud_skyColumn) where the texel's line meets it: x where it
@@ -1657,23 +1675,12 @@ kernel void cloud_shadow(texture2d<float, access::write> out [[texture(0)]],
     float2 uv = (float2(gid) + 0.5) / float(n);
     float3 base = u.shadowCenter.xyz + u.shadowU.xyz * ((uv.x - 0.5) * u.shadow.x) + u.shadowV.xyz * ((uv.y - 0.5) * u.shadow.x);
     float3 s = u.sun.xyz;
-    float3 pf0 = cloud_figure(base, u);
-    float3 up = normalize(float3(pf0.x, pf0.y, pf0.z * u.cameraFigure.w));
-    // The Sun's cosine at the map's plane, unclamped: the curved ray below
-    // holds at any height of the Sun (clamped, lines with the Sun under 1.15°
-    // were marched along the wrong heights).
-    float mu0 = dot(s, up);
-    float R = u.radii.x, hBase = cloud_height(pf0, u);
-    // Along the Sun from the map's plane the radius is |pf0 + s t|, with
-    // |pf0|² = rb², rb = R + hBase: at height h, t² + 2 rb μ0 t = (R + h)² −
-    // rb² = (h − hBase)(2R + h + hBase), its rising root (the sphere's own,
-    // in a form exact in floats; the parabola h(t) = hBase + μ0 t + t²/2R
-    // drops (1 − μ0²) and, from orbit, where the map's tilted plane lies
-    // hundreds of km off the ground, marched the low layer at heights a few
-    // km to ten under it: no shadow beyond 150-200 km of the map's centre
-    // line). Under the line's lowest point, the lowest point.
-    float rb = R + hBase, b0 = rb * mu0;
-    #define CLOUD_RAY_AT(h) (-b0 + sqrt(max(b0 * b0 + ((h) - hBase) * (2.0 * R + (h) + hBase), 0.0)))
+    float3 pf0 = cloud_figure(base, u), sF = cloud_figureDir(s, u);
+    float hBase = cloud_height(pf0, u);
+    // Along the Sun from the map's plane, t at height h where the line
+    // rises (cloud_lineAt: the heights in figure space, at any height of the
+    // Sun; under the line's lowest point, the lowest point).
+    #define CLOUD_RAY_AT(h) (cloud_lineAt(pf0, sF, hBase, (h), u).x)
     float4 tauAbove = float4(0.0);
     // The weather where the ray crosses the low and the mid layers (not at
     // the plane's point, kilometres off at a low Sun), for the heights the
@@ -1729,11 +1736,11 @@ kernel void cloud_shadow(texture2d<float, access::write> out [[texture(0)]],
     }
     #undef CLOUD_RAY_AT
     out.write(tauAbove, gid);
-    // The line's ground points, h(t) = 0 on the same sphere (its lowest
-    // point where it passes over the ground).
-    float sq = sqrt(max(b0 * b0 - hBase * (2.0 * R + hBase), 0.0));
-    float2 skyT = float2(cloud_skyColumn(cloud_figure(base + s * (-b0 + sq), u), t, wrap, weather, u),
-                         cloud_skyColumn(cloud_figure(base + s * (-b0 - sq), u), t, wrap, weather, u));
+    // The line's ground points (its lowest point where it passes over the
+    // ground).
+    float2 g = cloud_lineAt(pf0, sF, hBase, 0.0, u);
+    float2 skyT = float2(cloud_skyColumn(cloud_figure(base + s * g.x, u), t, wrap, weather, u),
+                         cloud_skyColumn(cloud_figure(base + s * g.y, u), t, wrap, weather, u));
     sky.write(float4(skyT, 0.0, 0.0), gid);
 }
 

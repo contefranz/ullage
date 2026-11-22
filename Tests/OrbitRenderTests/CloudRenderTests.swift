@@ -392,9 +392,12 @@ final class CloudRenderTests: XCTestCase {
                     let m = 0.5 * (lo + hi)
                     if (p0 + map.sun * m).length - frame.radius > 0 { hi = m } else { lo = m }
                 }
-                // (Lines that pass over the ground hold 1; lines that graze it
-                // at under 3° are left out, where the kernel's curved ray,
-                // a parabola, and this sphere part.)
+                // (Lines that pass over the ground hold their lowest point's
+                // cover, not a ground point's; lines that graze it at under
+                // 3° are left out: this test's sphere of the local radius and
+                // the kernel's figure ellipsoid differ by kilometres in
+                // radius, which moves a grazing line's ground point by tens
+                // of km, or makes it miss.)
                 let root = p0 + map.sun * lo
                 guard abs(root.length - frame.radius) < 100, root.normalized.dot(map.sun) > 0.05 else { continue }
                 let d = (p0 + map.sun * lo - ground).length, k = y * sky.width + x
@@ -1733,6 +1736,99 @@ final class CloudMapTests: XCTestCase {
             XCTAssertEqual(c.2, u.shell.z > 0, "\(c.0): the camera's side")
         }
         for (c, first) in zip(cases, results) { XCTAssertEqual(first, c.3, c.0) }
+    }
+
+    /// cloud_lineAt, the shadow map's lines along the Sun: in figure space
+    /// (z stretched by a/b, heights |pf| − a), its roots lie at the heights
+    /// asked for, checked in Double off the equator (28.5°, 32.5°, 57°) from
+    /// map planes 150 km under the ground to 300 km over it, the Sun 15° and
+    /// 45° up; where the line never comes down to the height, its lowest
+    /// point. The sphere's own quadratic, which dropped the stretch, put
+    /// these roots up to 740 m off their heights (the review found 2 km at a
+    /// 20° Sun).
+    func testShadowLinesMeetTheirHeightsOffTheEquator() throws {
+        let device = try XCTUnwrap(RenderDevice.shared)
+        let module = ShaderModule(name: "CloudLineAt", headers: [.effectSlots, .atmosphereCommon],
+                                  source: cloudShaderSource + """
+            kernel void cloud_test_lineAt(constant CloudUniforms &u [[buffer(0)]],
+                                          constant float4 *lines [[buffer(1)]],
+                                          device float2 *out [[buffer(2)]],
+                                          uint i [[thread_position_in_grid]]) {
+                out[i] = cloud_lineAt(lines[2 * i].xyz, lines[2 * i + 1].xyz, lines[2 * i].w, lines[2 * i + 1].w, u);
+            }
+            """)
+        let library = try ShaderLibrary(device: device).library(module)
+        let pipeline = try device.makeComputePipelineState(
+            function: try XCTUnwrap(library.makeFunction(name: "cloud_test_lineAt")))
+        let e = Ellipsoid.wgs84, a = e.equatorialRadius, w = a / e.polarRadius
+        func figure(_ p: Vec3) -> Vec3 { Vec3(p.x, p.y, p.z * w) }
+        struct Line { var pf0: Vec3; var sF: Vec3; var hBase: Double; var h: Double; var oldT: Double }
+        var lines: [Line] = []
+        for lat in [28.5, 32.5, 57.0] {
+            let φ = lat * .pi / 180, λ = -0.9
+            let up = e.normal(latitude: φ, longitude: λ)
+            let east = Vec3(-sin(λ), cos(λ), 0), north = up.cross(east)
+            for elevation in [15.0, 45.0] {
+                let el = elevation * .pi / 180
+                for azimuth in [0.0, 2.0] {
+                    let horizontal = east * cos(azimuth) + north * sin(azimuth)
+                    let sun = (horizontal * cos(el) + up * sin(el)).normalized
+                    // The map's plane through a point beside the ground point,
+                    // across the Sun, 150 km under to 300 km over the ground.
+                    for (offset, height) in [(0.0, 0.0), (-250_000.0, -150_000.0), (250_000.0, 300_000.0)] {
+                        let p = e.bodyFixed(latitude: φ, longitude: λ, height: height) + horizontal.cross(up) * offset
+                        let pf0 = figure(p), sF = figure(sun), hBase = pf0.length - a
+                        for h in [0.0, 720.0, 1_500.0, 2_820.0, 10_000.0] {
+                            // The sphere's own root, as the kernel had it.
+                            let mu0 = sun.dot(e.normal(at: p)), b0 = (a + hBase) * mu0
+                            let oldT = -b0 + max(b0 * b0 + (h - hBase) * (2 * a + h + hBase), 0).squareRoot()
+                            lines.append(Line(pf0: pf0, sF: sF, hBase: hBase, h: h, oldT: oldT))
+                        }
+                    }
+                }
+            }
+        }
+        var input: [SIMD4<Float>] = []
+        for l in lines {
+            input.append(SIMD4(Float(l.pf0.x), Float(l.pf0.y), Float(l.pf0.z), Float(l.hBase)))
+            input.append(SIMD4(Float(l.sF.x), Float(l.sF.y), Float(l.sF.z), Float(l.h)))
+        }
+        var u = CloudUniforms()
+        u.radii = SIMD4(Float(a), 0, 0, 0)
+        let inBuffer = try XCTUnwrap(device.makeBuffer(bytes: input, length: 16 * input.count, options: .storageModeShared))
+        let out = try XCTUnwrap(device.makeBuffer(length: 8 * lines.count, options: .storageModeShared))
+        let queue = try XCTUnwrap(device.makeCommandQueue())
+        let cb = try XCTUnwrap(queue.makeCommandBuffer()), enc = try XCTUnwrap(cb.makeComputeCommandEncoder())
+        enc.setComputePipelineState(pipeline)
+        enc.setBytes(&u, length: MemoryLayout<CloudUniforms>.stride, index: 0)
+        enc.setBuffer(inBuffer, offset: 0, index: 1)
+        enc.setBuffer(out, offset: 0, index: 2)
+        enc.dispatchThreads(MTLSize(width: lines.count, height: 1, depth: 1),
+                            threadsPerThreadgroup: MTLSize(width: 32, height: 1, depth: 1))
+        enc.endEncoding()
+        cb.commit()
+        cb.waitUntilCompleted()
+        let t = out.contents().bindMemory(to: SIMD2<Float>.self, capacity: lines.count)
+        func height(_ l: Line, _ t: Double) -> Double { (l.pf0 + l.sF * t).length - a }
+        var worst = 0.0, worstOld = 0.0, reached = 0
+        for (k, l) in lines.enumerated() {
+            let lowestT = -l.pf0.dot(l.sF) / l.sF.dot(l.sF)
+            let rising = Double(t[k].x), falling = Double(t[k].y)
+            if height(l, lowestT) < l.h {
+                reached += 1
+                worst = max(worst, abs(height(l, rising) - l.h), abs(height(l, falling) - l.h))
+                XCTAssertGreaterThan(rising, falling, "x rises")
+                worstOld = max(worstOld, abs(height(l, l.oldT) - l.h))
+            } else {
+                XCTAssertEqual(rising, lowestT, accuracy: 10, "the lowest point")
+                XCTAssertEqual(falling, lowestT, accuracy: 10)
+            }
+        }
+        print(String(format: "shadow lines: %d of %d reach their heights, worst %.1f m off (the sphere's own root %.0f m)",
+                     reached, lines.count, worst, worstOld))
+        XCTAssertGreaterThan(reached, lines.count / 2)
+        XCTAssertLessThan(worst, 10)
+        XCTAssertGreaterThan(worstOld, 300, "the sphere's own root was off")
     }
 
     /// The cloud uniforms' Swift mirrors have MSL's sizes.
