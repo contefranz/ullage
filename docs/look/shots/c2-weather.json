@@ -1,0 +1,198 @@
+{
+ "shots": [
+  {
+   "name": "c2w-earth-july",
+   "scenario": "as506-parking-orbit",
+   "showOrbit": false,
+   "width": 1280,
+   "height": 800,
+   "camera": {
+    "target": "body:399",
+    "frame": "inertial",
+    "yaw": 223.5,
+    "pitch": 22.9,
+    "distance": 14378000,
+    "fov": 60
+   },
+   "reference": "random weather, seed 1, 16 July 1969: storm tracks, the ITCZ's clusters, the subtropics' decks and clear deserts",
+   "settings": {
+    "cloud": {
+     "weather": "random",
+     "seed": 1
+    }
+   }
+  },
+  {
+   "name": "c2w-earth-july-6h",
+   "scenario": "as506-parking-orbit",
+   "showOrbit": false,
+   "width": 1280,
+   "height": 800,
+   "camera": {
+    "target": "body:399",
+    "frame": "inertial",
+    "yaw": 223.5,
+    "pitch": 22.9,
+    "distance": 14378000,
+    "fov": 60
+   },
+   "advance": [
+    "wait:21600"
+   ],
+   "reference": "six hours on: the systems moved",
+   "settings": {
+    "cloud": {
+     "weather": "random",
+     "seed": 1
+    }
+   }
+  },
+  {
+   "name": "c2w-earth-seed2",
+   "scenario": "as506-parking-orbit",
+   "showOrbit": false,
+   "width": 1280,
+   "height": 800,
+   "camera": {
+    "target": "body:399",
+    "frame": "inertial",
+    "yaw": 223.5,
+    "pitch": 22.9,
+    "distance": 14378000,
+    "fov": 60
+   },
+   "reference": "another seed, another sky",
+   "settings": {
+    "cloud": {
+     "weather": "random",
+     "seed": 2
+    }
+   }
+  },
+  {
+   "name": "c2w-earth-far",
+   "scenario": "as506-parking-orbit",
+   "showOrbit": false,
+   "width": 1280,
+   "height": 800,
+   "camera": {
+    "target": "body:399",
+    "frame": "inertial",
+    "yaw": 223.5,
+    "pitch": 22.9,
+    "distance": 22000000,
+    "fov": 50
+   },
+   "settings": {
+    "cloud": {
+     "weather": "random",
+     "seed": 1
+    }
+   }
+  },
+  {
+   "name": "c2w-earth-pacific",
+   "scenario": "as506-parking-orbit",
+   "showOrbit": false,
+   "width": 1280,
+   "height": 800,
+   "camera": {
+    "target": "body:399",
+    "frame": "inertial",
+    "yaw": 223.5,
+    "pitch": 22.9,
+    "distance": 22000000,
+    "fov": 50
+   },
+   "reference": "twelve hours on: the Pacific side by day",
+   "settings": {
+    "cloud": {
+     "weather": "random",
+     "seed": 1
+    }
+   },
+   "advance": [
+    "wait:43200"
+   ]
+  },
+  {
+   "name": "c2w-leo-day",
+   "scenario": "as506-parking-orbit",
+   "showOrbit": false,
+   "width": 1280,
+   "height": 800,
+   "camera": {
+    "yaw": -34.4,
+    "pitch": 30,
+    "distance": 70,
+    "fov": 60
+   },
+   "settings": {
+    "cloud": {
+     "weather": "random",
+     "seed": 1
+    }
+   }
+  },
+  {
+   "name": "c2w-pad",
+   "scenario": "as506-pad",
+   "showOrbit": false,
+   "width": 1280,
+   "height": 800,
+   "camera": {
+    "yaw": -60,
+    "pitch": 12,
+    "distance": 300,
+    "fov": 60
+   },
+   "settings": {
+    "cloud": {
+     "weather": "random",
+     "seed": 1
+    }
+   }
+  },
+  {
+   "name": "c2w-pad-up",
+   "scenario": "as506-pad",
+   "showOrbit": false,
+   "width": 1280,
+   "height": 800,
+   "camera": {
+    "yaw": -60,
+    "pitch": -35,
+    "distance": 120,
+    "fov": 70
+   },
+   "settings": {
+    "cloud": {
+     "weather": "random",
+     "seed": 1
+    }
+   }
+  },
+  {
+   "name": "c2w-ascent-30km",
+   "scenario": "as506-pad",
+   "showOrbit": false,
+   "width": 1280,
+   "height": 800,
+   "camera": {
+    "yaw": 149,
+    "pitch": -20,
+    "distance": 400,
+    "fov": 60
+   },
+   "advance": [
+    "met:118"
+   ],
+   "settings": {
+    "cloud": {
+     "weather": "random",
+     "seed": 1
+    }
+   }
+  }
+ ]
+}

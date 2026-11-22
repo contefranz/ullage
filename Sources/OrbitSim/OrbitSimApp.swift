@@ -42,6 +42,15 @@ struct OrbitSimApp: App {
                     Button(s.name) { model.load(s) }
                 }
             }
+            CommandMenu("Weather") {
+                Toggle("Historic (ERA5 on Mission Days)", isOn: Binding(get: { model.weatherMode == "historic" },
+                                                                       set: { if $0 { model.setWeather("historic") } }))
+                Toggle("Random", isOn: Binding(get: { model.weatherMode == "random" },
+                                               set: { if $0 { model.setWeather("random") } }))
+                Divider()
+                Button("New Weather") { model.newWeather() }
+                Text("Seed \(model.weatherSeed)")
+            }
         }
     }
 }

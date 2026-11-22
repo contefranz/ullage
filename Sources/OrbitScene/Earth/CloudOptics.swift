@@ -106,11 +106,14 @@ public enum CloudLayerModel {
 
     /// The sample's three layers, bottom up. The low layer's base is the
     /// sample's cloud base when that is below the mid layer (ERA5's cloud
-    /// base is the lowest cloud's, which may be mid or high cloud).
+    /// base is the lowest cloud's, which may be mid or high cloud); its top
+    /// the sample's where it has one (the procedural weather's), else the
+    /// layer model's depth above the base or a cumulonimbus's.
     public static func layers(_ s: CloudSample) -> [CloudLayer] {
         var lowBase = defaultLowBase
         if let b = s.baseHeight, b < midBase { lowBase = max(b, 0) }
-        let lowTop = s.convective ? cumulonimbusTop : lowBase + lowDepth
+        var lowTop = s.convective ? cumulonimbusTop : (s.topHeight ?? lowBase + lowDepth)
+        lowTop = max(lowTop, lowBase + 100)
         return [
             CloudLayer(kind: .low, base: lowBase, top: lowTop, cover: s.low, waterContent: lowWater,
                        effectiveRadius: lowRadius, density: CloudOptics.waterDensity, asymmetry: waterAsymmetry),

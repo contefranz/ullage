@@ -2,44 +2,100 @@ import Foundation
 import OrbitCore
 
 /// The sky the renderer draws (track C1): the mission's ERA5 field where
-/// it has data, the zonal climatology elsewhere and fading into it over
-/// `fade` beyond the field's span, then each override (the observed sky at
-/// the pad at launch) on top.
+/// it has data, fading over `fade` beyond the field's span into the weather
+/// elsewhere, then each override (the observed sky at the pad at launch) on
+/// top. The weather elsewhere is the procedural weather when there is one
+/// (`ProceduralWeather`: the renderer's always), else the zonal climatology.
 public struct CloudWeather {
     public var field: CloudField?
     public var overrides: [CloudOverride]
+    /// The weather beyond the field; nil for the zonal climatology.
+    public var procedural: ProceduralWeather?
     /// Beyond the field's first or last snapshot, its edge fades into the
-    /// climatology over this time, s.
+    /// weather elsewhere over this time, s.
     public var fade = 3 * 3600.0
 
-    public init(field: CloudField? = nil, overrides: [CloudOverride] = []) {
+    public init(field: CloudField? = nil, overrides: [CloudOverride] = [], procedural: ProceduralWeather? = nil) {
         self.field = field
         self.overrides = overrides
+        self.procedural = procedural
     }
 
     /// A mission's weather: `<mission>.oscloud` from OrbitSceneResources
     /// when the owner has fetched it (tools/make_clouds_era5.py), with the
-    /// launch's observed sky; the climatology and the observed sky
+    /// launch's observed sky; the weather elsewhere and the observed sky
     /// otherwise. Missions: apollo7, apollo8, apollo11.
-    public static func mission(_ name: String) -> CloudWeather {
+    public static func mission(_ name: String, procedural: ProceduralWeather? = nil) -> CloudWeather {
         let field = OrbitSceneResources.url(name + ".oscloud").flatMap { try? CloudField(contentsOf: $0) }
-        return CloudWeather(field: field, overrides: CloudOverride.launches[name].map { [$0] } ?? [])
+        return CloudWeather(field: field, overrides: CloudOverride.launches[name].map { [$0] } ?? [],
+                            procedural: procedural)
+    }
+
+    /// The field's weight at `epoch`: 1 within its span, falling to 0 over
+    /// `fade` beyond it; 0 without a field.
+    public func fieldWeight(at epoch: Epoch) -> Double {
+        guard let field, let first = field.times.first, let last = field.times.last else { return 0 }
+        let edge = epoch < first ? first : (epoch > last ? last : epoch)
+        let away = abs(epoch - edge)
+        return away == 0 ? 1 : (away >= fade ? 0 : 1 - away / fade)
     }
 
     public func sample(latitude: Double, longitude: Double, at epoch: Epoch) -> CloudSample {
-        var s = base(latitude: latitude, longitude: longitude, at: epoch)
+        sample(latitude: latitude, longitude: longitude, at: epoch, state: nil)
+    }
+
+    /// The sample with the procedural weather's state at (about) the epoch
+    /// given, so it is not made again; `calibrated` false leaves the
+    /// procedural covers uncalibrated (the renderer's camera wants only the
+    /// layer's heights and the winds).
+    public func sample(latitude: Double, longitude: Double, at epoch: Epoch, state: ProceduralWeather.State?,
+                       calibrated: Bool = true) -> CloudSample {
+        var s = base(latitude: latitude, longitude: longitude, at: epoch, state: state, calibrated: calibrated)
         for o in overrides { s = o.apply(to: s, latitude: latitude, longitude: longitude, at: epoch) }
         return s
     }
 
-    private func base(latitude: Double, longitude: Double, at epoch: Epoch) -> CloudSample {
-        let climate = CloudClimatology.sample(latitude: latitude, at: epoch)
-        guard let field, let first = field.times.first, let last = field.times.last else { return climate }
+    /// The weather elsewhere at a place: the procedural weather's node with
+    /// its row's offsets (from 180 nodes along the parallel), or the
+    /// climatology.
+    func elsewhere(latitude: Double, longitude: Double, at epoch: Epoch, state: ProceduralWeather.State?,
+                   calibrated: Bool) -> CloudSample {
+        guard let procedural else { return CloudClimatology.sample(latitude: latitude, at: epoch) }
+        let st = state ?? procedural.state(at: epoch)
+        let n = procedural.node(latitude: latitude, longitude: longitude, state: st)
+        let o = calibrated ? procedural.offsets(latitude: latitude, state: st) : (low: 0.0, mid: 0.0, high: 0.0)
+        let w = ProceduralWeather.winds(latitude: latitude, longitude: longitude, state: st)
+        let c = ProceduralWeather.covers(n, o)
+        return CloudSample(low: c.low, mid: c.mid, high: c.high, baseHeight: n.base,
+                           lowWind: w[0], midWind: w[1], highWind: w[2], topHeight: n.top, cumuliform: n.cumuliform)
+    }
+
+    private func base(latitude: Double, longitude: Double, at epoch: Epoch, state: ProceduralWeather.State?,
+                      calibrated: Bool) -> CloudSample {
+        let weight = fieldWeight(at: epoch)
+        func other() -> CloudSample {
+            elsewhere(latitude: latitude, longitude: longitude, at: epoch, state: state, calibrated: calibrated)
+        }
+        guard weight > 0, let field, let first = field.times.first, let last = field.times.last else { return other() }
         let edge = epoch < first ? first : (epoch > last ? last : epoch)
-        guard let s = field.sample(latitude: latitude, longitude: longitude, at: edge) else { return climate }
-        let away = abs(epoch - edge)
-        if away == 0 { return s }
-        return away >= fade ? climate : CloudSample.mix(s, climate, away / fade)
+        guard let s = field.sample(latitude: latitude, longitude: longitude, at: edge) else { return other() }
+        if weight >= 1 { return s }
+        let o = other(), x = 1 - weight
+        var m = CloudSample.mix(s, o, x)
+        // Into the procedural weather the low layer goes as the map's texels
+        // do (`CloudWeatherMap.texel`): linearly from the field's (its base
+        // where below the mid layer, the layer model's depth above it) to the
+        // procedural weather's, not switching halfway as `mix` does a value
+        // only one side has.
+        if procedural != nil, let pb = o.baseHeight, let pt = o.topHeight {
+            var fb = CloudLayerModel.defaultLowBase
+            if let b = s.baseHeight, b < CloudLayerModel.midBase { fb = max(b, 0) }
+            let ft = fb + CloudLayerModel.lowDepth
+            m.baseHeight = fb + x * (pb - fb)
+            m.topHeight = ft + x * (pt - ft)
+            m.cumuliform = 0.5 + x * ((o.cumuliform ?? 0.5) - 0.5)
+        }
+        return m
     }
 }
 

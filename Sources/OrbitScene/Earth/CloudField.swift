@@ -22,6 +22,12 @@ public struct CloudSample: Equatable {
     public var baseHeight: Double?
     /// Whether the low cloud is cumulonimbus (an observation says so).
     public var convective: Bool
+    /// The low layer's top above the surface, m, where the weather knows it
+    /// (the procedural weather's); nil for the layer model's.
+    public var topHeight: Double?
+    /// How cumuliform the low cloud is, 0 (stratus, stratocumulus) to 1
+    /// (cumulus); nil when unknown.
+    public var cumuliform: Double?
     /// The 10 m wind and the steering winds of the low, mid and high layers
     /// (850, 500 and 250 hPa); nil when unknown.
     public var surfaceWind: LayerWind?
@@ -31,12 +37,14 @@ public struct CloudSample: Equatable {
 
     public init(low: Double, mid: Double, high: Double, baseHeight: Double? = nil, convective: Bool = false,
                 surfaceWind: LayerWind? = nil, lowWind: LayerWind? = nil, midWind: LayerWind? = nil,
-                highWind: LayerWind? = nil) {
+                highWind: LayerWind? = nil, topHeight: Double? = nil, cumuliform: Double? = nil) {
         self.low = low
         self.mid = mid
         self.high = high
         self.baseHeight = baseHeight
         self.convective = convective
+        self.topHeight = topHeight
+        self.cumuliform = cumuliform
         self.surfaceWind = surfaceWind
         self.lowWind = lowWind
         self.midWind = midWind
@@ -58,7 +66,9 @@ public struct CloudSample: Equatable {
             surfaceWind: pick(a.surfaceWind, b.surfaceWind) { LayerWind.mix($0, $1, w) },
             lowWind: pick(a.lowWind, b.lowWind) { LayerWind.mix($0, $1, w) },
             midWind: pick(a.midWind, b.midWind) { LayerWind.mix($0, $1, w) },
-            highWind: pick(a.highWind, b.highWind) { LayerWind.mix($0, $1, w) })
+            highWind: pick(a.highWind, b.highWind) { LayerWind.mix($0, $1, w) },
+            topHeight: pick(a.topHeight, b.topHeight, lerp),
+            cumuliform: pick(a.cumuliform, b.cumuliform, lerp))
     }
 }
 

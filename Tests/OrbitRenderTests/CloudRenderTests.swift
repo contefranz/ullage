@@ -826,6 +826,138 @@ final class CloudCostTests: XCTestCase {
     }
 }
 
+extension CloudCostTests {
+    /// The procedural weather's kernels alone (ORBITSIM_CLOUD_COST=1): 20
+    /// dispatches of each back to back in one command buffer (the GPU's
+    /// clock stays up), gpuEndTime − gpuStartTime over 20, the median of 9.
+    func testProceduralKernelCost() throws {
+        guard ProcessInfo.processInfo.environment["ORBITSIM_CLOUD_COST"] != nil else {
+            throw XCTSkip("set ORBITSIM_CLOUD_COST=1 to measure")
+        }
+        let lock = GPULock { print("waiting for the GPU lock") }
+        defer { _ = lock }
+        let device = try XCTUnwrap(RenderDevice.shared)
+        let library = try ShaderLibrary(device: device).library(.cloud)
+        func pipeline(_ name: String) throws -> MTLComputePipelineState {
+            try device.makeComputePipelineState(function: try XCTUnwrap(library.makeFunction(name: name)))
+        }
+        let nodes = try pipeline("cloud_procedural"), calibrate = try pipeline("cloud_calibrate")
+        let proc = try XCTUnwrap(CloudPass.makeProcedural(device))
+        let frame = CloudWeatherMap.proceduralFrame(ProceduralWeather(seed: 1), at: VesselLibrary.apollo11Insertion)
+        var u = ProceduralUniforms(frame.state)
+        let bands = zip(frame.bands, frame.climatology).map { b, c in
+            ProceduralBand(a: SIMD4(Float(b.steer), Float(b.subtropics), Float(b.stratocumulus), Float(b.desert)),
+                           b: SIMD4(Float(b.midDesert), Float(b.trades), Float(b.polar), Float(b.ice)),
+                           c: SIMD4(Float(c.low), Float(c.mid), Float(c.high), 0))
+        }
+        let systems = frame.state.systems.map(ProceduralSystemGPU.init)
+        let bandBuffer = try XCTUnwrap(device.makeBuffer(bytes: bands, length: MemoryLayout<ProceduralBand>.stride * bands.count))
+        let systemBuffer = try XCTUnwrap(device.makeBuffer(bytes: systems,
+                                                           length: MemoryLayout<ProceduralSystemGPU>.stride * systems.count))
+        let queue = try XCTUnwrap(device.makeCommandQueue())
+        for (name, kernel) in [("nodes", 0), ("calibration", 1)] {
+            var times: [Double] = []
+            for _ in 0..<9 {
+                let cb = try XCTUnwrap(queue.makeCommandBuffer()), enc = try XCTUnwrap(cb.makeComputeCommandEncoder())
+                for _ in 0..<20 {
+                    if kernel == 0 {
+                        enc.setComputePipelineState(nodes)
+                        enc.setTexture(proc.latent, index: 0)
+                        enc.setTexture(proc.layer, index: 1)
+                        enc.setTexture(proc.geography.a, index: 2)
+                        enc.setTexture(proc.geography.b, index: 3)
+                        enc.setBytes(&u, length: MemoryLayout<ProceduralUniforms>.stride, index: 0)
+                        enc.setBuffer(bandBuffer, offset: 0, index: 1)
+                        enc.setBuffer(systemBuffer, offset: 0, index: 2)
+                        enc.dispatchThreads(MTLSize(width: ProceduralWeather.columns, height: ProceduralWeather.rows, depth: 1),
+                                            threadsPerThreadgroup: MTLSize(width: 16, height: 8, depth: 1))
+                    } else {
+                        enc.setComputePipelineState(calibrate)
+                        enc.setTexture(proc.latent, index: 0)
+                        enc.setBytes(&u, length: MemoryLayout<ProceduralUniforms>.stride, index: 0)
+                        enc.setBuffer(bandBuffer, offset: 0, index: 1)
+                        enc.setBuffer(proc.offsets, offset: 0, index: 3)
+                        enc.dispatchThreadgroups(MTLSize(width: ProceduralWeather.rows, height: 1, depth: 1),
+                                                 threadsPerThreadgroup: MTLSize(width: 256, height: 1, depth: 1))
+                    }
+                }
+                enc.endEncoding()
+                cb.commit()
+                cb.waitUntilCompleted()
+                times.append((cb.gpuEndTime - cb.gpuStartTime) / 20)
+            }
+            print(String(format: "procedural %@: %.3f ms a dispatch (%d systems)", name, times.sorted()[4] * 1_000, systems.count))
+        }
+    }
+
+    /// The weather map's assembly (ORBITSIM_CLOUD_COST=1): the frames of a
+    /// sweep (the time 60 s on, past `CloudPass.proceduralStep`, every eighth
+    /// frame: the next `CloudPass.sweepBands` frames each make a band of the
+    /// nodes, the rows' calibration and the band's map rows) against the
+    /// frames after it that keep the map, one renderer, every default pass at
+    /// 3024 × 1964; with the procedural weather and with the climatology (the
+    /// map alone, made once: its frames are the same).
+    func testWeatherAssemblyCost() throws {
+        guard ProcessInfo.processInfo.environment["ORBITSIM_CLOUD_COST"] != nil else {
+            throw XCTSkip("set ORBITSIM_CLOUD_COST=1 to measure")
+        }
+        let lock = GPULock { print("waiting for the GPU lock") }
+        defer { _ = lock }
+        let s = try SnapshotRenderer(device: try XCTUnwrap(RenderDevice.shared))
+        var shot = SnapshotSpec.Shot(name: "leo", scenario: "as506-parking-orbit",
+                                     camera: SnapshotSpec.CameraSpec(yaw: -34.4, pitch: 30, distance: 70, fov: 60))
+        // The full frame, every default pass: the GPU's clock stays up.
+        shot.width = 3024
+        shot.height = 1964
+        shot.showOrbit = false
+        let prepared = try shot.prepare(system: s.system)
+        let base = shot.scene(prepared)
+        for weather in ["random", "climatology"] {
+            let r = try SceneRenderer(device: s.device, outputFormat: .bgra8Unorm_srgb,
+                                      passes: SceneRenderer.defaultPasses(loadsUserTextures: false),
+                                      plan: HDRTargetPlan(outputFormat: .bgra8Unorm_srgb, sampleCount: 4))
+            r.setStars(s.stars)
+            r.settings.particle.quality = .off
+            r.settings.cloud.weather = weather
+            r.settings.cloud.reprojection = false
+            if let skip = ProcessInfo.processInfo.environment["ORBITSIM_CLOUD_SKIP"] {
+                r.settings.cloud.skip = skip.split(separator: ",").map(String.init)
+            }
+            let target = try XCTUnwrap(OffscreenTarget(device: s.device, width: shot.width, height: shot.height))
+            final class Times: @unchecked Sendable {
+                let lock = NSLock()
+                var a: [Double] = [], b: [Double] = []
+            }
+            let times = Times()
+            var last: MTLCommandBuffer?
+            var time = base.clock.simTime
+            let cycle = 2 * CloudPass.sweepBands
+            for k in 0..<(40 + 25 * cycle) {
+                var scene = base
+                let assemble = k % cycle < CloudPass.sweepBands
+                if k % cycle == 0 { time = time + 60 }
+                scene.clock.simTime = time
+                scene.clock.frameIndex = k + 1
+                scene.clock.temporalReset = k == 0
+                let measure = k >= 40
+                last = r.render(scene, to: target.texture) { cb in
+                    guard measure else { return }
+                    times.lock.withLock {
+                        if assemble { times.a.append(cb.gpuEndTime - cb.gpuStartTime) } else { times.b.append(cb.gpuEndTime - cb.gpuStartTime) }
+                    }
+                }
+            }
+            last?.waitUntilCompleted()
+            Thread.sleep(forTimeInterval: 0.2)
+            func median(_ x: [Double]) -> Double { x.sorted()[x.count / 2] }
+            let band = median(times.a) - median(times.b)
+            print(String(format: "weather map %@: %.2f ms a frame of a sweep, %.2f ms the sweep (frame %.2f, kept %.2f)",
+                         weather, band * 1_000, band * Double(CloudPass.sweepBands) * 1_000, median(times.a) * 1_000,
+                         median(times.b) * 1_000))
+        }
+    }
+}
+
 /// Track C2's GPU volumes and maps against their Swift mirrors.
 @MainActor
 final class CloudMapTests: XCTestCase {
@@ -949,6 +1081,148 @@ final class CloudMapTests: XCTestCase {
                 XCTAssertEqual(half(bp[2 * at]), e.lowTop, accuracy: 8)
             }
         }
+    }
+
+    /// The procedural weather on the GPU is ProceduralWeather's mirror: its
+    /// nodes (`cloud_procedural` against `ProceduralWeather.node`, Float and
+    /// fast math against Double), each row's calibration (`cloud_calibrate`
+    /// against `ProceduralWeather.offset` over the GPU's own nodes) and the
+    /// map assembled from them (`cloud_weather` against
+    /// `CloudWeatherMap.texel`).
+    func testProceduralWeatherIsTheMirror() throws {
+        let w = ProceduralWeather(seed: 7)
+        let weather = CloudWeather(procedural: w)
+        var shot = CloudRenderTests.slabShot(regime: "far")
+        shot.settings.cloud.lookDev = nil
+        shot.settings.cloud.coverageModulation = 0
+        let (clouds, s) = try render(shot) { $0.weatherOverride = weather }
+        let report = clouds.lastFrame
+        XCTAssertTrue(report.drawn)
+        let epoch = try XCTUnwrap(report.epoch)
+        let proc = try XCTUnwrap(clouds.procedural)
+        let columns = ProceduralWeather.columns, rows = ProceduralWeather.rows
+        let latent = try Self.readBack(proc.latent, bytesPerTexel: 16, device: s.device)
+            .contents().bindMemory(to: Float.self, capacity: 4 * columns * rows)
+        let layer = try Self.readBack(proc.layer, bytesPerTexel: 16, device: s.device)
+            .contents().bindMemory(to: Float.self, capacity: 4 * columns * rows)
+        let offsetsBuffer = try Self.readBack(proc.offsets, device: s.device)
+            .contents().bindMemory(to: Float.self, capacity: 4 * rows)
+        func gpuNode(_ j: Int, _ c: Int) -> ProceduralWeather.Node {
+            let k = 4 * (j * columns + c)
+            var n = ProceduralWeather.Node()
+            n.low = Double(latent[k])
+            n.mid = Double(latent[k + 1])
+            n.high = Double(latent[k + 2])
+            n.base = Double(latent[k + 3])
+            n.top = Double(layer[k])
+            n.cumuliform = Double(layer[k + 1])
+            return n
+        }
+        // The nodes.
+        let state = w.state(at: epoch)
+        XCTAssertEqual(state, clouds.proceduralState)
+        let g = WeatherGeography.earth
+        var worst = 0.0
+        for j in [0, 41, 100, 150, 180, 211, 250, 300, 360] {
+            let lat = ProceduralWeather.latitude(row: j)
+            let band = ProceduralWeather.band(latitude: lat, sky: state.sky)
+            for c in stride(from: 0, to: columns, by: 7) {
+                let e = ProceduralWeather.node(latitude: lat, longitude: ProceduralWeather.longitude(column: c),
+                                               geography: g.texel(row: j, column: c), band: band, state: state)
+                let n = gpuNode(j, c)
+                worst = max(worst, abs(n.low - e.low), abs(n.mid - e.mid), abs(n.high - e.high))
+                XCTAssertEqual(n.base, e.base, accuracy: 2, "base at \(j), \(c)")
+                XCTAssertEqual(n.top, e.top, accuracy: 8, "top at \(j), \(c)")
+                XCTAssertEqual(n.cumuliform, e.cumuliform, accuracy: 2e-3, "cumuliform at \(j), \(c)")
+            }
+        }
+        XCTAssertLessThan(worst, 0.01, "the latent covers")
+        // The rows' calibration over the GPU's own nodes.
+        let frame = CloudWeatherMap.proceduralFrame(w, at: epoch)
+        let gains = ProceduralWeather.gains
+        var offsets: [(low: Double, mid: Double, high: Double)] = []
+        for j in 0..<rows {
+            offsets.append((Double(offsetsBuffer[4 * j]), Double(offsetsBuffer[4 * j + 1]), Double(offsetsBuffer[4 * j + 2])))
+            guard j % 30 == 0 || j == rows - 1 else { continue }
+            let nodes = (0..<columns).map { gpuNode(j, $0) }
+            let c = frame.climatology[j]
+            XCTAssertEqual(offsets[j].low, ProceduralWeather.offset(nodes.map(\.low), target: c.low, gain: gains.low),
+                           accuracy: 2e-3, "row \(j)")
+            XCTAssertEqual(offsets[j].mid, ProceduralWeather.offset(nodes.map(\.mid), target: c.mid, gain: gains.mid),
+                           accuracy: 2e-3, "row \(j)")
+            XCTAssertEqual(offsets[j].high, ProceduralWeather.offset(nodes.map(\.high), target: c.high, gain: gains.high),
+                           accuracy: 2e-3, "row \(j)")
+        }
+        // The map.
+        let map = try XCTUnwrap(clouds.weatherMap)
+        let a = try Self.readBack(map.a, bytesPerTexel: 8, device: s.device)
+        let b = try Self.readBack(map.b, bytesPerTexel: 4, device: s.device)
+        let ap = a.contents().bindMemory(to: UInt16.self, capacity: 4 * CloudWeatherMap.columns * CloudWeatherMap.rows)
+        let bp = b.contents().bindMemory(to: UInt16.self, capacity: 2 * CloudWeatherMap.columns * CloudWeatherMap.rows)
+        let p = CloudWeatherMap.parameters(weather, at: epoch)
+        XCTAssertNotNil(p.procedural)
+        let nodes = CloudWeatherMap.ProceduralNodes(node: gpuNode, offsets: offsets)
+        func half(_ v: UInt16) -> Double { Double(Float(Float16(bitPattern: v))) }
+        for r in [0, 1, 99, 360, 361, 500, 719, 720] {
+            for c in [0, 1, 321, 1000, 1439] {
+                let e = CloudWeatherMap.texel(column: c, row: r, first: nil, second: nil, parameters: p, procedural: nodes)
+                let at = r * CloudWeatherMap.columns + c
+                XCTAssertEqual(half(ap[4 * at]), e.low, accuracy: 2e-3, "\(r), \(c)")
+                XCTAssertEqual(half(ap[4 * at + 1]), e.mid, accuracy: 2e-3, "\(r), \(c)")
+                XCTAssertEqual(half(ap[4 * at + 2]), e.high, accuracy: 2e-3, "\(r), \(c)")
+                XCTAssertEqual(half(ap[4 * at + 3]), e.lowBase, accuracy: 2.5, "half floats: 2 m steps to 4 km")
+                XCTAssertEqual(half(bp[2 * at]), e.lowTop, accuracy: 8)
+                XCTAssertEqual(half(bp[2 * at + 1]), e.cumuliform, accuracy: 2e-3)
+            }
+        }
+    }
+
+    /// A sweep (the procedural nodes made again a band a frame once the
+    /// time has moved 30 s) ends with the map a fresh pass makes at its time,
+    /// texel for texel.
+    func testProceduralSweepEndsWithAFreshMap() throws {
+        let weather = CloudWeather(procedural: ProceduralWeather(seed: 9))
+        var shot = CloudRenderTests.slabShot(regime: "far", width: 64, height: 40)
+        shot.settings.cloud.lookDev = nil
+        let s = try SnapshotRenderer(device: try XCTUnwrap(RenderDevice.shared))
+        let prepared = try shot.prepare(system: s.system)
+        let start = shot.scene(prepared).clock.simTime
+        func map(_ times: [Double]) throws -> [UInt16] {
+            let clouds = CloudPass()
+            clouds.weatherOverride = weather
+            let r = try SceneRenderer(device: s.device, outputFormat: .bgra8Unorm_srgb, passes: [clouds],
+                                      plan: HDRTargetPlan(outputFormat: .bgra8Unorm_srgb, sampleCount: 4))
+            r.settings = shot.settings
+            let target = try XCTUnwrap(OffscreenTarget(device: s.device, width: shot.width, height: shot.height))
+            for (k, t) in times.enumerated() {
+                var scene = shot.scene(prepared)
+                scene.clock.simTime = start + t
+                scene.clock.frameIndex = k + 1
+                _ = r.renderAndWait(scene, into: target)
+            }
+            let m = try XCTUnwrap(clouds.weatherMap)
+            let n = 4 * CloudWeatherMap.columns * CloudWeatherMap.rows
+            let buffer = try Self.readBack(m.a, bytesPerTexel: 8, device: s.device)
+            return Array(UnsafeBufferPointer(start: buffer.contents().bindMemory(to: UInt16.self, capacity: n), count: n))
+        }
+        let fresh = try map([3_600])
+        // 40 s on: a sweep, four frames.
+        let sweep = try map([3_560, 3_600, 3_600, 3_600, 3_600])
+        XCTAssertEqual(sweep, fresh)
+        // Mid-sweep it is not yet.
+        XCTAssertNotEqual(try map([3_560, 3_600, 3_600]), fresh)
+    }
+
+    /// A private buffer's bytes, through a shared copy.
+    static func readBack(_ buffer: MTLBuffer, device: MTLDevice) throws -> MTLBuffer {
+        let out = try XCTUnwrap(device.makeBuffer(length: buffer.length, options: .storageModeShared))
+        let queue = try XCTUnwrap(device.makeCommandQueue())
+        let cb = try XCTUnwrap(queue.makeCommandBuffer()), blit = try XCTUnwrap(cb.makeBlitCommandEncoder())
+        blit.copy(from: buffer, sourceOffset: 0, to: out, destinationOffset: 0, size: buffer.length)
+        blit.endEncoding()
+        cb.commit()
+        cb.waitUntilCompleted()
+        return out
     }
 
     /// A pseudo-random field of three hourly snapshots around the parking
@@ -1112,11 +1386,14 @@ final class CloudMapTests: XCTestCase {
                 out[0] = sizeof(CloudUniforms);
                 out[1] = sizeof(CloudWeatherParams);
                 out[2] = sizeof(CloudResolveUniforms);
+                out[3] = sizeof(ProceduralUniforms);
+                out[4] = sizeof(ProceduralBand);
+                out[5] = sizeof(ProceduralSystem);
             }
             """)
         let library = try ShaderLibrary(device: device).library(module)
         let pipeline = try device.makeComputePipelineState(function: try XCTUnwrap(library.makeFunction(name: "cloud_sizes")))
-        let out = try XCTUnwrap(device.makeBuffer(length: 3 * 4, options: .storageModeShared))
+        let out = try XCTUnwrap(device.makeBuffer(length: 6 * 4, options: .storageModeShared))
         let queue = try XCTUnwrap(device.makeCommandQueue())
         let cb = try XCTUnwrap(queue.makeCommandBuffer()), enc = try XCTUnwrap(cb.makeComputeCommandEncoder())
         enc.setComputePipelineState(pipeline)
@@ -1125,10 +1402,13 @@ final class CloudMapTests: XCTestCase {
         enc.endEncoding()
         cb.commit()
         cb.waitUntilCompleted()
-        let v = out.contents().bindMemory(to: UInt32.self, capacity: 3)
+        let v = out.contents().bindMemory(to: UInt32.self, capacity: 6)
         XCTAssertEqual(Int(v[0]), MemoryLayout<CloudUniforms>.stride)
         XCTAssertEqual(Int(v[1]), MemoryLayout<CloudWeatherParams>.stride)
         XCTAssertEqual(Int(v[2]), MemoryLayout<CloudResolveUniforms>.stride)
+        XCTAssertEqual(Int(v[3]), MemoryLayout<ProceduralUniforms>.stride)
+        XCTAssertEqual(Int(v[4]), MemoryLayout<ProceduralBand>.stride)
+        XCTAssertEqual(Int(v[5]), MemoryLayout<ProceduralSystemGPU>.stride)
     }
 }
 
