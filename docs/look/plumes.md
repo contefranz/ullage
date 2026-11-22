@@ -70,15 +70,18 @@ medium, L low (visual, calibrated or assumed).
    half the members' spread about the axis and their dense radius), so a
    small dense core (a retro's alumina, or a pair of them) is not stepped
    over. A clear exhaust's ice in vacuum is stepped equiangularly about
-   its free expansion's virtual source from every view instead (its
-   density falls as 1/d² off that point), h no less than an exit radius nor
-   than the onset surface's distance from the source at the ray's angle to
-   the axis (the ice is nil inside it: 72 m along a J-2's axis, 41 m at
-   35°, under a metre across), so the steps follow the ice, not the empty
-   core, with no switch as a camera orbits: the bright condensing shell
-   near the nozzle is stepped finely and the jitter leaves no pattern
-   there (`p2-j2-ice-behind`, 250 m behind five J-2s; `p2-j2-ice-oblique`,
-   40° off their axis). The marched clusters blend far to
+   its free expansion's virtual source instead (its density falls as 1/d²
+   off that point) whenever the ray spans more than four of its closest
+   approaches to the source (no less than an exit radius), from any view:
+   h, which sets the spacing, is that closest approach but no less than the
+   onset surface's distance from the source at the ray's angle to the axis
+   (the ice is nil inside it: 72 m along a J-2's axis, 41 m at 35°, under a
+   metre across). So the steps follow the ice, not the empty core, with no
+   switch as a camera orbits or closes in: the bright condensing shell near
+   the nozzle is stepped finely and the jitter leaves no pattern there.
+   Look-dev: `p2-j2-ice-behind` (250 m behind five J-2s, 10° off their
+   axis), `p2-j2-ice-oblique` (100 m, 40° off) and `p2-j2-ice-31` (120 m,
+   31° off), all on these steps with h at the onset's distance. The marched clusters blend far to
    near. The field is `PlumeMember.sample`, line by line, plus the
    turbulence. `PlumeRenderTests` checks the GPU against the CPU reference
    through the same rays (within 1 % on average; the test allows 10 %).
@@ -88,7 +91,9 @@ medium, L low (visual, calibrated or assumed).
    part of the ray its own vessel's shadow can cover, interpolated, and
    lit outside it: the vessel a capsule from its round shapes' extents
    along and about its axis, swept away from the Sun. Each step takes the
-   shadow's mean over its stratum, not its value at its jittered point,
+   shadow's mean over its stratum, weighted as the step samples it (in φ
+   for equiangular steps, in closed form), not its value at its jittered
+   point,
    so the vessel's shadow through its sunlit ice or smoke is one steady
    column, neither copies at fixed points nor a stipple; R4 read at every
    step cost about 2 ms more at max-Q. C2's cloud shadow, the
@@ -434,9 +439,10 @@ show that it fires, both from its physics:
   exits are dark.
 - **Vacuum plumes are still**: a free expansion has no mixing layer, so no
   eddies (the turbulence's depth goes to 0 in vacuum; it was 0.15, L). Ice
-  clusters march at half the steps (at least 16), seen across equiangular
-  about the free expansion's virtual source (their density falls as 1/d²
-  off it).
+  clusters march at half the steps (at least 16), equiangular about the
+  free expansion's virtual source from any view, spaced by the onset
+  surface's distance (their density falls as 1/d² off the source, and is
+  nil inside the onset).
 - **Staging and transients** need nothing new: the S-II ullage motors and
   the S-IC retros are P1's solids as before; an engine's start and
   shutdown follow its flow, the ice and the chamber's glow with it.

@@ -880,12 +880,14 @@ fragment EffectVolumeOut plume_march_fragment(PlumeProxyOut in [[stage_in]],
     }
     // A clear exhaust's ice in vacuum: its density falls as 1/d² off the
     // free expansion's virtual source (c.reserved[1]), so its steps go
-    // equiangular about that point, as dense as 1/(h² + d²) along the ray.
-    // h is the ray's closest approach to it, but no less than an exit
-    // radius, nor than the onset surface's distance from the source at the
-    // ray's angle to the axis (the ice is nil inside it, S √(pv(θ)/onset):
-    // 72 m along a J-2's axis, under a metre across it), so that the steps
-    // follow the ice, not the empty core, from every view.
+    // equiangular about that point, as dense as 1/(h² + d²) along the ray,
+    // whenever the ray spans more than four of its closest approaches to it
+    // (no less than an exit radius). h is that, but no less than the onset
+    // surface's distance from the source at the ray's angle to the axis
+    // (the ice is nil inside it, S √(pv(θ)/onset): 72 m along a J-2's axis,
+    // under a metre across it): the onset shapes only the spacing, so the
+    // steps follow the ice, not the empty core, from every view and
+    // distance, with no switch.
     if (c.reserved[0].w > 0.5) {
         float3 source = c.reserved[1].xyz;
         float ts = dot(source, dir) / (len * len);
@@ -894,8 +896,8 @@ fragment EffectVolumeOut plume_march_fragment(PlumeProxyOut in [[stage_in]],
         float lim = mi.simons.z;
         float pv = theta < lim ? pow(max(cos(0.5 * M_PI_F * theta / lim), 0.0), mi.simons.y) : 0.0;
         float onset = mi.condensate.w > 0.0 ? mi.simons.w * sqrt(pv / mi.condensate.w) : 0.0;
-        float h = max(max(length(source - dir * ts), c.reserved[1].w), onset);
-        if ((exit - enter) * len > 4.0 * h) {
+        float hRay = max(length(source - dir * ts), c.reserved[1].w), h = max(hRay, onset);
+        if ((exit - enter) * len > 4.0 * hRay) {
             equiangular = true;
             t0 = ts;
             hk = h / len;
@@ -1025,15 +1027,25 @@ fragment EffectVolumeOut plume_march_fragment(PlumeProxyOut in [[stage_in]],
             if (hi > lo) {
                 float k7 = 7.0 / max(shade.y - shade.x, 1e-6);
                 float u0 = (lo - shade.x) * k7, u1 = (hi - shade.x) * k7;
+                // Weighted as the step samples its stratum: uniformly in s,
+                // or for equiangular steps in φ (s = t0 + hk tan φ), each
+                // linear piece's mean over φ in closed form.
                 float dark = 0.0;
                 for (int j = min(int(u0), 6); j <= min(int(u1), 6); j++) {
                     float ua = max(u0, float(j)), ub = min(u1, float(j + 1));
                     if (ub <= ua) { continue; }
                     float la = mix(shadows[j], shadows[j + 1], ua - float(j));
                     float lb = mix(shadows[j], shadows[j + 1], ub - float(j));
-                    dark += (ub - ua) * (1.0 - 0.5 * (la + lb));
+                    if (equiangular) {
+                        float sa = shade.x + ua / k7, sb = shade.x + ub / k7;
+                        float fa = atan((sa - t0) / hk), fb = atan((sb - t0) / hk);
+                        dark += (1.0 - la) * (fb - fa) - (lb - la) / max(sb - sa, 1e-6)
+                            * ((t0 - sa) * (fb - fa) + hk * log(cos(fa) / cos(fb)));
+                    } else {
+                        dark += (ub - ua) / k7 * (1.0 - 0.5 * (la + lb));
+                    }
                 }
-                shadow = 1.0 - dark / k7 / max(sB - sA, 1e-6);
+                shadow = 1.0 - dark / (equiangular ? max(dphi, 1e-9) : max(sB - sA, 1e-6));
             }
             source += x.tinted * sunLux * (shadow * plume_phase(dot(view, sunDir), g) * exp(-sunDepth));
             // The cluster's own light on its smoke outside its luminous
