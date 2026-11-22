@@ -252,8 +252,13 @@ public enum PlumeTurbulence {
         }
     }
 
-    /// Member `m`'s flow at camera-relative `p`.
+    /// Member `m`'s flow at camera-relative `p`: in its wall jet on the
+    /// ground it meets (`PlumeImpingement.wallJet`), the equivalent free
+    /// jet's.
     public static func flow(_ m: PlumeMember, at p: Vec3) -> Flow {
+        if let i = m.impingement, let w = i.wallJet(m, at: p) {
+            return Flow(m, atX: w.x, profile: profile(m, atX: w.x, r: w.r))
+        }
         let d = p - m.exit, x = max(d.dot(m.axis), 0)
         let r = (d - m.axis * x - m.bend.direction * m.bend.offset(atX: x)).length
         return Flow(m, atX: x, profile: profile(m, atX: x, r: r))
@@ -424,6 +429,7 @@ public enum PlumeTurbulence {
     /// Whether member `k`'s field reaches camera-relative `p` (as the
     /// shader's early reject finds it, downstream of the exit).
     public static func reaches(_ k: PlumeMember, _ p: Vec3) -> Bool {
+        if let i = k.impingement, let w = i.wallJet(k, at: p) { return w.r <= k.fieldExtent(atX: w.x) }
         let dk = p - k.exit, xk = dk.dot(k.axis)
         guard xk >= 0, xk <= k.length else { return false }
         let rk = (dk - k.axis * xk - k.bend.direction * k.bend.offset(atX: xk)).length
@@ -464,12 +470,17 @@ public enum PlumeTurbulence {
             ? PlumeMember.smoothstep(mergeX, 1.15 * mergeX, (p - origin).dot(axis)) : 0
         var best: Flow?
         if wm < 1 {
-            if let n = nearest(members, at: p), n.r <= members[n.index].fieldExtent(atX: n.x) {
+            if let n = nearest(members, at: p) {
                 let m = members[n.index]
-                best = Flow(m, atX: n.x, profile: profile(m, atX: n.x, r: n.r))
-            } else if let k = members.first(where: { reaches($0, p) }) {
-                best = flow(k, at: p)
+                if m.impingement != nil || members.count == 1 {
+                    // A lone member, or one meeting the deck (its wall jet's
+                    // own geometry).
+                    if reaches(m, p) { best = flow(m, at: p) }
+                } else if n.r <= m.fieldExtent(atX: n.x) {
+                    best = Flow(m, atX: n.x, profile: profile(m, atX: n.x, r: n.r))
+                }
             }
+            if best == nil, let k = members.first(where: { reaches($0, p) }) { best = flow(k, at: p) }
         }
         var far: Flow?
         if wm > 0, let merged, reaches(merged, p) { far = flow(merged, at: p) }

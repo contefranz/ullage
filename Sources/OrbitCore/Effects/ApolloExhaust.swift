@@ -25,6 +25,55 @@ public enum ApolloExhaust {
     public struct Engine {
         public let spec: ExhaustSpec
         public let ratedFlow: Double
+        /// The drawn chamber behind the throat, where the dresser draws one
+        /// (the J-2): what of the chamber's gas shows through the nozzle.
+        public var chamber: Chamber?
+
+        public init(spec: ExhaustSpec, ratedFlow: Double, chamber: Chamber? = nil) {
+            self.spec = spec
+            self.ratedFlow = ratedFlow
+            self.chamber = chamber
+        }
+    }
+
+    /// An engine's chamber as the dresser draws it, along the axis from the
+    /// exit plane into the nozzle (m): the throat, the injector face, and
+    /// the radii of the throat and the chamber.
+    public struct Chamber: Equatable {
+        public let throatDepth: Double
+        public let injectorDepth: Double
+        public let throatRadius: Double
+        public let radius: Double
+        /// Where the convergent section meets the chamber's cylinder (m from
+        /// the exit plane).
+        public let convergentDepth: Double
+        /// The nozzle's exit's radius (m): the chamber is seen only through
+        /// it and the throat.
+        public let exitRadius: Double
+
+        /// The gas side's radius `depth` m into the nozzle, behind the
+        /// throat: the convergent cone's, then the chamber's.
+        public func gasRadius(atDepth depth: Double) -> Double {
+            guard depth < convergentDepth else { return radius }
+            let t = (depth - throatDepth) / max(convergentDepth - throatDepth, 1e-9)
+            return throatRadius + (radius - throatRadius) * min(max(t, 0), 1)
+        }
+    }
+
+    /// The J-2's, as `ApolloDresser.j2Profile` draws it: the throat
+    /// (`AS506.j2ThroatDiameter`) at the end of the Rao-style bell over 80 %
+    /// of a 15° cone's length from the exit, the 30° convergent section to
+    /// the 18.3 in chamber, the injector face 107 in up the chamber body
+    /// from the exit (RJ1 §1-16).
+    public static var j2Chamber: Chamber {
+        let inch = D.inch
+        let rt = D.j2ThroatDiameter / 2 * inch, re = ApolloShapeData.j2ExitRadius
+        let rc = ApolloShapeData.j2ChamberDiameter / 2 * inch
+        let throat = ApolloShapeData.bellFraction * (re - rt) / tan(ApolloShapeData.bellConeHalfAngle * degree)
+        return Chamber(throatDepth: throat, injectorDepth: ApolloShapeData.j2ChamberBodyLength * inch,
+                       throatRadius: rt, radius: rc,
+                       convergentDepth: throat + (rc - rt) / tan(ApolloShapeData.convergentHalfAngle * degree),
+                       exitRadius: re)
     }
 
     typealias D = AS506
@@ -51,7 +100,7 @@ public enum ApolloExhaust {
         spec: ExhaustSpec(family: .keroseneLOX, chamberPressure: 982 * psi, areaRatio: ApolloShapeData.f1AreaRatio,
                           exitRadius: f1ExitRadius, lipHalfAngle: 8 * degree,
                           exitGamma: 1.2330, molarMass: 0.023037, chamberTemperature: 3_615.69,
-                          exitTemperature: 1_469.49, fuelRichFraction: 0.44871, sootIndex: 1,
+                          exitTemperature: 1_469.49, fuelRichFraction: 0.44871, waterFraction: 0.33704, sootIndex: 1,
                           film: .init(massFraction: 167.0 / 5_737, injectionAreaRatio: 10, temperature: 887),
                           source: "exhaust datasheet §2.1; CEA row F-1", grade: "M"),
         ratedFlow: 5_737 * D.pound)
@@ -73,9 +122,9 @@ public enum ApolloExhaust {
         spec: ExhaustSpec(family: .hydrogenLOX, chamberPressure: 763 * psi, areaRatio: D.j2AreaRatio,
                           exitRadius: ApolloShapeData.j2ExitRadius, lipHalfAngle: 8 * degree,
                           exitGamma: 1.2338, molarMass: 0.012755, chamberTemperature: 3_372.93,
-                          exitTemperature: 1_194.49, fuelRichFraction: 0.30025,
+                          exitTemperature: 1_194.49, fuelRichFraction: 0.30025, waterFraction: 0.64869,
                           source: "exhaust datasheet §2.2; CEA row J-2", grade: "M"),
-        ratedFlow: 230_000 * D.poundForce / (425 * standardGravity))
+        ratedFlow: 230_000 * D.poundForce / (425 * standardGravity), chamber: j2Chamber)
 
     /// The SPS: Aerozine 50 and N2O4 at o/f 1.6, 100 psia, 62.5:1 (AOH
     /// Vol. 1 pp. 2.4-1 and 2.4-43, H), at 68-FM-184's 67.49 lb/s.
@@ -83,7 +132,7 @@ public enum ApolloExhaust {
         spec: ExhaustSpec(family: .hypergolic, chamberPressure: 100 * psi, areaRatio: ApolloShapeData.spsAreaRatio,
                           exitRadius: ApolloShapeData.spsExitDiameter / 2 * C.inch, lipHalfAngle: 8 * degree,
                           exitGamma: 1.2759, molarMass: 0.020764, chamberTemperature: 3_051.54,
-                          exitTemperature: 721.05, fuelRichFraction: 0.23071,
+                          exitTemperature: 721.05, fuelRichFraction: 0.23071, waterFraction: 0.36249,
                           source: "exhaust datasheet §2.3; CEA row SPS", grade: "M"),
         ratedFlow: C.spsThrust * C.poundForce / (C.spsIsp * standardGravity))
 
@@ -94,7 +143,7 @@ public enum ApolloExhaust {
         spec: ExhaustSpec(family: .hypergolic, chamberPressure: 90 * psi, areaRatio: 40,
                           exitRadius: ApolloShapeData.rcsExitDiameter / 2 * C.inch, lipHalfAngle: 10 * degree,
                           exitGamma: 1.2634, molarMass: 0.022052, chamberTemperature: 3_120.88,
-                          exitTemperature: 893.10, fuelRichFraction: 0.18933,
+                          exitTemperature: 893.10, fuelRichFraction: 0.18933, waterFraction: 0.36375,
                           source: "exhaust datasheet §2.4; CEA row SM RCS", grade: "M"),
         ratedFlow: C.rcsFourJetThrust / 4 * C.poundForce / (C.rcsIsp * standardGravity))
 
@@ -107,7 +156,7 @@ public enum ApolloExhaust {
         spec: ExhaustSpec(family: .hypergolic, chamberPressure: 139 * psi, areaRatio: 9,
                           exitRadius: ApolloShapeData.cmRCSExitDiameter / 2 * C.inch, lipHalfAngle: 15 * degree,
                           exitGamma: 1.2471, molarMass: 0.022132, chamberTemperature: 3_165.98,
-                          exitTemperature: 1_433.80, fuelRichFraction: 0.18777,
+                          exitTemperature: 1_433.80, fuelRichFraction: 0.18777, waterFraction: 0.36872,
                           source: "exhaust datasheet §2.5; CEA row CM RCS", grade: "M"),
         ratedFlow: ApolloCM.rcsThrust * C.poundForce / (ApolloCM.rcsIsp * standardGravity))
 
@@ -119,7 +168,7 @@ public enum ApolloExhaust {
         spec: ExhaustSpec(family: .hypergolic, chamberPressure: 100 * psi, areaRatio: 40,
                           exitRadius: apsAttitudeExitDiameter / 2 * D.inch, lipHalfAngle: 15 * degree,
                           exitGamma: 1.2780, molarMass: 0.020331, chamberTemperature: 3_003.90,
-                          exitTemperature: 794.05, fuelRichFraction: 0.30372,
+                          exitTemperature: 794.05, fuelRichFraction: 0.30372, waterFraction: 0.32497,
                           source: "exhaust datasheet §2.6; CEA row APS attitude", grade: "L"),
         ratedFlow: D.apsAttitudeThrust * D.poundForce / (D.apsAttitudeIsp * standardGravity))
 
@@ -130,7 +179,7 @@ public enum ApolloExhaust {
         spec: ExhaustSpec(family: .hypergolic, chamberPressure: 100 * psi, areaRatio: 9,
                           exitRadius: apsUllageExitDiameter / 2 * D.inch, lipHalfAngle: 15 * degree,
                           exitGamma: 1.2612, molarMass: 0.020331, chamberTemperature: 3_003.90,
-                          exitTemperature: 1_286.53, fuelRichFraction: 0.30372,
+                          exitTemperature: 1_286.53, fuelRichFraction: 0.30372, waterFraction: 0.32497,
                           source: "exhaust datasheet §2.6; CEA row APS ullage", grade: "L"),
         ratedFlow: D.apsUllageThrust * D.poundForce / (D.apsUllageIsp * standardGravity))
 
@@ -145,7 +194,7 @@ public enum ApolloExhaust {
         spec: ExhaustSpec(family: .solidOther, chamberPressure: 1_330 * psi, areaRatio: 14,
                           exitRadius: 13.471 / 2 * D.inch, lipHalfAngle: 10 * degree,
                           exitGamma: 1.1739, molarMass: 0.029220, chamberTemperature: 2_708.35,
-                          exitTemperature: 1_394.94, fuelRichFraction: 0.13479, aluminaFraction: 0.03779,
+                          exitTemperature: 1_394.94, fuelRichFraction: 0.13479, waterFraction: 0.37146, aluminaFraction: 0.03779,
                           source: "exhaust datasheet §2.7; CEA row Tower jettison", grade: "M"),
         ratedFlow: D.towerJettisonPropellant / D.towerJettisonBurnTime)
 
@@ -159,7 +208,7 @@ public enum ApolloExhaust {
         spec: ExhaustSpec(family: .solidOther, chamberPressure: 1_650 * psi, areaRatio: 4.5,
                           exitRadius: 13.580 / 2 * D.inch, lipHalfAngle: 15 * degree,
                           exitGamma: 1.1729, molarMass: 0.028843, chamberTemperature: 2_716.41,
-                          exitTemperature: 1_724.72, fuelRichFraction: 0.16749, aluminaFraction: 0.03778,
+                          exitTemperature: 1_724.72, fuelRichFraction: 0.16749, waterFraction: 0.37778, aluminaFraction: 0.03778,
                           source: "exhaust datasheet §2.8; CEA row S-IC retro", grade: "L"),
         ratedFlow: D.sICRetroPropellant / 8 / D.sICRetroBurnTime)
 
@@ -172,7 +221,7 @@ public enum ApolloExhaust {
         spec: ExhaustSpec(family: .solidOther, chamberPressure: 999 * psi, areaRatio: 7.5,
                           exitRadius: sIIUllageExitDiameter / 2 * D.inch, lipHalfAngle: 15 * degree,
                           exitGamma: 1.1617, molarMass: 0.030538, chamberTemperature: 2_947.16,
-                          exitTemperature: 1_801.70, fuelRichFraction: 0.00045, aluminaFraction: 0.02429,
+                          exitTemperature: 1_801.70, fuelRichFraction: 0.00045, waterFraction: 0.46924, aluminaFraction: 0.02429,
                           source: "exhaust datasheet §2.8; CEA row S-II ullage", grade: "L"),
         ratedFlow: D.sIIUllageMotorPropellant / 4 / D.sIIUllageMotorBurnTime)
 
@@ -184,7 +233,7 @@ public enum ApolloExhaust {
         spec: ExhaustSpec(family: .solidOther, chamberPressure: 1_761 * psi, areaRatio: 4.3,
                           exitRadius: sIIRetroExitDiameter / 2 * D.inch, lipHalfAngle: 15 * degree,
                           exitGamma: 1.1728, molarMass: 0.028836, chamberTemperature: 2_718.84,
-                          exitTemperature: 1_741.12, fuelRichFraction: 0.16822, aluminaFraction: 0.03778,
+                          exitTemperature: 1_741.12, fuelRichFraction: 0.16822, waterFraction: 0.37805, aluminaFraction: 0.03778,
                           source: "exhaust datasheet §2.8; CEA row S-II retro", grade: "L"),
         ratedFlow: D.sIIRetroPropellant / 4 / D.sIIRetroBurnTime)
 
@@ -196,7 +245,7 @@ public enum ApolloExhaust {
         spec: ExhaustSpec(family: .solidOther, chamberPressure: 980 * psi, areaRatio: 16,
                           exitRadius: sIVBUllageExitDiameter / 2 * D.inch, lipHalfAngle: 15 * degree,
                           exitGamma: 1.1733, molarMass: 0.029227, chamberTemperature: 2_696.89,
-                          exitTemperature: 1_360.35, fuelRichFraction: 0.13395, aluminaFraction: 0.03779,
+                          exitTemperature: 1_360.35, fuelRichFraction: 0.13395, waterFraction: 0.36960, aluminaFraction: 0.03779,
                           source: "exhaust datasheet §2.8; CEA row S-IVB ullage", grade: "L"),
         ratedFlow: D.sIVBUllageMotorPropellant / 2 / D.sIVBUllageMotorBurnTime)
 

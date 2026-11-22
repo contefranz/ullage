@@ -43,6 +43,10 @@ public struct ExhaustSpec: Equatable {
     public var exitTemperature: Double
     /// Mole fraction of CO and H2 at the exit, which afterburns in air.
     public var fuelRichFraction: Double
+    /// Mole fraction of water vapour at the exit (CEA's x_h2o): what
+    /// glows in the visible inside the chamber and condenses as the plume
+    /// expands into vacuum.
+    public var waterFraction: Double
     /// 0 (none) to 1 (kerosene's dense soot): how sooty the plume is.
     public var sootIndex: Double
     /// Mass fraction of Al2O3 in the exhaust (aluminised solids).
@@ -54,8 +58,8 @@ public struct ExhaustSpec: Equatable {
 
     public init(family: Family, chamberPressure: Double, areaRatio: Double, exitRadius: Double, lipHalfAngle: Double,
                 exitGamma: Double, molarMass: Double, chamberTemperature: Double, exitTemperature: Double,
-                fuelRichFraction: Double = 0, sootIndex: Double = 0, aluminaFraction: Double = 0, film: Film? = nil,
-                source: String, grade: String) {
+                fuelRichFraction: Double = 0, waterFraction: Double = 0, sootIndex: Double = 0,
+                aluminaFraction: Double = 0, film: Film? = nil, source: String, grade: String) {
         self.family = family
         self.chamberPressure = chamberPressure
         self.areaRatio = areaRatio
@@ -66,6 +70,7 @@ public struct ExhaustSpec: Equatable {
         self.chamberTemperature = chamberTemperature
         self.exitTemperature = exitTemperature
         self.fuelRichFraction = fuelRichFraction
+        self.waterFraction = waterFraction
         self.sootIndex = sootIndex
         self.aluminaFraction = aluminaFraction
         self.film = film

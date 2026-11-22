@@ -17,7 +17,8 @@ import OrbitScene
 ///
 ///     ORBITSIM_TIMINGS=1 scripts/test.sh fast --no-parallel --filter PlumeCostTests
 ///
-/// 120 rounds at 3024×1964, High, unless ORBITSIM_TIMINGS_ROUNDS=N,
+/// 120 rounds at 3024×1964, High, every shot, unless ORBITSIM_TIMINGS_ROUNDS=N,
+/// ORBITSIM_TIMINGS_SHOTS=<shot,shot>,
 /// ORBITSIM_TIMINGS_SIZE=WxH or ORBITSIM_PLUME_QUALITY=medium|ultra say
 /// otherwise; ORBITSIM_PLUME_READABLE=1 measures readable plumes. A shot
 /// whose name ends in "-forward" looks about 25° off the Sun from the
@@ -47,7 +48,9 @@ final class PlumeCostTests: XCTestCase {
         let snapper = try SnapshotRenderer(device: device)
         let spec = try SnapshotSpec.load(GoldenImageTests.shots.appendingPathComponent("p2-cost.json"))
         var lines: [String] = []
-        for var shot in spec.shots {
+        // ORBITSIM_TIMINGS_SHOTS=p2-cost-max-q,p2-cost-staging measures those alone.
+        let only = env["ORBITSIM_TIMINGS_SHOTS"].map { Set($0.split(separator: ",").map(String.init)) }
+        for var shot in spec.shots where only?.contains(shot.name) ?? true {
             shot.width = w
             shot.height = h
             if shot.name.hasSuffix("-forward") {

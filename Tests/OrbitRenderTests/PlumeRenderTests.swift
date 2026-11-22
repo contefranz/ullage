@@ -112,8 +112,8 @@ final class PlumeRenderTests: XCTestCase {
         XCTAssertTrue(system.lastClusters.contains { $0.detail == .march })
     }
 
-    /// Quality off draws no plume; a J-2 in vacuum is nearly black, and
-    /// readable it shows.
+    /// Quality off draws no plume; a J-2 in vacuum in sunlight shows its
+    /// ice (`PlumeLook.Ice`), and readable adds M1.5's floor to it.
     func testOffAndReadable() throws {
         let s = try snapper()
         let j2 = PlumeTestEngine(engine: "J-2", position: [0, 0, 25], pressure: 0)
@@ -125,7 +125,8 @@ final class PlumeRenderTests: XCTestCase {
         let readable = try total(Self.lookDev([j2], distance: 90, ev: 14) { $0.readable = true })
         let off = try total(Self.lookDev([j2], distance: 90, ev: 14) { $0.readable = true; $0.quality = .off })
         XCTAssertEqual(off, 0, accuracy: 1e-6)
-        XCTAssertGreaterThan(readable, 100 * max(physical, 1e-6))
+        XCTAssertGreaterThan(physical, 0, "the sunlit ice")
+        XCTAssertGreaterThan(readable, physical)
     }
 
     /// An impostor's stations are the light the reference march gives along

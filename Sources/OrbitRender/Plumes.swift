@@ -28,6 +28,34 @@ enum Plumes {
     /// past a cluster's last ring collapsed.
     static let proxyVertices = (PlumeClusters.maximumRings - 1) * proxySides * 6 + 2 * proxySides * 3
 
+    /// The capsule a vessel's shadow is cast by (camera-relative ends on its
+    /// axis, through the construction frame's x, and its radius): its round
+    /// shapes' extents along and about that axis (fins and other flat
+    /// shapes by their ends only). Nil for a vessel with no shapes.
+    static func capsule(_ v: RenderScene.Vessel) -> (a: Vec3, b: Vec3, radius: Double)? {
+        var lo = Double.infinity, hi = -Double.infinity, radius = 0.0
+        for part in v.geometry.parts {
+            for shape in part.shapes {
+                let p0 = part.offset + shape.origin, p1 = p0 + shape.axis * shape.length
+                var round = 0.0
+                switch shape.kind {
+                case let .frustum(base, top): round = max(base, top)
+                case let .sphere(r): round = r
+                case let .revolution(profile, _, _): round = profile.map(\.r).max() ?? 0
+                default: round = 0
+                }
+                for p in [p0, p1] {
+                    lo = min(lo, p.x - round)
+                    hi = max(hi, p.x + round)
+                    radius = max(radius, (p.y * p.y + p.z * p.z).squareRoot() + round)
+                }
+            }
+        }
+        guard lo < hi else { return nil }
+        let base = v.position + v.attitude.rotate(v.structureOrigin), axis = v.attitude.rotate(.unitX)
+        return (base + axis * lo, base + axis * hi, radius)
+    }
+
     /// A cluster's noise seed: its first member's by name (the S-IC's
     /// engine 1, a retro pair's lower motor), so that an engine shutting
     /// down does not re-seed its neighbours' turbulence.
@@ -92,7 +120,14 @@ enum Plumes {
             bendDirection: f4(m.bend.direction, m.handoverFade?.lowerBound ?? -1),
             bendSpan: f4(m.bend.length, m.fadeStart ?? -1, m.bend.largest, m.handoverFade?.upperBound ?? -1),
             bendNear: offsets(m.bend, 0), bendFar: offsets(m.bend, 4),
-            flow: f4(m.exhaustSpeed, m.coflow, o.x, o.y))
+            flow: f4(m.exhaustSpeed, m.coflow, o.x, o.y),
+            condensate: f4(m.iceTint, m.condensationDensity),
+            deckCentre: f4(m.impingement?.centre ?? .zero, m.impingement?.deckShare ?? 0),
+            deckNormal: f4(m.impingement?.normal ?? .zero, m.impingement?.reach ?? 0),
+            deckAxis: f4(m.impingement?.openingAxis ?? .zero, m.impingement?.openingHalf ?? 0),
+            deckHeat: f4(PlumeImpingement.recovered(static: m.coreTemperature, total: m.totalTemperature),
+                         m.impingement.map { 0.5 * m.radius(atX: $0.distance(m) ?? 0) } ?? 0,
+                         PlumeImpingement.wallGrowth, 0))
     }
 
     /// Four of a bend's offsets from `first` (zero without a bend).
@@ -117,7 +152,8 @@ enum Plumes {
     /// `memberStart` in the member buffer, marched in `steps` (0: the
     /// frame's).
     static func gpu(_ c: PlumeCluster, memberStart: Int, light: PlumeLight?, sunlit: Double,
-                    steps: Int = 0) -> PlumeClusterGPU {
+                    steps: Int = 0, ice: Bool = false,
+                    caster: (a: Vec3, b: Vec3, radius: Double)? = nil) -> PlumeClusterGPU {
         var rings = [SIMD4<Float>](repeating: .zero, count: 4)
         for (i, r) in c.rings.prefix(PlumeClusters.maximumRings).enumerated() {
             if i % 2 == 0 {
@@ -139,7 +175,20 @@ enum Plumes {
         let near = c.members.map { m in
             (m.exit - c.origin).dot(c.axis) + min(m.length, max(10 * m.exitDiameter, m.glowLength))
         }.max() ?? c.end
-        g.reserved.0 = SIMD4(Float(min(near, c.end)), Float(c.merged == nil ? 0 : c.mergeX), Float(steps), 0)
+        g.reserved.0 = SIMD4(Float(min(near, c.end)), Float(c.merged == nil ? 0 : c.mergeX), Float(steps), ice ? 1 : 0)
+        if ice {
+            // The free expansion's virtual source, the members' mean, and an
+            // exit radius: the ice's steps' centre.
+            let n = Double(max(c.members.count, 1))
+            let source = c.members.reduce(Vec3.zero) { $0 + ($1.exit - $1.axis * $1.sourceOffset) } / n
+            g.reserved.1 = f4(source, c.members.map(\.exitRadius).max() ?? 1)
+        }
+        // The vessel whose shadow falls through it, as a capsule: R4's
+        // shadow is read only where a ray crosses that shadow.
+        if let caster {
+            g.reserved.2 = f4(caster.a, caster.radius)
+            g.reserved.3 = f4(caster.b, 1)
+        }
         if let l = light {
             g.light = f4(l.centre, l.length)
             g.lightAxis = f4(l.axis, l.radius)
@@ -240,8 +289,9 @@ struct PlumeFrameGPU {
     /// x: the intensity u'/ΔU in the shear layer, y: self-similar, z: the
     /// layers' decay rate, w: the cross-fade's integral.
     var flowRates = SIMD4<Float>.zero
-    /// x: the noise's integral length over its cell, zw: the Lagrangian
-    /// times' first station and spacing (core lengths).
+    /// x: the noise's integral length over its cell, y: the factor of
+    /// density past saturation by which the ice has all frozen, zw: the
+    /// Lagrangian times' first station and spacing (core lengths).
     var flowRates2 = SIMD4<Float>.zero
     /// The Lagrangian integral time over L/u' at the four stations.
     var lagrangian = SIMD4<Float>.zero
@@ -324,6 +374,14 @@ struct PlumeMemberGPU {
     var bendFar: SIMD4<Float>     // and the last four
     var flow: SIMD4<Float>        // x: the exhaust's speed (m/s), y: the stream along it (m/s), zw: the
                                   // cluster's seed's offset in the tile, xy
+    var condensate: SIMD4<Float>  // rgb: the ice's scattering per channel over green's, w: the gas's density
+                                  // over the exit's where it begins (0: no ice)
+    var deckCentre: SIMD4<Float>  // the ground it meets (PlumeImpingement): xyz the opening's centre, w: the
+                                  // deck's share of the flow
+    var deckNormal: SIMD4<Float>  // xyz: the deck's normal, w: the wall jet's reach (0: none)
+    var deckAxis: SIMD4<Float>    // xyz: the opening's axis, w: its half side
+    var deckHeat: SIMD4<Float>    // x: the recovered core temperature (K), y: the wall jet's thickness at the
+                                  // impact (m), z: its growth with ρ
 }
 
 /// A plume impostor's vertex (PlumeShaders).
@@ -344,6 +402,17 @@ struct PlumeGlowGPU {
     var pivot: SIMD4<Float>
     /// xyz: the nozzle's axis (part frame, unit), w: the heat fraction.
     var direction: SIMD4<Float>
+    /// A chamber's glow (`ChamberGlow`): xyz the exit's centre (camera-
+    /// relative world), w the throat's depth into the nozzle (m)...
+    var chamberExit = SIMD4<Float>.zero
+    /// ...xyz the exhaust's axis (world, unit), w the injector face's depth
+    /// (m; 0: the SPS extension's glow instead)...
+    var chamberAxis = SIMD4<Float>.zero
+    /// ...rgb the gas's light per metre (cd/m² per m), w the chamber's radius...
+    var chamberLight = SIMD4<Float>.zero
+    /// ...x the throat's radius, y the convergent section's end's depth, z
+    /// the exit's radius (m).
+    var chamberThroat = SIMD4<Float>.zero
 }
 
 // MARK: The frame's plumes
@@ -356,6 +425,13 @@ struct PlumeFrameData {
     var impostors: [PlumeVertex] = []
     /// The glowing nozzles: vessel, thruster, heat.
     var glows: [(vessel: UUID, thruster: RenderScene.ThrusterKey, heat: Double)] = []
+    /// The firing engines whose chamber shows through the throat
+    /// (`ChamberGlow`): vessel, thruster, exit and axis (camera-relative
+    /// world), chamber, the gas's light per metre.
+    var chambers: [(vessel: UUID, thruster: RenderScene.ThrusterKey, exit: Vec3, axis: Vec3,
+                    chamber: ApolloExhaust.Chamber, light: Photometry.RGB)] = []
+    /// The camera the frame was planned for (tests project what it drew).
+    var camera: RenderScene.Camera?
     var uniforms = PlumeFrameGPU()
     var lights: [PlumeLight] = []
     /// Every cluster with its detail, for tests and the timings' report.
@@ -469,9 +545,19 @@ public final class PlumeSystem {
 
     /// The frame's members, trimmed to what the frame's exposure can show
     /// in their vessels' sunlight: the look-dev engines when a shot gives
-    /// them, else the emitters of the vessels drawn as meshes.
-    func members(_ scene: RenderScene, settings: PlumeSettings, faintest: Double,
+    /// them, else the emitters of the vessels drawn as meshes; each
+    /// meeting `deck` (`PlumeImpingement`) where its jet does.
+    func members(_ scene: RenderScene, settings: PlumeSettings, deck: PlumeImpingement?, faintest: Double,
                  drawn: (UUID) -> Bool) -> [PlumeMember] {
+        plainMembers(scene, settings: settings, faintest: faintest, drawn: drawn).map { m in
+            var m = m
+            m.impingement = deck?.meeting(m)
+            return m
+        }
+    }
+
+    func plainMembers(_ scene: RenderScene, settings: PlumeSettings, faintest: Double,
+                      drawn: (UUID) -> Bool) -> [PlumeMember] {
         let sunlight = scene.sun.illuminance, toSun = scene.sun.direction
         func sunlit(_ id: UUID?) -> Double {
             id.flatMap { id in scene.vessels.first { $0.id == id }?.light.sunlit } ?? 1
@@ -590,6 +676,7 @@ public final class PlumeSystem {
         last = (clock.frameIndex, clock.simTime)
 
         var data = PlumeFrameData()
+        data.camera = scene.camera
         let heats = glow.update(scene)
         let drawn = settings.enabled && settings.quality != .off
         if settings.nozzleGlow && drawn {
@@ -599,14 +686,23 @@ public final class PlumeSystem {
                 }
             }
         }
+        if drawn && settings.nozzleGlow && settings.model == .physical {
+            for e in scene.emitters where f.drawsMesh(e.vesselID) && e.flowFraction > 0.005 {
+                guard let engine = ApolloExhaust.engine(thruster: e.name, part: e.part),
+                      let chamber = engine.chamber else { continue }
+                data.chambers.append((e.vesselID, e.thruster, e.exit, e.axis, chamber,
+                                      ChamberGlow.emission(engine.spec, flowFraction: e.flowFraction)))
+            }
+        }
         if drawn {
             // Each member trimmed to what this exposure can show in its
             // vessel's sunlight; those that cannot show at all are not drawn.
             let ev = f.settings.post.exposure.fixedEV100
             let p = ev.map { 1 / (1.2 * pow(2, $0)) } ?? exposure ?? 1 / (1.2 * pow(2, 15))
-            let members = members(scene, settings: settings, faintest: Self.faintest / max(p, 1e-12),
+            let deck = settings.model == .physical ? PlumeImpingement.deck(scene) : nil
+            let members = members(scene, settings: settings, deck: deck, faintest: Self.faintest / max(p, 1e-12),
                                   drawn: { f.drawsMesh($0) })
-            let clusters = timed("clusters") { PlumeClusters.clusters(members) }
+            let clusters = timed("clusters") { PlumeClusters.clusters(members, deck: deck) }
             data.clusters = clusters.map { ($0, PlumeClusters.detail($0, camera: scene.camera, settings: settings)) }
         }
         frame = data
@@ -621,7 +717,7 @@ public final class PlumeSystem {
 
     func drawsFullResolution(_ f: FrameContext) -> Bool {
         plan(f)
-        return !frame.glows.isEmpty || frame.clusters.contains { $0.detail == .impostor }
+        return !frame.glows.isEmpty || !frame.chambers.isEmpty || frame.clusters.contains { $0.detail == .impostor }
     }
 
     /// Lights the frame's plumes once P0 has the air (A2) and the clouds
@@ -682,11 +778,18 @@ public final class PlumeSystem {
             // the steps too (at least 16): at staging eight of them fire.
             let glowOnly = c.members.allSatisfy(\.glowOnly)
             let solid = c.members.allSatisfy { $0.family == .solid }
-            let steps = glowOnly ? (c.members.count == 1 ? max(8, settings.quality.steps / 4)
-                                                         : max(16, settings.quality.steps / 2))
+            // A clear exhaust's ice in vacuum: smooth (no eddies), its
+            // density falling as 1/d² off the free expansion's virtual
+            // source, so half the steps, however many engines (their cones
+            // merge at once), equiangular about that source (PlumeShaders).
+            let ice = c.members.allSatisfy { ($0.family == .hydrogen || $0.family == .hypergolic) && $0.vacuumBlend > 0.9 }
+            let steps = ice ? max(16, settings.quality.steps / 2)
+                : glowOnly ? (c.members.count == 1 ? max(8, settings.quality.steps / 4)
+                                                   : max(16, settings.quality.steps / 2))
                 : solid ? max(16, settings.quality.steps / 2) : 0
+            let vessel = c.vesselID.flatMap { id in scene.vessels.first { $0.id == id } }
             data.marched.append(Plumes.gpu(c, memberStart: data.members.count, light: e.light, sunlit: e.sunlit,
-                                           steps: steps))
+                                           steps: steps, ice: ice, caster: vessel.flatMap(Plumes.capsule)))
             let seed = Plumes.noiseSeed(c)
             data.members += (c.members + (c.merged.map { [$0] } ?? [])).map {
                 Plumes.gpu($0, seed: seed, turbulent: settings.turbulence)
@@ -697,6 +800,7 @@ public final class PlumeSystem {
         u.wienK = SIMD4(Float(w[0].0), Float(w[1].0), Float(w[2].0), Float(settings.quality.steps))
         u.wienA = SIMD4(Float(w[0].1), Float(w[1].1), Float(w[2].1), Float(turbulence))
         u.wienC = SIMD4(Float(w[0].2), Float(w[1].2), Float(w[2].2), 0)
+        u.flowRates2.y = Float(PlumeLook.Ice.ramp)
         Plumes.setTurbulence(&u)
         u.setLayers(Plumes.layers(time: drawnClock))
         u.sun = Plumes.f4(sun.direction, f.textures[.cloudLayer] != nil ? 1 : 0)

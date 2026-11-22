@@ -56,6 +56,60 @@ public enum NozzleGlow {
     }
 }
 
+/// The chamber's gas seen through a liquid engine's throat (the J-2's):
+/// the cue that it fires from any view into its nozzle, since its plume is
+/// dark in vacuum. Drawn on the engine's own chamber surfaces (the
+/// convergent section, the chamber wall and the injector face the dresser
+/// draws behind the throat), which only show through the throat: each
+/// fragment gives the light of the hot gas between the throat and it,
+/// optically thin, the water's visible emission at the chamber's pressure
+/// and temperature (`PlumeLook.Optics.waterVisibleAbsorption`). It follows
+/// the flow at once: the chamber's pressure is the flow's (a choked throat).
+/// The water's blue continuum, chemiluminescent, scales with the pressure
+/// squared and is not counted (no absolute measure found).
+public enum ChamberGlow {
+    /// The water's visible bands as the eye sees them, luminance 1: some
+    /// 70 % of the light in the band near 590 nm, 15 % near 650 nm and 15 %
+    /// in 500-560 nm (HITRAN 2020 at 3,373 K), Rec. 709 linear, clipped.
+    public static let color: Photometry.RGB = {
+        var x = 0.0, y = 0.0, z = 0.0
+        for (nm, share) in [(590.0, 0.70), (650.0, 0.15), (530.0, 0.15)] {
+            let c = Photometry.colorMatching(nm)
+            x += share * c.x / c.y
+            y += share
+            z += share * c.z / c.y
+        }
+        let rgb = Photometry.rec709((x, y, z))
+        let clipped = Photometry.RGB(max(rgb.r, 0), max(rgb.g, 0), max(rgb.b, 0))
+        return clipped.scaled(by: 1 / clipped.luminance)
+    }()
+
+    /// The light the chamber's gas gives per metre of path, cd/m² per m,
+    /// at `flowFraction` of the engine's rated flow: κ x_w p_c B(T_c).
+    public static func emission(_ spec: ExhaustSpec, flowFraction f: Double) -> Photometry.RGB {
+        let water = spec.waterFraction * spec.chamberPressure * max(f, 0) / 101_325
+        let luminance = PlumeLook.Optics.waterVisibleAbsorption * water
+            * Photometry.blackbody(spec.chamberTemperature).luminance
+        return color.scaled(by: luminance)
+    }
+
+    /// The light (cd/m²) a surface `depth` m into a nozzle (from its exit
+    /// plane) and `r` off its axis shows, seen along a ray at `cosine` of
+    /// the axis: the gas between the throat and it, at most twice the
+    /// chamber's length; none in front of the throat, behind the injector
+    /// face, or outside the gas side (the engine's outer wall, which the
+    /// chamber's gas does not light). PlumeShaders' chamber glow, which also
+    /// asks that the view ray reach the surface through the throat.
+    public static func luminance(_ e: Photometry.RGB, chamber c: ApolloExhaust.Chamber, depth: Double, r: Double = 0,
+                                 cosine: Double) -> Photometry.RGB {
+        guard depth >= c.throatDepth - 0.005, depth <= c.injectorDepth + 0.01,
+              r <= c.gasRadius(atDepth: depth) + 0.004 else { return Photometry.RGB(0, 0, 0) }
+        let path = min(max(depth - c.throatDepth, 0) / max(abs(cosine), 0.2),
+                       2 * (c.injectorDepth - c.throatDepth) + 2 * c.radius)
+        return e.scaled(by: path)
+    }
+}
+
 /// Each glowing thruster's heat from frame to frame, in simulation time; on
 /// a scenario's first frame or after a jump, rebuilt from the journal's
 /// ignition and cutoff records the scene carries.

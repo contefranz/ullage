@@ -141,6 +141,9 @@ public struct PlumeMember: Equatable {
     /// The core's temperature at the exit (K) and the exponent of its
     /// cooling on the free expansion's dilution (γ - 1 in vacuum, 0 bounded).
     public var coreTemperature = 0.0
+    /// Its total temperature (K): the chamber's, which a wall stopping the
+    /// jet recovers (`PlumeImpingement`).
+    public var totalTemperature = 0.0
     public var expansionCooling = 0.0
     /// The afterburning flame's temperature (0 for none), where it starts
     /// (m), the ambient temperature (K) and its strength (0-1).
@@ -175,6 +178,17 @@ public struct PlumeMember: Equatable {
     public var particleOnset = 0.0
     /// Henyey-Greenstein asymmetry of the scattering.
     public var phaseG = 0.4
+    /// Ice frozen from the exhaust's water as it expands (hydrogen,
+    /// hypergols; `PlumeLook.Ice`): the gas's density over the exit's below
+    /// which the water has saturated over ice and begun to condense (0:
+    /// none; it has all frozen by a fourth of it), and the ice's scattering
+    /// per channel over green's. The particles' extinction is then the
+    /// ice's at the exit's density, following the gas.
+    public var condensationDensity = 0.0
+    public var iceTint = Photometry.RGB(1, 1, 1)
+    /// The ground it meets, spreading along it (the ML's deck at liftoff;
+    /// `PlumeImpingement`); nil for none.
+    public var impingement: PlumeImpingement?
 
     // Structure.
     public var shockCellLength = 0.0
@@ -288,13 +302,25 @@ public struct PlumeMember: Equatable {
         /// Emitted luminance per metre of path, cd/m³ (absorption times
         /// the blackbody's at each phase's temperature, plus the glow).
         public var emission = Photometry.RGB(0, 0, 0)
+        /// The scattering per channel (1/m): `scattering` times each
+        /// phase's tint (ice scatters blue more than red; the rest grey).
+        public var tintedScattering = Photometry.RGB(0, 0, 0)
 
         public var extinction: Double { absorption + scattering }
+
+        /// Every coefficient times `k`.
+        public func scaled(by k: Double) -> Sample {
+            Sample(absorption: absorption * k, scattering: scattering * k, emission: emission.scaled(by: k),
+                   tintedScattering: tintedScattering.scaled(by: k))
+        }
 
         public static func + (a: Sample, b: Sample) -> Sample {
             Sample(absorption: a.absorption + b.absorption, scattering: a.scattering + b.scattering,
                    emission: Photometry.RGB(a.emission.r + b.emission.r, a.emission.g + b.emission.g,
-                                            a.emission.b + b.emission.b))
+                                            a.emission.b + b.emission.b),
+                   tintedScattering: Photometry.RGB(a.tintedScattering.r + b.tintedScattering.r,
+                                                    a.tintedScattering.g + b.tintedScattering.g,
+                                                    a.tintedScattering.b + b.tintedScattering.b))
         }
     }
 
@@ -308,12 +334,15 @@ public struct PlumeMember: Equatable {
     public func sample(x: Double, r: Double) -> Sample {
         var s = Sample()
         let de = exitDiameter, re = exitRadius
-        func add(_ sigma0: Double, albedo: Double, temperature: Double) {
+        func add(_ sigma0: Double, albedo: Double, temperature: Double, tint: Photometry.RGB = Photometry.RGB(1, 1, 1)) {
             let sigma = sigma0 * densityScale
             guard sigma > 0 else { return }
             let a = sigma * (1 - albedo)
             s.absorption += a
             s.scattering += sigma * albedo
+            s.tintedScattering = Photometry.RGB(s.tintedScattering.r + sigma * albedo * tint.r,
+                                                s.tintedScattering.g + sigma * albedo * tint.g,
+                                                s.tintedScattering.b + sigma * albedo * tint.b)
             if temperature > 0 {
                 let b = PlumeLook.blackbody(temperature)
                 s.emission = Photometry.RGB(s.emission.r + a * b.r, s.emission.g + a * b.g, s.emission.b + a * b.b)
@@ -378,8 +407,14 @@ public struct PlumeMember: Equatable {
             add(sheathExtinction * band * along * min(1, dilution) * fade, albedo: gasAlbedo,
                 temperature: sheathTemperature)
         }
-        // Particles: alumina, or condensate.
-        if particleExtinction > 0 {
+        // Ice frozen from the exhaust's water: as dense as the gas, where it
+        // has expanded past saturation.
+        if particleExtinction > 0 && condensationDensity > 0 {
+            let local = profile * dilution
+            let on = 1 - Self.smoothstep(condensationDensity / PlumeLook.Ice.ramp, condensationDensity, local)
+            add(particleExtinction * local * on * fade, albedo: particleAlbedo, temperature: 0, tint: iceTint)
+        } else if particleExtinction > 0 {
+            // Particles: alumina, or condensate.
             let tp = atan2(r, x + particleOffset)
             let ppv = tp < particleAngle ? pow(cos(0.5 * Double.pi * tp / particleAngle), 2) * confine : 0
             let pp = pc + (ppv - pc) * v
@@ -433,6 +468,26 @@ public struct PlumeMember: Equatable {
         return max(dense, exitRadius)
     }
 
+    /// Where the ice begins on the axis (m from the exit; nil without
+    /// ice): where the gas's density there falls to `condensationDensity`
+    /// of the exit's, through the free expansion's dilution and the jet's,
+    /// mixed as the field mixes them.
+    public var condensationOnset: Double? {
+        guard condensationDensity > 0, condensationDensity < 1, particleExtinction > 0 else { return nil }
+        func density(_ x: Double) -> Double {
+            let rx = radius(atX: x), so = sourceOffset
+            return (exitRadius / rx) * (exitRadius / rx) * (1 - vacuumBlend) + so * so / ((x + so) * (x + so)) * vacuumBlend
+        }
+        var lo = 0.0, hi = 1.0
+        while density(hi) > condensationDensity && hi < 1e6 { hi *= 2 }
+        guard hi < 1e6 else { return nil }
+        for _ in 0..<60 {
+            let mid = 0.5 * (lo + hi)
+            if density(mid) > condensationDensity { lo = mid } else { hi = mid }
+        }
+        return hi
+    }
+
     /// The centreline's camera-relative point at x along the axis: the
     /// exit's along the axis, bent into the stream.
     public func centre(atX x: Double) -> Vec3 {
@@ -440,8 +495,15 @@ public struct PlumeMember: Equatable {
     }
 
     /// The field at a camera-relative point: x along the nozzle's axis, r
-    /// from the bent centreline there.
+    /// from the bent centreline there; in the wall jet along the ground it
+    /// meets, the equivalent free jet's, times the ground's share of the
+    /// flow.
     public func sample(at p: Vec3) -> Sample {
+        if let i = impingement, let w = i.wallJet(self, at: p) {
+            var hot = self
+            hot.coreTemperature = PlumeImpingement.recovered(static: coreTemperature, total: totalTemperature)
+            return hot.sample(x: w.x, r: w.r).scaled(by: i.deckShare * w.dilution)
+        }
         let d = p - exit, x = d.dot(axis)
         let r = (d - axis * x - bend.direction * bend.offset(atX: x)).length
         return sample(x: x, r: r)
@@ -479,32 +541,24 @@ public enum PlumeLook {
         public static let keroseneCondensate = 3.0, keroseneCondensateAlbedo = 0.8
         /// What is left of the soot once the afterburning flame has burnt it.
         public static let burntSoot = 0.25
-        /// The turbulent flame brush's spread from the flame front, dR/dx
-        /// (L: P1 has no mixing layer's growth): the five F-1 flames merge
-        /// into one column within 15-20 m.
-        public static let flameSpread = 0.035
         /// Alumina's albedo while incandescent (above about 2,000 K).
         public static let hotAluminaAlbedo = 0.5
-        /// Condensate (ice, droplets) far downstream of a clear exhaust:
-        /// optical depth across the exit, albedo, onset in exit diameters.
-        public static let hydrogenCondensate = 0.01, hypergolicCondensate = 0.005
-        public static let condensateAlbedo = 0.95
-        public static let hydrogenOnset = 4.0, hypergolicOnset = 2.0
-        /// The clear gases' own depths: a trace that keeps their core's
-        /// light physical (nearly nothing).
-        public static let hydrogenGasDepth = 0.002, hypergolicGasDepth = 0.004
-        /// The near-exit light of a clear exhaust, cd/m² through the axis,
-        /// over 1.5 exit diameters: OH and NH bands (L). Invisible in
-        /// daylight; at night well under the SPS extension's glow, which is
-        /// the cue that the engine runs.
-        public static let hydrogenGlow = Photometry.RGB(2, 2.4, 4.4)
-        public static let hypergolicGlow = Photometry.RGB(6, 3.4, 2.6)
+        /// Water vapour's absorption in the visible, per atm of water and
+        /// metre, weighted by the eye (its emission per metre is this times
+        /// the partial pressure and the blackbody's luminance): the J-2's
+        /// chamber gas (3,373 K, 34 atm of water, 0.5 m) gives 3×10³ cd/m²
+        /// from HITRAN 2020's lines and about four times that with the hot
+        /// bands HITRAN lacks, 1.2×10⁴ (L-M: a line sum, no measured
+        /// luminance found). The clear exhausts' gas absorbs and glows as
+        /// this, so a J-2's plume past its exit (1,194 K, 0.1 atm of water)
+        /// is dark.
+        public static let waterVisibleAbsorption = 9e-6
         /// Henyey-Greenstein g by family.
         public static func phaseG(_ f: PlumeFamily) -> Double {
             switch f {
             case .kerosene: 0.35
             case .solid: 0.6
-            case .hydrogen, .hypergolic: 0.6
+            case .hydrogen, .hypergolic: Ice.optics.asymmetry
             case .coldGas: 0.5
             }
         }
@@ -520,8 +574,11 @@ public enum PlumeLook {
             case .coldGas: 0
             }
         }
-        /// A supersonic jet's far-field spread, dR/dx beyond the core.
-        public static let farSpread = 0.06
+        /// A round turbulent jet's spread beyond its core, dR/dx: the
+        /// half-velocity radius's 0.094 (Hussein, Capp and George 1994,
+        /// LDA; Panchapakesan and Lumley 1993 0.096), H; R is the field's
+        /// half-value radius. M1.6's first look had 0.06 (L).
+        public static let farSpread = 0.094
         /// The shock cells' modulation of the core's temperature and density.
         public static let shockStrength = 0.3
     }
@@ -667,24 +724,43 @@ public enum PlumeLook {
         // The gas.
         let tj = inAir && s.jetMach.isFinite
             ? spec.chamberTemperature * NozzleFlow.temperatureRatio(mach: s.jetMach, gamma: s.gamma) : 0
+        // The mixing layer between the jet and the stream: its vorticity
+        // thickness's growth (`PlumeTurbulence.shearGrowth`), compressible.
+        m.exhaustSpeed = s.jetVelocity > 0 ? s.jetVelocity : s.limitingVelocity
+        var shear = 0.0
+        if inAir && tj > 0 && ambient.density > 0 {
+            let rhoJ = s.ambientPressure * spec.molarMass / (8.314462618 * tj)
+            let aj = (s.gamma * 8.314462618 * tj / spec.molarMass).squareRoot()
+            let aa = (1.4 * 287.05 * max(ambient.temperature, 150)).squareRoot()
+            let mc = PlumeTurbulence.convectiveMach(jetSpeed: m.exhaustSpeed, streamSpeed: along, jetSound: aj,
+                                                    streamSound: aa)
+            shear = PlumeTurbulence.shearGrowth(velocityRatio: along / max(m.exhaustSpeed, 1),
+                                                densityRatio: ambient.density / max(rhoJ, 1e-9), convectiveMach: mc)
+        }
         m.coreTemperature = n < 1 ? max(s.exitTemperature, tj) : s.exitTemperature
+        m.totalTemperature = spec.chamberTemperature
         m.expansionCooling = v * (s.gamma - 1)
         m.gasAlbedo = family == .kerosene ? Optics.sootAlbedo : (family == .solid ? 0.5 : 0)
         let gasDepth: Double
         switch family {
         case .kerosene: gasDepth = Optics.sootDepth * spec.sootIndex
         case .solid: gasDepth = Optics.solidGasDepth
-        case .hydrogen: gasDepth = Optics.hydrogenGasDepth
-        case .hypergolic: gasDepth = Optics.hypergolicGasDepth
-        case .coldGas: gasDepth = 0
+        case .hydrogen, .hypergolic, .coldGas: gasDepth = 0
         }
         m.gasExtinction = gasDepth / de * f
+        if family == .hydrogen || family == .hypergolic {
+            // The water's own visible absorption (and so its glow) at the
+            // exit's pressure, falling with the gas's density.
+            m.gasExtinction = Optics.waterVisibleAbsorption * spec.waterFraction * s.exitPressure / 101_325
+        }
         if s.afterburning > 0 && spec.fuelRichFraction > 0 {
             m.afterburning = min(1, s.afterburning / spec.fuelRichFraction)
             m.flameTemperature = PlumeModel.flameTemperature
             m.flameStart = s.flameFrontDistance ?? (family == .kerosene ? 0.75 * de : 0.25 * de)
             m.flameLength = max(s.flameLength, m.flameStart + de)
-            m.flameSpread = Optics.flameSpread * m.afterburning * w * (1 - v)
+            // The flame brush grows with the mixing layer's outer half, where
+            // the fuel-rich exhaust meets the air and burns.
+            m.flameSpread = 0.5 * shear * m.afterburning * w * (1 - v)
         }
         // The film.
         if let film = spec.film {
@@ -712,16 +788,15 @@ public enum PlumeLook {
             let tau = Optics.aluminaDensity * 1_300 * Optics.aluminaDiameter / (6 * 0.3 * 5.670374e-8 * tp * tp * tp)
             m.particleCooling = max(s.exitVelocity * tau, de)
             m.particleAngle = spec.lipHalfAngle + 5 * Double.pi / 180
-        case .hydrogen:
-            m.particleExtinction = Optics.hydrogenCondensate / de * f
-            m.particleAlbedo = Optics.condensateAlbedo
-            m.particleOnset = Optics.hydrogenOnset * de
+        case .hydrogen, .hypergolic:
+            // The water freezing as the free expansion cools it (`Ice`).
             m.particleAngle = half
-        case .hypergolic:
-            m.particleExtinction = Optics.hypergolicCondensate / de * f
-            m.particleAlbedo = Optics.condensateAlbedo
-            m.particleOnset = Optics.hypergolicOnset * de
-            m.particleAngle = half
+            if let ice = Ice.condensation(spec, state: s) {
+                m.particleExtinction = ice.extinction * v
+                m.particleAlbedo = 1
+                m.condensationDensity = ice.onset
+                m.iceTint = Ice.optics.tint
+            }
         case .kerosene:
             m.particleExtinction = Optics.keroseneCondensate / de * f
             m.particleAlbedo = Optics.keroseneCondensateAlbedo
@@ -771,36 +846,15 @@ public enum PlumeLook {
             m.machDiskTemperature = 0.85 * spec.chamberTemperature
         }
 
-        // Turbulence: mottled in air, nearly still in vacuum. The eddies at
-        // the lip, growing with the mixing layer between the jet and the
-        // stream (in vacuum with half the free expansion's cone), carried
-        // at the jet's speed (`PlumeTurbulence`).
-        m.turbulence = 0.15 + 0.7 * w * (1 - v)
+        // Turbulence: mottled in air, still in vacuum, where a free
+        // expansion has no mixing layer to make eddies. The eddies at the
+        // lip, growing with the mixing layer between the jet and the stream
+        // (in vacuum with half the free expansion's cone), carried at the
+        // jet's speed (`PlumeTurbulence`).
+        m.turbulence = (0.15 + 0.7 * w) * (1 - v)
         m.eddySize = PlumeTurbulence.lipEddy * re
-        m.exhaustSpeed = s.jetVelocity > 0 ? s.jetVelocity : s.limitingVelocity
-        var shear = 0.0
-        if inAir && tj > 0 && ambient.density > 0 {
-            let rhoJ = s.ambientPressure * spec.molarMass / (8.314462618 * tj)
-            let aj = (s.gamma * 8.314462618 * tj / spec.molarMass).squareRoot()
-            let aa = (1.4 * 287.05 * max(ambient.temperature, 150)).squareRoot()
-            let mc = PlumeTurbulence.convectiveMach(jetSpeed: m.exhaustSpeed, streamSpeed: along, jetSound: aj,
-                                                    streamSound: aa)
-            shear = PlumeTurbulence.shearGrowth(velocityRatio: along / max(m.exhaustSpeed, 1),
-                                                densityRatio: ambient.density / max(rhoJ, 1e-9), convectiveMach: mc)
-        }
         m.eddyGrowth = shear * (1 - v) + 0.5 * tan(max(half, 0.05)) * v
 
-        // The clear exhausts' near-exit light.
-        switch family {
-        case .hydrogen:
-            m.glow = Optics.hydrogenGlow.scaled(by: f)
-            m.glowLength = 1.5 * de
-        case .hypergolic:
-            m.glow = Optics.hypergolicGlow.scaled(by: f)
-            m.glowLength = 1.5 * de
-        default:
-            break
-        }
         // In air the glowing jet and a stretch of its smoke (P4's trail
         // carries the rest); in vacuum what still shows, within 150
         // diameters; the two mixed as the jet balloons.
@@ -830,6 +884,8 @@ public enum PlumeLook {
         let de = m.exitDiameter
         var x = 0.5 * de, last = 0.0
         var previous: (x: Double, ratio: Double)?
+        // Ice forms only past saturation: search beyond twice its onset.
+        let ice = m.condensationOnset.map { 2 * $0 } ?? 0
         while x < 3_000 {
             let s = probe.sample(x: x, r: 0)
             let chord = probe.visibleWidth(atX: x)
@@ -843,7 +899,7 @@ public enum PlumeLook {
                     let t = ratio > 0 ? log(p.ratio) / (log(p.ratio) - log(ratio)) : 1
                     last = p.x * pow(x / p.x, min(max(t, 0), 1))
                 }
-                if x > 4 * max(last, 0.5 * de) + 10 * de { break }
+                if x > 4 * max(last, 0.5 * de) + 10 * de && x > ice { break }
             }
             previous = (x, ratio)
             x *= 1.04
@@ -881,7 +937,10 @@ public enum PlumeLook {
         bare.glowLength = 0
         func peak(_ p: PlumeMember) -> Double {
             var best = 0.0
-            for x in [0.5, 2, 8].map({ $0 * p.exitDiameter }) where x < p.length {
+            // Near the exit, and past where ice forms (it is all frozen by
+            // twice its onset's distance).
+            let stations = [0.5, 2, 8].map { $0 * p.exitDiameter } + (p.condensationOnset.map { [1.5 * $0, 3 * $0] } ?? [])
+            for x in stations where x < p.length {
                 let s = p.sample(x: x, r: 0)
                 let chord = p.visibleWidth(atX: x)
                 best = max(best, (s.emission.luminance + s.scattering * sun * forward) * chord,
@@ -1151,14 +1210,15 @@ public enum PlumeLook {
             guard sigma > 0 || s.emission.luminance > 0 else { continue }
             var source = s.emission
             if weight > 0 {
-                let p = phase / weight
+                let p = phase / weight, t = s.tintedScattering
                 if let sun {
-                    source = Photometry.RGB(source.r + s.scattering * sun.illuminance.r * p,
-                                            source.g + s.scattering * sun.illuminance.g * p,
-                                            source.b + s.scattering * sun.illuminance.b * p)
+                    source = Photometry.RGB(source.r + t.r * sun.illuminance.r * p,
+                                            source.g + t.g * sun.illuminance.g * p,
+                                            source.b + t.b * sun.illuminance.b * p)
                 }
-                let a = s.scattering / (4 * Double.pi)
-                source = Photometry.RGB(source.r + a * ambient.r, source.g + a * ambient.g, source.b + a * ambient.b)
+                let a = 1 / (4 * Double.pi)
+                source = Photometry.RGB(source.r + a * t.r * ambient.r, source.g + a * t.g * ambient.g,
+                                        source.b + a * t.b * ambient.b)
             }
             let step = exp(-sigma * ds)
             let k = sigma > 1e-9 ? (1 - step) / sigma : ds
@@ -1173,5 +1233,96 @@ public enum PlumeLook {
     public static func henyeyGreenstein(_ cosTheta: Double, _ g: Double) -> Double {
         let d = 1 + g * g - 2 * g * cosTheta
         return (1 - g * g) / (4 * Double.pi * d * d.squareRoot())
+    }
+}
+
+extension PlumeLook {
+    /// The exhaust's water freezing as it expands into vacuum (hydrogen and
+    /// the hypergols): the free expansion cools the gas isentropically, T =
+    /// Te (ρ/ρe)^(γ-1), until its water saturates over ice (Murphy and Koop
+    /// 2005); a share of it then condenses into small ice spheres that
+    /// scatter sunlight (Mie). The ice follows the gas, so it lies where the
+    /// expansion has thinned it past saturation: first in the plume's thin
+    /// outer layer, a conical shell, then through the core further out. The
+    /// J-2's in vacuum: saturation about 50 m out on the axis (Wu 1975: onset
+    /// 41-55 m from the S-IVB's nozzle).
+    public enum Ice {
+        /// The share of the exhaust's water that condenses: Kung, Cianciolo
+        /// and Myer (1975) found 5-10 % for Apollo 8's S-IVB at TLI; Wu
+        /// (1975) 10.5 %, Bernhardt 12.2 % (CONF-7906180 §2.5), M.
+        public static let condensedWater = 0.10
+        /// The ice spheres' radius (m): SP-201's photometry of Apollo 8's
+        /// TLI cloud (as bright as the full Moon, scattering isotropically)
+        /// bounds it at 0.1 µm and needs particles near that bound for its
+        /// brightness. L: Kung et al.'s 7-10 nm would scatter a thousand
+        /// times less per kilogram.
+        public static let radius = 0.1e-6
+        /// Ice's density (kg/m³) and refractive index in the visible (H).
+        public static let density = 917.0, index = 1.31
+        /// The water has all frozen by this factor of density past
+        /// saturation (twice the distance: nucleation and growth), L.
+        public static let ramp = 4.0
+        /// The wavelengths the channels stand for (m): Rec. 709's
+        /// primaries' dominant wavelengths.
+        public static let wavelengths = (red: 612e-9, green: 549e-9, blue: 465e-9)
+
+        /// The ice's scattering per kilogram at green's wavelength (m²/kg),
+        /// per channel over green's, and its asymmetry.
+        public struct Optics: Equatable {
+            public var massScattering: Double
+            public var tint: Photometry.RGB
+            public var asymmetry: Double
+        }
+
+        /// Mie's, for spheres of `radius` (no absorption).
+        public static let optics: Optics = {
+            func at(_ lambda: Double) -> (kappa: Double, g: Double) {
+                let q = Mie.efficiencies(sizeParameter: 2 * Double.pi * radius / lambda, index: index)
+                return (3 * q.scattering / (4 * density * radius), q.asymmetry)
+            }
+            let r = at(wavelengths.red), g = at(wavelengths.green), b = at(wavelengths.blue)
+            return Optics(massScattering: g.kappa, tint: Photometry.RGB(r.kappa / g.kappa, 1, b.kappa / g.kappa),
+                          asymmetry: g.g)
+        }()
+
+        /// Water's saturation pressure over ice (Pa) at `t` K: Murphy and
+        /// Koop (2005) eq. 7, for T above 110 K, H.
+        public static func saturationPressure(_ t: Double) -> Double {
+            exp(9.550426 - 5_723.265 / t + 3.53068 * log(t) - 0.00728332 * t)
+        }
+
+        /// The gas's density over the exit's at which the free expansion's
+        /// water saturates over ice: x pe δ^γ = p_ice(Te δ^(γ-1)); nil for
+        /// an exhaust without water.
+        public static func onsetDensity(waterFraction x: Double, exitPressure pe: Double, exitTemperature te: Double,
+                                        gamma g: Double) -> Double? {
+            guard x > 0, pe > 0, te > 0, g > 1 else { return nil }
+            func excess(_ lnd: Double) -> Double {
+                let t = te * exp((g - 1) * lnd)
+                return log(x * pe) + g * lnd - log(saturationPressure(t))
+            }
+            // Saturated at the exit already: at once.
+            if excess(0) >= 0 { return 1 }
+            // Down to where the expansion reaches the fit's 110 K.
+            var lo = te > 110 ? log(110 / te) / (g - 1) : 0, hi = 0.0
+            guard excess(lo) > 0 else { return nil }
+            for _ in 0..<80 {
+                let mid = 0.5 * (lo + hi)
+                if excess(mid) > 0 { lo = mid } else { hi = mid }
+            }
+            return exp(0.5 * (lo + hi))
+        }
+
+        /// The ice of an engine of `spec` in `state`: its extinction at the
+        /// exit's density (1/m, green; the share of the water condensed, as
+        /// dense as the gas) and the density over the exit's where it begins.
+        public static func condensation(_ spec: ExhaustSpec, state s: PlumeState)
+            -> (extinction: Double, onset: Double)? {
+            guard let onset = onsetDensity(waterFraction: spec.waterFraction, exitPressure: s.exitPressure,
+                                           exitTemperature: s.exitTemperature, gamma: s.gamma),
+                  s.exitDensity > 0 else { return nil }
+            let waterMass = spec.waterFraction * 0.018015 / spec.molarMass
+            return (optics.massScattering * condensedWater * waterMass * s.exitDensity, onset)
+        }
     }
 }
