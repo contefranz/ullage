@@ -878,18 +878,23 @@ fragment EffectVolumeOut plume_march_fragment(PlumeProxyOut in [[stage_in]],
             }
         }
     }
-    // A clear exhaust's ice in vacuum seen across (more than 30° off its
-    // axis): its density falls as 1/d² off the free expansion's virtual
-    // source (c.reserved[1]), so its steps go equiangular about that point,
-    // as dense as 1/(h² + d²) along the ray (h the ray's closest approach to
-    // it, at least an exit radius): the bright condensing shell near the
-    // nozzle is stepped finely, the faint far cloud coarsely. Along the
-    // axis the ice is nil inside its onset surface, where those steps would
-    // crowd, so such rays keep the near and far halves.
-    if (c.reserved[0].w > 0.5 && length(dir - a * dx) > 0.5 * len) {
+    // A clear exhaust's ice in vacuum: its density falls as 1/d² off the
+    // free expansion's virtual source (c.reserved[1]), so its steps go
+    // equiangular about that point, as dense as 1/(h² + d²) along the ray.
+    // h is the ray's closest approach to it, but no less than an exit
+    // radius, nor than the onset surface's distance from the source at the
+    // ray's angle to the axis (the ice is nil inside it, S √(pv(θ)/onset):
+    // 72 m along a J-2's axis, under a metre across it), so that the steps
+    // follow the ice, not the empty core, from every view.
+    if (c.reserved[0].w > 0.5) {
         float3 source = c.reserved[1].xyz;
         float ts = dot(source, dir) / (len * len);
-        float h = max(length(source - dir * ts), c.reserved[1].w);
+        const device PlumeMember &mi = members[first_];
+        float theta = acos(clamp(abs(dx) / len, 0.0, 1.0));
+        float lim = mi.simons.z;
+        float pv = theta < lim ? pow(max(cos(0.5 * M_PI_F * theta / lim), 0.0), mi.simons.y) : 0.0;
+        float onset = mi.condensate.w > 0.0 ? mi.simons.w * sqrt(pv / mi.condensate.w) : 0.0;
+        float h = max(max(length(source - dir * ts), c.reserved[1].w), onset);
         if ((exit - enter) * len > 4.0 * h) {
             equiangular = true;
             t0 = ts;
@@ -964,16 +969,23 @@ fragment EffectVolumeOut plume_march_fragment(PlumeProxyOut in [[stage_in]],
     float exposure = frame.exposure.x;
     for (int i = 0; i < steps; i++) {
         float s, ds;
+        // The step's stratum [sA, sB], which its jittered s samples.
+        float sA, sB;
         if (equiangular) {
             float phi = phiA + (float(i) + jitter) * dphi;
             float cp = cos(phi);
             s = t0 + hk * tan(phi);
             ds = hk * dphi / (cp * cp);
+            sA = t0 + hk * tan(phiA + float(i) * dphi);
+            sB = t0 + hk * tan(phiA + float(i + 1) * dphi);
         } else {
             bool second = i >= n0;
             float2 seg = second ? seg1 : seg0;
             ds = (seg.y - seg.x) / float(second ? steps - n0 : n0);
-            s = seg.x + (float(second ? i - n0 : i) + jitter) * ds;
+            float k = float(second ? i - n0 : i);
+            s = seg.x + (k + jitter) * ds;
+            sA = seg.x + k * ds;
+            sB = sA + ds;
         }
         float3 p = dir * s;
         PlumeSample x = {0.0, 0.0, float3(0.0), 0.0, float3(0.0)};
@@ -1004,11 +1016,24 @@ fragment EffectVolumeOut plume_march_fragment(PlumeProxyOut in [[stage_in]],
         if (x.scattering > 0.0) {
             float g = x.g / x.scattering;
             float3 ambient = plume_sh9InScatter(lighting, view, g, pf);
+            // The shadow's mean over the step's stratum (its eight points
+            // interpolated, lit outside them), not its value at the
+            // jittered s: a column narrower than a step darkens every pixel
+            // by its share of the step, not a few pixels wholly each frame.
             float shadow = 1.0;
-            if (s >= shade.x && s <= shade.y) {
-                float u = clamp(7.0 * (s - shade.x) / max(shade.y - shade.x, 1e-6), 0.0, 7.0);
-                int i0 = min(int(u), 6);
-                shadow = mix(shadows[i0], shadows[i0 + 1], u - float(i0));
+            float lo = max(sA, shade.x), hi = min(sB, shade.y);
+            if (hi > lo) {
+                float k7 = 7.0 / max(shade.y - shade.x, 1e-6);
+                float u0 = (lo - shade.x) * k7, u1 = (hi - shade.x) * k7;
+                float dark = 0.0;
+                for (int j = min(int(u0), 6); j <= min(int(u1), 6); j++) {
+                    float ua = max(u0, float(j)), ub = min(u1, float(j + 1));
+                    if (ub <= ua) { continue; }
+                    float la = mix(shadows[j], shadows[j + 1], ua - float(j));
+                    float lb = mix(shadows[j], shadows[j + 1], ub - float(j));
+                    dark += (ub - ua) * (1.0 - 0.5 * (la + lb));
+                }
+                shadow = 1.0 - dark / k7 / max(sB - sA, 1e-6);
             }
             source += x.tinted * sunLux * (shadow * plume_phase(dot(view, sunDir), g) * exp(-sunDepth));
             // The cluster's own light on its smoke outside its luminous
@@ -1131,7 +1156,7 @@ struct PlumeGlowDraw {
     float4 chamberExit; // a chamber's glow: xyz the exit's centre (world), w the throat's depth (m)
     float4 chamberAxis; // xyz the exhaust's axis (world), w the injector face's depth (m; 0: the SPS's glow)
     float4 chamberLight;// rgb the gas's light per metre (cd/m² per m), w the chamber's radius (m)
-    float4 chamberThroat;// x the throat's radius (m), y the convergent section's end's depth (m)
+    float4 chamberThroat;// x the throat's radius (m), y the convergent section's end's depth (m), z the exit's radius
 };
 
 struct PlumeGlowOut {
@@ -1159,6 +1184,29 @@ vertex PlumeGlowOut plume_glow_vertex(uint vid [[vertex_id]],
     return o;
 }
 
+// Whether the view ray (the camera at the origin) reaches the chamber's
+// surface at camera-relative `world`, `depth` into the nozzle whose exit's
+// centre is `exitC` (axis `ax`, downstream), through the exit (radius re)
+// and the throat (rt, `throat` deep) (ChamberGlow): it crosses the throat's
+// plane within it before the surface, and the exit's plane within it, or
+// starts inside the bell. Both apertures passed, the line of sight is clear:
+// the bell narrows from one to the other.
+inline bool plume_chamberSeen(float3 world, float3 exitC, float3 ax, float depth, float throat, float rt, float re) {
+    if (depth <= throat) { return true; }
+    float3 ray = normalize(world);
+    float along = dot(ray, ax);
+    if (abs(along) < 1e-6) { return false; }
+    float3 centre = exitC - ax * throat;
+    float t = dot(centre, ax) / along;
+    if (t <= 0.0 || t >= length(world) || length(ray * t - centre) > rt + 0.004) { return false; }
+    float cameraDepth = dot(exitC, ax);
+    if (cameraDepth < 0.0) {
+        float te = cameraDepth / along;
+        return te > 0.0 && length(ray * te - exitC) <= re;
+    }
+    return length(exitC - ax * cameraDepth) <= re;
+}
+
 fragment float4 plume_glow_fragment(PlumeGlowOut in [[stage_in]],
                                     constant FrameUniforms &frame [[buffer(ORBIT_BUFFER_FRAME)]],
                                     constant AtmosphereUniforms &air [[buffer(ORBIT_BUFFER_ATMOSPHERE)]],
@@ -1180,15 +1228,11 @@ fragment float4 plume_glow_fragment(PlumeGlowOut in [[stage_in]],
         float rt = d.chamberThroat.x, convergent = d.chamberThroat.y;
         float gas = mix(rt, rc, clamp((depth - throat) / max(convergent - throat, 1e-6), 0.0, 1.0));
         if (depth < throat - 0.005 || depth > injector + 0.01 || r > gas + 0.004) { return float4(0.0); }
-        // Seen through the throat: the view ray crosses the throat's plane
-        // within it before it reaches the fragment (else the gas-side wall,
-        // 19 mm behind the engine's outer wall, shows through the glow
-        // pass's depth bias in views from the side).
-        if (depth > throat) {
-            float3 ray = normalize(in.world), centre = d.chamberExit.xyz - ax * throat;
-            float along = dot(ray, ax);
-            float t = abs(along) > 1e-6 ? dot(centre, ax) / along : -1.0;
-            if (t <= 0.0 || t >= length(in.world) || length(ray * t - centre) > rt + 0.004) { return float4(0.0); }
+        // Seen through the exit and the throat (else the chamber's gas side
+        // shows through the engine's wall by the glow pass's depth bias in
+        // views from the side).
+        if (!plume_chamberSeen(in.world, d.chamberExit.xyz, ax, depth, throat, rt, d.chamberThroat.z)) {
+            return float4(0.0);
         }
         float cosine = max(abs(dot(normalize(in.world), ax)), 0.2);
         float path = min(max(depth - throat, 0.0) / cosine, 2.0 * (injector - throat) + 2.0 * rc);

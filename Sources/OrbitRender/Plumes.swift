@@ -410,7 +410,8 @@ struct PlumeGlowGPU {
     var chamberAxis = SIMD4<Float>.zero
     /// ...rgb the gas's light per metre (cd/m² per m), w the chamber's radius...
     var chamberLight = SIMD4<Float>.zero
-    /// ...x the throat's radius, y the convergent section's end's depth (m).
+    /// ...x the throat's radius, y the convergent section's end's depth, z
+    /// the exit's radius (m).
     var chamberThroat = SIMD4<Float>.zero
 }
 

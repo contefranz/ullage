@@ -152,7 +152,7 @@ public final class PlumePass: RenderPass {
         items += data.chambers.map { c in
             (c.vessel, c.thruster, 1, (Plumes.f4(c.exit, c.chamber.throatDepth), Plumes.f4(c.axis, c.chamber.injectorDepth),
                                      Plumes.f4(c.light, c.chamber.radius),
-                                     Plumes.f4(c.chamber.throatRadius, c.chamber.convergentDepth, 0, 0)))
+                                     Plumes.f4(c.chamber.throatRadius, c.chamber.convergentDepth, c.chamber.exitRadius, 0)))
         }
         for g in items {
             guard let v = f.scene.vessels.first(where: { $0.id == g.vessel }), let mesh = f.mesh(of: v) else { continue }

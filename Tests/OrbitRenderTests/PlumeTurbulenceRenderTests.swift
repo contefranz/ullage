@@ -36,6 +36,15 @@ final class PlumeTurbulenceRenderTests: XCTestCase {
             out[id] = plume_shadowInterval(rays[id].xyz, capsule[2].xyz, capsule[0].xyz, capsule[1].xyz, capsule[0].w);
         }
 
+        kernel void plume_seen_probe(const device float4 *cases [[buffer(0)]], constant float4 *geo [[buffer(1)]],
+                                     device uint *out [[buffer(2)]], uint id [[thread_position_in_grid]]) {
+            // Each case: the surface (camera-relative) and its depth, then
+            // the exit's centre; the geometry: the axis and the throat's
+            // depth, then the throat's and the exit's radii.
+            float4 w = cases[2 * id], e = cases[2 * id + 1];
+            out[id] = plume_chamberSeen(w.xyz, e.xyz, geo[0].xyz, w.w, geo[0].w, geo[1].x, geo[1].y) ? 1u : 0u;
+        }
+
         kernel void plume_sizes(device uint *out [[buffer(0)]]) {
             out[0] = sizeof(PlumeFrame);
             out[1] = sizeof(PlumeMember);
@@ -312,6 +321,173 @@ final class PlumeTurbulenceRenderTests: XCTestCase {
         XCTAssertGreaterThan(c.radius, 5.0)
         XCTAssertLessThan(c.radius, 10.5)
         XCTAssertGreaterThan(abs((c.b - c.a).normalized.dot(v.attitude.rotate(.unitX))), 0.999)
+    }
+
+    /// The chamber glow's line of sight (`plume_chamberSeen`) on the J-2's
+    /// drawn chamber: from outside the bell more than 27° off the axis
+    /// (beyond atan((re + rt)/throat), 26.2°, no line passes both the exit
+    /// and the throat) no point of the chamber's gas side is seen, whatever
+    /// the glow pass's depth bias; from straight behind, the injector face's
+    /// centre is.
+    func testChamberSeenOnlyThroughExitAndThroat() throws {
+        let device = try XCTUnwrap(RenderDevice.shared)
+        let pipeline = try device.makeComputePipelineState(function: try XCTUnwrap(try library(device)
+            .makeFunction(name: "plume_seen_probe")))
+        let c = try XCTUnwrap(ApolloExhaust.j2.chamber)
+        // The exit at the origin, the exhaust along +z.
+        var cases: [SIMD4<Float>] = [], expected: [Bool] = []
+        func add(point p: Vec3, depth: Double, angle: Double, azimuth: Double, seen: Bool) {
+            let away = Vec3(sin(angle) * cos(azimuth), sin(angle) * sin(azimuth), cos(angle))
+            let camera = p + away * 30
+            cases += [Plumes.f4(p - camera, depth), Plumes.f4(Vec3.zero - camera, 0)]
+            expected.append(seen)
+        }
+        for i in 0..<12 {
+            let depth = c.throatDepth + 0.01 + (c.injectorDepth - 0.01 - c.throatDepth) * Double(i) / 11
+            for phi in stride(from: 0.0, to: 2 * Double.pi, by: Double.pi / 4) {
+                let r = c.gasRadius(atDepth: depth)
+                let p = Vec3(r * cos(phi), r * sin(phi), -depth)
+                for angle in stride(from: 27.0, through: 89, by: 4) {
+                    for azimuth in stride(from: 0.0, to: 2 * Double.pi, by: Double.pi / 3) {
+                        add(point: p, depth: depth, angle: angle * Double.pi / 180, azimuth: azimuth, seen: false)
+                    }
+                }
+            }
+        }
+        for angle in [0.0, 1, 2, 3] {
+            add(point: Vec3(0, 0, -c.injectorDepth), depth: c.injectorDepth, angle: angle * Double.pi / 180, azimuth: 0.7,
+                seen: true)
+        }
+        var geo = [Plumes.f4(Vec3(0, 0, 1), c.throatDepth), Plumes.f4(c.throatRadius, c.exitRadius, 0, 0)]
+        let caseBuffer = try XCTUnwrap(device.makeBuffer(bytes: cases, length: 16 * cases.count))
+        let out = try XCTUnwrap(device.makeBuffer(length: 4 * expected.count, options: .storageModeShared))
+        let queue = try XCTUnwrap(device.makeCommandQueue())
+        let cb = try XCTUnwrap(queue.makeCommandBuffer()), enc = try XCTUnwrap(cb.makeComputeCommandEncoder())
+        enc.setComputePipelineState(pipeline)
+        enc.setBuffer(caseBuffer, offset: 0, index: 0)
+        enc.setBytes(&geo, length: 16 * geo.count, index: 1)
+        enc.setBuffer(out, offset: 0, index: 2)
+        enc.dispatchThreads(MTLSize(width: expected.count, height: 1, depth: 1),
+                            threadsPerThreadgroup: MTLSize(width: 32, height: 1, depth: 1))
+        enc.endEncoding()
+        cb.commit()
+        cb.waitUntilCompleted()
+        let seen = out.contents().bindMemory(to: UInt32.self, capacity: expected.count)
+        var wrong = 0
+        for (i, e) in expected.enumerated() where (seen[i] == 1) != e { wrong += 1 }
+        print("PlumeTurbulenceRenderTests: the chamber's line of sight wrong in", wrong, "of", expected.count, "cases")
+        XCTAssertEqual(wrong, 0)
+    }
+
+    /// `plume_shadowInterval` on the CPU (the test's mirror): the ray
+    /// parameters of dir·s in the shadow of the capsule from a to b.
+    static func shadowInterval(_ dir: Vec3, sun: Vec3, a: Vec3, b: Vec3, radius: Double) -> (lo: Double, hi: Double) {
+        func flat(_ v: Vec3) -> Vec3 { v - sun * v.dot(sun) }
+        let d = flat(dir), pa = flat(a), pb = flat(b), dd = d.dot(d)
+        guard dd > 1e-12 else { return (1, 0) }
+        var lo = Double.infinity, hi = -Double.infinity
+        for c in [pa, pb] {
+            let dc = d.dot(c), disc = dc * dc - dd * (c.dot(c) - radius * radius)
+            if disc >= 0 {
+                lo = min(lo, (dc - disc.squareRoot()) / dd)
+                hi = max(hi, (dc + disc.squareRoot()) / dd)
+            }
+        }
+        let ab = pb - pa, len = ab.length
+        if len > 1e-6 {
+            let u = ab / len, n = sun.cross(u).normalized
+            var band = (lo: -Double.infinity, hi: Double.infinity)
+            let dn = d.dot(n), an = pa.dot(n), du = d.dot(u), au = pa.dot(u)
+            if abs(dn) > 1e-9 {
+                let s0 = (an - radius) / dn, s1 = (an + radius) / dn
+                band = (max(band.lo, min(s0, s1)), min(band.hi, max(s0, s1)))
+            } else if abs(an) > radius { band = (1, 0) }
+            if abs(du) > 1e-9 {
+                let s0 = au / du, s1 = (au + len) / du
+                band = (max(band.lo, min(s0, s1)), min(band.hi, max(s0, s1)))
+            } else if -au < 0 || -au > len { band = (1, 0) }
+            if band.hi > band.lo {
+                lo = min(lo, band.lo)
+                hi = max(hi, band.hi)
+            }
+        }
+        let front = max(a.dot(sun), b.dot(sun)) + radius, ds = dir.dot(sun)
+        if abs(ds) > 1e-9 {
+            if ds > 0 { hi = min(hi, front / ds) } else { lo = max(lo, front / ds) }
+        } else if front < 0 { return (1, 0) }
+        return (lo, hi)
+    }
+
+    /// The vessel's shadow through its sunlit ice holds still from frame to
+    /// frame: the S-II's ice mid-burn (p2-flight-s-ii-mid) drawn at two
+    /// frames, whose steps' jitter differs; where the vessel's shadow
+    /// darkens the ice (its rays cross the shadow, and the two frames are
+    /// darker with R4's shadow than without it, on average) its pixels
+    /// change from frame to frame no more with the shadow than without it
+    /// (the shadow's mean over each step, not its value at the step's
+    /// jittered point, which made the column flicker in blocks).
+    func testShadowColumnHoldsFromFrameToFrame() throws {
+        let spec = try SnapshotSpec.load(GoldenImageTests.shots.appendingPathComponent("p2-flight.json"))
+        var shot = try XCTUnwrap(spec.shots.first { $0.name == "p2-flight-s-ii-mid" })
+        shot.settings.post.exposure.mode = .manual
+        shot.settings.post.exposure.ev100 = 12.7
+        let snapper = try SnapshotRenderer(device: try XCTUnwrap(RenderDevice.shared))
+        let scene0 = shot.scene(try shot.prepare(system: snapper.system))
+        let r = try snapper.renderer(userTextures: false)
+        guard let target = OffscreenTarget(device: r.device, width: shot.width, height: shot.height) else {
+            throw SceneRenderer.Failure.noResources
+        }
+        func frame(_ index: Int, plumes: Bool = true, shadows: Bool = true) -> [UInt8] {
+            var settings = shot.settings
+            settings.plume.enabled = plumes
+            settings.shadow.enabled = shadows
+            r.settings = settings
+            var scene = scene0
+            scene.clock.frameIndex = index
+            r.renderAndWait(scene, into: target)
+            return target.bytes()
+        }
+        r.startOver()
+        let bare = frame(1, plumes: false)
+        r.startOver()
+        let a = frame(1), b = frame(2)
+        r.startOver()
+        let a0 = frame(1, shadows: false), b0 = frame(2, shadows: false)
+        let system = try XCTUnwrap(r.graph.passes.compactMap { ($0 as? PlumePreparePass)?.system }.first)
+        let camera = try XCTUnwrap(system.frame.camera)
+        let vessel = try XCTUnwrap(scene0.vessels.first { $0.isFocus })
+        let capsule = try XCTUnwrap(Plumes.capsule(vessel))
+        let viewToWorld = camera.worldToView.transposed, t = tan(camera.fovY / 2)
+        let aspect = Double(shot.width) / Double(shot.height)
+        var shadowed = (sum: 0.0, n: 0), unshadowed = (sum: 0.0, n: 0), cast = 0.0
+        for y in 0..<shot.height {
+            for x in 0..<shot.width {
+                let i = 4 * (y * shot.width + x)
+                var plume = 0.0, change = 0.0, change0 = 0.0, dark = 0.0
+                for k in 0..<3 {
+                    plume += abs(Double(a[i + k]) - Double(bare[i + k]))
+                    change += abs(Double(a[i + k]) - Double(b[i + k]))
+                    change0 += abs(Double(a0[i + k]) - Double(b0[i + k]))
+                    dark += 0.5 * (Double(a0[i + k]) + Double(b0[i + k]) - Double(a[i + k]) - Double(b[i + k]))
+                }
+                guard plume > 30 else { continue }
+                let px = 2 * (Double(x) + 0.5) / Double(shot.width) - 1, py = 1 - 2 * (Double(y) + 0.5) / Double(shot.height)
+                let dir = (viewToWorld * Vec3(px * t * aspect, py * t, -1)).normalized
+                let s = Self.shadowInterval(dir, sun: scene0.sun.direction, a: capsule.a, b: capsule.b,
+                                            radius: capsule.radius)
+                guard s.hi > max(s.lo, 0) + 1, dark >= 3 else { continue }
+                shadowed = (shadowed.sum + change, shadowed.n + 1)
+                unshadowed = (unshadowed.sum + change0, unshadowed.n + 1)
+                cast = max(cast, dark)
+            }
+        }
+        let with = shadowed.sum / Double(max(shadowed.n, 1)), without = unshadowed.sum / Double(max(unshadowed.n, 1))
+        print(String(format: "PlumeTurbulenceRenderTests: across the vessel's shadow in the ice (%d px), frame to frame "
+                     + "%.2f with R4's shadow, %.2f without; the shadow darkens by up to %.0f", shadowed.n, with, without,
+                     cast))
+        XCTAssertGreaterThan(shadowed.n, 200, "the shadow darkens the ice")
+        XCTAssertGreaterThan(cast, 10, "the shadow shows")
+        XCTAssertLessThanOrEqual(with, 1.05 * without + 0.1)
     }
 
     /// The uniforms' Swift mirrors have MSL's sizes.

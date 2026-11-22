@@ -69,25 +69,29 @@ medium, L low (visual, calibrated or assumed).
    as dense as 1/(h² + d²) along the ray, h the ray's closest approach or
    half the members' spread about the axis and their dense radius), so a
    small dense core (a retro's alumina, or a pair of them) is not stepped
-   over. A clear exhaust's ice in vacuum seen across is stepped
-   equiangularly about its free expansion's virtual source instead (its
-   density falls as 1/d² off that point), so the bright condensing shell
+   over. A clear exhaust's ice in vacuum is stepped equiangularly about
+   its free expansion's virtual source from every view instead (its
+   density falls as 1/d² off that point), h no less than an exit radius nor
+   than the onset surface's distance from the source at the ray's angle to
+   the axis (the ice is nil inside it: 72 m along a J-2's axis, 41 m at
+   35°, under a metre across), so the steps follow the ice, not the empty
+   core, with no switch as a camera orbits: the bright condensing shell
    near the nozzle is stepped finely and the jitter leaves no pattern
-   there; seen within 30° of its axis it keeps the near and far halves (the
-   ice is nil inside its onset surface, where source-centred steps would
-   crowd: `p2-j2-ice-behind`, 250 m behind five J-2s). The marched clusters blend far to
+   there (`p2-j2-ice-behind`, 250 m behind five J-2s; `p2-j2-ice-oblique`,
+   40° off their axis). The marched clusters blend far to
    near. The field is `PlumeMember.sample`, line by line, plus the
    turbulence. `PlumeRenderTests` checks the GPU against the CPU reference
    through the same rays (within 1 % on average; the test allows 10 %).
 5. **Lighting of the plume:** its own emission (absorption times the
    blackbody at each phase's temperature); single scattering of the Sun
    (Henyey-Greenstein; R4's shadow at eight points spread evenly over the
-   part of the ray the vessel's shadow can cover, interpolated, and lit
-   outside it: the vessel a capsule from its round shapes' extents along
-   and about its axis, swept away from the Sun, so its shadow through its
-   sunlit ice or smoke is one sharp column, neither copies at fixed points
-   nor a jittered stipple; R4 read at every step cost about 2 ms more at
-   max-Q. C2's cloud shadow, the
+   part of the ray its own vessel's shadow can cover, interpolated, and
+   lit outside it: the vessel a capsule from its round shapes' extents
+   along and about its axis, swept away from the Sun. Each step takes the
+   shadow's mean over its stratum, not its value at its jittered point,
+   so the vessel's shadow through its sunlit ice or smoke is one steady
+   column, neither copies at fixed points nor a stipple; R4 read at every
+   step cost about 2 ms more at max-Q. C2's cloud shadow, the
    Sun's chord through the plume as self-shadowing); the ambient behind
    one function, `plume_sh9InScatter`: R3's probe's SH9 in-scatter
    (`orbit_sh9InScatter`, the Earth and the sky the probe draws, in air
@@ -390,9 +394,11 @@ show that it fires, both from its physics:
   S-II's low mixture ratio dims it, the centre engine's cutoff and
   Apollo 13's engine 5 put it out, and it shows from any view into the
   nozzles, in sunlight and in the Earth's shadow: only on the gas side and
-  only where the view ray reaches it through the throat (not on the
-  engine's outside, 19 mm away through the tube wall, which the glow pass's
-  depth bias would otherwise let through in views from the side). The S-II's centre J-2 is
+  only where the view ray reaches it through the exit and the throat (no
+  line passes both beyond 26° off the J-2's axis; not on the engine's
+  outside, 19 mm away through the tube wall, nor through the bell's wall,
+  which the glow pass's slope-scaled depth bias would otherwise let through
+  in views from the side). The S-II's centre J-2 is
   fixed, so its draws are its part's static ones, drawn again with the
   chamber picked out in the fragment. The water's blue continuum
   (chemiluminescent, growing as the pressure squared, the SSME's and
@@ -627,6 +633,15 @@ LEO, for the default physical look.
 - The SPS glow's temperatures are not sourced (L). The J-2's chamber glow
   leaves out the water's blue continuum and the light it throws on the
   nozzle's inside.
+- A plume takes R4's shadow from its own vessel only: other vessels' (the
+  separated S-IC over the S-II's plumes and ullage smoke at staging, the
+  S-II over the S-IC's retros, the jettisoned interstage) and LC-39A's ML
+  and tower on the deck's wall jet are left out. That is why `p4-liftoff`
+  brightened in the plume's column 25-85 m below the deck, which the
+  site's shadow had darkened; in the app that part is hidden below the
+  deck at AS-506's launch and the tower's shadow falls away from the
+  plume, so it shows mainly at staging. Each other caster's bounding
+  sphere, swept from the Sun, added to the interval would bring them back.
 - The launch track's deck smoke (`PadExhaust`) and the wall jet share the
   flow between the deck and the trench by different models (one envelope
   against the opening's area; each jet's disc against the opening's

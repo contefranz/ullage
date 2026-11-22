@@ -47,6 +47,9 @@ public enum ApolloExhaust {
         /// Where the convergent section meets the chamber's cylinder (m from
         /// the exit plane).
         public let convergentDepth: Double
+        /// The nozzle's exit's radius (m): the chamber is seen only through
+        /// it and the throat.
+        public let exitRadius: Double
 
         /// The gas side's radius `depth` m into the nozzle, behind the
         /// throat: the convergent cone's, then the chamber's.
@@ -69,7 +72,8 @@ public enum ApolloExhaust {
         let throat = ApolloShapeData.bellFraction * (re - rt) / tan(ApolloShapeData.bellConeHalfAngle * degree)
         return Chamber(throatDepth: throat, injectorDepth: ApolloShapeData.j2ChamberBodyLength * inch,
                        throatRadius: rt, radius: rc,
-                       convergentDepth: throat + (rc - rt) / tan(ApolloShapeData.convergentHalfAngle * degree))
+                       convergentDepth: throat + (rc - rt) / tan(ApolloShapeData.convergentHalfAngle * degree),
+                       exitRadius: re)
     }
 
     typealias D = AS506
