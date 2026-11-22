@@ -297,6 +297,64 @@ final class TerminalCountTests: XCTestCase {
         XCTAssertNil(count.firstMotion)
     }
 
+    // After the release, while the stack still stands on the rods, an F-1
+    // that stops burning stops in the record at the step's start, as the
+    // journal records its cutoff, whatever stopped it: the throttle (the
+    // pilot's X, a script's `throttle:0`; here set between steps, the four
+    // left after engine 2's loss after commit shut down), or the propellant
+    // (the one F-1 left, which never lifts the stack, burning the stage's
+    // tanks dry, drained here to 100 kg above their unusable mass).
+    func testAnEngineThatStopsBurningOnTheRodsStopsInTheRecord() throws {
+        func cutoff(_ sim: Simulation, _ engine: String) -> Epoch? {
+            sim.journal.events.first {
+                if case .cutoff(engine, "S-IC") = $0.kind { return true }
+                return false
+            }?.epoch
+        }
+        do {
+            let (sim, v, count) = try countOnThePad()
+            count.resume(at: sim.time, in: sim)
+            run(sim) { sim.time - count.rangeZero! >= 0.1 }
+            s(v, "S-IC engine 2").fail()
+            run(sim) { count.released != nil && sim.time - count.released! >= 5 }
+            XCTAssertEqual(count.plan.starts.indices.filter { count.record.stop($0) == nil }.count, 4)
+            let cut = sim.time
+            v.mainThrottle = 0
+            run(sim) { sim.time - cut >= 2 }
+            for (i, start) in count.plan.starts.enumerated() where start.engine != "S-IC engine 2" {
+                XCTAssertEqual(try XCTUnwrap(count.record.stop(i)), cut, start.engine)
+                XCTAssertEqual(try XCTUnwrap(cutoff(sim, start.engine)), cut, start.engine)
+                XCTAssertEqual(count.record.fraction(i, at: cut), 0)
+            }
+            XCTAssertNil(cutoff(sim, "S-IC engine 2"), "never under the throttle")
+            XCTAssertNotNil(v.landed)
+            XCTAssertNil(count.firstMotion)
+        }
+        do {
+            let (sim, v, count) = try countOnThePad()
+            count.resume(at: sim.time, in: sim)
+            run(sim) { sim.time - count.rangeZero! >= 0.1 }
+            s(v, "S-IC engine 1").fail()
+            run(sim) { count.released != nil }
+            for n in 2...4 { s(v, "S-IC engine \(n)").fail() }
+            run(sim) { sim.time - count.released! >= 1 }
+            let last = s(v, "S-IC engine 5")
+            for tank in try XCTUnwrap(last.feed).tanks { tank.mass = tank.unusableMass + 100 }
+            var dry: Epoch?
+            while dry == nil, sim.time - count.released! < 10 {
+                for u in sim.vessels { sim.prepareControls(u) }
+                if !last.hasPropellant { dry = sim.time } else { sim.step(min(0.02, sim.maxStep())) }
+            }
+            let i = try XCTUnwrap(count.plan.starts.firstIndex { $0.engine == "S-IC engine 5" })
+            XCTAssertEqual(try XCTUnwrap(count.record.stop(i)), try XCTUnwrap(dry))
+            run(sim) { sim.time - dry! >= 1 }
+            XCTAssertEqual(try XCTUnwrap(cutoff(sim, "S-IC engine 5")), dry!)
+            XCTAssertTrue(count.plan.starts.indices.allSatisfy { count.record.fraction($0, at: sim.time) == 0 })
+            XCTAssertNotNil(v.landed)
+            XCTAssertNil(count.firstMotion)
+        }
+    }
+
     // At any time warp the count's steps end on its events, taken between
     // epochs: frames of 1/60 s at 100× and 1,000× (16.7 s of simulation
     // each) from the hold land on every event's epoch, which the
@@ -313,6 +371,7 @@ final class TerminalCountTests: XCTestCase {
             while count.liftoffSwitch == nil && sim.time - zero < 10 { sim.advance(by: 1.0 / 60) }
             XCTAssertEqual(count.released, zero + count.plan.release, "at \(warp)×")
             XCTAssertEqual(count.firstMotion, count.released, "at \(warp)×")
+            XCTAssertTrue(count.record.stops.isEmpty, "nothing stopped on the pad at \(warp)×")
             let planned = count.plan.events.map { ($0.name, $0.time) }
                 + [("launch commit: thrust OK", count.plan.commit), ("hold-down release", count.plan.release)]
             for (name, time) in planned {

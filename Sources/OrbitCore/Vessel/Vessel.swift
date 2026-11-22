@@ -169,7 +169,7 @@ public final class Vessel: Identifiable {
     var pilotHeldRotation = Vec3.zero
     var pilotHeldTranslation = Vec3.zero
 
-    // MARK: Telemetry (updated every step)
+    // MARK: Telemetry (updated every step; a wreck's once more at the impact, then held)
     public internal(set) var altitude = 0.0
     public internal(set) var atmosphere = AtmosphereState.vacuum
     public internal(set) var airspeed = 0.0

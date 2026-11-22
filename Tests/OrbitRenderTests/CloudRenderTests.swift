@@ -1866,12 +1866,11 @@ final class CloudMapTests: XCTestCase {
 }
 
 /// Apollo 8's orbit by day (ORBITSIM_CLOUD_SHOTS=<dir>): the pad and the
-/// ascent are orbitsnap's (`apollo8-pad`, c2-scenes.json), but a parking
-/// orbit on Apollo 8's day is M2's, so this puts a capsule in a 185 km orbit
-/// in daylight an hour after AS-503's launch (the terminator is Apollo
-/// 11's, c2-scenes.json),
-/// and renders them as orbitsnap does (auto exposure, settled), with
-/// Apollo 8's ERA5 field when it is fetched.
+/// ascent are orbitsnap's (`apollo8-first-motion`, c2-scenes.json), but a
+/// parking orbit on Apollo 8's day is M2's, so this puts a capsule in a 185
+/// km orbit in daylight an hour after AS-503's launch (the terminator is
+/// Apollo 11's, c2-scenes.json), and renders them as orbitsnap does (auto
+/// exposure, settled), with Apollo 8's ERA5 field when it is fetched.
 @MainActor
 final class CloudApollo8Shots: XCTestCase {
     struct Shot {
