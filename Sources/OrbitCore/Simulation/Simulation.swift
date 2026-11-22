@@ -52,6 +52,8 @@ public final class Simulation {
     /// The warp events the governor has logged (`WarpEvent`), so each is
     /// logged once.
     var loggedWarpEvents = Set<WarpLogKey>()
+    /// The stops the governor has applied: each lowers the warp once.
+    var appliedWarpStops = Set<WarpLogKey>()
 
     /// The day's atmosphere of a body, by NAIF id, in place of its standard
     /// model in this simulation (a launch day's measured air and winds). The
