@@ -58,18 +58,26 @@ script's `fail`) too, which it applies after the count's update
 
 **Left on the rods.** An engine lost after commit does not stop the
 release, and the rest may not lift the stack against its weight and the
-rods' 3.2 MN (four F-1s do after about 39 s; one alone never). While it stands
-released, the count records its losses as before the release, so the
-trench and the clouds are fed what still burns, and the pad's windows run
-from the release until first motion is found.
+rods' 3.2 MN (four F-1s do after about 39 s, three after about 140 s, two
+after about 340 s; one alone never). While it stands released, the count
+records each F-1 that stops burning there at the step's start, as the
+journal records its cutoff: lost, run dry, or shut down by the throttle (the
+pilot's X, a script's `throttle:0`; `TerminalCount.programmed`, after the
+throttles). The record keeps it stopped if the throttle lights it again, as
+an F-1 could not restart. The trench and the clouds are fed what burns: the
+count's thrust up to the release, the emitters' flow after it (on a rebuilt
+history the journal's cutoffs, none from an engine lost by the release), so
+a throttle cut leaves only the F-1s' 0.66 s tail-off. The pad's windows stay
+open while an F-1 burns on the rods, and run from where the last stopped
+once none does, until first motion is found.
 
 ## Effects on the core's thrust
 
 - Before first motion each F-1's thrust is the count's (`TerminalCount`):
   the plumes read it through the thrusters (P2's volumes only through
   thruster levels), and P4 through the scene's record
-  (`LaunchEffects.Ignition`), which also rebuilds a history the frames did
-  not see. The 1-2-2 start shows: engine 5 lights at T−3.05 s, 1 and 3 at
+  (`LaunchEffects.Ignition`) up to the release (the emitters' after it, on
+  the rods too), which also rebuilds a history the frames did not see. The 1-2-2 start shows: engine 5 lights at T−3.05 s, 1 and 3 at
   −2.75 s, 4 at −2.65 s, 2 at −2.55 s (FER-506 Table 2-2 and Figure 5-2).
 - **Start smoke** (`LaunchEffects.startSmoke`): from each engine's start
   command its gas generator's fuel-rich turbine exhaust, 2.9 % of its

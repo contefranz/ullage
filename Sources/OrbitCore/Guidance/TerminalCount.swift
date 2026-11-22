@@ -36,9 +36,9 @@ import Foundation
 ///
 /// The simulation runs it for `vehicle` (`Simulation.terminalCount`): at the
 /// start of each of its steps, before the flight program (`update`) and
-/// after it (`programmed`, for the engines the program lost), and at the
-/// end of each (`stepped`), and it ends a step on each of the count's
-/// events.
+/// after it and the throttles (`programmed`, for the engines the program
+/// lost, and on the rods those that stopped burning), and at the end of
+/// each (`stepped`), and it ends a step on each of the count's events.
 public final class TerminalCount {
     /// The restraint of the controlled release mechanisms: a force against
     /// the rise falling linearly from `force` at release to zero at
@@ -199,8 +199,9 @@ public final class TerminalCount {
     public private(set) var log: [(time: Epoch, event: String)] = []
 
     /// Range time at which each engine stopped while the stack stood (it
-    /// failed, or the launch was scrubbed), by its index in `plan.starts`:
-    /// before the release its propellant stops there.
+    /// failed, or the launch was scrubbed; after the release, on the rods,
+    /// also run dry or shut down), by its index in `plan.starts`: before the
+    /// release its propellant stops there.
     private var stops: [Int: Double] = [:]
     /// The events logged, by index in `plan.events`.
     private var done = Set<Int>()
@@ -461,15 +462,18 @@ public final class TerminalCount {
         bookTanks(rangeTime: t)
     }
 
-    /// After the vehicle's flight program in each step, while the stack
-    /// stands (before the release, or after it until first motion): an
-    /// engine the program lost in this step stops at the step's start, as
-    /// the program logged it, not a step later. The IU applies failures in
-    /// its own update (F+digit, a script's `fail`), after the count's.
+    /// After the vehicle's flight program and the throttles in each step,
+    /// while the stack stands (before the release, or after it until first
+    /// motion): an engine the program lost in this step stops at the step's
+    /// start, as the program logged it, not a step later. The IU applies
+    /// failures in its own update (F+digit, a script's `fail`), after the
+    /// count's. After the release an engine that no longer burns on the rods
+    /// stops there too: run dry, or shut down by the throttle (the pilot's,
+    /// a script's).
     public func programmed(_ v: Vessel, in sim: Simulation) {
         guard v === vehicle, let zero = rangeZero, scrub == nil, firstMotion == nil,
               released == nil || v.landed != nil else { return }
-        noteLosses(v, rangeTime: sim.time - zero)
+        noteLosses(v, rangeTime: sim.time - zero, burning: released != nil)
     }
 
     /// Seconds from `now` to the count's next event, to end a step there;
@@ -563,10 +567,15 @@ public final class TerminalCount {
     /// ground start off: before its command it never starts
     /// (`Record.start`), and what it was to burn stays in the tanks; after
     /// the release, while the stack still stands on the rods, the record's
-    /// thrust and flow follow it (`Record.fraction`).
-    private func noteLosses(_ v: Vessel, rangeTime t: Double) {
+    /// thrust and flow follow it (`Record.fraction`). With `burning` (after
+    /// the release, the throttles set) so does every engine no longer
+    /// commanded: run dry, or shut down. The record keeps it stopped if the
+    /// throttle lights it again, as an F-1 could not restart (its hypergol
+    /// cartridge spent).
+    private func noteLosses(_ v: Vessel, rangeTime t: Double, burning: Bool = false) {
         for (i, s) in plan.starts.enumerated() where stops[i] == nil {
-            guard let e = v.thrusters.first(where: { $0.name == s.engine }), !e.isAvailable else { continue }
+            guard let e = v.thrusters.first(where: { $0.name == s.engine }),
+                  !e.isAvailable || burning && !e.isCommanded else { continue }
             stops[i] = t
             e.groundStart = nil
         }
