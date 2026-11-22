@@ -188,11 +188,28 @@ public struct PlumeMember: Equatable {
     public var machDiskExtinction = 0.0
     public var machDiskTemperature = 0.0
 
-    // Turbulence: eddy size at the exit (m), the eddies' visual speed (m/s),
-    // the noise's depth (0-1).
-    public var noiseScale = 1.0
-    public var eddySpeed = 10.0
+    // Turbulence (`PlumeTurbulence`): the eddies' size at the lip (m) and
+    // its growth downstream (dℓ/dx, the mixing layer's), the exhaust's
+    // speed relative to the nozzle that carries them (m/s: the fully
+    // expanded jet's in air, the limiting speed in vacuum), the noise's
+    // depth (0-1).
+    public var eddySize = 1.0
+    public var eddyGrowth = 0.0
+    public var exhaustSpeed = 2_500.0
     public var turbulence = 0.0
+    /// The thruster's name and a seed from its part and name, stable from
+    /// run to run: its cluster's noise is seeded by the first by name.
+    public var name = ""
+    public var noiseSeed: UInt32 = 0
+
+    /// How much of the stream bounds the jet: P1's structure visibility
+    /// (the air a continuum about it, 1 at Kn ≤ 0.01, none in free-molecular
+    /// flow, where the rarefied stream passes through the exhaust; the
+    /// legacy look's √(p/p0)).
+    public var coflowShare = 1.0
+    /// The stream's speed along the jet (m/s, downstream positive) as much
+    /// as it bounds it: the coflow that carries its eddies.
+    public var coflow: Double { relativeWind.dot(axis) * coflowShare }
 
     /// An emission-only glow, cd/m² seen through the axis (the readable
     /// floor, the legacy look, the near-exit light), fading to nothing at
@@ -541,7 +558,7 @@ public enum PlumeLook {
                                          streamAlong: along, streamAcross: across)
             guard state.regime != .off else { return nil }
             m = member(engine.spec, state: state, exit: e.exit, axis: e.axis, exitRadius: e.exitRadius,
-                       ambient: e.ambient)
+                       ambient: e.ambient, streamAlong: along)
         } else {
             m = legacy(exit: e.exit, axis: e.axis, radius: e.exitRadius, family: PlumeFamily(e.style),
                        fraction: e.thrustFraction, pressureRatio: e.pressureRatio, jet: e.isJet)
@@ -549,6 +566,8 @@ public enum PlumeLook {
         m.isJet = e.isJet
         m.vesselID = e.vesselID
         m.relativeWind = e.relativeWind
+        m.name = e.name
+        m.noiseSeed = PlumeTurbulence.seed(e.part + "|" + e.name)
         if settings.readable { applyReadableFloor(&m, flowFraction: max(e.flowFraction, e.thrustFraction)) }
         return m
     }
@@ -578,15 +597,17 @@ public enum PlumeLook {
                 exits.append(centre + w * (t.ringRadius * cos(a)) + v * (t.ringRadius * sin(a)))
             }
         }
-        return exits.map { exit in
+        return exits.enumerated().map { i, exit in
             var m = settings.model == .physical
                 ? member(engine.spec, state: state, exit: exit, axis: axis, exitRadius: engine.spec.exitRadius,
-                         ambient: air)
+                         ambient: air, streamAlong: along)
                 : legacy(exit: exit, axis: axis, radius: engine.spec.exitRadius,
                          family: PlumeFamily(engine.spec.family), fraction: t.flowFraction,
                          pressureRatio: air.pressure / 101_325, jet: false)
             if settings.readable { applyReadableFloor(&m, flowFraction: t.flowFraction) }
             m.relativeWind = wind
+            m.name = "\(t.engine) \(i)"
+            m.noiseSeed = PlumeTurbulence.seed("test|" + m.name + "|\(t.position)")
             return m
         }
     }
@@ -594,7 +615,7 @@ public enum PlumeLook {
     /// The member of an engine of `spec` in `state`, its exit (drawn) at
     /// `exit` of `exitRadius`, exhausting along `axis`, in `ambient`.
     public static func member(_ spec: ExhaustSpec, state s: PlumeState, exit: Vec3, axis: Vec3, exitRadius re: Double,
-                              ambient: AtmosphereState) -> PlumeMember {
+                              ambient: AtmosphereState, streamAlong along: Double = 0) -> PlumeMember {
         let family = PlumeFamily(spec.family)
         var m = PlumeMember(exit: exit, axis: axis, exitRadius: re, family: family)
         let de = 2 * re, f = min(max(s.flowFraction, 0), 1.25)
@@ -615,6 +636,7 @@ public enum PlumeLook {
         }
         m.vacuumBlend = v
         m.confinement = inAir ? w : 0
+        m.coflowShare = m.confinement
         m.simonsExponent = 2 / (s.gamma - 1)
         m.limitingAngle = max(0.2, s.limitingAngle)
         let half = m.simonsAngle(fraction: 0.5)
@@ -749,10 +771,24 @@ public enum PlumeLook {
             m.machDiskTemperature = 0.85 * spec.chamberTemperature
         }
 
-        // Turbulence: mottled in air, nearly still in vacuum.
+        // Turbulence: mottled in air, nearly still in vacuum. The eddies at
+        // the lip, growing with the mixing layer between the jet and the
+        // stream (in vacuum with half the free expansion's cone), carried
+        // at the jet's speed (`PlumeTurbulence`).
         m.turbulence = 0.15 + 0.7 * w * (1 - v)
-        m.noiseScale = 0.8 * re
-        m.eddySpeed = min(max(10 * re, 2), 40)
+        m.eddySize = PlumeTurbulence.lipEddy * re
+        m.exhaustSpeed = s.jetVelocity > 0 ? s.jetVelocity : s.limitingVelocity
+        var shear = 0.0
+        if inAir && tj > 0 && ambient.density > 0 {
+            let rhoJ = s.ambientPressure * spec.molarMass / (8.314462618 * tj)
+            let aj = (s.gamma * 8.314462618 * tj / spec.molarMass).squareRoot()
+            let aa = (1.4 * 287.05 * max(ambient.temperature, 150)).squareRoot()
+            let mc = PlumeTurbulence.convectiveMach(jetSpeed: m.exhaustSpeed, streamSpeed: along, jetSound: aj,
+                                                    streamSound: aa)
+            shear = PlumeTurbulence.shearGrowth(velocityRatio: along / max(m.exhaustSpeed, 1),
+                                                densityRatio: ambient.density / max(rhoJ, 1e-9), convectiveMach: mc)
+        }
+        m.eddyGrowth = shear * (1 - v) + 0.5 * tan(max(half, 0.05)) * v
 
         // The clear exhausts' near-exit light.
         switch family {
@@ -970,7 +1006,9 @@ public enum PlumeLook {
             m.sheathLength = 0.15 * length
         }
         m.turbulence = 0.2
-        m.noiseScale = re
+        m.eddySize = PlumeTurbulence.lipEddy * re
+        m.eddyGrowth = 0.05
+        m.coflowShare = k
         return m
     }
 

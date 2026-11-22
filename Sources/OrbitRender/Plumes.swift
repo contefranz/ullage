@@ -28,15 +28,35 @@ enum Plumes {
     /// past a cluster's last ring collapsed.
     static let proxyVertices = (PlumeClusters.maximumRings - 1) * proxySides * 6 + 2 * proxySides * 3
 
-    /// A member's noise phase along its axis now, in noise tiles: the
-    /// eddies move downstream at `eddySpeed`, rounded to whole tiles an
-    /// hour so the drift is the same either side of the turbulence clock's
-    /// wrap.
-    static func noisePhase(_ m: PlumeMember, time: Double) -> (phase: Double, tile: Double) {
-        let tile = 16 * max(m.noiseScale, 1e-3)
-        let perHour = (m.eddySpeed * EffectTimeRules.turbulencePeriod / tile).rounded()
-        let x = perHour * time / EffectTimeRules.turbulencePeriod
-        return (x - x.rounded(.down), tile)
+    /// A cluster's noise seed: its first member's by name (the S-IC's
+    /// engine 1, a retro pair's lower motor), so that an engine shutting
+    /// down does not re-seed its neighbours' turbulence.
+    static func noiseSeed(_ c: PlumeCluster) -> UInt32 {
+        c.members.min { $0.name < $1.name }?.noiseSeed ?? 0
+    }
+
+    /// The turbulence's constants as PlumeFrame holds them (`flow`,
+    /// `flowRates`, `flowRates2` but its y, `lagrangian`).
+    static func setTurbulence(_ u: inout PlumeFrameGPU) {
+        typealias T = PlumeTurbulence
+        u.flow = SIMD4(Float(T.shutter), Float(T.similarFrom), Float(T.amplitude), Float(T.eddiesPerTile))
+        u.flowRates = SIMD4(Float(T.shearIntensity), Float(T.similarIntensity), Float(T.decayRate),
+                            Float(T.fadeIntegral))
+        u.flowRates2 = SIMD4(Float(T.integralLength), u.flowRates2.y, Float(T.lagrangianStart), Float(T.lagrangianStep))
+        let l = T.lagrangianTimes
+        u.lagrangian = SIMD4(Float(l[0]), Float(l[1]), Float(l[2]), Float(l[3]))
+    }
+
+    /// The turbulence's layers at turbulence time `t` (s, not wrapped), as
+    /// PlumeShaders reads them, two a band: x the phase in its life, yzw
+    /// its offset in the tile (`PlumeTurbulence.offset`).
+    static func layers(time t: Double) -> [SIMD4<Float>] {
+        PlumeTurbulence.bands(time: t).enumerated().flatMap { j, band -> [SIMD4<Float>] in
+            [(band.phase.0, band.cycle.0), (band.phase.1, band.cycle.1)].enumerated().map { layer, l in
+                let o = PlumeTurbulence.offset(cycle: l.1, band: j, layer: layer)
+                return SIMD4(Float(l.0), Float(o.x), Float(o.y), Float(o.z))
+            }
+        }
     }
 
     static func f4(_ v: Vec3, _ w: Double) -> SIMD4<Float> { SIMD4(Float(v.x), Float(v.y), Float(v.z), Float(w)) }
@@ -48,8 +68,8 @@ enum Plumes {
     }
 
     /// A member as the shader reads it.
-    static func gpu(_ m: PlumeMember, turbulenceTime: Double, turbulent: Bool = true) -> PlumeMemberGPU {
-        let noise = noisePhase(m, time: turbulenceTime)
+    static func gpu(_ m: PlumeMember, seed: UInt32 = 0, turbulent: Bool = true) -> PlumeMemberGPU {
+        let o = PlumeTurbulence.seedOffset(seed)
         let free = m.vacuumBlend > 0.02 && m.confinement < 0.98
         let vacuumAngle = free ? tan(min(m.simonsAngle(fraction: m.extentFraction), 85 * Double.pi / 180)) : 0
         let particleAngle = m.particleExtinction > 0 && free ? tan(min(m.particleAngle, 85 * Double.pi / 180)) : 0
@@ -67,11 +87,12 @@ enum Plumes {
             base: f4(PlumeLook.blackbody(m.baseTemperature), m.baseExtinction),
             disk: f4(m.machDiskDistance, m.machDiskRadius, m.machDiskExtinction, m.confinement),
             diskLight: f4(PlumeLook.blackbody(m.machDiskTemperature), m.densityScale),
-            noise: f4(m.noiseScale, noise.phase, turbulent ? m.turbulence : 0, noise.tile),
+            noise: f4(m.eddySize, m.eddyGrowth, turbulent ? m.turbulence : 0, o.z),
             glow: f4(m.glow, m.glowLength), extent: f4(vacuumAngle, particleAngle, m.flameLength, m.flameSpread),
             bendDirection: f4(m.bend.direction, m.handoverFade?.lowerBound ?? -1),
             bendSpan: f4(m.bend.length, m.fadeStart ?? -1, m.bend.largest, m.handoverFade?.upperBound ?? -1),
-            bendNear: offsets(m.bend, 0), bendFar: offsets(m.bend, 4))
+            bendNear: offsets(m.bend, 0), bendFar: offsets(m.bend, 4),
+            flow: f4(m.exhaustSpeed, m.coflow, o.x, o.y))
     }
 
     /// Four of a bend's offsets from `first` (zero without a bend).
@@ -212,6 +233,41 @@ struct PlumeFrameGPU {
     var params = SIMD4<Float>.zero
     /// rgb: c2 (K²).
     var wienC = SIMD4<Float>.zero
+    /// The turbulence (`PlumeTurbulence`, `Plumes.setTurbulence`): x the
+    /// shutter (s), y where the far field is self-similar (core lengths), z
+    /// the noise's amplitude, w eddies per tile.
+    var flow = SIMD4<Float>.zero
+    /// x: the intensity u'/ΔU in the shear layer, y: self-similar, z: the
+    /// layers' decay rate, w: the cross-fade's integral.
+    var flowRates = SIMD4<Float>.zero
+    /// x: the noise's integral length over its cell, zw: the Lagrangian
+    /// times' first station and spacing (core lengths).
+    var flowRates2 = SIMD4<Float>.zero
+    /// The Lagrangian integral time over L/u' at the four stations.
+    var lagrangian = SIMD4<Float>.zero
+    /// Its bands' layers, two a band (`Plumes.layers`).
+    var layers = PlumeFrameGPU.noLayers
+
+    static let noLayers: (SIMD4<Float>, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>,
+                          SIMD4<Float>, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>,
+                          SIMD4<Float>, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>,
+                          SIMD4<Float>, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>,
+                          SIMD4<Float>, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>,
+                          SIMD4<Float>, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>,
+                          SIMD4<Float>, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>) =
+        (.zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero,
+         .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero,
+         .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero)
+
+    /// Sets the layers from `Plumes.layers`.
+    mutating func setLayers(_ l: [SIMD4<Float>]) {
+        precondition(l.count == 2 * PlumeTurbulence.bandCount)
+        withUnsafeMutableBytes(of: &layers) { raw in
+            for (i, v) in l.enumerated() {
+                raw.storeBytes(of: v, toByteOffset: i * MemoryLayout<SIMD4<Float>>.stride, as: SIMD4<Float>.self)
+            }
+        }
+    }
 }
 
 /// A cluster's header (PlumeShaders' PlumeCluster), 15 float4.
@@ -255,7 +311,7 @@ struct PlumeMemberGPU {
     var base: SIMD4<Float>        // rgb: the base's blackbody, w: its extinction
     var disk: SIMD4<Float>        // distance, radius, extinction, the air's confinement
     var diskLight: SIMD4<Float>   // rgb: the disk's blackbody, w: the density's scale (merged)
-    var noise: SIMD4<Float>       // eddy size, phase (tiles), depth, tile (m)
+    var noise: SIMD4<Float>       // eddy size at the lip (m), its growth, depth, w: the seed offset's z
     var glow: SIMD4<Float>        // rgb (cd/m²), w: length
     var extent: SIMD4<Float>      // x: tan of the 1 % Simons angle (0: none), y: the particles' (0: none),
                                   // z: the flame's length, w: its brush's spread
@@ -266,6 +322,8 @@ struct PlumeMemberGPU {
                                   // (-1: none)
     var bendNear: SIMD4<Float>    // the offsets at the first four stations, x = span (k/7)²
     var bendFar: SIMD4<Float>     // and the last four
+    var flow: SIMD4<Float>        // x: the exhaust's speed (m/s), y: the stream along it (m/s), zw: the
+                                  // cluster's seed's offset in the tile, xy
 }
 
 /// A plume impostor's vertex (PlumeShaders).
@@ -312,6 +370,15 @@ public final class PlumeSystem {
     private let glow = NozzleGlowTracker()
     private(set) var noise: VolumeNoise?
     private var turbulence = 0.0
+    /// The same clock, not wrapped: the turbulence's bands (`PlumeTurbulence`).
+    private(set) var turbulenceClock = 0.0
+    /// Tests only: the turbulence drawn at the clock wrapped at this period
+    /// (s), as a loop would draw it, so that a test of the field's never
+    /// looping can show that it sees a loop.
+    var testLoop: Double?
+    /// The turbulence clock the last frame was drawn at (s): wrapped at
+    /// `testLoop` when a test sets it.
+    var drawnClock: Double { testLoop.map { turbulenceClock.truncatingRemainder(dividingBy: $0) } ?? turbulenceClock }
     private var last: (frame: Int, time: Epoch)?
     /// The last frame's pre-exposure (R1's, set in P0 after the graph has
     /// asked which passes run): the culling's.
@@ -390,6 +457,8 @@ public final class PlumeSystem {
         m.axis = e.axis
         m.vesselID = e.vesselID
         m.relativeWind = e.relativeWind
+        m.name = e.name
+        m.noiseSeed = PlumeTurbulence.seed(e.part + "|" + e.name)
         return (m, (key, "\(what)|\(e.exitRadius)|\(Self.q(e.flowFraction, 0.02))|\(Self.qlog(a.pressure, 0.05))|"
             + "\(Self.q(a.temperature, 5))|\(e.isJet)|\(settings.readable)|\(settings.model)|"
             + "\(Self.qlog(along, 0.05))|\(Self.q(across, 10))",
@@ -510,11 +579,13 @@ public final class PlumeSystem {
         let clock = scene.clock
         if let last, clock.frameIndex >= last.frame, !EffectTimeRules.isTimeJump(clock.simTime - last.time) {
             if clock.frameIndex > last.frame {
-                turbulence += EffectTimeRules.turbulenceDt(realDt: clock.realDt, warp: clock.warp, paused: clock.paused)
-                turbulence = turbulence.truncatingRemainder(dividingBy: EffectTimeRules.turbulencePeriod)
+                let dt = EffectTimeRules.turbulenceDt(realDt: clock.realDt, warp: clock.warp, paused: clock.paused)
+                turbulence = (turbulence + dt).truncatingRemainder(dividingBy: EffectTimeRules.turbulencePeriod)
+                turbulenceClock += dt
             }
         } else {
             turbulence = 0
+            turbulenceClock = 0
         }
         last = (clock.frameIndex, clock.simTime)
 
@@ -616,8 +687,9 @@ public final class PlumeSystem {
                 : solid ? max(16, settings.quality.steps / 2) : 0
             data.marched.append(Plumes.gpu(c, memberStart: data.members.count, light: e.light, sunlit: e.sunlit,
                                            steps: steps))
+            let seed = Plumes.noiseSeed(c)
             data.members += (c.members + (c.merged.map { [$0] } ?? [])).map {
-                Plumes.gpu($0, turbulenceTime: turbulence, turbulent: settings.turbulence)
+                Plumes.gpu($0, seed: seed, turbulent: settings.turbulence)
             }
         }
         let w = PlumeLook.wien
@@ -625,6 +697,8 @@ public final class PlumeSystem {
         u.wienK = SIMD4(Float(w[0].0), Float(w[1].0), Float(w[2].0), Float(settings.quality.steps))
         u.wienA = SIMD4(Float(w[0].1), Float(w[1].1), Float(w[2].1), Float(turbulence))
         u.wienC = SIMD4(Float(w[0].2), Float(w[1].2), Float(w[2].2), 0)
+        Plumes.setTurbulence(&u)
+        u.setLayers(Plumes.layers(time: drawnClock))
         u.sun = Plumes.f4(sun.direction, f.textures[.cloudLayer] != nil ? 1 : 0)
         u.sunLight = Plumes.f4(sunLux, f.settings.shadow.enabled ? 1 : 0)
         u.ambient = Plumes.f4(ambient, 0)
