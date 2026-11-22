@@ -273,16 +273,31 @@ final class CloudWeatherMapTests: XCTestCase {
         return try! CloudField(data: CloudField.encode(planes: planes, utcSeconds: times, note: "test", snapshots: snapshots))
     }()
 
+    /// The texels against the samples at grid points. With the procedural
+    /// weather, its nodes (uncalibrated on both sides: the texel's offsets
+    /// are smoothed over all 720 nodes, the sample's its estimate from 180)
+    /// at grid points that are nodes (even rows and columns).
     private func check(_ weather: CloudWeather, at epoch: Epoch, rows: [Int], columns: [Int],
                        file: StaticString = #filePath, line: UInt = #line) {
         let p = CloudWeatherMap.parameters(weather, at: epoch)
         let first = p.snapshots.map { CloudWeatherMap.interleaved(Self.field, snapshot: $0.first) }
         let second = p.snapshots.map { CloudWeatherMap.interleaved(Self.field, snapshot: $0.second) }
+        let state = weather.procedural.map { $0.state(at: epoch) }
+        let nodes = state.map { st in
+            CloudWeatherMap.ProceduralNodes(node: { j, c in
+                let lat = ProceduralWeather.latitude(row: j)
+                return ProceduralWeather.node(latitude: lat, longitude: ProceduralWeather.longitude(column: c),
+                                              geography: WeatherGeography.earth.texel(row: j, column: c),
+                                              band: ProceduralWeather.band(latitude: lat, sky: st.sky), state: st)
+            }, offsets: Array(repeating: (0, 0, 0), count: ProceduralWeather.rows))
+        }
         for r in rows {
             for c in columns {
-                let t = CloudWeatherMap.texel(column: c, row: r, first: first, second: second, parameters: p)
+                let t = CloudWeatherMap.texel(column: c, row: r, first: first, second: second, parameters: p,
+                                              procedural: nodes)
                 let s = weather.sample(latitude: CloudWeatherMap.latitude(row: r),
-                                       longitude: CloudWeatherMap.longitude(column: c), at: epoch)
+                                       longitude: CloudWeatherMap.longitude(column: c), at: epoch, state: state,
+                                       calibrated: state == nil)
                 XCTAssertEqual(t.low, s.low, accuracy: 1e-6, "low at \(r), \(c)", file: file, line: line)
                 XCTAssertEqual(t.mid, s.mid, accuracy: 1e-6, "mid at \(r), \(c)", file: file, line: line)
                 XCTAssertEqual(t.high, s.high, accuracy: 1e-6, "high at \(r), \(c)", file: file, line: line)
@@ -296,6 +311,19 @@ final class CloudWeatherMapTests: XCTestCase {
                         let layers = CloudLayerModel.layers(s)
                         XCTAssertEqual(t.lowBase, layers[0].base, accuracy: 1e-6, file: file, line: line)
                         XCTAssertEqual(t.lowTop, layers[0].top, accuracy: 1e-6, file: file, line: line)
+                    }
+                }
+                // Fading into the procedural weather: the low layer's heights
+                // and kind go linearly on both sides, from the field's at its
+                // edge (where the grid point has a base there, or none in
+                // both snapshots) to the procedural weather's.
+                if state != nil, p.fieldWeight > 0, p.fieldWeight < 1, let first, let second {
+                    let at = 4 * (r * CloudWeatherMap.columns + c) + 3
+                    if (first[at] != 255) == (second[at] != 255) {
+                        let layers = CloudLayerModel.layers(s)
+                        XCTAssertEqual(t.lowBase, layers[0].base, accuracy: 1e-6, "base at \(r), \(c)", file: file, line: line)
+                        XCTAssertEqual(t.lowTop, layers[0].top, accuracy: 1e-6, "top at \(r), \(c)", file: file, line: line)
+                        XCTAssertEqual(t.cumuliform, s.cumuliform ?? 0.5, accuracy: 1e-6, file: file, line: line)
                     }
                 }
             }
@@ -312,6 +340,18 @@ final class CloudWeatherMapTests: XCTestCase {
         check(weather, at: Self.epoch(Self.t0 + 9 * 3600), rows: rows, columns: columns)
         // No field at all.
         check(CloudWeather(), at: Self.epoch(Self.t0), rows: rows, columns: columns)
+    }
+
+    /// Beyond the field's span with the procedural weather (the renderer's
+    /// weather in "historic"): through the fade, at its start, a third, past
+    /// halfway and its end, and before the field's first snapshot.
+    func testMirrorFadesIntoTheProceduralWeather() {
+        let rows = [0, 200, 360, 486, 720], columns = [0, 2, 700, 1438]
+        let weather = CloudWeather(field: Self.field, procedural: ProceduralWeather(seed: 1))
+        for away in [0.0, 600, 3600, 6000, 10_000, 12_000] {
+            check(weather, at: Self.epoch(Self.t0 + 4 * 3600) + away, rows: rows, columns: columns)
+        }
+        check(weather, at: Self.epoch(Self.t0) + (-5000), rows: rows, columns: columns)
     }
 
     /// The pad's observed sky, blended in around LC-39A at Apollo 8's launch.

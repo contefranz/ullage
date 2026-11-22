@@ -433,14 +433,14 @@ kernel void cloud_procedural(texture2d<float, access::write> outLatent [[texture
     float lambda = 0.5 * float(gid.x) * (CLOUD_PI / 180.0);
     ProceduralBand b = bands[gid.y];
     float4 ga = geoA.read(gid), gb = geoB.read(gid);
-    float land = ga.x, continental = ga.y, inland = ga.z;
+    float land = ga.x, continental = ga.y, inland = ga.z, iceSheet = ga.w;
     float seaEastLand = gb.x, landEastSea = gb.z, landWestSea = gb.w;
     float3 n = pw_weatherNoise(phi, lambda, b.a.x, p);
     float nl = n.x, nm = n.y, nh = n.z;
     float sea = 1.0 - land;
     float hour = lambda - p.sky.x;
-    float noon = max(cos(phi - p.sky.y), 0.0);
-    float heat = noon * (0.5 + 0.5 * cos(hour - 0.785));
+    float sunUp = sin(phi) * sin(p.sky.y) + cos(phi) * cos(p.sky.y) * cos(hour - 0.785);
+    float heat = max(sunUp, 0.0) * (1.0 - iceSheet);
     float itczLat = p.sky.z + continental * (p.sky.w - p.sky.z);
     float itczWidth = (4.0 + 1.0 * continental) * (CLOUD_PI / 180.0);
     float x = (phi - itczLat) / itczWidth;
@@ -465,7 +465,7 @@ kernel void cloud_procedural(texture2d<float, access::write> outLatent [[texture
     float landTop = landBase + 1100.0 + 1400.0 * heat;
     float base = sea * seaBase + land * landBase;
     float top = sea * seaTop + land * landTop;
-    float cumuliform = sea * (1.0 - 0.85 * deck - 0.6 * polar) + land * (0.5 + 0.5 * heat);
+    float cumuliform = sea * (1.0 - 0.85 * deck - 0.6 * polar) + land * (0.5 + 0.5 * heat - 0.3 * iceSheet);
 
     float3 pos = float3(cos(phi) * cos(lambda), cos(phi) * sin(lambda), sin(phi));
     float frontal = 0.0, deep = 0.0, deepTop = 0.0, cells = 0.0;

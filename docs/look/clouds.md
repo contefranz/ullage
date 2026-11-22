@@ -101,10 +101,15 @@ zonal means stay the climatology's.
   smoothed over ±2° (the climatology is 5° means). Only what varies along a
   parallel survives: a term of latitude alone is absorbed by the offset.
 - **Geography** (`WeatherGeography`, from `landmask.bin`, once): land, the
-  continents (500 km), the distance inland, and along each parallel land or
-  sea close to the east and west, from which come the eastern-boundary
-  stratocumulus decks (cold upwelling under the trades; not in enclosed
-  seas), the dry west coasts and humid east coasts, the deserts.
+  continents (500 km), the distance inland, the ice sheets (Antarctica's and
+  Greenland's land; Greenland's takes in northern Ellesmere Island, joined
+  to it across the Nares Strait on this grid and largely ice-capped too),
+  and along each parallel a continent or the sea close to the east and
+  west, from which come the eastern-boundary stratocumulus decks (cold
+  upwelling under the trades; not in enclosed seas, and not in an island's
+  lee: land counts as a continent from 1.5 million km² in one piece, so
+  Greenland does and New Guinea does not), the dry west coasts and humid
+  east coasts, the deserts.
 - **The terms** (latent units, about ±3 for a system's core):
   - the ITCZ at 6 ± 4° N over the sea, 2 ± 10° over the continents (the
     monsoons), a month behind the Sun;
@@ -113,9 +118,10 @@ zonal means stay the climatology's.
     every layer; the decks (base 480 m, top 1,350 m, thickest at dawn,
     thinning by day), giving way westward to trade cumulus (600-750 m to
     2,400 m);
-  - over land, cumulus growing to a 15 h peak and gone at night, its base
-    higher where dry; polar stratus over the sea, little low cloud on the
-    ice sheets;
+  - over land, cumulus with the surface's heating (the Sun's elevation
+    three hours earlier, so a 15 h peak, none at night, and no daily cycle
+    where the Sun circles in polar day), its base higher where dry; polar
+    stratus over the sea, little low cloud and no cumulus on the ice sheets;
   - between the systems, weather noise (six octaves of gradient noise on the
     sphere, cells of 3,200 to 100 km) carried by the steering wind
     (850-500 hPa zonal mean), made afresh every 18 h with a new offset and
@@ -160,9 +166,13 @@ zonal means stay the climatology's.
 - **Cost** (M3 Pro, `CloudCostTests.testProceduralKernelCost`, 20 dispatches
   back to back): 0.61 ms for all the nodes, 0.12 ms for the rows'
   calibration. They are made again when the time has moved 30 s, a band of
-  a quarter of the rows a frame with one state (about 0.2 ms a frame for
-  four frames, the map's rows over the band and the 12 before it), and at
-  once only after a jump of an hour, a new seed or a new start.
+  a quarter of the rows a frame with one state, with the map's rows over
+  the band and the 12 before it, and at once only after a jump of an hour,
+  a new seed or a new start. A frame of a sweep costs 0.7-0.9 ms more than
+  one that keeps the map (`testWeatherAssemblyCost`, three runs, every
+  default pass at 3024 × 1964 from the parking orbit): most of it is the
+  map's rows (a quarter of 1440 × 721 texels), not the nodes. At 1× that is
+  four frames in 30 s of the clock; at 1,000× warp, every frame.
   `testProceduralSweepEndsWithAFreshMap` checks that a sweep ends with the
   map a fresh pass makes.
 

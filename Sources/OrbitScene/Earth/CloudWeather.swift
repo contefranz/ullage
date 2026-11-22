@@ -79,7 +79,23 @@ public struct CloudWeather {
         guard weight > 0, let field, let first = field.times.first, let last = field.times.last else { return other() }
         let edge = epoch < first ? first : (epoch > last ? last : epoch)
         guard let s = field.sample(latitude: latitude, longitude: longitude, at: edge) else { return other() }
-        return weight >= 1 ? s : CloudSample.mix(s, other(), 1 - weight)
+        if weight >= 1 { return s }
+        let o = other(), x = 1 - weight
+        var m = CloudSample.mix(s, o, x)
+        // Into the procedural weather the low layer goes as the map's texels
+        // do (`CloudWeatherMap.texel`): linearly from the field's (its base
+        // where below the mid layer, the layer model's depth above it) to the
+        // procedural weather's, not switching halfway as `mix` does a value
+        // only one side has.
+        if procedural != nil, let pb = o.baseHeight, let pt = o.topHeight {
+            var fb = CloudLayerModel.defaultLowBase
+            if let b = s.baseHeight, b < CloudLayerModel.midBase { fb = max(b, 0) }
+            let ft = fb + CloudLayerModel.lowDepth
+            m.baseHeight = fb + x * (pb - fb)
+            m.topHeight = ft + x * (pt - ft)
+            m.cumuliform = 0.5 + x * ((o.cumuliform ?? 0.5) - 0.5)
+        }
+        return m
     }
 }
 

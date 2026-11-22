@@ -227,9 +227,76 @@ final class ProceduralWeatherTests: XCTestCase {
         XCTAssertTrue(a.systems.contains { $0.kind == .cyclone && $0.latitude < -0.5 })
     }
 
+    /// The geography's boundary currents belong to the continents: land to
+    /// the east of the sea off Peru, Namibia and California, none west of
+    /// Hawaii, New Caledonia or Jamaica (islands); the ice sheets on
+    /// Antarctica and Greenland, not on the tundra beside them.
+    func testGeographyKnowsContinentsAndIceSheets() {
+        let g = WeatherGeography.earth
+        func at(_ lat: Double, _ lon: Double) -> WeatherGeography.Texel {
+            g.texel(latitude: lat * .pi / 180, longitude: lon * .pi / 180)
+        }
+        for (name, lat, lon) in [("Peru", -15.0, -80.0), ("Namibia", -20.0, 10.0), ("California", 30.0, -122.0)] {
+            XCTAssertGreaterThan(at(lat, lon).seaEastLand, 0.5, name)
+        }
+        for (name, lat, lon) in [("Hawaii", 20.5, -158.5), ("Hawaii", 19.5, -170.0), ("New Caledonia", -21.0, 162.0),
+                                 ("Jamaica", 18.0, -79.0)] {
+            XCTAssertLessThan(at(lat, lon).seaEastLand, 0.2, "west of \(name)")
+        }
+        for (name, lat, lon) in [("Greenland", 72.5, -38.5), ("Greenland", 65.0, -45.0), ("Antarctica", -80.0, 30.0),
+                                 ("the South Pole", -90.0, 0.0)] {
+            XCTAssertEqual(at(lat, lon).iceSheet, 1, accuracy: 0.01, name)
+        }
+        for (name, lat, lon) in [("Siberia", 68.0, 100.0), ("Canada", 62.0, -100.0), ("Baffin Island", 70.0, -72.0),
+                                 ("Alaska", 66.0, -152.0), ("Iceland", 64.8, -18.5)] {
+            XCTAssertEqual(at(lat, lon).iceSheet, 0, accuracy: 0.01, name)
+        }
+    }
+
+    /// The land's heating follows the Sun's elevation: one value at the pole
+    /// (its 720 nodes are one place), and none of the day's cycle over the
+    /// ice sheets (Greenland in July), while the Siberian tundra beside it
+    /// has its afternoon cumulus.
+    func testHeatingFollowsTheSun() {
+        let w = ProceduralWeather(seed: 3), g = WeatherGeography.earth
+        for epoch in [Self.january, Self.july] {
+            let state = w.state(at: epoch)
+            let j = ProceduralWeather.rows - 1, lat = ProceduralWeather.latitude(row: j)
+            let band = ProceduralWeather.band(latitude: lat, sky: state.sky)
+            let pole = (0..<ProceduralWeather.columns).map { c in
+                ProceduralWeather.node(latitude: lat, longitude: ProceduralWeather.longitude(column: c),
+                                       geography: g.texel(row: j, column: c), band: band, state: state)
+            }
+            for (k, name) in [(\ProceduralWeather.Node.low, "low"), (\.base, "base"), (\.top, "top"),
+                              (\.cumuliform, "cumuliform")] {
+                let v = pole.map { $0[keyPath: k] }
+                XCTAssertLessThan(v.max()! - v.min()!, 1e-6 * max(1, abs(v[0])), "the pole's \(name)")
+            }
+        }
+        var night = w.state(at: Self.july)
+        var day = night
+        day.sky.subsolarLongitude = -40 * .pi / 180 - 0.785
+        night.sky.subsolarLongitude = day.sky.subsolarLongitude + .pi
+        func node(_ s: ProceduralWeather.State, _ lat: Double, _ lon: Double) -> ProceduralWeather.Node {
+            let φ = lat * .pi / 180
+            return ProceduralWeather.node(latitude: φ, longitude: lon * .pi / 180,
+                                          geography: g.texel(latitude: φ, longitude: lon * .pi / 180),
+                                          band: ProceduralWeather.band(latitude: φ, sky: s.sky), state: s)
+        }
+        let a = node(day, 72.5, -40), b = node(night, 72.5, -40)
+        XCTAssertEqual(a.base, b.base, accuracy: 1e-9, "Greenland's ice")
+        XCTAssertEqual(a.top, b.top, accuracy: 1e-9)
+        XCTAssertEqual(a.cumuliform, b.cumuliform, accuracy: 1e-9)
+        day.sky.subsolarLongitude = 100 * .pi / 180 - 0.785
+        night.sky.subsolarLongitude = day.sky.subsolarLongitude + .pi
+        let c = node(day, 66, 100), d = node(night, 66, 100)
+        XCTAssertGreaterThan(c.top - d.top, 700, "Siberia's afternoon")
+    }
+
     /// The circulation's features where they belong, over two seeds and two
     /// days: stratocumulus off Peru, Namibia and California (low cover above
-    /// its row's mean), clear skies over the Sahara and Arabia.
+    /// its row's mean), none in Hawaii's lee, clear skies over the Sahara and
+    /// Arabia.
     func testDecksAndDesertsWhereTheyBelong() {
         func boxMean(_ m: Map, lat: ClosedRange<Double>, lon: ClosedRange<Double>,
                      _ f: ((low: Double, mid: Double, high: Double)) -> Double) -> (box: Double, row: Double) {
@@ -254,11 +321,13 @@ final class ProceduralWeatherTests: XCTestCase {
                 let peru = boxMean(m, lat: -25 ... -12, lon: -85 ... -75) { $0.low }
                 let namibia = boxMean(m, lat: -25 ... -12, lon: 0 ... 10) { $0.low }
                 let california = boxMean(m, lat: 22...32, lon: -130 ... -120) { $0.low }
+                let hawaii = boxMean(m, lat: 19...22, lon: -175 ... -160) { $0.low }
                 let sahara = boxMean(m, lat: 18...28, lon: 0...25) { $0.low }
                 let saharaHigh = boxMean(m, lat: 18...28, lon: 0...25) { $0.high }
                 XCTAssertGreaterThan(peru.box - peru.row, 0.15, "Peru's deck, seed \(seed)")
                 XCTAssertGreaterThan(namibia.box - namibia.row, 0.15, "Namibia's deck, seed \(seed)")
                 XCTAssertGreaterThan(california.box - california.row, 0.1, "California's deck, seed \(seed)")
+                XCTAssertLessThanOrEqual(hawaii.box - hawaii.row, 0.0, "Hawaii's lee, seed \(seed)")
                 XCTAssertLessThan(sahara.box - sahara.row, -0.1, "the Sahara, seed \(seed)")
                 XCTAssertLessThan(saharaHigh.box - saharaHigh.row, -0.05, "the Sahara's high cloud, seed \(seed)")
             }

@@ -577,11 +577,14 @@ public struct ProceduralWeather: Equatable {
         let n = weatherNoise(latitude: φ, longitude: λ, steer: b.steer, phases: state.phases)
         let nl = n.0, nm = n.1, nh = n.2
         let land = g.land, sea = 1 - land
-        // Local time: the hour angle from noon; the surface's heating peaks
-        // about 15 h, as cumulus over land does.
+        // Local time: the hour angle from noon. The surface's heating: the
+        // Sun's elevation (the cosine of its zenith angle) three hours
+        // before, as cumulus over land peaks about 15 h; none at night, and
+        // the same all day where the Sun circles (polar day, the poles). The
+        // ice sheets raise no afternoon cumulus.
         let hour = λ - sky.subsolarLongitude
-        let noon = max(cos(φ - sky.declination), 0)
-        let heat = noon * (0.5 + 0.5 * cos(hour - 0.785))
+        let sunUp = sin(φ) * sin(sky.declination) + cos(φ) * cos(sky.declination) * cos(hour - 0.785)
+        let heat = max(sunUp, 0) * (1 - g.iceSheet)
         let itczLat = itcz(sky, continental: g.continental)
         let itczWidth = (4 + 1 * g.continental) * .pi / 180
         let x = (φ - itczLat) / itczWidth
@@ -614,7 +617,7 @@ public struct ProceduralWeather: Equatable {
         let landTop = landBase + 1_100 + 1_400 * heat
         out.base = sea * seaBase + land * landBase
         out.top = sea * seaTop + land * landTop
-        out.cumuliform = sea * (1 - 0.85 * deck - 0.6 * polar) + land * (0.5 + 0.5 * heat)
+        out.cumuliform = sea * (1 - 0.85 * deck - 0.6 * polar) + land * (0.5 + 0.5 * heat - 0.3 * g.iceSheet)
 
         // The systems.
         let p = Vec3(cos(φ) * cos(λ), cos(φ) * sin(λ), sin(φ))

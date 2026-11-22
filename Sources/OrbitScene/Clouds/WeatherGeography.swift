@@ -11,13 +11,16 @@ import OrbitCore
 /// - `a`: land (the node's four mask cells, smoothed over about 100 km); the
 ///   continents (land smoothed over about 500 km: the monsoon's reach); how
 ///   far inland (the distance to the sea, 0 at the coast, 1 at 1,500 km or
-///   more); 0.
-/// - `b`, along the node's parallel: over the sea, land close to the east
-///   (e^(−d / 2,500 km): an ocean's eastern boundary, where the trades drive
-///   the cold upwelling currents under the stratocumulus decks) and to the
-///   west (e^(−d / 800 km): the warm western boundary currents); over land,
-///   the sea close to the east (e^(−d / 600 km): the humid east coasts) and
-///   to the west (e^(−d / 500 km): the dry west coasts of the subtropics).
+///   more); the ice sheets (Antarctica's and Greenland's land, smoothed as
+///   the land is).
+/// - `b`, along the node's parallel: over the sea, a continent close to the
+///   east (e^(−d / 2,500 km): an ocean's eastern boundary, where the trades
+///   drive the cold upwelling currents under the stratocumulus decks) and to
+///   the west (e^(−d / 800 km): the warm western boundary currents); over
+///   land, the sea close to the east (e^(−d / 600 km): the humid east coasts)
+///   and to the west (e^(−d / 500 km): the dry west coasts of the
+///   subtropics). A continent is land of at least `continentArea` in one
+///   piece: an island has no boundary currents (no deck in Hawaii's lee).
 public struct WeatherGeography: Equatable {
     public static let columns = 720
     public static let rows = 361
@@ -32,7 +35,9 @@ public struct WeatherGeography: Equatable {
         public var land = 0.0
         public var continental = 0.0
         public var inland = 0.0
-        /// Over the sea: land to the east, to the west.
+        /// Antarctica's and Greenland's ice.
+        public var iceSheet = 0.0
+        /// Over the sea: a continent to the east, to the west.
         public var seaEastLand = 0.0
         public var seaWestLand = 0.0
         /// Over land: sea to the east, to the west.
@@ -57,6 +62,7 @@ public struct WeatherGeography: Equatable {
         t.land = Double(a[k]) / 255
         t.continental = Double(a[k + 1]) / 255
         t.inland = Double(a[k + 2]) / 255
+        t.iceSheet = Double(a[k + 3]) / 255
         t.seaEastLand = Double(b[k]) / 255
         t.seaWestLand = Double(b[k + 1]) / 255
         t.landEastSea = Double(b[k + 2]) / 255
@@ -82,6 +88,7 @@ public struct WeatherGeography: Equatable {
         t.land = mix(\.land)
         t.continental = mix(\.continental)
         t.inland = mix(\.inland)
+        t.iceSheet = mix(\.iceSheet)
         t.seaEastLand = mix(\.seaEastLand)
         t.seaWestLand = mix(\.seaWestLand)
         t.landEastSea = mix(\.landEastSea)
@@ -98,29 +105,41 @@ public struct WeatherGeography: Equatable {
         let land = Self.blur(fine, radius: 2, latitudeScaled: false)
         let continental = Self.blur(fine, radius: 9, passes: 3, latitudeScaled: true)
         let inland = Self.distanceToSea(fine)
+        let pieces = Self.pieces(fine)
+        let continent = pieces.area.map { $0 >= Self.continentArea }
+        // The ice sheets: the pieces under the South Pole and Greenland's
+        // summit (72.5° N, 38.5° W).
+        let sheets = Set([pieces.label[(Self.rows - 1) * Self.columns], pieces.label[35 * Self.columns + 643]]
+            .filter { $0 >= 0 })
+        let ice = Self.blur(pieces.label.map { sheets.contains($0) ? 1 : 0 }, radius: 2, latitudeScaled: false)
         var along = [[Double]](repeating: [Double](repeating: 0, count: n), count: 4)
         let earth = 6_371.0, step = 0.5 * .pi / 180
         let m = Self.columns
         for j in 0..<Self.rows {
             let km = max(earth * cos(Self.latitude(row: j)) * step, 1)
-            let kinds = (0..<m).map { fine[j * m + $0] >= 0.5 }
+            // Each node's kind: 0 sea, 1 an island's land, 2 a continent's.
+            let kinds = (0..<m).map { c -> Int in
+                let l = pieces.label[j * m + c]
+                return l < 0 ? 0 : (continent[l] ? 2 : 1)
+            }
             // The nearest node of each kind east and west along the parallel
             // (nodes away, within the whole circle; nil for none), from two
             // sweeps over the row twice over.
-            var eastOf = [[Int?]](repeating: [Int?](repeating: nil, count: m), count: 2)
+            var eastOf = [[Int?]](repeating: [Int?](repeating: nil, count: m), count: 3)
             var westOf = eastOf
-            var next: [Int?] = [nil, nil]
+            var next: [Int?] = [nil, nil, nil]
             for i in stride(from: 2 * m - 1, through: 0, by: -1) {
-                if i < m { for k in 0..<2 { eastOf[k][i] = next[k].map { $0 - i } } }
-                next[kinds[i % m] ? 1 : 0] = i
+                if i < m { for k in 0..<3 { eastOf[k][i] = next[k].map { $0 - i } } }
+                next[kinds[i % m]] = i
             }
-            var last: [Int?] = [nil, nil]
+            var last: [Int?] = [nil, nil, nil]
             for i in 0..<(2 * m) {
-                if i >= m { for k in 0..<2 { westOf[k][i - m] = last[k].map { i - $0 } } }
-                last[kinds[i % m] ? 1 : 0] = i
+                if i >= m { for k in 0..<3 { westOf[k][i - m] = last[k].map { i - $0 } } }
+                last[kinds[i % m]] = i
             }
             for c in 0..<m {
-                let isLand = kinds[c], other = isLand ? 0 : 1
+                // Land looks for the sea, the sea for a continent.
+                let isLand = kinds[c] > 0, other = isLand ? 0 : 2
                 let east = eastOf[other][c].map { Double($0) * km } ?? .infinity
                 let west = westOf[other][c].map { Double($0) * km } ?? .infinity
                 let k = j * m + c
@@ -134,18 +153,70 @@ public struct WeatherGeography: Equatable {
             }
         }
         along = along.map { Self.blur($0, radius: 2, latitudeScaled: false) }
+        // A pole's row is one place: its mean.
+        let planes = [land, continental, inland, ice] + along
+        let poled = planes.map { v -> [Double] in
+            var v = v
+            for j in [0, Self.rows - 1] {
+                let row = (j * m)..<(j * m + m)
+                let mean = v[row].reduce(0, +) / Double(m)
+                for k in row { v[k] = mean }
+            }
+            return v
+        }
         func byte(_ v: Double) -> UInt8 { UInt8(min(max(v, 0), 1) * 255 + 0.5) }
         var a = [UInt8](repeating: 0, count: 4 * n), b = [UInt8](repeating: 0, count: 4 * n)
         for k in 0..<n {
-            a[4 * k] = byte(land[k])
-            a[4 * k + 1] = byte(continental[k])
-            a[4 * k + 2] = byte(inland[k])
-            for i in 0..<4 { b[4 * k + i] = byte(along[i][k]) }
+            for i in 0..<4 {
+                a[4 * k + i] = byte(poled[i][k])
+                b[4 * k + i] = byte(poled[4 + i][k])
+            }
         }
         self.init(a: a, b: b)
     }
 
     static func latitude(row j: Int) -> Double { (90 - 0.5 * Double(j)) * .pi / 180 }
+
+    /// The least area of a continent, km²: Greenland (2.2 million km²) and
+    /// the six continents are; New Guinea (0.79), Borneo (0.74) and
+    /// Madagascar (0.59) are not.
+    public static let continentArea = 1.5e6
+
+    /// The land's pieces: each land node's (`fine` at least one half) piece,
+    /// −1 for the sea, land nodes side by side being one piece (the parallels
+    /// wrapping; not corner to corner, which would join Greenland to the
+    /// Canadian Arctic over the Nares Strait); each piece's area, km².
+    static func pieces(_ fine: [Double]) -> (label: [Int], area: [Double]) {
+        var label = [Int](repeating: -1, count: columns * rows)
+        var area: [Double] = []
+        let side = 6_371.0 * 0.5 * Double.pi / 180, cell = side * side
+        // A pole's node: a quarter of a row's spacing in latitude.
+        let polar = 0.25 * 0.5 * Double.pi / 180
+        for start in 0..<label.count where fine[start] >= 0.5 && label[start] < 0 {
+            let id = area.count
+            var sum = 0.0
+            var stack = [start]
+            label[start] = id
+            while let k = stack.popLast() {
+                let j = k / columns, c = k % columns
+                let width: Double = max(cos(latitude(row: j)), polar)
+                sum += cell * width
+                for dj in -1...1 {
+                    let jj = j + dj
+                    guard jj >= 0, jj < rows else { continue }
+                    for dc in -1...1 where (dc == 0) != (dj == 0) {
+                        let kk = jj * columns + (c + dc + columns) % columns
+                        if fine[kk] >= 0.5 && label[kk] < 0 {
+                            label[kk] = id
+                            stack.append(kk)
+                        }
+                    }
+                }
+            }
+            area.append(sum)
+        }
+        return (label, area)
+    }
 
     /// Each node's land fraction: the four 0.25° mask cells it is a corner of.
     static func landFraction(_ mask: SurfaceMask?) -> [Double] {

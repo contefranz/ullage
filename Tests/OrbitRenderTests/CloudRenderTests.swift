@@ -890,12 +890,13 @@ extension CloudCostTests {
         }
     }
 
-    /// The weather map's assembly (ORBITSIM_CLOUD_COST=1): frames that
-    /// assemble it again (the time 60 s on, past `CloudPass.proceduralStep`)
-    /// against frames that keep it, one renderer, alternating, every default
-    /// pass at 3024 × 1964; with the procedural weather (its nodes, the rows'
-    /// calibration and the map) and with the climatology (the map alone, made
-    /// once: its frames are the same).
+    /// The weather map's assembly (ORBITSIM_CLOUD_COST=1): the frames of a
+    /// sweep (the time 60 s on, past `CloudPass.proceduralStep`, every eighth
+    /// frame: the next `CloudPass.sweepBands` frames each make a band of the
+    /// nodes, the rows' calibration and the band's map rows) against the
+    /// frames after it that keep the map, one renderer, every default pass at
+    /// 3024 × 1964; with the procedural weather and with the climatology (the
+    /// map alone, made once: its frames are the same).
     func testWeatherAssemblyCost() throws {
         guard ProcessInfo.processInfo.environment["ORBITSIM_CLOUD_COST"] != nil else {
             throw XCTSkip("set ORBITSIM_CLOUD_COST=1 to measure")
@@ -930,10 +931,11 @@ extension CloudCostTests {
             let times = Times()
             var last: MTLCommandBuffer?
             var time = base.clock.simTime
-            for k in 0..<240 {
+            let cycle = 2 * CloudPass.sweepBands
+            for k in 0..<(40 + 25 * cycle) {
                 var scene = base
-                let assemble = k % 2 == 0
-                if assemble { time = time + 60 }
+                let assemble = k % cycle < CloudPass.sweepBands
+                if k % cycle == 0 { time = time + 60 }
                 scene.clock.simTime = time
                 scene.clock.frameIndex = k + 1
                 scene.clock.temporalReset = k == 0
@@ -948,8 +950,10 @@ extension CloudCostTests {
             last?.waitUntilCompleted()
             Thread.sleep(forTimeInterval: 0.2)
             func median(_ x: [Double]) -> Double { x.sorted()[x.count / 2] }
-            print(String(format: "weather map %@: %.2f ms a frame that assembles it (frame %.2f, kept %.2f)", weather,
-                         (median(times.a) - median(times.b)) * 1_000, median(times.a) * 1_000, median(times.b) * 1_000))
+            let band = median(times.a) - median(times.b)
+            print(String(format: "weather map %@: %.2f ms a frame of a sweep, %.2f ms the sweep (frame %.2f, kept %.2f)",
+                         weather, band * 1_000, band * Double(CloudPass.sweepBands) * 1_000, median(times.a) * 1_000,
+                         median(times.b) * 1_000))
         }
     }
 }

@@ -75,8 +75,9 @@ public final class CloudPass: RenderPass, HalfResEffect {
     /// The procedural weather's time step: its nodes are made again when the
     /// time has moved this far (s; a front at 15 m/s moves 450 m), band by
     /// band over `sweepBands` frames with one state (0.6 ms for all its
-    /// nodes, 0.2 ms for the rows' calibration, M3 Pro), and at once after a
-    /// jump of an hour or more, a new seed or a new start.
+    /// nodes, 0.12 ms for the rows' calibration, M3 Pro; 0.7-0.9 ms a frame
+    /// of a sweep with the band's map rows, `testWeatherAssemblyCost`), and
+    /// at once after a jump of an hour or more, a new seed or a new start.
     public nonisolated static let proceduralStep = 30.0
     public nonisolated static let sweepBands = 4
     /// The nodes' sweep under way: its inputs and the next band.
