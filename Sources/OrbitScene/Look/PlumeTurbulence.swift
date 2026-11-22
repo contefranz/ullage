@@ -34,9 +34,10 @@ import OrbitCore
 ///   two bands about its own lifetime, keeping the noise's variance (Heitz
 ///   and Neyret 2018), so nothing pulses.
 /// - **One flow through a cluster** (`flow(_:merged:mergeX:origin:axis:at:)`):
-///   at each point the jet strongest there carries the noise (its profile's
-///   share the largest), and the merged far field takes over across the
-///   merge's window, so that the field is continuous where jets meet.
+///   at each point the jet whose bent axis passes nearest carries the noise
+///   (in a cluster of like engines the strongest there, its profile's share
+///   the largest), and the merged far field takes over across the merge's
+///   window, so that the field is continuous where jets meet.
 /// - **The shutter.** The camera sees the field averaged over its exposure
 ///   (`shutter`): at a point the field holds for an Eulerian time T_E,
 ///   1/T_E = u/L + 1/T_L (swept past, and decaying), so the average's
@@ -423,22 +424,42 @@ public enum PlumeTurbulence {
         return rk <= k.fieldExtent(atX: xk)
     }
 
+    /// The member of a cluster whose axis passes nearest camera-relative
+    /// `p`, bent as the first member's is there (the bend is the
+    /// cluster's): in a cluster of like engines the jet strongest at p (the
+    /// largest share of its excess), found from the exits and axes alone;
+    /// the first of equals. With p's x along it and r off its bent
+    /// centreline.
+    public static func nearest(_ members: [PlumeMember], at p: Vec3) -> (index: Int, x: Double, r: Double)? {
+        guard let m0 = members.first else { return nil }
+        let x0 = max((p - m0.exit).dot(m0.axis), 0)
+        let q = p - m0.bend.direction * m0.bend.offset(atX: x0)
+        var best: (index: Int, x: Double, r: Double)?, closest = Double.infinity
+        for (k, m) in members.enumerated() {
+            let d = q - m.exit, x = d.dot(m.axis), e = d - m.axis * x
+            if e.dot(e) < closest {
+                closest = e.dot(e)
+                best = (k, x, e.length)
+            }
+        }
+        return best
+    }
+
     /// The flow that carries a cluster's noise at camera-relative `p`: the
-    /// flow of the member whose jet is strongest there (the largest share of
-    /// its excess, the first of equals), among those whose field reaches it,
-    /// which is continuous wherever the cluster's jets are alike; beyond
-    /// `mergeX` along `axis` from `origin`, mixed into the merged far
-    /// field's over the merge's window (15 % of that distance), as the
-    /// march mixes their fields. Nil where none reaches p.
+    /// flow of the member whose axis passes nearest (`nearest`), where its
+    /// field reaches p, which is continuous wherever the cluster's jets are
+    /// alike; beyond `mergeX` along `axis` from `origin`, mixed into the
+    /// merged far field's over the merge's window (15 % of that distance),
+    /// as the march mixes their fields. Nil where neither reaches p.
     public static func flow(_ members: [PlumeMember], merged: PlumeMember? = nil, mergeX: Double = 0,
                             origin: Vec3 = .zero, axis: Vec3 = .unitX, at p: Vec3) -> Flow? {
         let wm = merged != nil && mergeX > 0
             ? PlumeMember.smoothstep(mergeX, 1.15 * mergeX, (p - origin).dot(axis)) : 0
         var best: Flow?
-        if wm < 1 {
-            for k in members where reaches(k, p) {
-                let f = flow(k, at: p)
-                if best == nil || f.profile > best!.profile { best = f }
+        if wm < 1, let n = nearest(members, at: p) {
+            let m = members[n.index]
+            if n.x >= 0, n.x <= m.length, n.r <= m.fieldExtent(atX: n.x) {
+                best = Flow(m, atX: n.x, profile: profile(m, atX: n.x, r: n.r))
             }
         }
         var far: Flow?

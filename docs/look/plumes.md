@@ -288,8 +288,8 @@ tile over that speed (1.28 s for the F-1).
   jet's) outside the core's shrinking top hat; uniform in a free expansion.
   Each layer's pattern is laid out where the flow carried each point from
   since the layer's birth (one midpoint step back along the
-  decelerating jet), so it rides the flow: on the axis 1.02 m against the
-  flow's 1.10 m over 3 ms at 110 m, half-way out half as far
+  decelerating jet), so it rides the flow: on the axis 0.98 m against the
+  flow's 1.10 m over 3 ms at 110 m, half-way out 0.38 m against 0.55 m
   (`PlumeTurbulenceTests`).
 - **Decaying as a jet's turbulence.** Each octave band of lifetimes (0.12
   ms to 64 s) holds two layers, cross-faded half a life apart and re-seeded
@@ -318,9 +318,10 @@ tile over that speed (1.28 s for the F-1).
   what the mixing layer carries past in the exposure or a Lagrangian time.
   The F-1's near field, renewed every few milliseconds, is smooth and
   streaked, its slower edges ragged, its far field billowing.
-- **One flow through a cluster.** At each point the jet strongest there
-  (the largest share of its excess speed, among the members whose field
-  reaches it) carries the noise, and the merged far field's flow takes
+- **One flow through a cluster.** At each point the jet whose bent axis
+  passes nearest (in a cluster of like engines the strongest there, the
+  largest share of its excess speed; found from the exits and axes alone,
+  then that one member's flow) carries the noise, and the merged far field's flow takes
   over across the merge's window as its field does, so the field is
   continuous where jets meet (in a cluster of like engines) and across the
   merge: across the S-IC at 20 m, where engine 1's reach covers the centre
@@ -338,9 +339,13 @@ tile over that speed (1.28 s for the F-1).
   deterministic and seeded; the field's correlation with itself under 0.2
   at 261 lags to ten minutes (whole numbers of the old loop, of the tile
   carried at the flow's speed and of every band's life, and lags at
-  random); the GPU's field against the reference (mean difference 0.0004);
-  and on screen, frames whole numbers of the old loop apart differ as much
-  as frames ten seconds apart.
+  random); the GPU's field against the reference, the cluster's flow and
+  its merged far field included (mean difference 0.0004); the flow
+  continuous across the S-IC; and on screen, frames whole numbers of the
+  old loop apart differ as much as frames ten seconds apart (2.2-2.5 against
+  2.5, mean |Δ| per pixel), a frame a millisecond on by 0.14, while the same
+  frames on a clock made to loop at that period match exactly: the check
+  sees a loop when there is one.
 - **Other animations checked for loops.** The Mach disk, the shock cells
   and the base glow are steady fields (they move only with the state); the
   SPS's glow follows its heat in simulation time; the march's jitter turns
@@ -400,6 +405,15 @@ plumes on and off on alternate frames, the difference of the medians, at
 High (32 steps); the plan's budget is 1.5 ms on the pad and 0.5 ms in
 LEO, for the default physical look.
 
+- **After the turbulence's review** (2026-11-22: one flow through a
+  cluster, the time scales from where the eddies are), against the first
+  flow noise measured back to back, twice (first / now, ms): pad 1.37-1.38
+  / 1.46-1.53; ascent 2.32-2.38 / 3.00-3.14; max-Q 2.81-2.85 / 3.31-3.38;
+  staging 4.66-4.74 / 5.64-5.77 (auto 5.30-5.35 / 6.32-6.59); the SPS at
+  night 0.58 / 0.64-0.68; LEO by day unchanged. The nearest axis's search
+  is 0.2-0.4 ms of it (without it: max-Q 3.17, staging 5.32); the rest is
+  the noise's way through the cluster's flow. The time scales cost nothing
+  (the old constants measured the same).
 - **The turbulence's flow noise** (2026-11-22), against main measured the
   same day under the same load (main / with it, ms): pad 0.89 / 0.89-0.98
   and 1.40 / 1.37-1.42; ascent 2.12 / 2.35-2.43; max-Q 2.41 / 2.83-2.91;

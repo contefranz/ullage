@@ -69,8 +69,14 @@ inline float plume_bendOffset(const device PlumeMember &m, float x) {
     float t = min(sqrt(x / span), 1.0) * 7.0;
     int i = min(int(t), 6);
     float f = t - float(i);
-    float o[8] = {m.bendNear.x, m.bendNear.y, m.bendNear.z, m.bendNear.w, m.bendFar.x, m.bendFar.y, m.bendFar.z, m.bendFar.w};
-    return mix(o[i], o[i + 1], f);
+    // Stations i and i + 1 picked by selects, not a local array.
+    float4 n = m.bendNear, g = m.bendFar;
+    float4 lo = i < 3 ? n : float4(n.w, g.x, g.y, g.z);
+    float4 hi = i < 3 ? float4(n.y, n.z, n.w, g.x) : float4(g.x, g.y, g.z, g.w);
+    int j = i < 3 ? i : i - 3;
+    float a = j == 0 ? lo.x : j == 1 ? lo.y : j == 2 ? lo.z : lo.w;
+    float b = j == 0 ? hi.x : j == 1 ? hi.y : j == 2 ? hi.z : hi.w;
+    return mix(a, b, f);
 }
 
 // How far out the eddies may carry the boundary, over R (PlumeMember.turbulentReach).
@@ -292,15 +298,10 @@ inline PlumeFlow plume_mixFlow(PlumeFlow a, PlumeFlow b, float w) {
     return f;
 }
 
-// Member m's flow at p, and whether its field reaches p
-// (PlumeTurbulence.flow, .reaches).
-inline bool plume_memberFlow(const device PlumeMember &m, float3 p, thread PlumeFlow &f) {
-    float3 d = p - m.exit.xyz;
-    float x = dot(d, m.axis.xyz);
-    if (x < 0.0 || x > m.axis.w) { return false; }
-    float r = length(d - m.axis.xyz * x - m.bendDirection.xyz * plume_bendOffset(m, x));
-    float big = plume_radius(m, x);
-    if (r > plume_reach(m, x, big)) { return false; }
+// Member m's flow x along it and r off its bent centreline, R its radius
+// there.
+inline PlumeFlow plume_flowAt(const device PlumeMember &m, float x, float r, float big) {
+    PlumeFlow f;
     float re = m.exit.w, core = m.shape.w;
     float rc = re * max(0.0, 1.0 - x / max(core, 1e-6));
     float eta = max(r - rc, 0.0) / max(big - rc, 0.05 * re);
@@ -312,27 +313,82 @@ inline bool plume_memberFlow(const device PlumeMember &m, float3 p, thread Plume
     f.core = core;
     f.l0 = max(m.noise.x, 1e-4);
     f.k = m.noise.y;
+    return f;
+}
+
+// Member m's flow at p, and whether its field reaches p
+// (PlumeTurbulence.flow, .reaches).
+inline bool plume_memberFlow(const device PlumeMember &m, float3 p, thread PlumeFlow &f) {
+    float3 d = p - m.exit.xyz;
+    float x = dot(d, m.axis.xyz);
+    if (x < 0.0 || x > m.axis.w) { return false; }
+    float r = length(d - m.axis.xyz * x - m.bendDirection.xyz * plume_bendOffset(m, x));
+    float big = plume_radius(m, x);
+    if (r > plume_reach(m, x, big)) { return false; }
+    f = plume_flowAt(m, x, r, big);
     return true;
 }
 
-// A cluster's flow at p (PlumeTurbulence.flow): the member strongest there
-// among those reaching it, mixed into the merged far field's (members[first
-// + count]) by wm, the merge's window.
+// The sample as the member asking for the noise holds it: its index in the
+// cluster (count: the merged one), its x, r and radius there.
+struct PlumeAsking {
+    int k;
+    float x, r, big;
+};
+
+// A cluster's flow at p (PlumeTurbulence.flow): the member whose axis
+// passes nearest, bent as the first's is there (PlumeTurbulence.nearest),
+// where it reaches p, mixed into the merged far field's (members[first +
+// count]) by wm, the merge's window.
 inline bool plume_clusterFlow(const device PlumeMember *members, int first_, int count, float wm, float3 p,
-                              thread PlumeFlow &f) {
-    PlumeFlow best = {0.0, -1.0, 0.0, 0.0, 1.0, 1.0, 0.0};
+                              PlumeAsking asking, thread PlumeFlow &f) {
+    PlumeFlow best;
     bool found = false;
     if (wm < 1.0) {
-        for (int k = 0; k < count; k++) {
-            PlumeFlow fk;
-            if (plume_memberFlow(members[first_ + k], p, fk) && fk.profile > best.profile) {
-                best = fk;
-                found = true;
+        int nearest = 0;
+        float xn = 0.0, rn2 = 0.0;
+        if (count > 1) {
+            const device PlumeMember &m0 = members[first_];
+            float x0 = max(dot(p - m0.exit.xyz, m0.axis.xyz), 0.0);
+            float3 q = p - m0.bendDirection.xyz * plume_bendOffset(m0, x0);
+            rn2 = INFINITY;
+            for (int k = 0; k < count; k++) {
+                const device PlumeMember &mk = members[first_ + k];
+                float3 d = q - mk.exit.xyz;
+                float x = dot(d, mk.axis.xyz);
+                float3 e = d - mk.axis.xyz * x;
+                float dd = dot(e, e);
+                if (dd < rn2) {
+                    rn2 = dd;
+                    nearest = k;
+                    xn = x;
+                }
             }
+        }
+        if (nearest == asking.k) {
+            // The member asking holds the sample already.
+            best = plume_flowAt(members[first_ + nearest], asking.x, asking.r, asking.big);
+            found = true;
+        } else if (count > 1) {
+            const device PlumeMember &mn = members[first_ + nearest];
+            float big = plume_radius(mn, max(xn, 0.0)), rn = sqrt(rn2);
+            found = xn >= 0.0 && xn <= mn.axis.w && rn <= plume_reach(mn, xn, big);
+            if (found) { best = plume_flowAt(mn, xn, rn, big); }
+        } else {
+            found = plume_memberFlow(members[first_], p, best);
         }
     }
     PlumeFlow far;
-    if (wm > 0.0 && plume_memberFlow(members[first_ + count], p, far)) {
+    bool farFound = false;
+    if (wm > 0.0) {
+        if (asking.k == count) {
+            far = plume_flowAt(members[first_ + count], asking.x, asking.r, asking.big);
+            farFound = true;
+        } else {
+            farFound = plume_memberFlow(members[first_ + count], p, far);
+        }
+    }
+    if (farFound) {
         f = found ? plume_mixFlow(best, far, wm) : far;
         return true;
     }
@@ -348,10 +404,8 @@ inline float plume_intensity(float xi, constant PlumeFrame &pf) {
 
 inline float plume_lagrangian(float xi, constant PlumeFrame &pf) {
     float t = clamp((xi - pf.flowRates2.z) / pf.flowRates2.w, 0.0, 3.0);
-    int i = min(int(t), 2);
-    float f = t - float(i);
-    float l[4] = {pf.lagrangian.x, pf.lagrangian.y, pf.lagrangian.z, pf.lagrangian.w};
-    return mix(l[i], l[i + 1], f);
+    float4 l = pf.lagrangian;
+    return t < 1.0 ? mix(l.x, l.y, t) : t < 2.0 ? mix(l.y, l.z, t - 1.0) : mix(l.z, l.w, t - 2.0);
 }
 
 // The turbulence at camera-relative p in a cluster whose first member is
@@ -372,7 +426,8 @@ inline float plume_noise(const device PlumeMember &m, PlumeFlow f, float3 p, con
     // Integral lengths the flow sweeps past here a second, at its speed
     // here (the camera rides with the vessel).
     float sweep = abs(f.coflow + excess * f.profile) / (pf.flowRates2.x * lf);
-    float tau = lf / max(plume_intensity(xi, pf) * abs(excess), 0.5);
+    float intensity = plume_intensity(xi, pf);
+    float tau = lf / max(intensity * abs(excess), 0.5);
     float lagrangian = plume_lagrangian(xi, pf);
     float b = clamp(log2(lagrangian * pf.flowRates2.x / pf.flowRates.w * tau * 8192.0), 0.0, 18.999);
     // The streak's rate over a band's life, the self-similar mixing
@@ -426,20 +481,20 @@ struct PlumeNoiseAt {
     float value;
 };
 
-inline float plume_noiseAt(thread PlumeNoiseAt &n, float3 p, constant PlumeFrame &pf, texture3d<float> noise,
-                           sampler ns) {
+inline float plume_noiseAt(thread PlumeNoiseAt &n, PlumeAsking asking, float3 p, constant PlumeFrame &pf,
+                           texture3d<float> noise, sampler ns) {
     if (!n.done) {
         PlumeFlow f;
-        n.value = plume_clusterFlow(n.members, n.first, n.count, n.wm, p, f)
+        n.value = plume_clusterFlow(n.members, n.first, n.count, n.wm, p, asking, f)
             ? plume_noise(n.members[n.first], f, p, pf, noise, ns) : 0.0;
         n.done = true;
     }
     return n.value;
 }
 
-inline void plume_member(thread PlumeSample &s, const device PlumeMember &m, float3 p, constant PlumeFrame &pf,
-                         thread PlumeNoiseAt &na, texture3d<float> noise, sampler ns, thread float &sunDepth,
-                         float3 sunDir) {
+inline void plume_member(thread PlumeSample &s, const device PlumeMember &m, int index, float3 p,
+                         constant PlumeFrame &pf, thread PlumeNoiseAt &na, texture3d<float> noise, sampler ns,
+                         thread float &sunDepth, float3 sunDir) {
     float3 d = p - m.exit.xyz;
     float x = dot(d, m.axis.xyz);
     float upstream = m.structure.w, length_ = m.axis.w;
@@ -459,7 +514,7 @@ inline void plume_member(thread PlumeSample &s, const device PlumeMember &m, flo
     float eddy = m.noise.x + m.noise.y * xp;
     float footprint = length(p) * pf.params.z;
     float depth = m.noise.z * plume_smoothstep(0.0, 4.0 * de, xp) * plume_smoothstep(1.5, 4.0, eddy / max(footprint, 1e-6));
-    float nv = depth > 0.0 ? plume_noiseAt(na, p, pf, noise, ns) : 0.0;
+    float nv = depth > 0.0 ? plume_noiseAt(na, PlumeAsking{index, x, r, R}, p, pf, noise, ns) : 0.0;
     float turb = max(1.0 + depth * 3.0 * nv, 0.05);
     float hot = 1.0 + depth * 0.15 * nv;                            // hot and cool pockets
 
@@ -773,13 +828,13 @@ fragment EffectVolumeOut plume_march_fragment(PlumeProxyOut in [[stage_in]],
         PlumeNoiseAt na = {members, first_, count, wm, false, 0.0};
         if (wm < 1.0) {
             for (int k = 0; k < count; k++) {
-                plume_member(x, members[first_ + k], p, pf, na, noise, ns, sunDepth, sunDir);
+                plume_member(x, members[first_ + k], k, p, pf, na, noise, ns, sunDepth, sunDir);
             }
         }
         if (wm > 0.0) {
             PlumeSample y = {0.0, 0.0, float3(0.0), 0.0};
             float sunY = 0.0;
-            plume_member(y, members[first_ + count], p, pf, na, noise, ns, sunY, sunDir);
+            plume_member(y, members[first_ + count], count, p, pf, na, noise, ns, sunY, sunDir);
             x.absorption = mix(x.absorption, y.absorption, wm);
             x.scattering = mix(x.scattering, y.scattering, wm);
             x.emission = mix(x.emission, y.emission, wm);

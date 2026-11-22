@@ -28,7 +28,7 @@ final class PlumeTurbulenceRenderTests: XCTestCase {
             float wm = mergeX > 0.0 ? plume_smoothstep(mergeX, 1.15 * mergeX, dot(p - cluster[1].xyz, cluster[2].xyz))
                                     : 0.0;
             PlumeNoiseAt na = {members, 0, int(cluster[0].x), wm, false, 0.0};
-            out[id] = plume_noiseAt(na, p, pf, noise, ns);
+            out[id] = plume_noiseAt(na, PlumeAsking{-1, 0.0, 0.0, 0.0}, p, pf, noise, ns);
         }
 
         kernel void plume_sizes(device uint *out [[buffer(0)]]) {
