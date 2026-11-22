@@ -27,8 +27,8 @@ final class CloudSurveyTests: XCTestCase {
     }
 
     static let flights: [Flight] = [
-        Flight(name: "pad", scenario: "as506-pad", camera: .init(yaw: -60, pitch: 12, distance: 300, fov: 60), frames: 60),
-        Flight(name: "pad-up", scenario: "as506-pad", camera: .init(yaw: -60, pitch: -35, distance: 120, fov: 70), frames: 60),
+        Flight(name: "pad", scenario: "as506-first-motion", camera: .init(yaw: -60, pitch: 12, distance: 300, fov: 60), frames: 60),
+        Flight(name: "pad-up", scenario: "as506-first-motion", camera: .init(yaw: -60, pitch: -35, distance: 120, fov: 70), frames: 60),
         Flight(name: "ascent-10km", scenario: "as506-pad", advance: ["met:75"],
                camera: .init(yaw: 149, pitch: -15, distance: 400, fov: 60), frames: 60),
         Flight(name: "ascent-30km", scenario: "as506-pad", advance: ["met:118"],

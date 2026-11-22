@@ -367,7 +367,7 @@ final class CloudRenderTests: XCTestCase {
                                   observation: CloudObservation(low: 0, mid: 0, high: 0))
         clear.radius = 300_000
         let weather = try Self.uniformWeather(low: 1, epoch: pad.time, overrides: [clear])
-        var shot = SnapshotSpec.Shot(name: "a8-sky", scenario: "apollo8-pad",
+        var shot = SnapshotSpec.Shot(name: "a8-sky", scenario: "apollo8-first-motion",
                                      camera: SnapshotSpec.CameraSpec(yaw: -100, pitch: 8, distance: 300, fov: 60))
         shot.width = 64
         shot.height = 40

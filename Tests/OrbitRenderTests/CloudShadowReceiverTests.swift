@@ -122,7 +122,7 @@ extension CloudShadowReceiverTests {
     /// - by day (Sun at 30°) the Sun's line takes the Sun's share and the
     ///   sky map the sky's: the two together more than 80 % of the pixel.
     func testCloudShadowTakesTheSkysLightToo() throws {
-        var shot = SnapshotSpec.Shot(name: "pad-ground", scenario: "as506-pad",
+        var shot = SnapshotSpec.Shot(name: "pad-ground", scenario: "as506-first-motion",
                                      camera: SnapshotSpec.CameraSpec(yaw: -60, pitch: 60, distance: 300, fov: 40))
         shot.width = 160
         shot.height = 100
