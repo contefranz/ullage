@@ -1600,24 +1600,35 @@ kernel void cloud_resolve(texture2d<float, access::read> fresh [[texture(10)]],
 
 // The sky's light reaching the ground at figure point pf through the clouds
 // overhead, per unit of the clear sky's. Diffuse light comes through the
-// cover over the whole sky, not along one line: each layer passes it where
-// it has gaps whole and through its cloudy columns as a conservative slab
-// of their mean optical depth (CloudCoverage.columnDepth), 2 / (2 + (1 - g)
-// tau) (Bohren 1987; C2's own streams pass the sky's light down so), g 0.85
-// for water and 0.75 for ice; the layers overlap at random. The weather's
-// covers are 25 km cells, about the scale of the sky a point sees through
-// a deck 1-2 km up, so the sky's light does not follow the clouds' cast
-// shadows as the Sun's does.
+// cover over the whole sky, not along one line: each layer has gaps, which
+// pass it whole, and cloudy columns of their mean optical depth
+// (CloudCoverage.columnDepth), the layers overlapping at random. Over each
+// of the eight cases (each layer cloudy or clear overhead, by the product
+// of its cover or its gap), the cloudy layers pass it as conservative slabs
+// stacked by the two-stream adding rule, 1/T = 1 + sum (1 - g_i) tau_i / 2
+// (Bohren 1987; T12 = T1 T2 / (1 - R1 R2), the light reflected back and
+// forth between decks; C2's own streams pass the sky's light down so, and
+// the Sun's term adds the layers' depths alike), g 0.85 for water and 0.75
+// for ice. The weather's covers are 25 km cells, about the scale of the sky
+// a point sees through a deck 1-2 km up, so the sky's light does not follow
+// the clouds' cast shadows as the Sun's does.
 inline float cloud_skyColumn(float3 pf, thread const CloudTextures &t, sampler wrap, sampler weather,
                              constant CloudUniforms &u) {
     CloudWeatherSample w = cloud_weatherAt(pf, t, wrap, weather, u);
-    float low = w.a.x > 0.002 ? w.a.x : 0.0, mid = w.a.y > 0.002 ? w.a.y : 0.0;
+    float3 c = float3(w.a.x > 0.002 ? w.a.x : 0.0, w.a.y > 0.002 ? w.a.y : 0.0,
+                      u.lookDev.x > 0.5 ? 0.0 : t.weatherA.sample(weather, cloud_weatherUV(pf, u), level(0.0)).z);
     float tauLow = u.lookDev.x > 0.5 ? u.lookDev.z
-        : u.extinction.x * u.extinction.w * max(w.lowTop - w.a.w, 0.0) * cloud_table(u.columnLow, low);
-    float tauMid = u.extinction.y * u.extinction.w * (u.layers.y - u.layers.x) * cloud_table(u.columnMid, mid);
-    float high = u.lookDev.x > 0.5 ? 0.0 : t.weatherA.sample(weather, cloud_weatherUV(pf, u), level(0.0)).z;
-    return (1.0 - low + low * 2.0 / (2.0 + 0.15 * tauLow)) * (1.0 - mid + mid * 2.0 / (2.0 + 0.15 * tauMid))
-         * (1.0 - high + high * 2.0 / (2.0 + 0.25 * cloud_cirrusMeanDepth(u)));
+        : u.extinction.x * u.extinction.w * max(w.lowTop - w.a.w, 0.0) * cloud_table(u.columnLow, c.x);
+    float tauMid = u.extinction.y * u.extinction.w * (u.layers.y - u.layers.x) * cloud_table(u.columnMid, c.y);
+    // Each layer's (1 - g) tau / 2 when cloudy.
+    float3 k = float3(0.075 * tauLow, 0.075 * tauMid, 0.125 * cloud_cirrusMeanDepth(u));
+    float sum = 0.0;
+    for (int m = 0; m < 8; m++) {
+        float3 on = float3(float(m & 1), float((m >> 1) & 1), float((m >> 2) & 1));
+        float3 p = mix(1.0 - c, c, on);
+        sum += p.x * p.y * p.z / (1.0 + dot(on, k));
+    }
+    return sum;
 }
 
 // Texel gid's Sun ray through the shell: the optical depth above each of
@@ -1625,7 +1636,10 @@ inline float cloud_skyColumn(float3 pf, thread const CloudTextures &t, sampler w
 // ground (cloud_skyColumn) where the texel's line meets it: x where it
 // rises toward the Sun (a ground point with the Sun up), y where it falls
 // (with the Sun under its horizon, the line rising again beyond the Earth's
-// limb); 1 where it misses the ground.
+// limb). A line that passes over the ground takes its lowest point for both,
+// where the two merge at tangency, so the map is continuous through the
+// terminator (a clear 1 there bled into the band of ground near tangency
+// through the bilinear filter).
 kernel void cloud_shadow(texture2d<float, access::write> out [[texture(0)]],
                          texture2d<float, access::write> sky [[texture(1)]],
                          texture3d<float> shape [[texture(2)]],
@@ -1650,9 +1664,16 @@ kernel void cloud_shadow(texture2d<float, access::write> out [[texture(0)]],
     // were marched along the wrong heights).
     float mu0 = dot(s, up);
     float R = u.radii.x, hBase = cloud_height(pf0, u);
-    // Along the Sun from the map's plane the height is h(t) = hBase + μ0 t
-    // + t²/2R on the curved Earth; t at height h (its rising root):
-    #define CLOUD_RAY_AT(h) (R * (-mu0 + sqrt(max(mu0 * mu0 + 2.0 * ((h) - hBase) / R, 0.0))))
+    // Along the Sun from the map's plane the radius is |pf0 + s t|, with
+    // |pf0|² = rb², rb = R + hBase: at height h, t² + 2 rb μ0 t = (R + h)² −
+    // rb² = (h − hBase)(2R + h + hBase), its rising root (the sphere's own,
+    // in a form exact in floats; the parabola h(t) = hBase + μ0 t + t²/2R
+    // drops (1 − μ0²) and, from orbit, where the map's tilted plane lies
+    // hundreds of km off the ground, marched the low layer at heights a few
+    // km to ten under it: no shadow beyond 150-200 km of the map's centre
+    // line). Under the line's lowest point, the lowest point.
+    float rb = R + hBase, b0 = rb * mu0;
+    #define CLOUD_RAY_AT(h) (-b0 + sqrt(max(b0 * b0 + ((h) - hBase) * (2.0 * R + (h) + hBase), 0.0)))
     float4 tauAbove = float4(0.0);
     // The weather where the ray crosses the low and the mid layers (not at
     // the plane's point, kilometres off at a low Sun), for the heights the
@@ -1708,14 +1729,11 @@ kernel void cloud_shadow(texture2d<float, access::write> out [[texture(0)]],
     }
     #undef CLOUD_RAY_AT
     out.write(tauAbove, gid);
-    // The line's ground points: h(t) = 0.
-    float disc = mu0 * mu0 - 2.0 * hBase / R;
-    float2 skyT = float2(1.0);
-    if (disc >= 0.0) {
-        float sq = sqrt(disc);
-        skyT = float2(cloud_skyColumn(cloud_figure(base + s * (R * (-mu0 + sq)), u), t, wrap, weather, u),
-                      cloud_skyColumn(cloud_figure(base + s * (R * (-mu0 - sq)), u), t, wrap, weather, u));
-    }
+    // The line's ground points, h(t) = 0 on the same sphere (its lowest
+    // point where it passes over the ground).
+    float sq = sqrt(max(b0 * b0 - hBase * (2.0 * R + hBase), 0.0));
+    float2 skyT = float2(cloud_skyColumn(cloud_figure(base + s * (-b0 + sq), u), t, wrap, weather, u),
+                         cloud_skyColumn(cloud_figure(base + s * (-b0 - sq), u), t, wrap, weather, u));
     sky.write(float4(skyT, 0.0, 0.0), gid);
 }
 
