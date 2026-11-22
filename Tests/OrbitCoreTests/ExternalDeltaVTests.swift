@@ -101,6 +101,8 @@ final class ExternalDeltaVTests: XCTestCase {
         // CM/SM separation at 259:43:33.8, then entry interface.
         f.fly(to: ApolloCSM.apollo7CMSMSeparation)
         XCTAssertNotNil(f.sim.stage(f.v, event: 7))
+        f.fly(to: f.get + 0.1)
+        XCTAssertFalse(f.scs.gnAuto, "the entry program flies the CM")
         var ei: (get: Double, speed: Double, gamma: Double)?
         var previous = (get: f.get, altitude: f.v.altitude, speed: f.v.velocity.length, gamma: f.state().gamma)
         let interface = ApolloCSM.apollo7EntryInterface.altitude * ft

@@ -89,6 +89,7 @@ public final class ApolloSCS: FlightProgram, DeltaVCounting, GuidanceComputerHos
         }
         if !smGone && !v.parts.contains(where: { $0.name == "SM" }) {
             smGone = true
+            gnAuto = false   // the CM's entry program flies it now
             sim.log("\(v.name): SM gone, \(successor == nil ? "SCS holds the CM" : "entry program")")
         }
         if smGone, let next = successor {

@@ -219,6 +219,7 @@ final class DeorbitThroughP40Tests: XCTestCase {
         f.returnKey()
         XCTAssertEqual(f.cmc.program, 0)
         let (burn, r) = try flyP40(f, retrograde: true)
+        XCTAssertFalse(f.mfd.page(.left, sim: f.sim).shows("UPLINK: CMC P30"))   // flown
         XCTAssertEqual(burn, try XCTUnwrap(plan.burnTime), accuracy: 0.6)
         XCTAssertLessThan(r.length, 0.2 * ft)
 

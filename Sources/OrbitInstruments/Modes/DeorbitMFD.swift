@@ -232,7 +232,9 @@ public final class DeorbitMFD: MFDMode {
     /// The uplink's and the ΔV counter's lines, and the predictions' caveat.
     func counter(_ page: inout MFDPage, _ c: MFDContext) {
         switch uplink {
-        case .accepted?: page.add(4, 21, "UPLINK: CMC P30", .target)
+        case .accepted?:
+            // While the computer has the load.
+            if c.vessel.guidanceComputer?.load?.source == .deorbit { page.add(4, 21, "UPLINK: CMC P30", .target) }
         case .refused(let why)?: page.add(4, 21, "UPLINK REFUSED: " + why, .warn)
         case nil: break
         }
