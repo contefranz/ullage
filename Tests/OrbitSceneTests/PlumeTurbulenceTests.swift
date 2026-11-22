@@ -148,7 +148,8 @@ final class PlumeTurbulenceTests: XCTestCase {
             func at(_ x: Double) -> Vec3 { Vec3(x, rFraction * m.radius(atX: x), 0) }
             let dt = 0.04 * PlumeTurbulence.turnover(m, atX: x0)
             let expected = carried(m, x: x0, r: r, dt: dt) - x0
-            let seeds: [UInt32] = [1, 2, 3, 4, 5, 6, 7, 8]
+            // 24 seeds: with 8 the peak's estimate spreads by ±20 % half-way out.
+            let seeds = (1...24).map { UInt32($0) }
             let line = (0..<100).map { x0 - 10 + 0.2 * Double($0) }
             let before = seeds.map { seed in line.map { value(m, at($0), 40, seed: seed) } }
             let step = 0.1

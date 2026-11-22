@@ -288,8 +288,8 @@ tile over that speed (1.28 s for the F-1).
   jet's) outside the core's shrinking top hat; uniform in a free expansion.
   Each layer's pattern is laid out where the flow carried each point from
   since the layer's birth (one midpoint step back along the
-  decelerating jet), so it rides the flow: on the axis 0.98 m against the
-  flow's 1.10 m over 3 ms at 110 m, half-way out 0.38 m against 0.55 m
+  decelerating jet), so it rides the flow: on the axis 0.99 m against the
+  flow's 1.10 m over 3 ms at 110 m, half-way out 0.49 m against 0.55 m (24 seeds)
   (`PlumeTurbulenceTests`).
 - **Decaying as a jet's turbulence.** Each octave band of lifetimes (0.12
   ms to 64 s) holds two layers, cross-faded half a life apart and re-seeded
