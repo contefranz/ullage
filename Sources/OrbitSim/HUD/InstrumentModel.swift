@@ -137,7 +137,10 @@ final class InstrumentModel: ObservableObject {
         case nil: return nil
         case is SaturnIU: return "IU"
         case is CMEntryProgram, is EarthLandingSystem: return "CM"
-        case is ApolloSCS: return v.parts.contains { $0.name == "SM" } ? "SCS" : "CM"
+        case let scs as ApolloSCS:
+            // Under G&N AUTO the hold flies the computer's attitude.
+            if scs.gnAuto { return "G&N" }
+            return v.parts.contains { $0.name == "SM" } ? "SCS" : "CM"
         default: return "PGM"
         }
     }
