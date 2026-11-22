@@ -333,9 +333,11 @@ public final class Thruster {
     public var trigger: StagingTrigger?
     /// A firing the trigger starts (liquid engines only); see `FiringSequence`.
     public var sequence: FiringSequence?
-    /// Seconds since the trigger started the sequence; nil before.
+    /// Seconds since the trigger started the sequence; nil before, and
+    /// after an impact (`stopAtImpact()`).
     public private(set) var sequenceElapsed: Double?
-    /// True once a solid has been lit, burnt out or not.
+    /// True once a solid has been lit, burnt out or not, until an impact
+    /// puts it out (`stopAtImpact()`).
     public private(set) var isIgnited = false
     /// Change of performance over the burn; nil keeps `rating` throughout.
     public var schedule: PerformanceSchedule?
@@ -511,6 +513,23 @@ public final class Thruster {
                      "\(name): a solid motor needs a single feed and no shutdown ramp")
         isIgnited = true
         return true
+    }
+
+    /// Stop the engine where it stands, as an impact does: the simulation
+    /// steps a wreck no more, so a shutdown ramp would never run and the
+    /// engine would hold the output of the impact step. From here it is
+    /// neither commanded nor delivering: the level, the burn clock, the
+    /// ramps and the sequence's clock clear, and a lit solid goes out.
+    /// Nothing commands a wreck's engines again (its controls and flight
+    /// program stop, and the app no longer stages it).
+    func stopAtImpact() {
+        level = 0
+        burnTime = 0
+        lastOutput = nil
+        shutdownElapsed = nil
+        lastStep = 0
+        sequenceElapsed = nil
+        if isSolid { isIgnited = false }
     }
 
     /// Fraction of full output (level and transients) and the rating it

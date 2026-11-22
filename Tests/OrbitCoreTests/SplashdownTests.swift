@@ -4,7 +4,8 @@ import XCTest
 /// Water and land: the Earth's land mask (Natural Earth's 1:10m land
 /// polygons, `tools/make_landmask.py`), sea level on the WGS-84 ellipsoid,
 /// and the contact rules: a vessel comes to rest under its impact limit for
-/// what it hits, afloat on water (Stable I, apex up) or on land.
+/// what it hits, afloat on water (Stable I, apex up) or on land; over it,
+/// the vessel is a wreck and its engines stop where they are.
 final class SplashdownTests: XCTestCase {
     let deg = Double.pi / 180
 
@@ -110,6 +111,53 @@ final class SplashdownTests: XCTestCase {
         XCTAssertEqual(fast.status, .crashed)
         XCTAssertEqual(fast.landed?.surface, .water)
         XCTAssertEqual(atlantic.events.last?.message, "Apollo 7: water impact at 20 m/s")
+    }
+
+    // An impact stops every engine where it stands. The simulation steps a
+    // wreck no more, so nothing else would end a running F-1's shutdown
+    // ramp, put out a lit solid or close an SM jet's firing sequence: each
+    // would keep the impact step's output for the plumes, the navball's
+    // thrust marker and the panels. Here a Saturn V comes down on the Sahara
+    // under S-IC thrust, with its S-II ullage motors lit and its SM's -X
+    // jets firing (as they do from CM/SM separation).
+    func testImpactStopsTheEngines() throws {
+        let sim = try Simulation.forTests(perturbations: false)
+        let stack = VesselLibrary.saturnV()
+        stack.flightProgram = nil
+        sim.add(stack)
+        let clearance = min(stack.baseHeight, stack.boundingRadius)
+        sim.place(stack, geodeticLatitude: 23, longitude: 13, height: clearance + 20, inertialSpeed: 30,
+                  flightPathAngle: -90, azimuth: 0)
+        // Falling at 30 m/s through still air, not the inertial frame.
+        let o = sim.snapshot.orientation(stack.reference)
+        let up = stack.reference.vertical(at: stack.position, orientation: o)
+        stack.velocity = o.angularVelocity.cross(stack.position) - up * 30
+        sim.updateTelemetry(stack, snapshot: sim.snapshot)
+        let f1s = stack.thrusters.filter { $0.name.hasPrefix("S-IC engine") }
+        let solids = stack.thrusters.filter { $0.name.hasPrefix("S-II ullage motor") }
+        let jets = stack.thrusters.filter { $0.sequence?.start == 0 }
+        XCTAssertEqual([f1s.count, solids.count, jets.count], [5, 4, 4])
+        for m in solids { XCTAssertTrue(m.ignite(), m.name) }
+        for j in jets { XCTAssertTrue(j.startSequence(), j.name) }
+        stack.mainThrottle = 1
+        var running: [Thruster] = []
+        let start = sim.time
+        while stack.status == .flying, sim.time - start < 10 {
+            running = stack.thrusters.filter(\.isDelivering)
+            for v in sim.vessels { sim.prepareControls(v) }
+            sim.step(0.02)
+        }
+        XCTAssertEqual(stack.status, .crashed)
+        // All three kinds were delivering into the impact step.
+        for t in f1s + solids + jets { XCTAssertTrue(running.contains { $0 === t }, t.name) }
+        for _ in 0..<3 {
+            for t in stack.thrusters {
+                XCTAssertFalse(t.isDelivering, t.name)
+                XCTAssertFalse(t.isCommanded, t.name)
+            }
+            for v in sim.vessels { sim.prepareControls(v) }
+            sim.step(0.02)
+        }
     }
 
     // M0's rule is unchanged for every other vessel: 5 m/s on any surface,

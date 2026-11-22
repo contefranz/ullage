@@ -330,7 +330,7 @@ public final class Simulation {
             effect = .touchdown(speed: speed)
         default:
             v.status = .crashed
-            for t in v.thrusters { t.level = 0 }
+            for t in v.thrusters { t.stopAtImpact() }
             log(String(format: surface == .water ? "%@: water impact at %.0f m/s" : "%@: impact at %.0f m/s",
                        v.name, speed))
             effect = .impact(surface: surface, speed: speed)
