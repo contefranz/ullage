@@ -358,7 +358,8 @@ inline bool plume_clusterFlow(const device PlumeMember *members, int first_, int
                 float x = dot(d, mk.axis.xyz);
                 float3 e = d - mk.axis.xyz * x;
                 float dd = dot(e, e);
-                if (dd < rn2) {
+                // Of the members p lies along.
+                if (x >= 0.0 && x <= mk.axis.w && dd < rn2) {
                     rn2 = dd;
                     nearest = k;
                     xn = x;
@@ -372,11 +373,18 @@ inline bool plume_clusterFlow(const device PlumeMember *members, int first_, int
         } else if (count > 1) {
             const device PlumeMember &mn = members[first_ + nearest];
             float big = plume_radius(mn, max(xn, 0.0)), rn = sqrt(rn2);
-            found = xn >= 0.0 && xn <= mn.axis.w && rn <= plume_reach(mn, xn, big);
+            found = rn2 < INFINITY && rn <= plume_reach(mn, xn, big);
             if (found) { best = plume_flowAt(mn, xn, rn, big); }
         } else {
             found = plume_memberFlow(members[first_], p, best);
         }
+        // Where the nearest does not reach p (an engine tailing off among
+        // full ones), the member asking's flow, or the first that reaches.
+        if (!found && asking.k >= 0 && asking.k < count) {
+            best = plume_flowAt(members[first_ + asking.k], asking.x, asking.r, asking.big);
+            found = true;
+        }
+        for (int k = 0; k < count && !found; k++) { found = plume_memberFlow(members[first_ + k], p, best); }
     }
     PlumeFlow far;
     bool farFound = false;

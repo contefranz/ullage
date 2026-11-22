@@ -321,6 +321,14 @@ final class PlumeTurbulenceTests: XCTestCase {
         // Across the cluster at 20 m: engine 1's reach (1.78 R) covers the
         // centre's axis.
         walk(Vec3(20, 1.5 * d, 1.5 * d), Vec3(20, -1.5 * d, -1.5 * d), "across at 20 m")
+        // An engine tailing off among full ones (the centre one cut to 10
+        // m): on its axis past its end, where the outboard jets reach it,
+        // they carry the noise.
+        var short = members
+        short[0].length = 10
+        let x = stride(from: 10.0, to: 200, by: 1).first { members[1].fieldExtent(atX: $0) > 1.05 * 2 * d } ?? 200
+        XCTAssertNotNil(PlumeTurbulence.flow(short, at: Vec3(x, 0, 0)), "a neighbour reaches past its end at \(x) m")
+        XCTAssertEqual(PlumeTurbulence.nearest(short, at: Vec3(x, 0, 0))?.index, 1)
         // Down the jet through the merge's window, off the axis.
         let m0 = c.mergeX
         walk(c.origin + c.axis * (0.8 * m0) + Vec3(0, 0.7 * d, 0.7 * d),

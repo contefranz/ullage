@@ -315,7 +315,10 @@ tile over that speed (1.28 s for the F-1).
   holds for an Eulerian time T_E, 1/T_E = u/L + 1/T_L, so the average keeps
   1/√(1 + Δ/2T_E) of the depth, at each point's own speed (the camera rides
   with the vessel, so the coflow counts); and it streaks along the flow by
-  what the mixing layer carries past in the exposure or a Lagrangian time.
+  what the self-similar mixing layer carries past in the exposure or a
+  Lagrangian time, per band, the same down the whole jet (a streak varying
+  with x would warp the noise's axial coordinate: the pattern rode the flow
+  at two-thirds of its speed when it did).
   The F-1's near field, renewed every few milliseconds, is smooth and
   streaked, its slower edges ragged, its far field billowing.
 - **One flow through a cluster.** At each point the jet whose bent axis
@@ -481,9 +484,12 @@ LEO, for the default physical look.
   whole jet (the measured profile falls off past r½), the shear layer's
   through the core and a linear ramp to the far field's, and Viggiano's
   Lagrangian times from an incompressible water jet mapped on the core's
-  length, held upstream of 15 D; their streak
-  through the shutter is the mixing layer's in a band (the axis's is
-  longer, the edge's shorter); the depth the shutter keeps is each point's
-  own.
+  length, held upstream of 15 D. Their streak through the shutter is the
+  self-similar mixing layer's in a band, down the whole jet (the axis's is
+  longer, the edge's shorter): through the core and to about three core
+  lengths, where the layers live longer, it is about 1/4.7 of what the
+  local shear layer carries past in its Lagrangian time (a near-field
+  streak would need a stretch applied to a per-band local offset, not to
+  the axial coordinate). The depth the shutter keeps is each point's own.
 - Small impostors still draw before R6's composite (C2's clouds lie over
   them); the large ones are marched.

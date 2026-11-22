@@ -426,10 +426,10 @@ public enum PlumeTurbulence {
 
     /// The member of a cluster whose axis passes nearest camera-relative
     /// `p`, bent as the first member's is there (the bend is the
-    /// cluster's): in a cluster of like engines the jet strongest at p (the
-    /// largest share of its excess), found from the exits and axes alone;
-    /// the first of equals. With p's x along it and r off its bent
-    /// centreline.
+    /// cluster's), of those p lies along (0 ≤ x ≤ length): in a cluster of
+    /// like engines the jet strongest at p (the largest share of its
+    /// excess), found from the exits and axes alone; the first of equals.
+    /// With p's x along it and r off its bent centreline.
     public static func nearest(_ members: [PlumeMember], at p: Vec3) -> (index: Int, x: Double, r: Double)? {
         guard let m0 = members.first else { return nil }
         let x0 = max((p - m0.exit).dot(m0.axis), 0)
@@ -437,7 +437,7 @@ public enum PlumeTurbulence {
         var best: (index: Int, x: Double, r: Double)?, closest = Double.infinity
         for (k, m) in members.enumerated() {
             let d = q - m.exit, x = d.dot(m.axis), e = d - m.axis * x
-            if e.dot(e) < closest {
+            if x >= 0, x <= m.length, e.dot(e) < closest {
                 closest = e.dot(e)
                 best = (k, x, e.length)
             }
@@ -447,8 +447,9 @@ public enum PlumeTurbulence {
 
     /// The flow that carries a cluster's noise at camera-relative `p`: the
     /// flow of the member whose axis passes nearest (`nearest`), where its
-    /// field reaches p, which is continuous wherever the cluster's jets are
-    /// alike; beyond `mergeX` along `axis` from `origin`, mixed into the
+    /// field reaches p (else the first member's that does: an engine
+    /// tailing off among full ones), which is continuous wherever the
+    /// cluster's jets are alike; beyond `mergeX` along `axis` from `origin`, mixed into the
     /// merged far field's over the merge's window (15 % of that distance),
     /// as the march mixes their fields. Nil where neither reaches p.
     public static func flow(_ members: [PlumeMember], merged: PlumeMember? = nil, mergeX: Double = 0,
@@ -456,10 +457,12 @@ public enum PlumeTurbulence {
         let wm = merged != nil && mergeX > 0
             ? PlumeMember.smoothstep(mergeX, 1.15 * mergeX, (p - origin).dot(axis)) : 0
         var best: Flow?
-        if wm < 1, let n = nearest(members, at: p) {
-            let m = members[n.index]
-            if n.x >= 0, n.x <= m.length, n.r <= m.fieldExtent(atX: n.x) {
+        if wm < 1 {
+            if let n = nearest(members, at: p), n.r <= members[n.index].fieldExtent(atX: n.x) {
+                let m = members[n.index]
                 best = Flow(m, atX: n.x, profile: profile(m, atX: n.x, r: n.r))
+            } else if let k = members.first(where: { reaches($0, p) }) {
+                best = flow(k, at: p)
             }
         }
         var far: Flow?
