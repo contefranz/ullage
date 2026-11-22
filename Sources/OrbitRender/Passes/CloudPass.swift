@@ -294,8 +294,8 @@ public final class CloudPass: RenderPass, HalfResEffect {
     }
 
     /// When the clouds draw (`earth`), or when only R3's probe needs this
-    /// frame's state (`probeEarth`): then the weather and the uniforms are
-    /// prepared, and the shadow map, the march and the slot are not.
+    /// frame's state (`probeEarth`): then the weather, the uniforms and the
+    /// shadow and sky maps are prepared, and the march and the slot are not.
     public func isActive(in f: FrameContext) -> Bool { earth(f) != nil || probeEarth(f) != nil }
 
     /// Asked before P0 has run (R6 plans its frame first): the same test
@@ -424,15 +424,9 @@ public final class CloudPass: RenderPass, HalfResEffect {
         var u = uniforms(f, frame: frame, settings: settings, sample: sample, regimes: regimes, size: marchSize,
                          scale: scale, hasField: params.snapshots != nil, airTop: airTables.top)
 
-        // Off screen, only R3's probe reads this frame's state: no shadow
-        // map, march or slot.
-        guard onScreen != nil else {
-            enc.endEncoding()
-            probeState = ProbeState(frame: f, uniforms: u, air: airTables)
-            return
-        }
-
-        // The shadow map.
+        // The shadow map and the sky map, on screen or not: R3's probe draws
+        // the Earth's ground under them too, so the vessels' light from below
+        // does not change as the camera turns.
         let shadowN = settings.shadowTexels
         if shadowN > 0, !settings.skip.contains("shadow"), frame.altitude < 2_000_000,
            encodeShadow(enc, f, frame: frame, u: &u, texels: shadowN, pipeline: p.shadow, noise: noise, map: weatherMap,
@@ -441,6 +435,14 @@ public final class CloudPass: RenderPass, HalfResEffect {
             f.slotTextures[Binding.cloudSky] = skyTexture
             if let t = shadowTexture { f.textures[.cloudShadow] = t }
             if let t = skyTexture { f.textures[.cloudSky] = t }
+        }
+
+        // Off screen, only R3's probe reads this frame's state: no march or
+        // slot.
+        guard onScreen != nil else {
+            enc.endEncoding()
+            probeState = ProbeState(frame: f, uniforms: u, air: airTables)
+            return
         }
         enc.endEncoding()
 

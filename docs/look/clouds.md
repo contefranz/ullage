@@ -60,7 +60,17 @@ In P0, on the command buffer:
    Each texel holds
    the optical depth along its line towards the Sun above 0, 2, 6 and 10 km,
    the cirrus included, marched on the curved Earth with the weather where
-   the line crosses the layers (refetched every 4 km).
+   the line crosses the layers (refetched every 4 km). The heights along a
+   line are exact in figure space (`cloud_lineAt`: the sphere of radius a
+   there, z stretched by a/b, as `cloud_height` measures them). The
+   parabola h(t) = hBase + μ0 t + t²/2R dropped a factor 1 − μ0², and from
+   orbit, where the map's plane lies hundreds of km off the ground at its
+   edges, marched the low layer kilometres under its heights: no shadow
+   beyond 150-200 km of the map's centre line. The sphere's own quadratic
+   in body axes that replaced it still dropped the stretch, 0.3-1.4 km off
+   at mid latitudes and 2 km at a 20° Sun, enough to miss part of the low
+   deck. Beside it the sky map (below, For other tracks). Both are made
+   whenever the clouds or R3's probe need the frame, on screen or not.
 4. **The march** of the low and mid layers at R6's half resolution in the
    near field, a quarter of it from 20 km up. It marches one texel in four a
    frame and reprojects the rest, or every texel when reprojection is off.
@@ -290,6 +300,9 @@ a = b = c = 0.5 a deck of τ 90 had a plane albedo of 0.09 against 0.18 for
 | GPU: the cirrus's opacity at 0.2-6 km footprints, 1/10 and 5/10 cover; through a re-anchor's fade | the same within 25 % (35 % at 1/10); within 10 % mid-fade |
 | GPU: the hand-over at a far weight of 0.16, the march's gaps | the far layer's share shows in over 75 % (none before) |
 | GPU: the shadow map at Apollo 8's dawn, a full deck but a clear pad | over 95 % of the lines crossing it 60-400 km out shaded |
+| GPU: the shadow map from orbit (800 km, the Sun 31° up), a full deck | every line through the ground shaded, beyond 200 km of the centre line too (44 % before) |
+| GPU: the shadow map's lines (`cloud_lineAt`) at 28.5°, 32.5° and 57°, planes 150 km under to 300 km over the ground, the Sun 15° and 45° up | at their heights within 10 m (1.2 m; the sphere's own quadratic 740 m off) |
+| GPU: the sky map against its Swift mirror: a clear pad in an overcast at dawn; 0.3° Sun; three decks stacked | clear at the pad, the overcast where its lines fall and beyond 380 km; the overcast on every line; within 0.01 |
 | GPU: the weather map after another mission | the same as a fresh pass's |
 | GPU: the wind's drift through a warp change | goes on (1 m) |
 | GPU: the hand-over's pixel angle across the march's scale changes | the same |
@@ -357,7 +370,13 @@ scene at the break), so the clouds' own share is the difference:
 - The clouds' haze (inside the air one froxel lookup per texel, above it
   two texture reads and A1's table per part) measures nothing in LEO and
   0.3-0.4 ms on the pad (a build with it disabled); the far layer and
-  the shadow map are 0.1 ms or less in LEO.
+  the shadow map were 0.1 ms or less in LEO (2026-11-15, before the sky
+  map and the off-screen maps). The shadow and sky maps together cost about
+  0.27 ms (2026-11-22, `testCostReport`'s leo-up, the clouds off screen and
+  R3's probe alone needing them, two runs: 0.08-0.09 ms a frame with
+  ORBITSIM_CLOUD_SKIP=shadow against 0.34-0.36 ms without); on screen it is
+  the same dispatch. (A later on-screen LEO re-measure, with other
+  sessions on the GPU, swung by more than that between runs.)
 - The far layer is evaluated only for rays that meet a layer's shell before
   the ground: under the cloud base, the downward rays used to evaluate it
   over the whole ground (1.4 ms on the pad) only for the depth cut to drop
@@ -384,12 +403,16 @@ scene at the break), so the clouds' own share is the difference:
     `cloud_shadow` writes beside the shadow map: at each map line's two
     ground points, where it rises toward the Sun (x, the ground with the
     Sun up) and where it falls (y, the Sun under the ground's horizon),
-    `cloud_skyColumn` of the weather there. Each layer passes the sky's
-    diffuse light whole through its gaps and through its cloudy columns as
-    the same slab of their mean optical depth (C1's extinction × the
-    layer's depth × `CloudCoverage.columnDepth`; g 0.75 for the cirrus), the
-    layers overlapping at random; C2's own streams pass the sky's light
-    down so. The weather's 25 km cells are about the sky a point sees
+    `cloud_skyColumn` of the weather there (a line that passes over the
+    ground takes its lowest point for both, where they merge at tangency, so
+    the map is continuous through the terminator). Each layer has gaps,
+    which pass the sky's diffuse light whole, and cloudy columns of their
+    mean optical depth (C1's extinction × the layer's depth ×
+    `CloudCoverage.columnDepth`), the layers overlapping at random; over the
+    eight cases the cloudy layers stack as conservative slabs by two-stream
+    adding, 1/T = 1 + Σ (1 − g) τ / 2 (g 0.75 for the cirrus: the light
+    reflected between decks included, as the Sun's term adds the depths);
+    C2's own streams pass the sky's light down so. The weather's 25 km cells are about the sky a point sees
     through a deck 1-2 km up, so under broken cloud the sky's light does
     not follow the cast shadows (which lie kilometres toward the Sun at a
     low Sun and hundreds at the terminator), and a local overcast in

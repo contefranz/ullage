@@ -88,7 +88,8 @@ final class CloudRenderTests: XCTestCase {
     /// Renders `shot` with the default passes and a capture after them;
     /// `frames` frames, the scene's clock advanced by `step` real seconds
     /// each (the history's reprojection).
-    func render(_ shot: SnapshotSpec.Shot, frames: Int = 1, weather: CloudWeather? = nil) throws -> Frame {
+    func render(_ shot: SnapshotSpec.Shot, frames: Int = 1, weather: CloudWeather? = nil,
+                edit: ((inout RenderScene) -> Void)? = nil) throws -> Frame {
         let s = try snapper()
         let prepared = try shot.prepare(system: s.system)
         let capture = Capture()
@@ -102,6 +103,7 @@ final class CloudRenderTests: XCTestCase {
         XCTAssertEqual(r.graph.passes.compactMap { $0 as? HalfResTransparentPass }.first?.effectFailures, [:])
         let target = try XCTUnwrap(OffscreenTarget(device: s.device, width: shot.width, height: shot.height))
         var scene = shot.scene(prepared)
+        edit?(&scene)
         for k in 0..<frames {
             scene.clock.frameIndex = k + 1
             scene.clock.temporalReset = k == 0
@@ -390,9 +392,12 @@ final class CloudRenderTests: XCTestCase {
                     let m = 0.5 * (lo + hi)
                     if (p0 + map.sun * m).length - frame.radius > 0 { hi = m } else { lo = m }
                 }
-                // (Lines that pass over the ground hold 1; lines that graze it
-                // at under 3° are left out, where the kernel's curved ray,
-                // a parabola, and this sphere part.)
+                // (Lines that pass over the ground hold their lowest point's
+                // cover, not a ground point's; lines that graze it at under
+                // 3° are left out: this test's sphere of the local radius and
+                // the kernel's figure ellipsoid differ by kilometres in
+                // radius, which moves a grazing line's ground point by tens
+                // of km, or makes it miss.)
                 let root = p0 + map.sun * lo
                 guard abs(root.length - frame.radius) < 100, root.normalized.dot(map.sun) > 0.05 else { continue }
                 let d = (p0 + map.sun * lo - ground).length, k = y * sky.width + x
@@ -413,10 +418,108 @@ final class CloudRenderTests: XCTestCase {
         for v in far { XCTAssertEqual(v, overcast, accuracy: 0.02) }
     }
 
-    /// cloud_skyColumn in Swift: each layer's gaps whole and its cloudy
-    /// columns a conservative slab of their mean optical depth (C1's
-    /// extinction × the layer's depth × CloudCoverage.columnDepth), 2 / (2 +
-    /// (1 − g) τ), g 0.85 for water and 0.75 for ice; at random overlap.
+    /// The sky map holds the cover through the terminator: with the Sun put
+    /// 0.3° over the pad's horizon under a uniform overcast, every line of
+    /// the map holds the overcast's in both channels, those that pass over
+    /// the ground too (their lowest point's). A clear 1 there bled into the
+    /// band of ground near tangency through the bilinear filter.
+    func testSkyMapHoldsThroughTheTerminator() throws {
+        let pad = try XCTUnwrap(CloudOverride.launches["apollo8"])
+        let weather = try Self.uniformWeather(low: 1, epoch: pad.time)
+        var shot = SnapshotSpec.Shot(name: "a8-tangent", scenario: "apollo8-pad",
+                                     camera: SnapshotSpec.CameraSpec(yaw: -100, pitch: 8, distance: 300, fov: 60))
+        shot.width = 64
+        shot.height = 40
+        shot.showOrbit = false
+        shot.settings.cloud.coverageModulation = 0
+        let f = try render(shot, weather: weather) { scene in
+            guard let earth = scene.bodies.first(where: { $0.id == AtmosphereFrame.planetID }) else { return }
+            let up = (-earth.position).normalized, east = Vec3(0, 0, 1).cross(up).normalized
+            let e = 0.3 * Double.pi / 180, toSun = (east * cos(e) + up * sin(e)).normalized
+            scene.sun.direction = toSun
+            scene.sun.position = toSun * scene.sun.distance
+            for i in scene.bodies.indices { scene.bodies[i].toSun = toSun }
+        }
+        let frame = try XCTUnwrap(f.clouds?.lastFrame.frame)
+        XCTAssertEqual(frame.sunBody.dot(frame.cameraBody.normalized), sin(0.3 * Double.pi / 180), accuracy: 0.003)
+        let sky = try XCTUnwrap(f.capture.values(.cloudSky))
+        let overcast = Self.skyTransmittance(low: 1)
+        let x = sky.texels.map { $0[0] }, y = sky.texels.map { $0[1] }
+        print("sky map with the Sun 0.3° up: the overcast's \(overcast); x \(x.min() ?? -1)-\(x.max() ?? -1), "
+              + "y \(y.min() ?? -1)-\(y.max() ?? -1)")
+        for v in x + y { XCTAssertEqual(v, overcast, accuracy: 0.02) }
+    }
+
+    /// Stacked decks pass the sky's light as two-stream adding has it, the
+    /// light reflected back and forth between them included: under 9/10 low,
+    /// 9/10 mid and 5/10 cirrus the sky map holds the random overlap's
+    /// expectation over the eight cases (here in Swift), not the product of
+    /// the layers' own factors, which is darker.
+    func testSkyMapAddsTheDecks() throws {
+        let pad = try XCTUnwrap(CloudOverride.launches["apollo8"])
+        let weather = try Self.uniformWeather(low: 0.9, mid: 0.9, high: 0.5, epoch: pad.time)
+        var shot = SnapshotSpec.Shot(name: "a8-decks", scenario: "apollo8-pad",
+                                     camera: SnapshotSpec.CameraSpec(yaw: -100, pitch: 8, distance: 300, fov: 60))
+        shot.width = 64
+        shot.height = 40
+        shot.showOrbit = false
+        shot.settings.cloud.coverageModulation = 0
+        let sky = try XCTUnwrap(render(shot, weather: weather).capture.values(.cloudSky))
+        let expected = Self.skyTransmittance(low: 0.9, mid: 0.9, high: 0.5)
+        let product = Self.skyTransmittance(low: 0.9) * Self.skyTransmittance(low: 0, mid: 0.9)
+            * Self.skyTransmittance(low: 0, high: 0.5)
+        let x = sky.texels.map { $0[0] }
+        print("sky map under three decks: \(x.min() ?? -1)-\(x.max() ?? -1); adding \(expected), the product \(product)")
+        XCTAssertGreaterThan(expected - product, 0.02, "adding passes more than the product")
+        for v in x { XCTAssertEqual(v, expected, accuracy: 0.01) }
+    }
+
+    /// From orbit the shadow map is 800 km across, and its plane lies
+    /// hundreds of km off the ground at its edges: its lines must cross the
+    /// low layer at the layer's own heights. Under a uniform overcast (the
+    /// parking orbit 1,250 s on, the Sun 31° up below), every line that runs through
+    /// the ground, its lowest point 5 km or more under it, crosses the deck
+    /// on its way up to the Sun: shaded, beyond 200 km of the map's centre
+    /// line too. (The parabola h(t) = hBase + μ0 t + t²/2R marched the low
+    /// layer kilometres under its heights there: 44 % of the lines shaded.)
+    func testShadowMapHoldsTheLowLayerFromOrbit() throws {
+        let weather = try Self.uniformWeather(low: 1)
+        var shot = Self.deckShot(width: 64, height: 40)
+        shot.advance = ["wait:1250"]
+        let f = try render(shot, weather: weather)
+        let frame = try XCTUnwrap(f.clouds?.lastFrame.frame)
+        let c = try XCTUnwrap(f.capture.values(.cloudShadow))
+        let map = frame.shadowMap(texels: c.width)
+        let elevation = asin(map.sun.dot(frame.cameraBody.normalized)) * 180 / .pi
+        var through = 0, shaded = 0, farThrough = 0, farShaded = 0
+        for yy in 0..<c.height {
+            for xx in 0..<c.width {
+                let mv = (Double(yy) + 0.5) / Double(c.height)
+                let p0 = map.point(u: (Double(xx) + 0.5) / Double(c.width), v: mv, along: 0)
+                let lowest = (p0 - map.sun * p0.dot(map.sun)).length - frame.radius
+                guard lowest < -5_000 else { continue }
+                let isShaded = c.texels[yy * c.width + xx][0] > 1
+                through += 1
+                if isShaded { shaded += 1 }
+                if abs(mv - 0.5) * map.extent > 200_000 {
+                    farThrough += 1
+                    if isShaded { farShaded += 1 }
+                }
+            }
+        }
+        print(String(format: "orbit shadow map (%.0f km, the Sun %.1f° up at nadir): %d of %d lines through the ground "
+                     + "shaded, %d of %d beyond 200 km", map.extent / 1000, elevation, shaded, through, farShaded, farThrough))
+        XCTAssertGreaterThan(map.extent, 500_000)
+        XCTAssertGreaterThan(farThrough, c.width * c.height / 10)
+        XCTAssertGreaterThanOrEqual(Double(shaded), 0.98 * Double(through))
+        XCTAssertGreaterThanOrEqual(Double(farShaded), 0.98 * Double(farThrough))
+    }
+
+    /// cloud_skyColumn in Swift: each layer's gaps and its cloudy columns
+    /// of their mean optical depth (C1's extinction × the layer's depth ×
+    /// CloudCoverage.columnDepth) at random overlap; over the eight cases the
+    /// cloudy layers stacked as conservative slabs by two-stream adding,
+    /// 1/T = 1 + Σ (1 − g) τ / 2, g 0.85 for water and 0.75 for ice.
     static func skyTransmittance(low: Double, mid: Double = 0, high: Double = 0,
                                  lowDepth: Double = CloudLayerModel.lowDepth, densityScale: Double = 1) -> Double {
         let layers = CloudLayerModel.layers(CloudSample(low: 1, mid: 1, high: 1))
@@ -425,12 +528,22 @@ final class CloudRenderTests: XCTestCase {
             let x = min(max(c, 0), 1) * 32, i = min(Int(x), 31)
             return t[i] + (x - Double(i)) * (t[i + 1] - t[i])
         }
-        func slab(_ c: Double, _ tau: Double, _ b: Double) -> Double { 1 - c + c * 2 / (2 + b * tau) }
         let tauLow = layers[0].extinction * densityScale * lowDepth * table(st.columnDepth[0], low)
         let tauMid = layers[1].extinction * densityScale * (CloudLayerModel.midTop - CloudLayerModel.midBase)
             * table(st.columnDepth[1], mid)
         let tauHigh = layers[2].extinction * densityScale * CloudPass.cirrusThickness
-        return slab(low, tauLow, 0.15) * slab(mid, tauMid, 0.15) * slab(high, tauHigh, 0.25)
+        let c = [low, mid, high], k = [0.075 * tauLow, 0.075 * tauMid, 0.125 * tauHigh]
+        var sum = 0.0
+        for m in 0..<8 {
+            var p = 1.0, d = 1.0
+            for i in 0..<3 {
+                let on = (m >> i) & 1 == 1
+                p *= on ? c[i] : 1 - c[i]
+                if on { d += k[i] }
+            }
+            sum += p / d
+        }
+        return sum
     }
 
     /// Under a cloud base above the low layer's 2 km reference shell, the far
@@ -917,6 +1030,9 @@ final class CloudCostTests: XCTestCase {
             ("pad", "as506-pad", SnapshotSpec.CameraSpec(yaw: -60, pitch: 12, distance: 300, fov: 60), []),
             ("ascent-60s", "as506-pad", SnapshotSpec.CameraSpec(yaw: 149, pitch: -25, distance: 400, fov: 60), ["met:60"]),
             ("leo", "as506-parking-orbit", SnapshotSpec.CameraSpec(yaw: -34.4, pitch: 30, distance: 70, fov: 60), []),
+            // The clouds off screen (the camera above the stack looking up):
+            // R3's probe's state alone, with the shadow and sky maps.
+            ("leo-up", "as506-parking-orbit", SnapshotSpec.CameraSpec(yaw: -34.4, pitch: -60, distance: 70, fov: 40), []),
             ("earth", "as506-parking-orbit",
              SnapshotSpec.CameraSpec(target: "body:399", frame: "inertial", yaw: 223.5, pitch: 22.9, distance: 22_000_000), []),
         ]
@@ -1548,7 +1664,6 @@ final class CloudMapTests: XCTestCase {
         XCTAssertNotNil(library.makeFunction(name: "cloud_shadow_use"))
     }
 
-    /// The cloud uniforms' Swift mirrors have MSL's sizes.
     /// cloud_cirrusFirst: the cirrus in front of a part by the height of its
     /// entry from the camera's side of the shell, and in front of what a
     /// ray from above enters above the shell on its way up again (beyond its
@@ -1592,8 +1707,8 @@ final class CloudMapTests: XCTestCase {
         cases.append(("no cloud", (Vec3(a + 190_000, 0, 0), Vec3(-1, 0, 0), 1e30), true, true))
         var rays: [SIMD4<Float>] = []
         for c in cases {
-            // Figure coordinates relative to the camera's position, as the
-            // slot's: origin at the camera's figure point.
+            // Figure coordinates from the Earth's centre, as the slot's
+            // ray.of (the camera's figure point, u.cameraFigure).
             rays.append(SIMD4(Float(c.1.of.x), Float(c.1.of.y), Float(c.1.of.z), Float(c.1.entry)))
             rays.append(SIMD4(Float(c.1.df.x), Float(c.1.df.y), Float(c.1.df.z), 0))
         }
@@ -1623,6 +1738,100 @@ final class CloudMapTests: XCTestCase {
         for (c, first) in zip(cases, results) { XCTAssertEqual(first, c.3, c.0) }
     }
 
+    /// cloud_lineAt, the shadow map's lines along the Sun: in figure space
+    /// (z stretched by a/b, heights |pf| − a), its roots lie at the heights
+    /// asked for, checked in Double off the equator (28.5°, 32.5°, 57°) from
+    /// map planes 150 km under the ground to 300 km over it, the Sun 15° and
+    /// 45° up; where the line never comes down to the height, its lowest
+    /// point. The sphere's own quadratic, which dropped the stretch, put
+    /// these roots up to 740 m off their heights (the review found 2 km at a
+    /// 20° Sun).
+    func testShadowLinesMeetTheirHeightsOffTheEquator() throws {
+        let device = try XCTUnwrap(RenderDevice.shared)
+        let module = ShaderModule(name: "CloudLineAt", headers: [.effectSlots, .atmosphereCommon],
+                                  source: cloudShaderSource + """
+            kernel void cloud_test_lineAt(constant CloudUniforms &u [[buffer(0)]],
+                                          constant float4 *lines [[buffer(1)]],
+                                          device float2 *out [[buffer(2)]],
+                                          uint i [[thread_position_in_grid]]) {
+                out[i] = cloud_lineAt(lines[2 * i].xyz, lines[2 * i + 1].xyz, lines[2 * i].w, lines[2 * i + 1].w, u);
+            }
+            """)
+        let library = try ShaderLibrary(device: device).library(module)
+        let pipeline = try device.makeComputePipelineState(
+            function: try XCTUnwrap(library.makeFunction(name: "cloud_test_lineAt")))
+        let e = Ellipsoid.wgs84, a = e.equatorialRadius, w = a / e.polarRadius
+        func figure(_ p: Vec3) -> Vec3 { Vec3(p.x, p.y, p.z * w) }
+        struct Line { var pf0: Vec3; var sF: Vec3; var hBase: Double; var h: Double; var oldT: Double }
+        var lines: [Line] = []
+        for lat in [28.5, 32.5, 57.0] {
+            let φ = lat * .pi / 180, λ = -0.9
+            let up = e.normal(latitude: φ, longitude: λ)
+            let east = Vec3(-sin(λ), cos(λ), 0), north = up.cross(east)
+            for elevation in [15.0, 45.0] {
+                let el = elevation * .pi / 180
+                for azimuth in [0.0, 2.0] {
+                    let horizontal = east * cos(azimuth) + north * sin(azimuth)
+                    let sun = (horizontal * cos(el) + up * sin(el)).normalized
+                    // The map's plane through a point beside the ground point,
+                    // across the Sun, 150 km under to 300 km over the ground.
+                    for (offset, height) in [(0.0, 0.0), (-250_000.0, -150_000.0), (250_000.0, 300_000.0)] {
+                        let p = e.bodyFixed(latitude: φ, longitude: λ, height: height) + horizontal.cross(up) * offset
+                        let pf0 = figure(p), sF = figure(sun), hBase = pf0.length - a
+                        for h in [0.0, 720.0, 1_500.0, 2_820.0, 10_000.0] {
+                            // The sphere's own root, as the kernel had it.
+                            let mu0 = sun.dot(e.normal(at: p)), b0 = (a + hBase) * mu0
+                            let oldT = -b0 + max(b0 * b0 + (h - hBase) * (2 * a + h + hBase), 0).squareRoot()
+                            lines.append(Line(pf0: pf0, sF: sF, hBase: hBase, h: h, oldT: oldT))
+                        }
+                    }
+                }
+            }
+        }
+        var input: [SIMD4<Float>] = []
+        for l in lines {
+            input.append(SIMD4(Float(l.pf0.x), Float(l.pf0.y), Float(l.pf0.z), Float(l.hBase)))
+            input.append(SIMD4(Float(l.sF.x), Float(l.sF.y), Float(l.sF.z), Float(l.h)))
+        }
+        var u = CloudUniforms()
+        u.radii = SIMD4(Float(a), 0, 0, 0)
+        let inBuffer = try XCTUnwrap(device.makeBuffer(bytes: input, length: 16 * input.count, options: .storageModeShared))
+        let out = try XCTUnwrap(device.makeBuffer(length: 8 * lines.count, options: .storageModeShared))
+        let queue = try XCTUnwrap(device.makeCommandQueue())
+        let cb = try XCTUnwrap(queue.makeCommandBuffer()), enc = try XCTUnwrap(cb.makeComputeCommandEncoder())
+        enc.setComputePipelineState(pipeline)
+        enc.setBytes(&u, length: MemoryLayout<CloudUniforms>.stride, index: 0)
+        enc.setBuffer(inBuffer, offset: 0, index: 1)
+        enc.setBuffer(out, offset: 0, index: 2)
+        enc.dispatchThreads(MTLSize(width: lines.count, height: 1, depth: 1),
+                            threadsPerThreadgroup: MTLSize(width: 32, height: 1, depth: 1))
+        enc.endEncoding()
+        cb.commit()
+        cb.waitUntilCompleted()
+        let t = out.contents().bindMemory(to: SIMD2<Float>.self, capacity: lines.count)
+        func height(_ l: Line, _ t: Double) -> Double { (l.pf0 + l.sF * t).length - a }
+        var worst = 0.0, worstOld = 0.0, reached = 0
+        for (k, l) in lines.enumerated() {
+            let lowestT = -l.pf0.dot(l.sF) / l.sF.dot(l.sF)
+            let rising = Double(t[k].x), falling = Double(t[k].y)
+            if height(l, lowestT) < l.h {
+                reached += 1
+                worst = max(worst, abs(height(l, rising) - l.h), abs(height(l, falling) - l.h))
+                XCTAssertGreaterThan(rising, falling, "x rises")
+                worstOld = max(worstOld, abs(height(l, l.oldT) - l.h))
+            } else {
+                XCTAssertEqual(rising, lowestT, accuracy: 10, "the lowest point")
+                XCTAssertEqual(falling, lowestT, accuracy: 10)
+            }
+        }
+        print(String(format: "shadow lines: %d of %d reach their heights, worst %.1f m off (the sphere's own root %.0f m)",
+                     reached, lines.count, worst, worstOld))
+        XCTAssertGreaterThan(reached, lines.count / 2)
+        XCTAssertLessThan(worst, 10)
+        XCTAssertGreaterThan(worstOld, 300, "the sphere's own root was off")
+    }
+
+    /// The cloud uniforms' Swift mirrors have MSL's sizes.
     func testStructLayoutsMatchMSL() throws {
         let device = try XCTUnwrap(RenderDevice.shared)
         let module = ShaderModule(name: "CloudSizes", headers: [.effectSlots, .atmosphereCommon], source: cloudShaderSource + """
