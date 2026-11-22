@@ -493,9 +493,9 @@ public final class VesselPass: RenderPass {
         let settings = f.settings.shading
         let shading = SIMD4<Float>(1, 0, settings.specularAntiAliasing ? 1 : 0, settings.multipleScattering ? 1 : 0)
         let draw = Drawing(encoder: enc, opaque: pipeline, wire: pipeline, dummy: dummy, wireRadius: 1)
-        let countdown = Self.countdown(at: f.scene.clock.simTime)
-        let t = countdown.rangeTime(at: f.scene.clock.simTime)
         for s in sites {
+            let countdown = s.countdown(at: f.scene.clock.simTime)
+            let t = countdown.rangeTime(at: f.scene.clock.simTime)
             // No night floor: the probe's receivers add theirs, relative to
             // the exposure (at pre-exposure 1 it would be absolute).
             var object = Self.object(StandInLighting.site(s, in: f.scene), scene: f.scene, settings: settings,
@@ -524,9 +524,9 @@ public final class VesselPass: RenderPass {
         guard !near.isEmpty else { return }
         if site == nil { site = Self.siteMeshes(device: f.device, materials: materials) }
         guard let site else { return }
-        let countdown = Self.countdown(at: f.scene.clock.simTime)
-        let t = countdown.rangeTime(at: f.scene.clock.simTime)
         for s in near {
+            let countdown = s.countdown(at: f.scene.clock.simTime)
+            let t = countdown.rangeTime(at: f.scene.clock.simTime)
             draw.setObject(Self.object(StandInLighting.site(s, in: f.scene), scene: f.scene, settings: settings,
                                        shading: shading))
             for (element, mesh) in zip(LC39A.elements, site) {
@@ -552,10 +552,6 @@ public final class VesselPass: RenderPass {
         }
     }
 
-    /// The countdown of the launch nearest `epoch`: Apollo 8's or Apollo 11's.
-    static func countdown(at epoch: Epoch) -> LC39A.Countdown {
-        [LC39A.Countdown.apollo8, .apollo11].min { abs($0.rangeTime(at: epoch)) < abs($1.rangeTime(at: epoch)) }!
-    }
 }
 
 /// The camera's view volume, for culling whole parts: the four sides and

@@ -48,7 +48,7 @@ extension SaturnIU {
             sequence.append(Event(.t3, g.start, "S-II flight control gains", gains(g, roll: D.sIIRollGains)))
         }
 
-        return SaturnIU(plan: Plan(
+        var plan = Plan(
             liftoffDelay: D.liftoff - D.firstMotion,
             referenceToLiftoff: D.liftoff - D.guidanceReferenceRelease,
             flightAzimuth: D.flightAzimuth * deg,
@@ -63,7 +63,12 @@ extension SaturnIU {
             guidance: Guidance(presettings: D.igmPresettings(gm: 0), cycle: D.igmCycle,
                                shift: (D.sIIMixtureRatioShiftDelay, "S-II low EMR (PU valve step)",
                                        .rating(part: "S-II", D.sIIJ2LowEMR, ramp: D.sIIMixtureRatioRamp,
-                                               schedule: D.sIILowMixtureRatioDecline)))))
+                                               schedule: D.sIILowMixtureRatioDecline))))
+        plan.launchWindow = LaunchWindow(
+            opening: D.flightAzimuth * deg, rate: D.windowAzimuthRate * deg, limit: D.windowAzimuthLimit * deg,
+            inclination: D.windowInclination, descendingNode: D.windowDescendingNode,
+            zero: D.windowPolynomialZero, scale: D.windowPolynomialScale)
+        return SaturnIU(plan: plan)
     }
 }
 
@@ -115,5 +120,33 @@ extension VesselLibrary {
                         azimuth: AS506.padAzimuth + 180, elevation: lc39A.elevation)
         v.flightProgram = program
         return v
+    }
+
+    /// Apollo 11 on LC-39A in its terminal count, held at range time `hold`
+    /// (negative: T−35 s is −35) with the F-1s off: `apollo11OnPad` at the
+    /// simulation's time, its S-IC tanks holding what the thrust buildup
+    /// will burn (FER Table 20-1's ground ignition mass), and AS-506's
+    /// count (`TerminalCount.Plan.as506`) on the simulation. Space resumes
+    /// it; resumed at once, with the simulation `-hold` s before
+    /// `apollo11RangeZero`, it reaches the release at `apollo11FirstMotion`
+    /// in the state `apollo11OnPad` builds there.
+    @discardableResult
+    public static func apollo11InTerminalCount(in sim: Simulation, program: SaturnIU = .as506(),
+                                               hold: Double) -> TerminalCount {
+        let v = apollo11OnPad(in: sim, program: program)
+        let count = TerminalCount(vehicle: v, plan: .as506, hold: hold, at: sim.time)
+        sim.terminalCount = count
+        return count
+    }
+
+    /// The count of a stack `apollo11OnPad` placed at its first motion, its
+    /// engines at full: released at AS-506's 0.30 s from `rangeZero`
+    /// (Apollo 11's by default), so the scene knows when the count ran.
+    @discardableResult
+    public static func releasedCount(of v: Vessel, in sim: Simulation,
+                                     rangeZero: Epoch = apollo11RangeZero) -> TerminalCount {
+        let count = TerminalCount(releasedVehicle: v, plan: .as506, rangeZero: rangeZero)
+        sim.terminalCount = count
+        return count
     }
 }

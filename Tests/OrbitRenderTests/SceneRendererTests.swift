@@ -32,7 +32,7 @@ final class SceneRendererTests: XCTestCase {
     /// above the horizon, ground below, the white vehicle in the middle;
     /// and the same pixels from a second renderer.
     func testRendersThePadOffscreen() throws {
-        let scenario = try XCTUnwrap(Scenario.named("as506-pad"))
+        let scenario = try XCTUnwrap(Scenario.named("as506-first-motion"))
         let sim = scenario.build(Self.system)
         var camera = OrbitCamera()
         let v = try XCTUnwrap(sim.focus)

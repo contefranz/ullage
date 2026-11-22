@@ -327,7 +327,7 @@ final class EnvironmentProbePassTests: XCTestCase {
     func testPadProbeHoldsTheGround() throws {
         let device = try device()
         let snapper = try SnapshotRenderer(device: device)
-        var shot = SnapshotSpec.Shot(name: "pad", scenario: "as506-pad",
+        var shot = SnapshotSpec.Shot(name: "pad", scenario: "as506-first-motion",
                                      camera: SnapshotSpec.CameraSpec(yaw: -60, pitch: 4, distance: 210, fov: 38))
         shot.width = 64
         shot.height = 40
@@ -358,7 +358,7 @@ final class EnvironmentProbePassTests: XCTestCase {
         -> (cube: EnvironmentProbe.CubeMap, up: Vec3, center: Vec3, marched: Bool) {
         let device = try device()
         let snapper = try SnapshotRenderer(device: device)
-        var shot = SnapshotSpec.Shot(name: "pad", scenario: "as506-pad",
+        var shot = SnapshotSpec.Shot(name: "pad", scenario: "as506-first-motion",
                                      camera: SnapshotSpec.CameraSpec(yaw: -60, pitch: pitch, distance: distance, fov: 38))
         shot.width = 64
         shot.height = 40

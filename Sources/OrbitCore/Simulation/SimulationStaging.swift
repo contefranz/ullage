@@ -13,6 +13,12 @@ extension Simulation {
     /// pilot's Space key) a flight program aboard may refuse it.
     @discardableResult
     public func stageAll(_ v: Vessel, event: Int? = nil) -> [Vessel] {
+        // On the pad, the pilot's Space resumes a count that holds: the
+        // pilot decides when to launch.
+        if event == nil, let c = terminalCount, c.vehicle === v, c.isHolding {
+            c.resume(at: time, in: self)
+            return []
+        }
         if event == nil, let program = v.flightProgram, !program.allowsManualStaging(of: v) {
             log("\(v.name): staging inhibited by the flight program")
             return []

@@ -34,7 +34,7 @@ final class SceneExtractorTests: XCTestCase {
     /// full thrust, each at its nozzle's exit (radius 1.79 m, the F-1's),
     /// the five exits in one plane across the axis below the vehicle's base.
     func testSaturnVAtFirstMotionHasFiveF1Emitters() throws {
-        let (sim, camera) = try open("as506-pad")
+        let (sim, camera) = try open("as506-first-motion")
         let paused = SceneExtractor().extract(sim: sim, camera: camera, viewport: Self.viewport, realTime: 0)
         XCTAssertTrue(paused.emitters.isEmpty, "the scenario opens paused, before the first step")
         advance(sim, 0.5)
@@ -241,7 +241,7 @@ final class SceneExtractorTests: XCTestCase {
     /// A site placed on LC-39A stands where the Saturn V does, its up axis
     /// along the vehicle's.
     func testSitePlacement() throws {
-        let (sim, camera) = try open("as506-pad")
+        let (sim, camera) = try open("as506-first-motion")
         let x = SceneExtractor()
         let pad = Scenario.lc39A, deg = Double.pi / 180
         x.sites = [SitePlacement(name: "LC-39A", bodyID: 399, latitude: pad.latitude * deg,

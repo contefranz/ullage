@@ -221,8 +221,8 @@ final class ShadowReceiverTests: XCTestCase {
         // The last case is the stack in the Earth's shadow: the same view
         // with its Sun share 0 (`LegacyLight.sunlit`).
         let cases: [(String, String, (Double, Double, Double, Double), Bool)] = [
-            ("pad, stack and LC-39A", "as506-pad", (-1.2, 0.12, 190, 50), false),
-            ("pad, the base close", "as506-pad", (-0.6, -0.03, 62, 62), false),
+            ("pad, stack and LC-39A", "as506-first-motion", (-1.2, 0.12, 190, 50), false),
+            ("pad, the base close", "as506-first-motion", (-0.6, -0.03, 62, 62), false),
             ("LEO, the stack", "as506-parking-orbit", (-0.6, 0.35, 70, 50), false),
             ("LEO, the stack in eclipse", "as506-parking-orbit", (-0.6, 0.35, 70, 50), true),
         ]

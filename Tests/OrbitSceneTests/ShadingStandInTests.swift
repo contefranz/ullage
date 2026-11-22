@@ -38,7 +38,7 @@ final class ShadingStandInTests: XCTestCase {
     /// megalux from 30 m. The cluster is lit as one light, its intensity
     /// the five's, its column holding all five exits.
     func testF1PlumesLightThePadAtLiftoff() throws {
-        let s = try scene("as506-pad", advance: 0.5)
+        let s = try scene("as506-first-motion", advance: 0.5)
         let each: [PlumeLight] = s.emitters.compactMap { PlumeLights.light($0) }
         XCTAssertEqual(each.count, 5)
         for l in each {
@@ -131,7 +131,7 @@ final class ShadingStandInTests: XCTestCase {
     /// below (albedo 0.3) lit at the Sun's elevation's sine, sea-level sky
     /// in daylight; at the AS-506 launch the Sun stands well up.
     func testSiteStandIn() throws {
-        let s = try scene("as506-pad", sites: [LC39A.placement()])
+        let s = try scene("as506-first-motion", sites: [LC39A.placement()])
         let site = try XCTUnwrap(s.sites.first)
         let l = StandInLighting.site(site, in: s)
         XCTAssertEqual(l.sunlit, 1)

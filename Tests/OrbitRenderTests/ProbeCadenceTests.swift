@@ -47,7 +47,7 @@ final class ProbeCadenceTests: XCTestCase {
     /// is a few decimetres of rise a frame. A camera orbiting the stack
     /// moves nothing.
     func testPad() throws {
-        let pad = try Self.scene("as506-pad")
+        let pad = try Self.scene("as506-first-motion")
         let a = state(pad)
         XCTAssertEqual(a.body, 399)
         XCTAssertGreaterThan(a.height, 30)
@@ -130,7 +130,7 @@ final class ProbeCadenceTests: XCTestCase {
     /// A turn of a frame at 1000× (0.07°) stays steady; one of 1.5° (the
     /// extractor's 1e4× and up) moves through the Sun alone.
     func testEarthTurningUnderThePad() throws {
-        let pad = try Self.scene("as506-pad")
+        let pad = try Self.scene("as506-first-motion")
         let a = state(pad)
         func turned(_ degrees: Double) -> RenderScene {
             var s = pad

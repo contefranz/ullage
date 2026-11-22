@@ -70,7 +70,8 @@ extension Simulation {
         var h = 60.0
         let passive = isPassive(v)
         if v.landed != nil {
-            h = v.thrusters.contains(where: { $0.isCommanded || ($0.isEnabled && $0.level > 0) }) ? 0.02 : 10
+            h = v.thrusters.contains(where: { $0.isCommanded || ($0.isEnabled && $0.level > 0) || $0.groundStart != nil })
+                ? 0.02 : 10
         } else {
             // Commanded engines too: a start delay delivers nothing yet.
             let thrusting = v.thrusters.contains { $0.isCommanded || $0.isDelivering }
@@ -102,6 +103,10 @@ extension Simulation {
         // it is the same at any time warp. (`PilotPulse.advance` ends a pulse
         // with under 1 ns to run.)
         for r in v.pilotPulse.remainingTimes { h = min(h, r) }
+        // And on the terminal count's events, even within it: the 0.02 s
+        // steps drift off the epoch's grid, and the release must fall on its
+        // epoch exactly (the first motion the ascent tests start from).
+        if let c = terminalCount, c.vehicle === v, let next = c.timeToNextEvent(at: time), next > 0 { h = min(h, next) }
         // And where a lit solid's grain runs out, at the flow of every lit
         // solid it feeds, even within the 1 ms floor: its impulse then does
         // not depend on the step. A passive vessel's liquid engines too, so

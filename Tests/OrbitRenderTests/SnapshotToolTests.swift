@@ -16,7 +16,7 @@ final class SnapshotToolTests: XCTestCase {
         return s
     }
 
-    static let pad = SnapshotSpec.Shot(name: "pad", scenario: "as506-pad")
+    static let pad = SnapshotSpec.Shot(name: "pad", scenario: "as506-first-motion")
 
     /// Timing the passes splits the encoders; the image stays the same, and
     /// every pass that ran has a time. That they add up to near the frame's

@@ -1,0 +1,28 @@
+{
+  "goldens": "scene",
+  "shots": [
+    {"name": "launch-t-10", "scenario": "as506-pad", "showOrbit": false, "advance": ["count", "met:-10"],
+     "reference": "the live count: arm 2 swinging, the F-1s still off",
+     "camera": {"yaw": 90, "pitch": 3, "distance": 380, "fov": 50},
+     "settings": {"post": {"exposure": {"mode": "manual", "ev100": 15}}, "cloud": {"enabled": false}}},
+    {"name": "launch-t-5", "scenario": "as506-pad", "showOrbit": false, "advance": ["count", "met:-5"],
+     "reference": "the 1-2-2 start: the gas generators' dark smoke before the chambers light",
+     "camera": {"yaw": 90, "pitch": 3, "distance": 380, "fov": 50},
+     "settings": {"post": {"exposure": {"mode": "manual", "ev100": 15}}, "cloud": {"enabled": false}}},
+    {"name": "launch-t-0", "scenario": "as506-pad", "showOrbit": false, "advance": ["count", "met:0"],
+     "reference": "T-0: all five at full thrust in the hold-down arms, the trench's jets out north and south",
+     "camera": {"yaw": 90, "pitch": 4, "distance": 700, "fov": 55},
+     "settings": {"post": {"exposure": {"mode": "manual", "ev100": 15}}, "cloud": {"enabled": false}}},
+    {"name": "launch-t+3", "scenario": "as506-pad", "showOrbit": false, "advance": ["count", "met:3"],
+     "reference": "S69-39961; the Camera E-8 film",
+     "camera": {"yaw": 90, "pitch": 4, "distance": 900, "fov": 55},
+     "settings": {"post": {"exposure": {"mode": "manual", "ev100": 15}}, "cloud": {"enabled": false}}},
+    {"name": "launch-t+8", "scenario": "as506-pad", "showOrbit": false, "advance": ["count", "met:8"],
+     "camera": {"yaw": 90, "pitch": 5, "distance": 1400, "fov": 60},
+     "settings": {"post": {"exposure": {"mode": "manual", "ev100": 15}}, "cloud": {"enabled": false}}},
+    {"name": "launch-t+15", "scenario": "as506-pad", "showOrbit": false, "advance": ["count", "met:15"],
+     "reference": "Apollo 16's cloud (TM X-2935): some 750 m across at 15 s",
+     "camera": {"yaw": 90, "pitch": 5, "distance": 2200, "fov": 60},
+     "settings": {"post": {"exposure": {"mode": "manual", "ev100": 15}}, "cloud": {"enabled": false}}}
+  ]
+}

@@ -321,7 +321,9 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Space: the next staging event (`Simulation.stage`, which the flight
+    /// Space: on the pad, resume a terminal count that holds (the pilot
+    /// decides when to launch; `Simulation.stage` does it); else the next
+    /// staging event (`Simulation.stage`, which the flight
     /// program may refuse: the IU until T3, the SCS's first press for CM/SM
     /// separation); once the CM's entry program is awake (the SM gone), the
     /// crew's backup of the earth landing system instead, the next step of
@@ -455,6 +457,13 @@ final class AppModel: ObservableObject {
 
     // MARK: HUD
 
+    /// The mission clock's zero: the terminal count's range zero when the
+    /// scenario has one (while it holds, where T−0 would fall if it ran on
+    /// now: the clock reads the hold), else the scenario's, else liftoff.
+    func missionClockZero(_ sim: Simulation) -> Epoch {
+        sim.terminalCount?.rangeZero(at: sim.time) ?? missionStart
+    }
+
     private func refreshHUD() {
         guard let sim, let v = sim.focus else { return }
         let snap = sim.snapshot
@@ -466,7 +475,7 @@ final class AppModel: ObservableObject {
         case .crashed: h.status = "Crashed"
         }
         h.utc = sim.time.description
-        h.met = Self.formatDuration(sim.time - missionStart)
+        h.met = Self.formatDuration(sim.time - missionClockZero(sim))
         h.warp = sim.warp < 1 ? String(format: "%.1f×", sim.warp) : "\(Int(sim.warp))×"
         h.paused = sim.paused
         if rateWindow.limited, rateWindow.real > 0 {
@@ -484,7 +493,7 @@ final class AppModel: ObservableObject {
         h.thrustAcceleration = v.thrustAcceleration
         let weight = v.reference.gravity(at: v.position, pole: snap.orientation(v.reference).pole).length
         h.thrustToWeight = weight > 0 ? v.thrustAcceleration / weight : 0
-        h.nextStage = Self.nextStage(of: v)
+        h.nextStage = Self.nextStage(of: v, count: sim.terminalCount)
         h.deltaV = v.mainDeltaV
         h.mass = v.mass
         // One row per tank name: a set of solid motors has a grain per motor
@@ -518,7 +527,7 @@ final class AppModel: ObservableObject {
             h.passTimings = Self.describe(lastReport)
         }
         h.events = sim.events.suffix(6).map {
-            "\(Self.formatDuration($0.time - missionStart, tenths: true))  \($0.message)"
+            "\(Self.formatDuration($0.time - missionClockZero(sim), tenths: true))  \($0.message)"
         }
         if h != hud { hud = h }
     }
@@ -530,7 +539,11 @@ final class AppModel: ObservableObject {
     /// without acting (`manualStaging`, not the key's own check, which arms
     /// the SCS's guard); once the CM's entry program is awake, the ELS step
     /// it backs up.
-    static func nextStage(of v: Vessel) -> String {
+    static func nextStage(of v: Vessel, count: TerminalCount? = nil) -> String {
+        // On the pad, Space resumes a count that holds (`Simulation.stage`).
+        if let count, count.vehicle === v, count.isHolding {
+            return String(format: "resume the count (T%+.0f s)", count.hold)
+        }
         if let entry = ApolloMission.entryProgram(of: v), entry.phase != .dormant {
             let els = entry.els
             let step = els.apexCoverJettisoned == nil ? "apex cover + drogues"
@@ -583,14 +596,14 @@ final class AppModel: ObservableObject {
         var lines: [String] = v.thrusters.filter(\.isFailed).map { e in
             let at = iu?.log.first { $0.event == "\(e.name) failed" }?.time
                 ?? sim.events.last { $0.message == "\(v.name): \(e.name) failed" }?.time
-            return "\(e.name) failed" + (at.map { " " + Self.formatDuration($0 - missionStart, tenths: true) } ?? "")
+            return "\(e.name) failed" + (at.map { " " + Self.formatDuration($0 - missionClockZero(sim), tenths: true) } ?? "")
         }
         for f in iu?.failureSchedule ?? [] {
             guard let e = v.thrusters.first(where: { $0.name == f.engine }), !e.isFailed else { continue }
             switch f.time {
             case .range(let r): lines.append(String(format: "%@ at range %.1f s", f.engine, r))
             case let .timeBase(b, dt): lines.append(String(format: "%@ at %@+%.1f s", f.engine, b.description, dt))
-            case .epoch(let t): lines.append("\(f.engine) at \(Self.formatDuration(t - missionStart, tenths: true))")
+            case .epoch(let t): lines.append("\(f.engine) at \(Self.formatDuration(t - missionClockZero(sim), tenths: true))")
             }
         }
         return lines
@@ -619,7 +632,10 @@ final class AppModel: ObservableObject {
     /// seconds of a running clock are truncated).
     static func formatDuration(_ seconds: Double, tenths: Bool = false) -> String {
         let sign = seconds < 0 ? "-" : "+"
-        var s = tenths ? (abs(seconds) * 10).rounded() / 10 : abs(seconds)
+        // Before T−0 the whole seconds count down as a countdown clock does:
+        // T−22.4 s reads −00:00:23 until it is T−22 s.
+        var s = tenths ? (abs(seconds) * 10).rounded() / 10
+            : seconds < 0 ? (abs(seconds) - 1e-6).rounded(.up) : abs(seconds)
         let d = Int(s / 86400); s -= Double(d) * 86400
         let hh = Int(s / 3600); s -= Double(hh) * 3600
         let mm = Int(s / 60); s -= Double(mm) * 60

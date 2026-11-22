@@ -149,10 +149,14 @@ public final class SceneExtractor {
                             vessels: Dictionary(uniqueKeysWithValues: sim.vessels.map {
                                 ($0.id, Seen(name: $0.name, position: snap.position($0.reference) + $0.position))
                             }))
-        return RenderScene(clock: clock, camera: camera, sun: sun, bodies: bodies, vessels: vessels,
-                           emitters: emitters, canopies: canopies, sites: placeSites(sim: sim, snapshot: snap, camera: cam),
-                           transitions: transitions,
-                           orbit: options.showOrbit ? Self.orbitOverlay(sim: sim, snapshot: snap, camera: cam) : nil)
+        let launch = sim.terminalCount?.record
+        var scene = RenderScene(clock: clock, camera: camera, sun: sun, bodies: bodies, vessels: vessels,
+                                emitters: emitters, canopies: canopies,
+                                sites: placeSites(sim: sim, snapshot: snap, camera: cam, launch: launch),
+                                transitions: transitions,
+                                orbit: options.showOrbit ? Self.orbitOverlay(sim: sim, snapshot: snap, camera: cam) : nil)
+        scene.launch = launch
+        return scene
     }
 
     // MARK: Vessels
@@ -244,7 +248,8 @@ public final class SceneExtractor {
 
     // MARK: Sites
 
-    private func placeSites(sim: Simulation, snapshot snap: SystemSnapshot, camera cam: OrbitCamera) -> [RenderScene.Site] {
+    private func placeSites(sim: Simulation, snapshot snap: SystemSnapshot, camera cam: OrbitCamera,
+                            launch: TerminalCount.Record?) -> [RenderScene.Site] {
         sites.compactMap { s in
             guard let body = sim.system.body(id: s.bodyID) else { return nil }
             let o = snap.orientation(body)
@@ -255,9 +260,12 @@ public final class SceneExtractor {
             let forward = north * cos(s.azimuth) + east * sin(s.azimuth)
             let left = up.cross(forward)
             let axes = Mat3(columns: o.toInertial(forward), o.toInertial(left), o.toInertial(up))
+            // LC-39A stands in the simulation's count, if it has one: the
+            // only pad its launches leave from.
+            let countdown = s.name == LC39A.placement().name ? launch.map { LC39A.Countdown($0, at: sim.time) } : nil
             return RenderScene.Site(name: s.name, bodyID: s.bodyID,
                                     origin: snap.position(body) + o.toInertial(fixed) - cam.position,
-                                    orientation: axes, placement: s)
+                                    orientation: axes, placement: s, countdown: countdown)
         }
     }
 

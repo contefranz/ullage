@@ -122,7 +122,7 @@ Read but not used for numbers: NTRS 19690001603 (the 1/40 model's analysis, a co
 
 | event | Apollo 8 (AS-503) | Apollo 11 (AS-506) | source | grade | model |
 |---|---|---|---|---|---|
-| Range zero (T−0) | 1968-12-21 12:51:00 UTC (7:51:00 EST) | 1969-07-16 13:32:00 UTC | FER503 Table 2-2 and §2; core `apollo11RangeZero` | H | `Countdown.rangeZero` |
+| Range zero (T−0) | 1968-12-21 12:51:00 UTC (7:51:00 EST) | 1969-07-16 13:32:00 UTC | FER503 Table 2-2 and §2; core `apollo11RangeZero` | H | `Countdown.rangeZero`; with the simulation's terminal count, its own T−0 (`Countdown(_:at:)`, docs/look/launch.md) |
 | Arm 9 to its 12° park position, "about three feet" from the spacecraft | about T−42 min | T−43 min | A8PK p. -61-; A11PK PDF pp. 23, 169 | H | 12° at 1°/s (below) |
 | Arm 9 fully retracted | T−5 min | T−5 min | A8PK; A11PK | H | ends at T−5 min |
 | Arm 9's rate | it extends from park in 12 s: 1°/s | 1°/s | M503 Fig. 8-8 | H (12 s) / L (taken for the retraction too: 78 s from 12° to 90°) | `accessArmRate` |
@@ -134,7 +134,7 @@ Read but not used for numbers: NTRS 19690001603 (the 1/40 model's analysis, a co
 | Arm 2 swing | withdrawal 3 s, then the swing to 8 s | same | M503 Fig. 8-8 (8 s); withdrawal like arm 1's dry 3 s (FER506 §3.6.2), *estimate* | M (8 s) / L (3 s) | |
 | Hold-down release | 0.27 s | 0.3 s | FER503 Table 2-2, §3.6; FER506 §3.6.1 | H | `holdDownRelease` |
 | First motion | 0.33 s | 0.30 s | FER503 Table 2-2; core `apollo11FirstMotion` | H | `firstMotion` |
-| In-flight arms (4-8) start | first motion + 0.16 s | first motion + 0.16 s | M503 p. 8-8: the primary liftoff switches at 3/4 in of rise; FER503 §3.6: "1-inch liftoff". About 1 m of rise in the first second (FER503 Fig. 11-1), so 2 m/s² and 1 in at 0.16 s (*derived*) | M | `liftoffSwitch` |
+| In-flight arms (4-8) start | first motion + 0.16 s | at the liftoff switches the count finds: 3/4 in of rise, 0.20 s after the release with the controlled release (AS506-datasheet §18.3) | M503 p. 8-8: the primary liftoff switches at 3/4 in of rise; FER503 §3.6: "1-inch liftoff". About 1 m of rise in the first second (FER503 Fig. 11-1), so 2 m/s² and 1 in at 0.16 s (*derived*), where no count says | M | `liftoffSwitch`, `liftoffSwitchTime` |
 | In-flight arms' swing | carrier withdrawal and arm retraction start together on carrier ejection; done within 6.4-9.0 s | same | M503 p. 8-8, Fig. 8-8 ("max") | H (sequence) / M (the maxima taken as the times; the FERs: "within specifications") | |
 | Hold-down links | collapse in 0.2 s from release | same | HDA p. 340: separators act in 0.13-0.18 s; *estimate* | L | `holdDownSwingTime` |
 | Tail service masts | 2.62 s (TSM 1-2), 2.77 s (3-2), 2.54 s (3-4) from "umbilical plate separation" to "mast retract" | "TSM retractions were normal" (AS-503's times used) | FER503 §3.6; FER506 §3.6.1 | H (AS-503) / M (AS-506) | start at `liftoffSwitch` (M) |

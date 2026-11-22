@@ -1,12 +1,12 @@
 {
   "goldens": "scene",
   "shots": [
-    {"name": "pad", "scenario": "as506-pad", "aovs": ["depth", "normals"]},
-    {"name": "liftoff", "scenario": "as506-pad", "advance": ["met:8"],
+    {"name": "pad", "scenario": "as506-first-motion", "aovs": ["depth", "normals"]},
+    {"name": "liftoff", "scenario": "as506-first-motion", "advance": ["met:8"],
      "camera": {"yaw": -109, "pitch": 3, "distance": 160}},
-    {"name": "ascent-60s", "scenario": "as506-pad", "advance": ["met:60"],
+    {"name": "ascent-60s", "scenario": "as506-first-motion", "advance": ["met:60"],
      "camera": {"yaw": 149, "pitch": -11.5, "distance": 220}},
-    {"name": "sic-sii-separation", "scenario": "as506-pad", "advance": ["ev:S-IC/S-II separation", "wait:0.3"],
+    {"name": "sic-sii-separation", "scenario": "as506-first-motion", "advance": ["ev:S-IC/S-II separation", "wait:0.3"],
      "camera": {"yaw": 69, "pitch": 17, "distance": 140}, "aovs": ["luminance"]},
     {"name": "parking-orbit", "scenario": "as506-parking-orbit",
      "camera": {"yaw": -34.4, "pitch": 20, "distance": 70}},

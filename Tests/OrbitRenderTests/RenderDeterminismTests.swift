@@ -225,7 +225,7 @@ final class RenderDeterminismTests: XCTestCase {
     /// the last frame's in the others. After `startOver` it redraws them all,
     /// and renders the bytes a fresh renderer does.
     func testProbeRedrawsEveryFaceAfterStartingOver() throws {
-        let scenario = try XCTUnwrap(Scenario.named("as506-pad"))
+        let scenario = try XCTUnwrap(Scenario.named("as506-first-motion"))
         let sim = scenario.build(Self.system)
         var camera = OrbitCamera()
         camera.target = .vessel(try XCTUnwrap(sim.focus).id)
