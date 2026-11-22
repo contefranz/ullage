@@ -53,7 +53,14 @@ final class InstrumentModel: ObservableObject {
         /// "SCS", "CM"); nil when the hold flies none.
         var holdProgram: String?
         var landed = true
-        /// The g meter, bank, heating, ELS and 0.05 g light, while they matter.
+        /// The G-meter: the sensed acceleration along the axis and in all;
+        /// nil (blank) for a wreck.
+        var gMeter: GMeter?
+        /// The launch vehicle's engine status lights; nil without a Saturn
+        /// stage below, or for a wreck (dark).
+        var engineLights: LVEngineLights?
+        /// The bank, heating, ELS, entry peak and 0.05 g light, while they
+        /// matter.
         var entry: EntryReadouts?
         /// The target's name, and this vessel relative to it.
         var target: (name: String, relative: TargetRelative)?
@@ -109,6 +116,8 @@ final class InstrumentModel: ObservableObject {
         r.autopilot = v.autopilot
         r.holdProgram = v.autopilot == .attitudeHold && v.attitudeCommand != nil ? Self.programName(v) : nil
         r.landed = v.landed != nil
+        r.gMeter = GMeter(vessel: v)
+        r.engineLights = LVEngineLights(vessel: v)
         r.entry = EntryReadouts(vessel: v)
         if let t = target, let rel = ball.target { r.target = (t.name, rel) }
         r.maneuver = maneuver
