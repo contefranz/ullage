@@ -72,13 +72,17 @@ medium, L low (visual, calibrated or assumed).
    over. A clear exhaust's ice in vacuum is stepped equiangularly about
    its free expansion's virtual source instead (its density falls as 1/d²
    off that point) whenever the ray spans more than four of its closest
-   approaches to the source (no less than an exit radius), from any view:
-   h, which sets the spacing, is that closest approach but no less than the
-   onset surface's distance from the source at the ray's angle to the axis
-   (the ice is nil inside it: 72 m along a J-2's axis, 41 m at 35°, under a
-   metre across). So the steps follow the ice, not the empty core, with no
-   switch as a camera orbits or closes in: the bright condensing shell near
-   the nozzle is stepped finely and the jitter leaves no pattern there.
+   approaches to the source (no less than an exit radius), and whenever it
+   is seen across (more than 30° off the axis): ice never takes the axis's
+   steps, which crowd into the empty core. h, which sets the spacing, is
+   that closest approach but no less than the onset surface's distance
+   from the source at the ray's angle to the axis (the ice is nil inside
+   it: 72 m along a J-2's axis, 41 m at 35°, under a metre across). So the
+   steps follow the ice, not the empty core, as a camera orbits or closes
+   in: the bright condensing shell near the nozzle is stepped finely and
+   the jitter leaves no pattern there. Only a ray within 30° of the axis
+   that passes far from the source (a quarter of its span or more) keeps
+   the near and far halves.
    Look-dev: `p2-j2-ice-behind` (250 m behind five J-2s, 10° off their
    axis), `p2-j2-ice-oblique` (100 m, 40° off) and `p2-j2-ice-31` (120 m,
    31° off), all on these steps with h at the onset's distance. The marched clusters blend far to
