@@ -169,7 +169,7 @@ public final class Vessel: Identifiable {
     var pilotHeldRotation = Vec3.zero
     var pilotHeldTranslation = Vec3.zero
 
-    // MARK: Telemetry (updated every step)
+    // MARK: Telemetry (updated every step; a wreck's once more at the impact, then held)
     public internal(set) var altitude = 0.0
     public internal(set) var atmosphere = AtmosphereState.vacuum
     public internal(set) var airspeed = 0.0
@@ -503,7 +503,9 @@ public final class Vessel: Identifiable {
     /// start and shutdown ramps are ignored.
     public var mainDeltaV: Double {
         guard let active = activeStage else { return 0 }
-        let mains = active.thrusters.filter { $0.groups.contains(.main) && $0.isEnabled && $0.hasPropellant }
+        let mains = active.thrusters.filter {
+            $0.groups.contains(.main) && $0.isEnabled && $0.hasPropellant && !$0.ignitionsSpent
+        }
         if mains.contains(where: { $0.schedule != nil }) { return scheduledDeltaV(mains) }
         var demand: [ObjectIdentifier: (tank: PropellantTank, rate: Double)] = [:]
         var flow = 0.0, thrust = 0.0

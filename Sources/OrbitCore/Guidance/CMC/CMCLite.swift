@@ -106,6 +106,9 @@ public final class CMCLite: GuidanceComputer {
     /// P47's Average-G.
     private var monitor: AverageG?
     private var situation: Situation?
+    /// A host steps the computer (`update`), so P40 and P41 can fly; false
+    /// while it only observes (`observe`).
+    private var stepping = false
     private var lastUpdate: Epoch?
     private weak var sim: Simulation?
     private var pendingLog: [String] = []
@@ -144,6 +147,11 @@ public final class CMCLite: GuidanceComputer {
     public func takeAutoManeuverRequest() -> Bool {
         defer { autoManeuverRequested = false }
         return autoManeuverRequested
+    }
+
+    /// G at V50N18: the crew's consent to slew, as Return gives it.
+    public func answerAutoManeuver() {
+        if step == .maneuver { step = .maneuvering }
     }
 
     /// Start the computer's attitude from `q` (G&N AUTO selected now): the
@@ -215,10 +223,19 @@ public final class CMCLite: GuidanceComputer {
         case .enter:
             if hasKeys { enter(at: now) } else { error("NOTHING KEYED") }
         case .returnKey:
-            if hasKeys { enter(at: now) } else if flashing { proceed(at: now) }
+            // After PRG, Return enters the program or is refused: it never
+            // answers the step behind V37 (V99 above all).
+            if hasKeys { enter(at: now) } else if programKeying { error("KEY THE PROGRAM") } else if flashing {
+                proceed(at: now)
+            }
         case .proceed:
-            if !digits.isEmpty { error("KEYED, NOT ENTERED: RETURN OR CLR") } else { proceed(at: now) }
+            if programKeying { error("KEY THE PROGRAM") } else if hasKeys {
+                error("KEYED, NOT ENTERED: RETURN OR CLR")
+            } else {
+                proceed(at: now)
+            }
         case .next:
+            guard !programKeying, !hasKeys else { return error("KEYED, NOT ENTERED: RETURN OR CLR") }
             guard let l = load else { return alarm("NO LOAD") }
             guard program == 0 || program == 30 && step == .check else { return error("NXT FROM P00") }
             select(l.engine == .sps ? 40 : 41, at: now)
@@ -235,9 +252,20 @@ public final class CMCLite: GuidanceComputer {
         }
     }
 
+    /// The vessel's state for the displays and P30, where no host steps the
+    /// computer: on the Saturn stack (the CM's standby SCS) and once the SM
+    /// has gone. Nothing is flown.
+    public func observe(_ v: Vessel, in sim: Simulation) {
+        self.sim = sim
+        stepping = false
+        situation = Situation(v, at: sim.time)
+        flushLog()
+    }
+
     public func update(_ v: Vessel, in sim: Simulation) {
         let now = sim.time
         self.sim = sim
+        stepping = true
         flushLog()
         defer {
             lastUpdate = now
@@ -249,7 +277,14 @@ public final class CMCLite: GuidanceComputer {
         case 47: monitor?.sense(v, in: sim, now: now)
         default: break
         }
-        if let b = burn { advanceCommand(toward: b.steer(v), now: now) }
+        if let b = burn {
+            let goal = b.steer(v)
+            // No slew before the crew's consent at V50N18: the command holds
+            // the vessel where it is.
+            if step == .maneuver { attitudeCommand = AttitudeCommand(attitude: v.attitude) } else {
+                advanceCommand(toward: goal, now: now)
+            }
+        }
     }
 
     public func timeToNextEvent(at now: Epoch) -> Double? {
@@ -266,10 +301,13 @@ public final class CMCLite: GuidanceComputer {
 
     /// While a load waits to be flown: caps of 100x from TIG−60 min and 10x
     /// from TIG−10 min, a stop at TIG−2 min, and 1x from TIG−30 s to TIG+5 s;
-    /// the caps last until 30 s after the planned burn.
+    /// the caps last until 30 s after the planned burn, and once the burn is
+    /// lit (late, or longer than planned) until its cutoff.
     public func warpEvents(after now: Epoch) -> [WarpEvent] {
         guard let l = load, cutoff == nil else { return [] }
-        let tig = l.ignition, end = tig + ((l.burnTime ?? 0) + 30)
+        let tig = l.ignition
+        var end = tig + ((l.burnTime ?? 0) + 30)
+        if ignition != nil { end = max(end, now + 60) }
         let events: [WarpEvent] = [
             .cap(from: tig + -3_600, until: end, maxWarp: 100, reason: "TIG-60 min"),
             .cap(from: tig + -600, until: end, maxWarp: 10, reason: "TIG-10 min"),
@@ -281,7 +319,8 @@ public final class CMCLite: GuidanceComputer {
 
     // MARK: Keys
 
-    private var hasKeys: Bool { !digits.isEmpty }
+    /// Something is keyed: digits, or a sign alone.
+    private var hasKeys: Bool { !digits.isEmpty || sign != nil }
 
     private func clearKeys() {
         sign = nil
@@ -311,6 +350,7 @@ public final class CMCLite: GuidanceComputer {
 
     /// ENTR: the keyed digits into the program number or the register.
     private func enter(at now: Epoch) {
+        guard !digits.isEmpty else { return error("NO DIGITS") }   // a sign alone: kept, for CLR
         defer { clearKeys() }
         let magnitude = Double(digits) ?? 0, value = sign == "-" ? -magnitude : magnitude
         if programKeying {
@@ -373,6 +413,11 @@ public final class CMCLite: GuidanceComputer {
     /// V37: change to program `n`.
     private func select(_ n: Int, at now: Epoch) {
         if burning { return error("NOT DURING THE BURN") }
+        // A load P40 or P41 has lit is flown: it goes, whatever comes next.
+        if program == 40 || program == 41, ignition != nil, load != nil {
+            note("CMC: \(load!.name) flown, load cleared")
+            load = nil
+        }
         switch n {
         case 0:
             // From P30 it abandons the load; from P40 or P41 before the burn
@@ -394,11 +439,17 @@ public final class CMCLite: GuidanceComputer {
         case 40, 41:
             guard let l = load else { return alarm("NO LOAD FOR P\(n)") }
             if n == 40, l.engine != .sps { return alarm("THE LOAD IS FOR THE RCS: P41") }
-            guard let s = situation else { return alarm("NO STATE") }
+            guard let s = situation, stepping else { return alarm("NO CONTROL OF THE VEHICLE") }
+            if program == 30 { note("CMC: P30 \(l.name) accepted") }
+            lamps.remove(.uplinkActivity)
             clearBurn()
+            if n == 40, l.burnTime == nil, let sps = s.sps {
+                load?.burnTime = DeorbitPlanner.burnTime(deltaV: l.deltaVMagnitude, mass: s.mass, thrust: sps.thrust,
+                                                         specificImpulse: sps.isp)
+            }
             program = n
             step = .maneuver
-            burn = ExternalDeltaVSteering(plan: l, state: s.state, mu: s.mu, at: s.time)
+            burn = ExternalDeltaVSteering(plan: load ?? l, state: s.state, mu: s.mu, at: s.time)
             attitudeCommand = AttitudeCommand(attitude: s.attitude)
             if s.time >= l.ignition + -ExternalDeltaVSteering.averageGLead { burn?.startAverageG(at: s.time) }
             note("CMC: P\(n) \(l.name)")
@@ -521,7 +572,7 @@ public final class CMCLite: GuidanceComputer {
             if program == 40, now >= tig + (-Self.ignitionPromptLead - eps) { step = .ignition }
             if program == 41, now >= tig + -eps {
                 ignition = now
-                step = .residuals
+                toResiduals(b)   // the crew thrusts; the attitude holds TIG's
             }
         case .ignition:
             if ignitionEnabled, now >= tig + -eps { ignite(v, now: now, tig: tig) }
@@ -531,6 +582,7 @@ public final class CMCLite: GuidanceComputer {
                     if v.mainThrottle == 0 {
                         cutoff = now
                         pendingCutoff = nil
+                        b.freeze()
                         note(String(format: "CMC: SPS off by the crew (X), VG %.1f ft/s",
                                     b.velocityToBeGained.length / Self.foot))
                     } else {
@@ -538,14 +590,20 @@ public final class CMCLite: GuidanceComputer {
                     }
                 } else if !spsDelivering(v) {
                     ownsThrust = false
-                    step = .residuals
+                    toResiduals(b)
                 }
             } else if scsBurn, v.mainThrottle == 0 || !spsCommanded(v), !spsDelivering(v) {
                 cutoff = cutoff ?? now
-                step = .residuals
+                toResiduals(b)
             }
         default: break
         }
+    }
+
+    /// N85: the steering stops, the attitude holds, the crew nulls VG.
+    private func toResiduals(_ b: ExternalDeltaVSteering) {
+        b.freeze()
+        step = .residuals
     }
 
     private func ignite(_ v: Vessel, now: Epoch, tig: Epoch) {
@@ -565,6 +623,7 @@ public final class CMCLite: GuidanceComputer {
             v.mainThrottle = 0
             cutoff = now
             pendingCutoff = nil
+            b.freeze()
             let burned = ignition.map { now - $0 } ?? 0
             note(String(format: "CMC: SPS cutoff (VG), %.2f s burn", burned))
         } else {

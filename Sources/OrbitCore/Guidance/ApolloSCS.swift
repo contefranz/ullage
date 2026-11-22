@@ -86,6 +86,8 @@ public final class ApolloSCS: FlightProgram, DeltaVCounting, GuidanceComputerHos
         if !smGone, v.parts.contains(where: { $0.name == "SM" }) {
             computer.update(v, in: sim)
             flyComputer(v, in: sim)
+        } else {
+            computer.observe(v, in: sim)   // the CM's computer: displays only
         }
         if !smGone && !v.parts.contains(where: { $0.name == "SM" }) {
             smGone = true
@@ -147,6 +149,7 @@ public final class ApolloSCS: FlightProgram, DeltaVCounting, GuidanceComputerHos
             sim.log("\(v.name): G&N AUTO refused, no computer attitude")
             return false
         }
+        computer.answerAutoManeuver()   // G answers V50N18 as Return does
         startGNAuto(v, in: sim)
         return true
     }
@@ -170,21 +173,21 @@ public final class ApolloSCS: FlightProgram, DeltaVCounting, GuidanceComputerHos
     }
 
     /// After the computer's step: G&N AUTO asked for at V50N18, the pilot
-    /// taking the attitude back (rotation keys, a pointing mode), and the
-    /// computer's attitude written to the hold.
+    /// taking the attitude back (rotation keys, a pointing mode), the
+    /// program ending (no computer attitude: the SCS holds where the vessel
+    /// is), and the computer's attitude written to the hold.
     private func flyComputer(_ v: Vessel, in sim: Simulation) {
         if computer.takeAutoManeuverRequest() { startGNAuto(v, in: sim) }
         guard gnAuto else { return }
         if !v.rotationInput.isZero {
             clearGNAuto(v, in: sim, reason: "SCS takeover (RCS)")
-            return
+        } else if v.autopilot != .attitudeHold {
+            clearGNAuto(v, in: sim, reason: v.autopilot?.rawValue ?? "free")
+        } else if let c = computer.attitudeCommand {
+            v.attitudeCommand = c
+        } else {
+            clearGNAuto(v, in: sim, reason: "the program ended, SCS hold")
         }
-        if v.autopilot != .attitudeHold {
-            gnAuto = false
-            sim.log("\(v.name): G&N AUTO off, \(v.autopilot?.rawValue ?? "free")")
-            return
-        }
-        if let c = computer.attitudeCommand { v.attitudeCommand = c }
     }
 
     /// The Space key's check: for CM/SM separation (event 7) the first press
