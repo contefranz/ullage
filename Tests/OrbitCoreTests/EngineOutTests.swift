@@ -370,6 +370,9 @@ final class EngineOutFlight {
     private(set) var cutoff: Double?
     private(set) var cutoffSpeed: Double?
     private(set) var insertion: Insertion?
+    /// The stack's LV engine lights every 0.5 s of range time, from the pad
+    /// (`LVEngineLights`).
+    private(set) var lights: [(range: Double, lights: LVEngineLights?)] = []
 
     private init(_ engine: String, at when: SaturnIU.EngineFailure.Time) {
         sim = try! Simulation.forTests(perturbations: true)
@@ -388,6 +391,9 @@ final class EngineOutFlight {
                 cutoffSpeed = stack.velocity.length
             }
             sim.step(min(0.02, sim.maxStep(), cutoff.map { $0 + 10 - range() } ?? .infinity))
+            if range() - (lights.last?.range ?? -.infinity) >= 0.5 - 1e-9 {
+                lights.append((range(), LVEngineLights(vessel: stack)))
+            }
         }
         if cutoff != nil { insertion = Insertion(position: stack.position, velocity: stack.velocity, iu: iu, sim: sim) }
     }
@@ -397,4 +403,7 @@ final class EngineOutFlight {
     func range(_ e: Epoch) -> Double { e - start + AS506.firstMotion }
     /// Range time of the IU log entry `event`, if it was logged.
     func time(of event: String) -> Double? { iu.log.first { $0.event == event }.map { range($0.time) } }
+
+    /// The lights' last sample at or before range time `t`.
+    func lights(at t: Double) -> LVEngineLights? { lights.last { $0.range <= t + 1e-9 }?.lights }
 }

@@ -12,6 +12,10 @@ final class NominalFlight {
     struct State {
         let position: Vec3, velocity: Vec3, attitude: Quat, angularVelocity: Vec3
         let structureOrigin: Vec3, mass: Double, thrustAcceleration: Double, altitude: Double
+        /// What its accelerometer senses, body axes (`Vessel.sensedAcceleration`).
+        let sensedAcceleration: Vec3
+        /// Its LV engine status lights (`LVEngineLights`; nil without a Saturn stage).
+        let engineLights: LVEngineLights?
         let status: VesselStatus
         let tanks: [String: Double]
 
@@ -66,6 +70,7 @@ final class NominalFlight {
             states[v.name] = State(position: v.position, velocity: v.velocity, attitude: v.attitude,
                                    angularVelocity: v.angularVelocity, structureOrigin: v.structureOrigin,
                                    mass: v.mass, thrustAcceleration: v.thrustAcceleration, altitude: v.altitude,
+                                   sensedAcceleration: v.sensedAcceleration, engineLights: LVEngineLights(vessel: v),
                                    status: v.status,
                                    tanks: Dictionary(v.parts.flatMap(\.tanks).map { ($0.name, $0.mass) },
                                                      uniquingKeysWith: +))
