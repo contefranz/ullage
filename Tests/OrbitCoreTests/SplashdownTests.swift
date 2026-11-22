@@ -129,10 +129,12 @@ final class SplashdownTests: XCTestCase {
     /// and its SM's -X jets firing (as they do from CM/SM separation),
     /// stepped through the impact. Returns the simulation, the stack, those
     /// thirteen engines, the engines delivering into the impact step and the
-    /// readouts then.
+    /// readouts then. The Earth keeps its J2 (`forTests` without
+    /// perturbations drops it), so the wreck rests in normal gravity.
     func crashUnderThrust() throws -> (sim: Simulation, stack: Vessel, lit: [Thruster], running: [Thruster],
                                        before: Readouts) {
         let sim = try Simulation.forTests(perturbations: false)
+        sim.system.earth.j2 = try SolarSystem.bundled().earth.j2
         let stack = VesselLibrary.saturnV()
         stack.flightProgram = nil
         sim.add(stack)
@@ -188,9 +190,11 @@ final class SplashdownTests: XCTestCase {
     // stopped, as a landed vessel's does, and holds. The simulation steps a
     // wreck no more, so it would otherwise keep the impact step's thrust,
     // load factor and air data for the vehicle panel's TWR and the MFDs
-    // (SURFACE's THR, ACC, TAS, q and M; ENTRY's G). At rest the load factor
-    // is the support against normal gravity, 9.7882 m/s^2 at 23° N (WGS-84,
-    // Somigliana's formula), in still air.
+    // (SURFACE's THR, ACC, TAS, q and M; ENTRY's G). At rest, in still air,
+    // the load factor is the support against normal gravity: 9.788213 m/s^2
+    // on the WGS-84 ellipsoid at 23° N (Somigliana's formula), less the
+    // free-air gradient, 3.086e-6 s^-2, over the 33 m the centre of mass
+    // stands above it (1.0e-4 m/s^2). Without J2 it would be 9.7794 m/s^2.
     func testWreckTelemetryAtRest() throws {
         let (sim, stack, _, _, before) = try crashUnderThrust()
         XCTAssertGreaterThan(before.thrust / standardGravity, 1)
@@ -198,7 +202,9 @@ final class SplashdownTests: XCTestCase {
         XCTAssertGreaterThan(before.airspeed, 20)
         let atRest = Readouts(stack)
         XCTAssertEqual(atRest.thrust, 0)
-        XCTAssertEqual(atRest.load, 9.7882 / standardGravity, accuracy: 0.001)
+        let s2 = pow(sin(23 * deg), 2)
+        let normal = 9.7803253359 * (1 + 0.00193185265241 * s2) / (1 - 0.00669437999013 * s2).squareRoot()
+        XCTAssertEqual(atRest.load, (normal - 3.086e-6 * atRest.altitude) / standardGravity, accuracy: 2e-5)
         XCTAssertEqual(atRest.airspeed, 0, accuracy: 1e-6)
         XCTAssertEqual(atRest.q, 0, accuracy: 1e-6)
         XCTAssertEqual(atRest.mach, 0, accuracy: 1e-6)
