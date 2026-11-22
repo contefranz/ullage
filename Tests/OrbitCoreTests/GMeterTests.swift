@@ -4,7 +4,8 @@ import XCTest
 /// The HUD's G-meter (`GMeter`) and LV engine lights (`LVEngineLights`):
 /// 1 g on the pad, AS-506's sensed acceleration through the ascent (its
 /// postflight trajectory), about 0 in orbit, an Apollo entry's peak, and the
-/// lights through staging and Apollo 13's engine out.
+/// lights through staging and Apollo 13's engine out; on a wreck, a blank
+/// meter and dark lights.
 final class GMeterTests: XCTestCase {
     let g0 = standardGravity
 
@@ -19,7 +20,7 @@ final class GMeterTests: XCTestCase {
         XCTAssertEqual(m.axial, 3, accuracy: 1e-12)
         XCTAssertEqual(m.total, 5, accuracy: 1e-12)
         XCTAssertEqual(GMeter().axial, 0)
-        XCTAssertEqual(GMeter(vessel: VesselLibrary.capsule()).total, 0)
+        XCTAssertEqual(GMeter(vessel: VesselLibrary.capsule())?.total, 0)
         let deg = Double.pi / 180
         for (g, clock) in [(0.0, 180.0), (6, 90), (12, 0), (15, -45), (-1, 195), (3.94, 120.9)] {
             XCTAssertEqual(GMeter.dialAngle(g) / deg, clock, accuracy: 1e-9, "\(g) g")
@@ -41,7 +42,7 @@ final class GMeterTests: XCTestCase {
         sim.updateTelemetry(stack, snapshot: sim.snapshot)
         let phi = 28.608422 * Double.pi / 180, s2 = sin(phi) * sin(phi)
         let normal = 9.7803253359 * (1 + 0.00193185265241 * s2) / (1 - 0.00669437999013 * s2).squareRoot()
-        var m = GMeter(vessel: stack)
+        var m = try XCTUnwrap(GMeter(vessel: stack))
         XCTAssertEqual(m.axial, normal / g0, accuracy: 0.001)
         XCTAssertEqual(m.total, normal / g0, accuracy: 0.001)
         XCTAssertEqual(m.axial, 1, accuracy: 0.002)
@@ -55,7 +56,7 @@ final class GMeterTests: XCTestCase {
             sim.step(0.02)
         }
         XCTAssertNotNil(stack.landed)
-        m = GMeter(vessel: stack)
+        m = try XCTUnwrap(GMeter(vessel: stack))
         XCTAssertEqual(m.axial, normal / g0, accuracy: 0.001)
     }
 
@@ -174,7 +175,7 @@ final class GMeterTests: XCTestCase {
         while program.els.droguesDeployed == nil, v.landed == nil, sim.time - start < 1_500 {
             for x in sim.vessels { sim.prepareControls(x) }
             sim.step(min(1, sim.maxStep()))
-            let m = GMeter(vessel: v)
+            let m = try XCTUnwrap(GMeter(vessel: v))
             peak = max(peak, m.axial)
             low = min(low, m.axial)
             peakTotal = max(peakTotal, m.total)
@@ -186,6 +187,46 @@ final class GMeterTests: XCTestCase {
         XCTAssertEqual(peak, peakTotal, accuracy: 0.02 * peakTotal)
         XCTAssertEqual(peak, program.peakLoadFactor, accuracy: 0.02 * program.peakLoadFactor)
         XCTAssertGreaterThan(low, -0.05)
+    }
+
+    // MARK: A wreck
+
+    // A Saturn flown into the ground under full S-IC thrust: the
+    // simulation no longer steps a wreck, so its telemetry and its engines'
+    // last outputs would hold the moment before the impact, the meter
+    // frozen there and the lights out as if the F-1s still ran. The meter
+    // blanks and the lights go dark instead, and stay so.
+    func testWreckBlanksTheMeterAndTheLights() throws {
+        let sim = try Simulation.forTests(perturbations: false)
+        let stack = VesselLibrary.saturnV()
+        sim.add(stack)
+        let clearance = min(stack.baseHeight, stack.boundingRadius)
+        sim.place(stack, geodeticLatitude: 23, longitude: 13, height: clearance + 20, inertialSpeed: 30,
+                  flightPathAngle: -90, azimuth: 0)
+        // Falling at 30 m/s through still air, not the inertial frame.
+        let o = sim.snapshot.orientation(stack.reference)
+        let up = stack.reference.vertical(at: stack.position, orientation: o)
+        stack.velocity = o.angularVelocity.cross(stack.position) - up * 30
+        sim.updateTelemetry(stack, snapshot: sim.snapshot)
+        stack.mainThrottle = 1
+        var before: (meter: GMeter, lights: LVEngineLights)?
+        let start = sim.time
+        while stack.status == .flying, sim.time - start < 10 {
+            before = (try XCTUnwrap(GMeter(vessel: stack)), try XCTUnwrap(LVEngineLights(vessel: stack)))
+            for v in sim.vessels { sim.prepareControls(v) }
+            sim.step(0.02)
+        }
+        XCTAssertEqual(stack.status, .crashed)
+        let last = try XCTUnwrap(before)
+        XCTAssertGreaterThan(last.meter.axial, 1)
+        XCTAssertEqual(last.meter.total, last.meter.axial, accuracy: 0.05)
+        XCTAssertEqual(last.lights.lit, [false, false, false, false, false])
+        for _ in 0..<3 {
+            XCTAssertNil(GMeter(vessel: stack))
+            XCTAssertNil(LVEngineLights(vessel: stack))
+            for v in sim.vessels { sim.prepareControls(v) }
+            sim.step(0.02)
+        }
     }
 
     // MARK: The engine lights

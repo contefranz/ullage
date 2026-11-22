@@ -270,9 +270,14 @@ private struct Painter {
     }
 
     /// The pointer, and the readouts under the dial: the axial reading and
-    /// the total.
+    /// the total; for a wreck, no pointer and dashes.
     func gMeter(_ ctx: inout GraphicsContext) {
-        let (c, radius) = Self.dialGeometry(layout), m = r.gMeter
+        let (c, radius) = Self.dialGeometry(layout), below = layout.dial.maxY
+        guard let m = r.gMeter else {
+            ctx.draw(text("---", size: 11, weight: .semibold), at: CGPoint(x: c.x, y: below + 8))
+            ctx.draw(text("TOT ---", size: 9, color: Self.dim), at: CGPoint(x: c.x, y: below + 21))
+            return
+        }
         let a = GMeter.dialAngle(m.axial), tip = Self.point(c, radius - 5, a), tail = Self.point(c, 7, a + Double.pi)
         let half: CGFloat = 2, n = CGPoint(x: CGFloat(sin(a)) * half, y: CGFloat(cos(a)) * half)
         var p = Path()
@@ -285,7 +290,6 @@ private struct Painter {
         ctx.fill(p, with: .color(.white))
         ctx.fill(Path(ellipseIn: CGRect(x: c.x - 3, y: c.y - 3, width: 6, height: 6)), with: .color(.white))
 
-        let below = layout.dial.maxY
         ctx.draw(text(HUDFormat.axialLoad(m.axial), size: 11, weight: .semibold),
                  at: CGPoint(x: c.x, y: below + 8))
         ctx.draw(text(String(format: "TOT %.2f", m.total), size: 9, color: Self.dim),

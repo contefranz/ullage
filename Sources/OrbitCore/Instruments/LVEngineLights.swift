@@ -16,7 +16,9 @@ import Foundation
 ///   ¶2-9).
 /// - S-IVB, from S-II/S-IVB separation: light 1 is its single J-2; "the
 ///   remaining 4 lights [are] not operative" (Flight Manual Fig. 6-3).
-/// - Without a Saturn stage (the spacecraft alone) there are none (nil).
+/// - Without a Saturn stage (the spacecraft alone) there are none (nil),
+///   nor on a wreck (`.crashed`): the simulation no longer steps its
+///   engines, so they would hold the thrust they had at the impact.
 ///
 /// Not modelled: the momentary blank the logic gives all five at each
 /// separation, whose length was not found, and the EDS POWER switch, which
@@ -40,10 +42,12 @@ public struct LVEngineLights: Equatable {
     /// below its thrust-OK level.
     public let lit: [Bool]
 
-    /// The lights of `v`'s active stage, or nil when that is not a Saturn
-    /// stage.
+    /// The lights of `v`'s active stage, or nil (dark) when that is not a
+    /// Saturn stage or `v` is a wreck.
     public init?(vessel v: Vessel) {
-        guard let part = v.activeStage, let stage = Stage(rawValue: part.name) else { return nil }
+        guard v.status != .crashed, let part = v.activeStage, let stage = Stage(rawValue: part.name) else {
+            return nil
+        }
         let mains = part.thrusters.filter { $0.groups.contains(.main) }
         func lit(_ e: Thruster?) -> Bool { e.map { !Self.isThrustOK($0, stage) } ?? false }
         self.stage = stage

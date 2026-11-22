@@ -80,7 +80,10 @@ struct ContentView: View {
 /// - the event log at the top left, the vehicle panel at the top right;
 /// - the instrument cluster at the bottom, centred between two MFD slots
 ///   when both fit beside it (with room left for the vehicle panel above
-///   the right one), otherwise at the right with one slot at its left.
+///   the right one), otherwise at the right with one slot at its left;
+/// - the navball 220 pt across from 800 pt of height, if its cluster still
+///   leaves room for that one slot, otherwise 180 pt, whose cluster does
+///   down to the minimum width (900 − 660 − 3 × 12 = 204 pt of slot).
 struct HUDLayout {
     static let pad: CGFloat = 12
     static let topBarHeight: CGFloat = 40
@@ -101,7 +104,8 @@ struct HUDLayout {
         let w = size.width, h = size.height, pad = Self.pad
         topBar = CGRect(x: 0, y: 0, width: w, height: Self.topBarHeight)
         let top = topBar.maxY + pad
-        ballSize = h >= 800 ? 220 : 180
+        let large = InstrumentCluster.Layout(ball: 220).size.width
+        ballSize = h >= 800 && w - large - 3 * pad >= Self.slotSize.lowerBound ? 220 : 180
         let cs = InstrumentCluster.Layout(ball: ballSize).size
         let clusterTop = h - pad - cs.height
         let vehicleWidth = min(Self.vehicleWidth, w / 2 - 2 * pad)

@@ -34,8 +34,13 @@ public struct GMeter: Equatable {
         total = a.length / standardGravity
     }
 
-    /// The meter reading `v`'s accelerometer.
-    public init(vessel v: Vessel) { self.init(sensedAcceleration: v.sensedAcceleration) }
+    /// The meter reading `v`'s accelerometer; nil for a wreck (`.crashed`),
+    /// whose telemetry the simulation no longer updates, so it would hold
+    /// the reading from just before the impact. The HUD shows a blank meter.
+    public init?(vessel v: Vessel) {
+        guard v.status != .crashed else { return nil }
+        self.init(sensedAcceleration: v.sensedAcceleration)
+    }
 
     /// Where the pointer stands, g: `axial`, held at the dial's stops.
     public var pointer: Double { Self.onDial(axial) }

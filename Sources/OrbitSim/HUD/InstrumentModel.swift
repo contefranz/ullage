@@ -53,10 +53,11 @@ final class InstrumentModel: ObservableObject {
         /// "SCS", "CM"); nil when the hold flies none.
         var holdProgram: String?
         var landed = true
-        /// The G-meter: the sensed acceleration along the axis and in all.
-        var gMeter = GMeter()
+        /// The G-meter: the sensed acceleration along the axis and in all;
+        /// nil (blank) for a wreck.
+        var gMeter: GMeter?
         /// The launch vehicle's engine status lights; nil without a Saturn
-        /// stage below (dark).
+        /// stage below, or for a wreck (dark).
         var engineLights: LVEngineLights?
         /// The bank, heating, ELS, entry peak and 0.05 g light, while they
         /// matter.
