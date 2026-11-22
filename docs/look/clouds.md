@@ -332,6 +332,12 @@ scene at the break), so the clouds' own share is the difference:
   0.3 ms, the P0 pass alone by up to 0.7 ms, and LEO's addition by up to
   0.9 ms (2.0-2.9 ms over five runs since the split).
 - LEO is within its budget, at the top of its range only just.
+- **After the look survey (2026-11-22)**, the P0 pass alone, steady, three
+  runs each of #90's build and the look follow-up's, interleaved, with other
+  sessions on the GPU (the empty frames alone swung 0.6-4.8 ms): pad
+  0.6-2.8 ms before, 2.0-2.8 after (budget 3.0); ascent 60 s 1.8-2.6
+  before, 2.0-3.2 after; LEO 1.6 before, 0.7 after (budget 2.0), fresh
+  1.6 and 1.5. No regression stands out of the noise.
 - **The march has a GPU pass of its own.** Apple's driver merges
   consecutive compute encoders into one GPU pass, and an encoder that
   depends on any part of it waits for all of it. A Metal System Trace
