@@ -35,8 +35,9 @@ import Foundation
 ///   mass at the release, Table 20-9's thrust buildup apart.
 ///
 /// The simulation runs it for `vehicle` (`Simulation.terminalCount`): at the
-/// start of each of its steps, before the flight program (`update`), and at
-/// the end of each (`stepped`), and it ends a step on each of the count's
+/// start of each of its steps, before the flight program (`update`) and
+/// after it (`programmed`, for the engines the program lost), and at the
+/// end of each (`stepped`), and it ends a step on each of the count's
 /// events.
 public final class TerminalCount {
     /// The restraint of the controlled release mechanisms: a force against
@@ -197,9 +198,9 @@ public final class TerminalCount {
     /// What the count did and when, in order.
     public private(set) var log: [(time: Epoch, event: String)] = []
 
-    /// Range time at which each engine stopped building thrust before the
-    /// release (it failed, or the launch was scrubbed), by its index in
-    /// `plan.starts`: its propellant stops there.
+    /// Range time at which each engine stopped while the stack stood (it
+    /// failed, or the launch was scrubbed), by its index in `plan.starts`:
+    /// before the release its propellant stops there.
     private var stops: [Int: Double] = [:]
     /// The events logged, by index in `plan.events`.
     private var done = Set<Int>()
@@ -296,7 +297,8 @@ public final class TerminalCount {
         public var firstMotion: Epoch?
         public var liftoffSwitch: Epoch?
         public var scrubbed: Epoch?
-        /// Range time each engine stopped at before the release, by index.
+        /// Range time each engine stopped at while the stack stood (before
+        /// first motion), by index.
         public var stops: [Int: Double]
 
         /// Range time at `now` (the hold's while it holds).
@@ -305,7 +307,7 @@ public final class TerminalCount {
         public func rangeZero(at now: Epoch) -> Epoch { rangeZero ?? now + (-hold) }
 
         /// Engine `i`'s thrust over full at `epoch`, as the count ran it: 0
-        /// once it stopped before the release, then and after.
+        /// once it stopped while the stack stood, then and after.
         public func fraction(_ i: Int, at epoch: Epoch) -> Double {
             guard let zero = rangeZero else { return 0 }
             let t = epoch - zero
@@ -334,7 +336,7 @@ public final class TerminalCount {
             return (zero + s.command, zero + s.ignition)
         }
 
-        /// The epoch engine `i` stopped at before the release, if it did.
+        /// The epoch engine `i` stopped at while the stack stood, if it did.
         public func stop(_ i: Int) -> Epoch? {
             guard let zero = rangeZero, let s = stops[i] else { return nil }
             return zero + s
@@ -371,8 +373,8 @@ public final class TerminalCount {
     }
 
     /// Engine `i`'s thrust over its full thrust at `epoch` as the count ran
-    /// it: as planned from range zero, 0 once it stopped before the release
-    /// (`stops`), 1 after the release; 0 while the count holds.
+    /// it: as planned from range zero, 0 once it stopped while the stack
+    /// stood (`stops`), 1 after the release; 0 while the count holds.
     public func fraction(_ i: Int, at epoch: Epoch) -> Double { record.fraction(i, at: epoch) }
 
     // MARK: The simulation's hooks
@@ -402,19 +404,19 @@ public final class TerminalCount {
             }
         }
         guard released == nil else {
-            if v.landed != nil { lastStanding = now }
+            if v.landed != nil, firstMotion == nil {
+                lastStanding = now
+                noteLosses(v, rangeTime: t)
+            }
             return
         }
         // Until the release the count, not the pilot, runs the engines.
         v.mainThrottle = 0
         if scrub != nil { return }
+        noteLosses(v, rangeTime: t)
         let engines = plan.starts.map { s in v.thrusters.first { $0.name == s.engine } }
         for (i, e) in engines.enumerated() {
             guard let e else { continue }
-            // An engine lost since the resume stops there: before its
-            // command it never starts (`Record.start`), and what it was to
-            // burn stays in the tanks.
-            if stops[i] == nil, !e.isAvailable { stops[i] = t }
             guard stops[i] == nil, t >= plan.starts[i].ignition - 1e-6 else {
                 e.groundStart = nil
                 continue
@@ -457,6 +459,17 @@ public final class TerminalCount {
             return
         }
         bookTanks(rangeTime: t)
+    }
+
+    /// After the vehicle's flight program in each step, while the stack
+    /// stands (before the release, or after it until first motion): an
+    /// engine the program lost in this step stops at the step's start, as
+    /// the program logged it, not a step later. The IU applies failures in
+    /// its own update (F+digit, a script's `fail`), after the count's.
+    public func programmed(_ v: Vessel, in sim: Simulation) {
+        guard v === vehicle, let zero = rangeZero, scrub == nil, firstMotion == nil,
+              released == nil || v.landed != nil else { return }
+        noteLosses(v, rangeTime: sim.time - zero)
     }
 
     /// Seconds from `now` to the count's next event, to end a step there;
@@ -545,6 +558,19 @@ public final class TerminalCount {
     }
 
     // MARK: Inside
+
+    /// Every engine lost since the resume stops at range time `t`, its
+    /// ground start off: before its command it never starts
+    /// (`Record.start`), and what it was to burn stays in the tanks; after
+    /// the release, while the stack still stands on the rods, the record's
+    /// thrust and flow follow it (`Record.fraction`).
+    private func noteLosses(_ v: Vessel, rangeTime t: Double) {
+        for (i, s) in plan.starts.enumerated() where stops[i] == nil {
+            guard let e = v.thrusters.first(where: { $0.name == s.engine }), !e.isAvailable else { continue }
+            stops[i] = t
+            e.groundStart = nil
+        }
+    }
 
     /// Every tank at its load plus what the engines have not burned by range
     /// time `t` of what they were to burn by the release: from `t`, or from

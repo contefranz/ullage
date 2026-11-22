@@ -116,7 +116,10 @@ final class GroundCloudTests: XCTestCase {
     // The deck's wall jet carries the heat its cloud gets: the deck share's
     // once its share of the deck's 50,000 gpm has boiled (with 30 % of the
     // exhaust on the deck, about 7 % of that heat), and its eddies are that
-    // much less hot than they would be dry.
+    // much less hot than they would be dry. From 40 m off the axis (the
+    // envelope of a stack some way up), below the 2,000 K cap: nearer, at
+    // the ML's opening, the volume is too small for the heat and both are
+    // capped.
     func testDeckJetCarriesTheHeatLeftByItsWater() {
         let gpm = GroundCloud.gallon / GroundCloud.minute
         let wet = GroundCloud.Sources(exhaust: LiftoffRise.flow, thrust: LiftoffRise.thrust, trench: 0.7, deck: 0.3,
@@ -124,7 +127,7 @@ final class GroundCloudTests: XCTestCase {
                                       deckWater: PadExhaust.deckWater(sinceFirstMotion: 1) * gpm)
         var dry = wet
         dry.deckWater = 0
-        let rho = 1.17, ambient = 300.0, r0 = 12.0
+        let rho = 1.17, ambient = 300.0, r0 = 40.0
         let w = LaunchEffects.deckJet(wet, from: r0, density: rho, ambient: ambient)
         let d = LaunchEffects.deckJet(dry, from: r0, density: rho, ambient: ambient)
         let left = GroundCloud.fluxes(wet, lobe: .deck, density: rho, ambient: ambient).heat
@@ -132,12 +135,10 @@ final class GroundCloudTests: XCTestCase {
         let boiled = wet.deckWater * wet.deck * (GroundCloud.waterHeat * (373.15 - ambient) + GroundCloud.waterLatent)
         XCTAssertEqual(all - left, boiled, accuracy: 1e-9 * all)
         XCTAssertEqual(1 - left / all, 0.07, accuracy: 0.02)
-        // Below the 2,000 K cap the excess is the heat over the volume's heat capacity.
-        if d.temperature < 2_000 {
-            XCTAssertEqual((w.temperature - ambient) / (d.temperature - ambient), left / all, accuracy: 1e-9)
-        } else {
-            XCTAssertLessThanOrEqual(w.temperature, d.temperature)
-        }
+        // The excess is the heat over the volume's heat capacity.
+        XCTAssertLessThan(d.temperature, 2_000, "below the cap")
+        XCTAssertLessThan(w.temperature, d.temperature)
+        XCTAssertEqual((w.temperature - ambient) / (d.temperature - ambient), left / all, accuracy: 1e-9)
         XCTAssertEqual(w.speed, d.speed)
     }
 

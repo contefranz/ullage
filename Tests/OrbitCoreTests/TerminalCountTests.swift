@@ -235,6 +235,68 @@ final class TerminalCountTests: XCTestCase {
         XCTAssertNil(v.landed)
     }
 
+    // A failure the IU applies (F+digit, a script's `fail`: scheduled on the
+    // IU at the present epoch, applied in its update after the count's)
+    // stops the engine at the IU's epoch, the step's start, not at the next
+    // step's: at 1,000× before the first ignition that step runs on to the
+    // count's next time, seconds later. The engine's start flow after the
+    // failure stays aboard, and its ground start is off from there.
+    func testAFailureTheIUAppliesStopsAtItsEpoch() throws {
+        let (sim, v, count) = try countOnThePad()
+        sim.stepBudget = nil
+        sim.maxSubsteps = .max
+        let m0 = v.mass
+        sim.stage(v)
+        let zero = try XCTUnwrap(count.rangeZero)
+        let i = try XCTUnwrap(count.plan.starts.firstIndex { $0.engine == "S-IC engine 5" })
+        let five = count.plan.starts[i]
+        while sim.time - zero < five.command + 0.5 { sim.advance(by: 1.0 / 60) }
+        let iu = try XCTUnwrap(v.flightProgram as? SaturnIU)
+        iu.scheduleFailure(of: five.engine, at: .epoch(sim.time))
+        sim.warp = 1_000
+        sim.advance(by: 1.0 / 60)
+        let failed = try XCTUnwrap(iu.log.first { $0.event == "S-IC engine 5 failed" }).time
+        XCTAssertLessThan(failed - zero, five.ignition, "before its ignition")
+        XCTAssertGreaterThan(sim.time - failed, 10, "a frame of 16.7 s ran on")
+        XCTAssertEqual(try XCTUnwrap(count.record.stop(i)) - failed, 0, accuracy: 1e-6, "at the IU's epoch")
+        XCTAssertNotNil(count.record.start(i), "it was commanded")
+        XCTAssertNil(s(v, five.engine).groundStart)
+        while sim.time - zero < 1 { sim.advance(by: 1.0 / 60) }
+        XCTAssertNotNil(count.scrub)
+        // What each engine burned up to where it stopped, and nothing more.
+        let flow = AS506.f1.massFlow
+        let burned = count.plan.starts.indices.reduce(0) { sum, j in
+            sum + flow * count.plan.flowIntegral(j, from: Self.hold, to: count.record.stops[j]!)
+        }
+        XCTAssertEqual(m0 - v.mass, burned, accuracy: 0.01)
+    }
+
+    // An engine lost after the release while the stack still stands on the
+    // rods (here a second, in the sit the first loss after commit made, by
+    // the IU in the step it applies it): the record stops it there, so the
+    // pad's flow in the scene follows the core's; the three left do not
+    // lift the stack yet.
+    func testAnEngineLostOnTheRodsStopsInTheRecord() throws {
+        let (sim, v, count) = try countOnThePad()
+        count.resume(at: sim.time, in: sim)
+        run(sim) { sim.time - count.rangeZero! >= 0.1 }
+        s(v, "S-IC engine 2").fail()
+        run(sim) { count.released != nil && sim.time - count.released! >= 1 }
+        XCTAssertNotNil(v.landed)
+        let iu = try XCTUnwrap(v.flightProgram as? SaturnIU)
+        iu.scheduleFailure(of: "S-IC engine 4", at: .epoch(sim.time))
+        run(sim) { sim.time - count.released! >= 10 }
+        let failed = try XCTUnwrap(iu.log.first { $0.event == "S-IC engine 4 failed" }).time
+        let i = try XCTUnwrap(count.plan.starts.firstIndex { $0.engine == "S-IC engine 4" })
+        XCTAssertEqual(try XCTUnwrap(count.record.stop(i)) - failed, 0, accuracy: 1e-6)
+        XCTAssertEqual(count.record.fraction(i, at: failed + -1e-3), 1)
+        XCTAssertEqual(count.record.fraction(i, at: failed), 0)
+        let running = count.plan.starts.indices.filter { count.record.fraction($0, at: sim.time) > 0 }
+        XCTAssertEqual(running.count, 3)
+        XCTAssertNotNil(v.landed)
+        XCTAssertNil(count.firstMotion)
+    }
+
     // At any time warp the count's steps end on its events, taken between
     // epochs: frames of 1/60 s at 100× and 1,000× (16.7 s of simulation
     // each) from the hold land on every event's epoch, which the

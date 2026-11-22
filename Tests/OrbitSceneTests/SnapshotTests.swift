@@ -134,6 +134,26 @@ final class SnapshotSpecTests: XCTestCase {
         XCTAssertThrowsError(try JSONDecoder().decode(SnapshotSpec.self, from: Data(#"{"shots": [{"name": "x"}]}"#.utf8)))
     }
 
+    /// `SnapshotSpec`'s documented example decodes, and its script reaches
+    /// its staging from the pad's hold (`ev:` resumes the count): the IU
+    /// logs its event, OECO at range 162 s.
+    func testTheDocumentedExampleRuns() throws {
+        let json = #"""
+        {"shots": [{"name": "staging", "scenario": "as506-pad",
+                    "advance": ["ev:S-IC outboard engine cutoff", "wait:0.8"],
+                    "camera": {"yaw": 70, "pitch": 15, "distance": 140}}]}
+        """#
+        let shot = try XCTUnwrap(JSONDecoder().decode(SnapshotSpec.self, from: Data(json.utf8)).shots.first)
+        let scenario = try XCTUnwrap(Scenario.named(shot.scenario))
+        let sim = scenario.build(Self.system)
+        var script = try ScenarioScript(shot.advance)
+        script.limit = 400
+        try script.run(on: sim, missionClockZero: scenario.missionClockZero)
+        let zero = try XCTUnwrap(sim.terminalCount?.rangeZero)
+        XCTAssertEqual(sim.time - zero, 162.8, accuracy: 1.5, "0.8 s after OECO")
+        XCTAssertNil(sim.focus?.landed)
+    }
+
     /// A prepared shot: the scenario as the app opens it, then the camera
     /// the spec gives.
     func testPrepare() throws {

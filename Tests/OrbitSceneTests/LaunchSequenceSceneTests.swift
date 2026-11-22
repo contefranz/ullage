@@ -223,7 +223,9 @@ final class LaunchSequenceSceneTests: XCTestCase {
     // no ignition flash from it (four of each kind, not five), the launch
     // scrubs at T−0, and the pad's effects end the clouds' window after the
     // cutoff: the ground cloud is integrated no further, and a reset after a
-    // long scrubbed hold rebuilds nothing.
+    // long scrubbed hold rebuilds nothing. The stack stands loaded, so it
+    // vents on: the LOX tank's fog and the umbilicals' trickle, then and
+    // after the reset.
     func testAScrubbedLaunchsEffectsEnd() throws {
         func smoke(failing: Bool) throws -> (run: LaunchEffectsTests.Run, smoke: Int) {
             let (sim, camera) = try open()
@@ -247,11 +249,46 @@ final class LaunchSequenceSceneTests: XCTestCase {
         let cloud = try XCTUnwrap(run.effects.cloud)
         XCTAssertLessThan(cloud.time - end, 5.1, "integrated no further than the window")
         XCTAssertTrue(run.requests("p4 ground cloud", in: run.outputs.last!).isEmpty)
+        XCTAssertFalse(run.requests("p4 cold vapour", in: run.outputs.last!).isEmpty, "it vents on")
         sim.advance(by: 3_600)
         let fresh = LaunchEffectsTests.Run(sim, scrubbed.run.camera)
         fresh.frame()
         XCTAssertNil(fresh.effects.cloud, "nothing rebuilt an hour after the window")
         XCTAssertEqual(fresh.count("p4 ground cloud"), 0)
+        XCTAssertGreaterThan(fresh.count("p4 cold vapour"), 0, "it vents on an hour later")
+    }
+
+    // A stack released but left standing on the rods (here one F-1 lost
+    // after commit and three more in the sit, which keep it on the pad for
+    // good) runs the pad's windows from the release, since its first motion
+    // is not found: the record follows the core's losses (a fifth of the
+    // flow feeds the trench), and the ground cloud is integrated no further
+    // than its window after the release. The stack still vents.
+    func testAStackLeftOnTheRodsClosesItsWindows() throws {
+        let (sim, camera) = try open()
+        let v = try XCTUnwrap(sim.focus)
+        func fail(_ n: Int) { v.thrusters.first { $0.name == "S-IC engine \(n)" }!.fail() }
+        sim.stage(v)
+        advance(sim, to: 0.1)
+        let count = try XCTUnwrap(sim.terminalCount)
+        XCTAssertNotNil(count.committed)
+        fail(1)
+        advance(sim, to: 1)
+        let release = try XCTUnwrap(count.released)
+        for n in 2...4 { fail(n) }
+        let run = LaunchEffectsTests.Run(sim, camera)
+        run.frame()
+        let end = release + LaunchEffects.cloudWindow + ParticleLifetimes.groundCloud.upperBound
+        fly(run, step: 5, to: end - count.rangeZero! + 30)
+        XCTAssertNotNil(v.landed)
+        XCTAssertNil(count.firstMotion)
+        let record = count.record
+        XCTAssertEqual(count.plan.starts.indices.filter { record.fraction($0, at: sim.time) > 0 }.count, 1)
+        let cloud = try XCTUnwrap(run.effects.cloud)
+        XCTAssertLessThan(cloud.time - end, 5.1, "integrated no further than the window")
+        XCTAssertTrue(run.requests("p4 ground cloud", in: run.outputs.last!).isEmpty)
+        XCTAssertTrue(run.requests("p4 pad exhaust", in: run.outputs.last!).isEmpty)
+        XCTAssertFalse(run.requests("p4 cold vapour", in: run.outputs.last!).isEmpty, "it vents on")
     }
 
     // The clouds' eddies are born moving with their lobe (`sourceVelocity`,

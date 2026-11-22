@@ -46,11 +46,22 @@ until it has, the countdown has them infinitely far, never at the historic
 estimate (which is earlier: an umbilical burst there would come twice).
 
 **A scrub.** An engine lost before T−0 scrubs the launch: nothing more
-moves, and the pad's effects run their windows from the cutoff instead of
-first motion, so the clouds stop being integrated and filled 480 s after it
-(and a reset later rebuilds nothing). An engine lost before its start
-command never starts: no smoke, no flash from it; one lost after its command
-smokes until it stopped.
+moves, and the pad's exhaust effects run their windows from the cutoff
+instead of first motion, so the clouds stop being integrated and filled 480
+s after it (and a reset later rebuilds nothing). The stack stands loaded, so
+its LOX tank's fog and the umbilicals' trickle stream on, as in a hold. An
+engine lost before its start command never starts: no smoke, no flash from
+it; one lost after its command smokes until it stopped. The count records a
+loss at the step's start whoever made it, the IU's failures (F+digit, a
+script's `fail`) too, which it applies after the count's update
+(`TerminalCount.programmed`).
+
+**Left on the rods.** An engine lost after commit does not stop the
+release, and the rest may not lift the stack against its weight and the
+rods' 3.2 MN (four F-1s do after about 39 s; one alone never). While it stands
+released, the count records its losses as before the release, so the
+trench and the clouds are fed what still burns, and the pad's windows run
+from the release until first motion is found.
 
 ## Effects on the core's thrust
 
@@ -139,7 +150,7 @@ density; a hot, light one faster, as a light jet's near field is).
 - A rebuilt climb off the pad is `LiftoffRise`'s, with the live count's
   controlled release in closed form over its stroke (the first-motion stands
   have none): what it puts the live climb behind the stands' is the core's
-  within 5 % (0.4-4 m at 2-10 s after first motion).
+  within 5 % (0.7, 1.9 and 4.0 m at 2, 5 and 10 s after first motion).
 
 Seeds: every request takes a fresh seed from its key and the producer's
 running serial (`LaunchEffects.nextSeed`, `ParticleRandom`), and the

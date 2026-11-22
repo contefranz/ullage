@@ -12,7 +12,8 @@ import OrbitCore
 /// - `count`: resume a terminal count that holds (Space on the pad).
 /// - `wait:<s>`: run s seconds of simulation time.
 /// - `ev:<text>`: run until an event the simulation logs, or the IU logs,
-///   contains `text` (case-insensitive), e.g. `ev:S-IC OECO`, `ev:mains deployed`.
+///   contains `text` (case-insensitive), e.g. `ev:S-IC outboard engine
+///   cutoff`, `ev:mains deployed`.
 /// - `liftoff`: run until the focus vessel leaves the ground.
 /// - `t<n>`: run until the IU starts time base n (`t3`).
 /// - A holding count is resumed first by `ev:`, `liftoff` and `t<n>` too:

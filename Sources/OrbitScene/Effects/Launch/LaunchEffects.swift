@@ -181,11 +181,13 @@ public final class LaunchEffects: EffectProducer {
             return (zero + plan.starts[i].command, zero + plan.starts[i].ignition)
         }
 
-        /// Where engine `i` stopped before the release, if it did.
+        /// Where engine `i` stopped while the stack stood, if it did.
         func stop(_ i: Int) -> Epoch? { record?.stop(i) }
 
         /// When a scrubbed launch was cut off (it never released).
         var scrubbed: Epoch? { record.flatMap { $0.released == nil ? $0.scrubbed : nil } }
+        /// When the hold-down arms released, if they have.
+        var released: Epoch? { record?.released }
 
         /// The first start command, and the first ignition; nil while the count holds.
         var firstCommand: Epoch? { plan.starts.indices.compactMap { start($0)?.command }.min() }
@@ -223,14 +225,24 @@ public final class LaunchEffects: EffectProducer {
         let ignition = Ignition(scene: f.scene, countdown: countdown)
         let range = countdown.rangeTime(at: now)
         let firstMotion = LaunchCountdown.epoch(countdown.firstMotion, in: countdown)
-        let windowStart = ignition.scrubbed ?? firstMotion
+        // The pad's windows run from first motion; a scrub's from its
+        // cutoff, and those of a stack released but still standing on the
+        // rods (its first motion not yet found) from the release, so they
+        // only ever move later.
+        let windowStart = ignition.scrubbed
+            ?? (countdown.firstMotion.isFinite ? firstMotion : ignition.released ?? firstMotion)
+        // The loaded stack vents while it stands, whatever the count did (a
+        // scrubbed one too): its fog and umbilicals' trickle, until their
+        // decay after first motion is over.
+        let venting = now - firstMotion < Self.padWindow + ParticleLifetimes.padExhaust.upperBound
         // A history is rebuilt only on the first frame after a reset; later
         // frames carry on from the last one's epoch, whatever happened in
         // between (a staging's new vessels, a stretch with no vehicle). With
         // a count the pad's vapour streams from the count's start; without
         // one the effects start at the first engine's start command.
         let last = seen
-        guard f.scene.launch != nil || range >= PadIgnition.firstCommand, now - windowStart < Self.window,
+        let open = now - windowStart < Self.window
+        guard f.scene.launch != nil || range >= PadIgnition.firstCommand, open || venting,
               let vehicle = Self.vehicle(in: f.scene, site: site)
         else {
             seen = Seen(epoch: now, vessel: nil, climb: 0)
@@ -246,15 +258,18 @@ public final class LaunchEffects: EffectProducer {
                         vehicle: vehicle, toAnchor: toAnchor, anchor: nil,
                         programStart: LiftoffRise.programStart(release: ignition.record?.plan.controlledRelease))
         let previousClimb = last?.vessel == vehicle.vessel.id ? last?.climb : nil
-        if now - windowStart < Self.cloudWindow + ParticleLifetimes.groundCloud.upperBound {
+        if open, now - windowStart < Self.cloudWindow + ParticleLifetimes.groundCloud.upperBound {
             if now - windowStart < Self.padWindow + ParticleLifetimes.padExhaust.upperBound {
                 ignitionFlashes(&c, m)
                 startSmoke(&c, m)
                 padExhaust(&c, m, previousClimb: previousClimb)
-                vapour(&c, m)
             }
+            if venting { vapour(&c, m) }
             groundCloud(&c, m, previousClimb: previousClimb)
+        } else if venting {
+            vapour(&c, m)
         }
+        guard open else { return }
         frost(&c, m)
         trail.update(&c, materials: m.trail, owner: self)
     }
