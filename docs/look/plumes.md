@@ -508,6 +508,14 @@ plumes on and off on alternate frames, the difference of the medians, at
 High (32 steps); the plan's budget is 1.5 ms on the pad and 0.5 ms in
 LEO, for the default physical look.
 
+- **The upper stages and the larger plumes** (2026-11-22, on top of the
+  flow noise; main / now, ms): pad 0.89 / 1.28 and 1.40 / 2.60; ascent
+  2.12 / 2.95; max-Q 2.41 / 3.47; staging 4.04 / 4.96 (auto 4.40 / 5.65);
+  the S-II in LEO about 0 / 4.46 (its ice fills the frame, marched at half
+  the steps); the SPS at night 0.48 / 0.02 (its near-exit glow is gone, its
+  extension's glow is drawn on the bell). The rise at the pad, the ascent
+  and max-Q is the wider far field (the round jet's 0.094) and the wall jet
+  on the deck; R7's tiers are the lever (Medium halves the steps).
 - **After the turbulence's review** (2026-11-22: one flow through a
   cluster, the time scales from where the eddies are), against the first
   flow noise measured back to back, twice (first / now, ms): pad 1.37-1.38
