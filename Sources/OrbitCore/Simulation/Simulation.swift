@@ -49,6 +49,9 @@ public final class Simulation {
     /// interval: `maxRealInterval`, `maxSubsteps` or `stepBudget` cut it
     /// short, and the rest is dropped, not carried over.
     public private(set) var warpLimited = false
+    /// The warp events the governor has logged (`WarpEvent`), so each is
+    /// logged once.
+    var loggedWarpEvents = Set<WarpLogKey>()
 
     /// The day's atmosphere of a body, by NAIF id, in place of its standard
     /// model in this simulation (a launch day's measured air and winds). The
@@ -116,11 +119,23 @@ public final class Simulation {
     /// Advance by `realSeconds` of wall-clock time multiplied by `warp`, or
     /// less when a bound stops it (`warpLimited`). The step that crosses the
     /// budget finishes, so a frame always makes progress.
+    ///
+    /// The warp governor (`WarpEvent`) reads the focus vessel's program's
+    /// hard warp events: it lowers the warp for a cap in force or a stop
+    /// reached, ends the frame on the next event that would lower it
+    /// further, approaching it over the last frames, and never raises the
+    /// warp. With no events the frame is stepped exactly as without the
+    /// governor.
     public func advance(by realSeconds: Double) {
         warpLimited = false
         guard !paused else { return }
         let real = min(realSeconds, maxRealInterval)
-        var remaining = real * warp
+        let events = governingWarpEvents()
+        var remaining = real * warp, governed = false, endsOn: WarpEvent?
+        if !events.isEmpty {
+            (remaining, endsOn) = governedSpan(events, real: real)
+            governed = remaining < real * warp
+        }
         let deadline = stepBudget.map { clock() + $0 }
         var count = 0
         while remaining > 1e-9 {
@@ -132,7 +147,8 @@ public final class Simulation {
             if count >= maxSubsteps { break }
             if let deadline, clock() >= deadline { break }
         }
-        warpLimited = real < realSeconds || remaining > 1e-9
+        if !events.isEmpty { governorReached(events, endsOn: remaining > 1e-9 ? nil : endsOn) }
+        warpLimited = real < realSeconds || remaining > 1e-9 || governed
     }
 
     /// This step's levels and gimbal commands. A flight program sets the

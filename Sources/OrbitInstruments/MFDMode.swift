@@ -5,6 +5,9 @@ import OrbitCore
 /// (Shift and the key, as in Orbiter) and the label of its button there.
 public enum MFDModeID: String, CaseIterable, Codable, Sendable {
     case orbit, surface, map, deorbit, entry
+    /// M2's ground desk (the RTCC) and the onboard computer's DSKY
+    /// (docs/m2/design-flight-controls.md §3): stubs until their tracks.
+    case transfer, cmc
 
     public var name: String {
         switch self {
@@ -13,6 +16,8 @@ public enum MFDModeID: String, CaseIterable, Codable, Sendable {
         case .map: "Map"
         case .deorbit: "Deorbit"
         case .entry: "Entry"
+        case .transfer: "Transfer"
+        case .cmc: "CMC"
         }
     }
 
@@ -23,6 +28,8 @@ public enum MFDModeID: String, CaseIterable, Codable, Sendable {
         case .map: .m
         case .deorbit: .d
         case .entry: .e
+        case .transfer: .x
+        case .cmc: .c
         }
     }
 
@@ -34,6 +41,8 @@ public enum MFDModeID: String, CaseIterable, Codable, Sendable {
         case .map: "MAP"
         case .deorbit: "DEO"
         case .entry: "ENT"
+        case .transfer: "TRN"
+        case .cmc: "CMC"
         }
     }
 
@@ -45,7 +54,20 @@ public enum MFDModeID: String, CaseIterable, Codable, Sendable {
         case .map: MapMFD()
         case .deorbit: DeorbitMFD()
         case .entry: EntryMFD()
+        case .transfer, .cmc: PlaceholderMFD(self)
         }
+    }
+}
+
+/// A mode whose page is still to come: its title and a line saying so.
+public final class PlaceholderMFD: MFDMode {
+    public let id: MFDModeID
+    public init(_ id: MFDModeID) { self.id = id }
+    public func buttons(_ c: MFDContext?) -> [MFDButton?] { [] }
+    public func page(_ c: MFDContext) -> MFDPage {
+        var page = MFDPage(title: id.name.uppercased())
+        page.add(4, 2, "Not yet available", .referenceDim)
+        return page
     }
 }
 

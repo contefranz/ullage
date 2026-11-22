@@ -39,6 +39,14 @@ public protocol FlightProgram: AnyObject {
     /// The next event the program will act on, for the pilot: its name and
     /// when it is due; nil when none is known.
     func nextEvent(at now: Epoch) -> (name: String, at: Epoch)?
+    /// The warp stops and caps the program asks for from `now` on, which
+    /// the simulation's governor honours while `vessel` has the focus
+    /// (`WarpEvent`, `Simulation.advance`). The default asks for none.
+    func warpEvents(after now: Epoch) -> [WarpEvent]
+    /// Whether the pilot's throttle keys (Z, X, = and -) may set `vessel`'s
+    /// main throttle now; false while the program owns the engines (the
+    /// IU's J-2 after orbit insertion). The default allows it.
+    func allowsPilotThrottle(of vessel: Vessel) -> Bool
 }
 
 extension FlightProgram {
@@ -48,4 +56,6 @@ extension FlightProgram {
     }
     public var hostPart: String? { nil }
     public func nextEvent(at now: Epoch) -> (name: String, at: Epoch)? { nil }
+    public func warpEvents(after now: Epoch) -> [WarpEvent] { [] }
+    public func allowsPilotThrottle(of vessel: Vessel) -> Bool { true }
 }

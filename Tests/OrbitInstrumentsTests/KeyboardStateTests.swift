@@ -24,7 +24,7 @@ final class KeyboardStateTests: XCTestCase {
             (.slash, 44), (.period, 47), (.grave, 50), (.isoSection, 10), (.tab, 48), (.space, 49), (.escape, 53),
             (.f1, 122), (.f2, 120), (.f3, 99), (.f4, 118), (.f5, 96), (.f6, 97), (.f7, 98), (.f8, 100),
             (.f9, 101), (.f10, 109), (.f11, 103), (.f12, 111), (.left, 123), (.right, 124), (.down, 125),
-            (.up, 126),
+            (.up, 126), (.returnKey, 36), (.delete, 51), (.backslash, 42),
         ]
         for (key, code) in codes {
             XCTAssertEqual(key.keyCode, code, key.rawValue)
@@ -32,9 +32,12 @@ final class KeyboardStateTests: XCTestCase {
         }
         XCTAssertEqual(Set(PhysicalKey.allCases.map(\.keyCode)).count, PhysicalKey.allCases.count)
         for key in PhysicalKey.allCases { XCTAssertEqual(PhysicalKey(keyCode: key.keyCode), key) }
-        XCTAssertEqual(PhysicalKey.allCases.count, 26 + 10 + 11 + 1 + 3 + 12 + 4)
-        // Return, Delete, keypad 1 and left Shift are not named.
-        for code: UInt16 in [36, 51, 83, 56] { XCTAssertNil(PhysicalKey(keyCode: code)) }
+        XCTAssertEqual(PhysicalKey.allCases.count, 26 + 10 + 11 + 1 + 3 + 2 + 12 + 4)
+        // The keypad's Enter is Return; keypad 1, forward delete and left
+        // Shift are not named.
+        XCTAssertEqual(PhysicalKey(keyCode: 0x4C), .returnKey)
+        XCTAssertEqual(PhysicalKey.returnKey.keyCode, 0x24)
+        for code: UInt16 in [83, 117, 56] { XCTAssertNil(PhysicalKey(keyCode: code)) }
         XCTAssertEqual(PhysicalKey.allCases.compactMap(\.digit).sorted(), Array(0...9))
         XCTAssertEqual(PhysicalKey.digit7.digit, 7)
         XCTAssertNil(PhysicalKey.equal.digit)

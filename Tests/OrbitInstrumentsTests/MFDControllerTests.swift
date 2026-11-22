@@ -52,6 +52,50 @@ final class MFDControllerTests: XCTestCase {
         XCTAssertTrue(kb.takePressed().isEmpty)
     }
 
+    // The seven modes: the first six beside the left buttons (TRANSFER the
+    // sixth), CMC beside the right's first, each on its button's row and
+    // none writing over another; Shift+X, Shift+C and their buttons pick
+    // them, and their stub pages say they are still to come.
+    func testSelectPageSevenModes() {
+        XCTAssertEqual(MFDController.modeOrder, [.orbit, .surface, .map, .deorbit, .entry, .transfer, .cmc])
+        XCTAssertEqual(Set(MFDModeID.allCases.map(\.selectKey)).count, MFDModeID.allCases.count)
+        for id in MFDModeID.allCases {
+            XCTAssertFalse(MFDController.selectKeys.union(MFDController.menuKeys).union(MFDController.powerKeys)
+                .contains(id.selectKey), id.name)
+        }
+        XCTAssertEqual(MFDModeID.transfer.selectKey, .x)
+        XCTAssertEqual(MFDModeID.transfer.label, "TRN")
+        XCTAssertEqual(MFDModeID.cmc.selectKey, .c)
+        XCTAssertEqual(MFDModeID.cmc.label, "CMC")
+
+        let mfd = MFDController(left: .surface, right: .orbit)
+        mfd.handle(.f1, side: .left, sim: nil)
+        let page = mfd.page(.left, sim: nil)
+        let lines = page.lines
+        XCTAssertEqual(lines[MFDPage.buttonRow(0)], "    Orbit    Shift-O Shift-C     CMC")
+        XCTAssertEqual(lines[MFDPage.buttonRow(1)], "    Surface  Shift-S")
+        XCTAssertEqual(lines[MFDPage.buttonRow(3)], "    Deorbit  Shift-D")
+        XCTAssertEqual(lines[MFDPage.buttonRow(4)], "    Entry    Shift-E")
+        XCTAssertEqual(lines[MFDPage.buttonRow(5)], "    Transfer Shift-X")
+        XCTAssertTrue(page.text.allSatisfy { MFDPage.bodyColumns.contains($0.startColumn)
+            && MFDPage.bodyColumns.contains($0.startColumn + $0.string.count - 1) })
+        XCTAssertEqual(page.buttons.map { $0?.label }, ["ORB", "SRF", "MAP", "DEO", "ENT", "TRN", "CMC"])
+
+        XCTAssertTrue(mfd.press(.button(5), side: .left, sim: nil))
+        XCTAssertEqual(mfd.panel(.left).mode, .transfer)
+        XCTAssertTrue(mfd.page(.left, sim: nil).shows("NO VESSEL"))
+        mfd.handle(.tab, side: .left, sim: nil)
+        XCTAssertTrue(mfd.press(.button(6), side: .left, sim: nil))
+        XCTAssertEqual(mfd.panel(.left).mode, .cmc)
+        mfd.handle(.tab, side: .left, sim: nil)
+        XCTAssertFalse(mfd.press(.button(7), side: .left, sim: nil))
+        XCTAssertTrue(mfd.handle(.x, side: .left, sim: nil))
+        XCTAssertEqual(mfd.panel(.left).mode, .transfer)
+        mfd.handle(.f1, side: .left, sim: nil)
+        XCTAssertTrue(mfd.handle(.c, side: .left, sim: nil))
+        XCTAssertEqual(mfd.panel(.left).mode, .cmc)
+    }
+
     // Right-Shift keys reach the right display only, and left-Shift keys the
     // left one.
     func testSides() {
@@ -132,7 +176,8 @@ final class MFDControllerTests: XCTestCase {
     func testButtons() {
         let mfd = MFDController(left: .orbit, right: .orbit)
         mfd.press(.select, side: .left, sim: nil)
-        XCTAssertEqual(mfd.page(.left, sim: nil).buttons.compactMap { $0?.label }, ["ORB", "SRF", "MAP", "DEO", "ENT"])
+        XCTAssertEqual(mfd.page(.left, sim: nil).buttons.compactMap { $0?.label },
+                       ["ORB", "SRF", "MAP", "DEO", "ENT", "TRN", "CMC"])
         XCTAssertTrue(mfd.press(.button(2), side: .left, sim: nil))
         XCTAssertEqual(mfd.panel(.left).mode, .map)
         let labels = mfd.page(.left, sim: nil).buttons
