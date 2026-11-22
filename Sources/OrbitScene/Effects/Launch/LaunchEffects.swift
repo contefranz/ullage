@@ -128,7 +128,9 @@ public final class LaunchEffects: EffectProducer {
         let ignition: Ignition
         let firstMotion: Epoch
         /// Where the pad's windows count from: first motion, or a scrubbed
-        /// launch's cutoff (the engines stopped there, nothing lifts off).
+        /// launch's cutoff (the engines stopped there, nothing lifts off),
+        /// or for a stack still on the rods now while an F-1 burns there,
+        /// where the last stopped after.
         let windowStart: Epoch
         let now: Epoch
         /// Where this frame's interval starts: the last frame's epoch, or on
@@ -189,6 +191,28 @@ public final class LaunchEffects: EffectProducer {
         /// When the hold-down arms released, if they have.
         var released: Epoch? { record?.released }
 
+        /// True at `t` while the released stack stood on the rods: after the
+        /// release and before its first motion (none when it lifted at the
+        /// release, as five F-1s lift it).
+        func onTheRods(at t: Epoch) -> Bool {
+            guard let r = record, let released = r.released, t > released else { return false }
+            return r.firstMotion.map { t < $0 } ?? true
+        }
+
+        /// While the released stack stands on the rods, its first motion not
+        /// yet found: `now` while an F-1 still burns there, else where the
+        /// last stopped (lost, run dry or shut down: the record's stops), or
+        /// the release. Nil otherwise.
+        func lastBurning(at now: Epoch) -> Epoch? {
+            guard let r = record, let released = r.released, r.firstMotion == nil else { return nil }
+            var last = released
+            for i in plan.starts.indices {
+                guard let stop = r.stop(i) else { return now }
+                last = max(last, stop)
+            }
+            return last
+        }
+
         /// The first start command, and the first ignition; nil while the count holds.
         var firstCommand: Epoch? { plan.starts.indices.compactMap { start($0)?.command }.min() }
         var firstIgnition: Epoch? { plan.starts.indices.compactMap { start($0)?.ignition }.min() }
@@ -227,10 +251,11 @@ public final class LaunchEffects: EffectProducer {
         let firstMotion = LaunchCountdown.epoch(countdown.firstMotion, in: countdown)
         // The pad's windows run from first motion; a scrub's from its
         // cutoff, and those of a stack released but still standing on the
-        // rods (its first motion not yet found) from the release, so they
-        // only ever move later.
+        // rods (its first motion not yet found) from now while an F-1 burns
+        // there, then from where the last stopped: so they only ever move
+        // later, and close once nothing burns.
         let windowStart = ignition.scrubbed
-            ?? (countdown.firstMotion.isFinite ? firstMotion : ignition.released ?? firstMotion)
+            ?? (countdown.firstMotion.isFinite ? firstMotion : ignition.lastBurning(at: now) ?? firstMotion)
         // The loaded stack vents while it stands, whatever the count did (a
         // scrubbed one too): its fog and umbilicals' trickle, until their
         // decay after first motion is over.
@@ -303,17 +328,33 @@ public final class LaunchEffects: EffectProducer {
 
     // MARK: Time
 
-    /// The five F-1s' flow fraction at `t`: the ignition's before first
-    /// motion; after it the scene's on a frame after another, and on a
-    /// rebuilt history the journal's: each engine at full flow until its
-    /// recorded cutoff, tailing off linearly over `tailOff`.
+    /// The five F-1s' flow fraction at `t`: the ignition's while the
+    /// stack was held down (before first motion, and on the rods only up to
+    /// the release); after it the scene's on a frame after another (a
+    /// cutoff's tail-off, and a relit engine the count keeps stopped,
+    /// included), and on a rebuilt history the journal's: each engine at
+    /// full flow until its recorded cutoff, tailing off linearly over
+    /// `tailOff`, none from one the count lost by the release.
     func flow(_ c: Context, _ t: Epoch) -> Double {
-        if t <= c.firstMotion { return c.ignition.meanFraction(at: t) }
+        if t <= c.firstMotion, !c.ignition.onTheRods(at: t) { return c.ignition.meanFraction(at: t) }
         guard c.rebuilt else { return c.vehicle.flow }
-        return Self.flow(at: t, cutoffs: Array(cutoffs.values), engines: c.vehicle.exits.count)
+        return Self.flow(at: t, cutoffs: rebuiltCutoffs(c), engines: c.vehicle.exits.count)
     }
 
-    /// `engines` F-1s' mean flow fraction at `t` with `cutoffs`, after first motion.
+    /// The cutoffs a rebuilt history's flow follows after the release: the
+    /// journal's, and −∞ for each engine the count lost by the release
+    /// (after commit): the journal has none for it, as only the release
+    /// put the F-1s under the throttle, and it never fired after.
+    func rebuiltCutoffs(_ c: Context) -> [Epoch] {
+        var all = Array(cutoffs.values)
+        guard let r = c.ignition.record, let released = r.released else { return all }
+        for (i, s) in r.plan.starts.enumerated() where cutoffs[s.engine] == nil {
+            if let stop = r.stop(i), stop <= released { all.append(Epoch(tdbSecondsPastJ2000: -.infinity)) }
+        }
+        return all
+    }
+
+    /// `engines` F-1s' mean flow fraction at `t` with `cutoffs`, after the release.
     static func flow(at t: Epoch, cutoffs: [Epoch], engines: Int) -> Double {
         guard engines > 0 else { return 0 }
         let lost = cutoffs.reduce(0.0) { $0 + min(1, max(0, (t - $1) / tailOff)) }

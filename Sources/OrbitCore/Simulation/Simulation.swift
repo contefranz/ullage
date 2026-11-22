@@ -145,8 +145,8 @@ public final class Simulation {
         }
         if let c = terminalCount, c.vehicle === v { c.update(v, in: self) }
         v.flightProgram?.update(v, in: self)
-        if let c = terminalCount, c.vehicle === v { c.programmed(v, in: self) }
         v.applyThrottles()
+        if let c = terminalCount, c.vehicle === v { c.programmed(v, in: self) }
         v.groupSwitch = .infinity   // the phase-plane law sets it again if it runs
         var cmd = v.rotationInput
         let control = cmd.isZero && v.autopilot == nil ? ControlAllocation() : v.controlAllocation()
