@@ -16,11 +16,16 @@ import OrbitCore
 ///   equatorial radius, as ORBIT gives them);
 /// - the predicted EI: time, speed, angle and place.
 ///
-/// SET loads the Δv into the vessel's ΔV counter (`DeltaVCounting`, the
-/// Apollo SCS's EMS counter), which cuts the engine off when it has counted
-/// the Δv down, and the burn into the navball's manoeuvre marker
-/// (`ActiveManeuver`); CLR clears both. Both do nothing on a vessel
-/// without one.
+/// SET loads the plan into the core (docs/m2/design-flight-controls.md §4):
+/// - an uplink of the burn (`ManeuverPlan(deorbit:)`) to the vessel's
+///   computer, which lands in its P30 when it is in P00 with UP TLM at
+///   ACCEPT (the page says when it is refused, and why);
+/// - the vessel's ΔV counter (`DeltaVCounting`, the Apollo SCS's EMS
+///   counter) with ΔVC, the Δv less the engine's tail-off (decision 10),
+///   which cuts the engine off on Z when it has counted it down;
+/// - the burn into the navball's manoeuvre marker (`ActiveManeuver`).
+/// CLR clears the three. Both do nothing on a vessel with neither a
+/// computer nor a counter.
 /// Once TIG has passed, the page plans from now: its Δv is the Δv still to
 /// go to the target.
 public final class DeorbitMFD: MFDMode {
@@ -47,13 +52,15 @@ public final class DeorbitMFD: MFDMode {
     /// The centred ignition of the last plan made before TIG: the time the
     /// page keeps showing once the burn has started.
     public private(set) var centredIgnition: Epoch?
+    /// The last SET's uplink: accepted, or refused with the reason.
+    public private(set) var uplink: UplinkResult?
 
     public init() {}
 
     public var id: MFDModeID { .deorbit }
 
     public func buttons(_ c: MFDContext?) -> [MFDButton?] {
-        let counter = c?.deltaVCounter != nil
+        let counter = c?.deltaVCounter != nil || c?.vessel.guidanceComputer != nil
         return [
             MFDButton("AP", .a, "TIG at the next apoapsis"),
             MFDButton("PE", .e, "TIG at the next periapsis"),
@@ -65,8 +72,8 @@ public final class DeorbitMFD: MFDMode {
             MFDButton("V-", .leftBracket, "Target down a step"),
             MFDButton("V+", .rightBracket, "Target up a step"),
             nil,
-            MFDButton("SET", .s, "Load the dV counter", active: counter && plan != nil),
-            MFDButton("CLR", .c, "Clear the dV counter", active: counter),
+            MFDButton("SET", .s, "Uplink, dV counter, marker", active: counter && plan != nil),
+            MFDButton("CLR", .c, "Clear the three", active: counter),
         ]
     }
 
@@ -97,13 +104,20 @@ public final class DeorbitMFD: MFDMode {
             case .perigeeAltitude(let h): target = .perigeeAltitude(h + (up ? 5_000 : -5_000))
             }
         case .s:
-            guard let counter = c?.deltaVCounter, let plan else { return false }
-            counter.loadDeltaV(plan.deltaVMagnitude)
-            c?.data.maneuver = ActiveManeuver(deorbit: plan)
+            guard let c, let plan else { return false }
+            let computer = c.vessel.guidanceComputer
+            guard c.deltaVCounter != nil || computer != nil else { return false }
+            let load = ManeuverPlan(deorbit: plan, vessel: c.vessel, stateEpoch: c.time)
+            c.deltaVCounter?.loadDeltaV(load.deltaVCounter ?? plan.deltaVMagnitude)
+            c.data.maneuver = ActiveManeuver(deorbit: plan)
+            uplink = computer?.uplink(load, at: c.time)
+            if case .refused(let why)? = uplink { c.sim.log("\(c.vessel.name): DEORBIT uplink refused, \(why)") }
         case .c:
-            guard let counter = c?.deltaVCounter else { return false }
-            counter.loadDeltaV(nil)
-            c?.data.maneuver = nil
+            guard let c, c.deltaVCounter != nil || c.vessel.guidanceComputer != nil else { return false }
+            c.deltaVCounter?.loadDeltaV(nil)
+            c.data.maneuver = nil
+            c.vessel.guidanceComputer?.clearLoad(at: c.time)
+            uplink = nil
         default: return false
         }
         return true
@@ -215,8 +229,13 @@ public final class DeorbitMFD: MFDMode {
         row += 1
     }
 
-    /// The ΔV counter's line, and the predictions' caveat.
+    /// The uplink's and the ΔV counter's lines, and the predictions' caveat.
     func counter(_ page: inout MFDPage, _ c: MFDContext) {
+        switch uplink {
+        case .accepted?: page.add(4, 21, "UPLINK: CMC P30", .target)
+        case .refused(let why)?: page.add(4, 21, "UPLINK REFUSED: " + why, .warn)
+        case nil: break
+        }
         if let counter = c.deltaVCounter {
             page.field(4, 22, "DVC", counter.deltaVRemaining.map { MFDFormat.fixed($0, 1) + " m/s" } ?? "not set",
                        valueEnd: 20, .target, labelStyle: .reference)

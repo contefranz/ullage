@@ -272,6 +272,7 @@ public final class ApolloSCS: FlightProgram, DeltaVCounting, GuidanceComputerHos
         if let dv = deltaVRemaining { line += String(format: ", ΔV %.1f m/s", dv) }
         if spsBurning(v) { line += computer.ownsThrust ? ", SPS on (CMC)" : ", SPS on" }
         if gnAuto { line += ", G&N AUTO" }
+        if let prompt = computer.flashingPrompt { line += " · CMC " + prompt }
         if armedAt != nil { line += ", CM/SM SEP armed" }
         return line
     }

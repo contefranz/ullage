@@ -125,6 +125,10 @@ public protocol GuidanceComputer: AnyObject {
     /// A load from the ground at `now`; it lands in the program that takes
     /// it, or is refused.
     func uplink(_ plan: ManeuverPlan, at now: Epoch) -> UplinkResult
+    /// The ground's CLR: drop the load while no program flies it; false when
+    /// one does (or there is none).
+    @discardableResult
+    func clearLoad(at now: Epoch) -> Bool
     /// One control step of `vessel` at `sim.time`.
     func update(_ vessel: Vessel, in sim: Simulation)
     /// Seconds from `now` to the computer's next timed action, so that the

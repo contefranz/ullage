@@ -61,33 +61,9 @@ struct CMCFlight {
         v.setPilotInput(rotation: RotationCommand(), translation: on ? Vec3(1, 0, 0) : .zero)
     }
 
-    /// SPS-8 as a load: TIG at the flight's ignition, the Δv along the burn
-    /// the flight's states imply (`ApolloCSM.apollo7SPS8DeltaV`), of
-    /// `deltaV` m/s, heads down, from DEORBIT's planner.
-    func sps8(deltaV: Double) -> ManeuverPlan {
-        let d = ApolloCSM.apollo7SPS8DeltaV(system: sim.system).normalized * deltaV
-        let atTIG = Kepler.propagate(Kepler.State(position: v.position, velocity: v.velocity), mu: v.reference.gm,
-                                     by: Self.tig - sim.time)
-        return ManeuverPlan(name: "SPS-8", engine: .sps, ignition: Self.tig, deltaV: d,
-                            deltaVLocal: DeorbitPlanner.localVerticalFrame(atTIG) * d, burnTime: 11.9,
-                            stateEpoch: sim.time, source: .deorbit)
-    }
-
     /// SPS-8's load sized so that the computer's cutoff signal comes when
-    /// the flight's did: the 102.8 m/s along X_A the EMS counter is loaded
-    /// with (`apollo7SPS8CounterLoad`, the model's SPS from Z to the flight's
-    /// cutoff signal), turned along the thrust, plus what Average-G counts
-    /// of the crew's 15 s of four-jet ullage, plus the SPS's tail-off
-    /// (its thrust over 0.54 s, falling linearly) at the cutoff's mass.
-    func sps8AsFlown() -> ManeuverPlan {
-        let sps = v.thrusters.first { $0.name == "SPS" }!
-        let d = ApolloCSM.apollo7SPS8DeltaV(system: sim.system).normalized
-        let alongX = d.dot(v.attitude.rotate(.unitX))
-        let ullage = ApolloCSM.rcsFourJetThrust * ApolloCSM.poundForce / v.mass * 15
-        let cutoffMass = v.mass - 790 * Self.lb
-        let tailOff = sps.maxThrustVacuum / cutoffMass * ApolloCSM.spsTailoffDelay / 2
-        return sps8(deltaV: ApolloCSM.apollo7SPS8CounterLoad / alongX + ullage + tailOff)
-    }
+    /// the flight's did (`ApolloCSM.apollo7SPS8Load`).
+    func sps8AsFlown() -> ManeuverPlan { ApolloCSM.apollo7SPS8Load(for: v, at: sim.time, system: sim.system) }
 
     /// Speed, geocentric flight-path angle and geodetic altitude now.
     func state() -> (speed: Double, gamma: Double, altitude: Double) {

@@ -487,3 +487,29 @@ extension VesselLibrary {
         return v
     }
 }
+
+extension ApolloCSM {
+    /// Apollo 7's SPS-8 as a P30 load for `v` (the deorbit scenario's CSM)
+    /// at `now`: TIG at the flight's ignition, 259:39:16.3, heads down, the
+    /// Δv along the burn the flight's states imply (`apollo7SPS8DeltaV`, 57°
+    /// below retrograde: most of it radial) and sized so that P40's cutoff
+    /// signal comes when the flight's did, 11.9 s on: the 102.8 m/s along
+    /// X_A the EMS counter takes (`apollo7SPS8CounterLoad`) turned along the
+    /// thrust, plus what Average-G counts of the crew's 15 s of four-jet
+    /// ullage, plus the SPS's tail-off at the cutoff's mass (about 790 lb
+    /// lighter).
+    public static func apollo7SPS8Load(for v: Vessel, at now: Epoch, system: SolarSystem) -> ManeuverPlan {
+        let d = apollo7SPS8DeltaV(system: system).normalized
+        let alongX = d.dot(v.attitude.rotate(.unitX))
+        let ullage = rcsFourJetThrust * poundForce / v.mass * 15
+        let sps = v.thrusters.first { $0.name == "SPS" }
+        let tailOff = (sps?.maxThrustVacuum ?? 0) / (v.mass - 790 * pound) * spsTailoffDelay / 2
+        let dv = d * (apollo7SPS8CounterLoad / alongX + ullage + tailOff)
+        let tig = apollo7RangeZero + apollo7SPS8Ignition.groundElapsedTime
+        let atTIG = Kepler.propagate(Kepler.State(position: v.position, velocity: v.velocity), mu: v.reference.gm,
+                                     by: tig - now)
+        return ManeuverPlan(name: "SPS-8", engine: .sps, ignition: tig, deltaV: dv,
+                            deltaVLocal: DeorbitPlanner.localVerticalFrame(atTIG) * dv, burnTime: 11.9,
+                            stateEpoch: now, source: .transfer)
+    }
+}

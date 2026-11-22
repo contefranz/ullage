@@ -111,6 +111,19 @@ public enum PhysicalKey: String, CaseIterable, Hashable, Sendable {
 
     private static let byKeyCode = Dictionary(uniqueKeysWithValues: allCases.map { ($0.keyCode, $0) })
 
+    /// The key's name as a page prints it: its character, upper case, or a
+    /// short name ("RET", "DEL", "ESC", "F1").
+    public var shortName: String {
+        switch self {
+        case .returnKey: "RET"
+        case .delete: "DEL"
+        case .escape: "ESC"
+        case .space: "SPC"
+        case .isoSection: "§"
+        default: rawValue.uppercased()
+        }
+    }
+
     /// The digit of a number-row key; nil for any other key.
     public var digit: Int? {
         switch self {

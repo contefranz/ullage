@@ -33,6 +33,7 @@ final class MFDModel: ObservableObject {
 
     /// Seconds between page refreshes, and between key polls.
     static let refreshInterval = 0.25
+    static let computerRefreshInterval = 0.1
     static let pollInterval = 1.0 / 30
 
     private static var models: [ObjectIdentifier: MFDModel] = [:]
@@ -104,7 +105,9 @@ final class MFDModel: ObservableObject {
             acted = controller.handle(key, side: route(side), sim: sim) || acted
         }
         let now = ProcessInfo.processInfo.systemUptime
-        if acted || now - lastRefresh >= Self.refreshInterval { refresh() }
+        // The CMC page at 10 Hz, its counts and prompts in step.
+        let interval = controller.shows(.cmc) ? Self.computerRefreshInterval : Self.refreshInterval
+        if acted || now - lastRefresh >= interval { refresh() }
     }
 
     private func refresh() {

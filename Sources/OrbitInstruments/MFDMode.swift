@@ -54,7 +54,8 @@ public enum MFDModeID: String, CaseIterable, Codable, Sendable {
         case .map: MapMFD()
         case .deorbit: DeorbitMFD()
         case .entry: EntryMFD()
-        case .transfer, .cmc: PlaceholderMFD(self)
+        case .transfer: PlaceholderMFD(self)
+        case .cmc: CMCMFD()
         }
     }
 }

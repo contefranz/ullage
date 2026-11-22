@@ -181,6 +181,19 @@ public final class CMCLite: GuidanceComputer {
         return .accepted
     }
 
+    /// In P00, or P30 checking it, the load goes and the program is P00.
+    @discardableResult
+    public func clearLoad(at now: Epoch) -> Bool {
+        guard load != nil, program == 0 || program == 30 else { return false }
+        load = nil
+        keyedTIG = nil
+        keyedDeltaV = nil
+        clearKeys()
+        finish(keepLoad: true)
+        note("CMC: load cleared by the ground")
+        return true
+    }
+
     public func press(_ key: DSKYKey, at now: Epoch) {
         switch key {
         case .digit(let d):
@@ -710,6 +723,17 @@ public final class CMCLite: GuidanceComputer {
             d.prompt = "BODY DV SINCE P47: RETURN FOR P00"
         }
         return d
+    }
+
+    /// The display in one line while it flashes ("P40 V99N40 ENABLE ENGINE
+    /// IGNITION? RETURN"), for the HUD to repeat; nil otherwise.
+    public var flashingPrompt: String? {
+        let d = display
+        guard d.flashing else { return nil }
+        let vn = [d.verb.map { String(format: "V%02d", $0) }, d.noun.map { String(format: "N%02d", $0) }]
+            .compactMap { $0 }.joined()
+        return [d.program.map { String(format: "P%02d", $0) }, vn.isEmpty ? nil : vn, d.prompt]
+            .compactMap { $0 }.joined(separator: " ")
     }
 
     /// VG in the crew's body axes (Apollo X, Y, Z), m/s.

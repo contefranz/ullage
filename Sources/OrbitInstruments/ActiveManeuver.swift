@@ -46,10 +46,20 @@ public struct ActiveManeuver: Equatable {
     }
 }
 
+extension ActiveManeuver {
+    /// The computer's load.
+    public init(_ plan: ManeuverPlan) {
+        self.init(name: plan.name, ignition: plan.ignition, deltaV: plan.deltaV, burnTime: plan.burnTime)
+    }
+}
+
 extension MFDController {
-    /// The burn loaded for `v` (DEORBIT's SET) while it is still to fly; nil
+    /// The burn loaded for `v` while it is still to fly: the computer's load
+    /// (an uplink, or keyed into P30) until the computer is done with it,
+    /// else what DEORBIT's SET loaded while the ΔV counter has it to go; nil
     /// otherwise.
     public func activeManeuver(for v: Vessel) -> ActiveManeuver? {
+        if let plan = v.guidanceComputer?.load { return ActiveManeuver(plan) }
         guard let m = data(for: v).maneuver, m.isPending(on: v) else { return nil }
         return m
     }
