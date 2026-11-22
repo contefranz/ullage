@@ -13,3 +13,8 @@ measured at most a few thousand pixels, max ΔE 1.4, between two identical
 runs), and cloud shots rendered without the weather fields
 (`Sources/OrbitScene/Resources/*.oscloud`, not in git), which fall back to
 the climatology: bless and compare scene goldens with the fields present.
+They are made by `tools/make_clouds_era5.py`, so a fresh checkout or
+worktree has none until they are copied in (removing `.build` keeps them). A
+gate run without them reports its cloud scene shots as differing from their
+goldens. That is expected: scene goldens are report-only, so the gate still
+passes.
