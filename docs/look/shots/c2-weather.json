@@ -99,18 +99,21 @@
    "camera": {
     "target": "body:399",
     "frame": "inertial",
-    "yaw": 110,
-    "pitch": 10,
+    "yaw": 223.5,
+    "pitch": 22.9,
     "distance": 22000000,
     "fov": 50
    },
-   "reference": "the Pacific side",
+   "reference": "twelve hours on: the Pacific side by day",
    "settings": {
     "cloud": {
      "weather": "random",
      "seed": 1
     }
-   }
+   },
+   "advance": [
+    "wait:43200"
+   ]
   },
   {
    "name": "c2w-leo-day",
