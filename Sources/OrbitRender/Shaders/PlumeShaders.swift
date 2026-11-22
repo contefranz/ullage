@@ -14,6 +14,10 @@ struct PlumeFrame {
     float4 ambient;     // rgb: the mean radiance where R3's probe is not drawn (cd/m², not pre-exposed)
     float4 params;      // x: frame index, y: 1 with aerial perspective, z: a half-res texel's angle (rad)
     float4 wienC;       // rgb: c2 (K²)
+    float4 flow;        // the turbulence: x the shutter (s), y u'/ΔU, z the noise's amplitude, w eddies per tile
+    float4 flowRates;   // x: a layer's life over ℓ/u', y: the sweep's rate, z: the decay's, w: the fade's integral
+    float4 flowRates2;  // x: the noise's integral length over its cell
+    float4 layers[40];  // its bands' layers, two a band: x the phase in its life, yzw its offset (tiles)
 };
 
 struct PlumeCluster {
@@ -43,7 +47,7 @@ struct PlumeMember {
     float4 base;        // rgb: the base's blackbody, w: extinction
     float4 disk;        // distance, radius, extinction, the air's confinement
     float4 diskLight;   // rgb: the disk's blackbody, w: the density's scale (merged)
-    float4 noise;       // eddy size, phase (tiles), depth, tile (m)
+    float4 noise;       // eddy size at the lip (m), its growth, depth, w: the cluster's seed offset's z
     float4 glow;        // rgb (cd/m²), w: length
     float4 extent;      // x: tan of the 1 % Simons angle (0 none), y: the particles', z: flame length (m), w: flame spread
     float4 bendDirection; // xyz: the bend's direction (unit, world; 0 none), w: the hand-over's fade's start
@@ -51,6 +55,7 @@ struct PlumeMember {
                         // z: its largest offset, w: the hand-over's fade's end (-1: none)
     float4 bendNear;    // the centreline's offsets at x = span (k/7)², k 0-3
     float4 bendFar;     // k 4-7
+    float4 flow;        // x: the exhaust's speed (m/s), y: the stream along it (m/s), zw: the seed offset's xy
 };
 
 // The centreline's offset into the stream at x along the axis
@@ -223,24 +228,110 @@ inline void plume_add(thread PlumeSample &s, float sigma0, float albedo, float3 
     s.emission += a * light;
 }
 
-// The turbulence at camera-relative p: two octaves of the volume noise in a
-// cluster's frame (its first member's eddies), moving downstream, about 0
-// on average and ±0.3 or so. One lookup a sample for all the members.
-inline float plume_noise(const device PlumeMember &m, float3 p, texture3d<float> noise, sampler ns) {
+// ------------------------------------------------------- the turbulence ---
+// PlumeTurbulence: flow noise in the jet's own terms. Eddies born at the lip
+// at ℓ0, growing with the mixing layer (ℓ = ℓ0 + k x; along the axis the
+// noise is laid out in eddies, s = ln(1 + k x/ℓ0)/k), carried at the local
+// mean speed (the stream's plus the jet's excess: a top hat in the
+// potential core, a Gaussian of half-width R/2 outside it, uniform in a free
+// expansion), decaying as a jet's turbulence does (a Lagrangian integral
+// time of 0.55 L/u'). Each octave band of lifetimes holds two layers of the
+// volume noise, cross-faded half a life apart and re-seeded at each birth by
+// a hash of the band's cycle (the CPU's, PlumeFrame.layers) offset by the
+// cluster's seed; a sample blends the two bands about its own lifetime,
+// keeping the variance. The shutter's average keeps less of the noise where
+// the flow is fast, and streaks it along the flow.
+
+// PlumeTurbulence.basis: the rotation off the texture's lattice (rows).
+constant float3 PLUME_NOISE_BASIS[3] = {
+    float3(0.584199530, -0.609737127, 0.535659916),
+    float3(0.751791527, 0.655226729, -0.074077211),
+    float3(-0.305811069, 0.445980458, 0.841178353)};
+
+// The turbulence at camera-relative p in a cluster whose first member is
+// `m` (the noise's frame), carried by the flow of member `f`, the first to
+// take the sample (x along its axis, r off it, R its radius there), about 0
+// on average.
+inline float plume_noise(const device PlumeMember &m, const device PlumeMember &f, float xf, float r, float big,
+                         float3 p, constant PlumeFrame &pf, texture3d<float> noise, sampler ns) {
     float3 d = p - m.exit.xyz;
     float x = max(dot(d, m.axis.xyz), 0.0);
-    // Carried along the bent centreline.
     d -= m.bendDirection.xyz * plume_bendOffset(m, x);
-    float re = m.exit.w;
-    float R = re + m.shape.x * (1.0 - exp(-x / max(m.shape.y, 1e-6))) + m.shape.z * max(0.0, x - m.shape.w);
-    float grow = pow(max(R / re, 1.0), 0.7);
-    float3 nc = (d / (m.noise.w * grow)) - m.axis.xyz * m.noise.y;
-    float n1 = noise.sample(ns, nc).r, n2 = noise.sample(ns, nc * 2.0 + 0.37).g;
-    return 2.0 * (0.65 * n1 + 0.35 * n2) - 1.0;
+    float3 perp = d - m.axis.xyz * x;
+    float l0 = max(m.noise.x, 1e-4), k = m.noise.y;
+    float l = l0 + k * x;
+    xf = max(xf, 0.0);
+    float re = f.exit.w, core = f.shape.w;
+    float excess = (f.flow.x - f.flow.y) * min(1.0, core / max(xf, 1e-3));
+    float rc = re * max(0.0, 1.0 - xf / max(core, 1e-6));
+    float eta = max(r - rc, 0.0) / max(big - rc, 0.05 * re);
+    float gauss = exp(-2.7725887 * eta * eta);
+    float g = gauss + (1.0 - gauss) * f.simons.x;
+    float e = (f.flow.x - f.flow.y) * g;
+    float lf = max(f.noise.x, 1e-4) + f.noise.y * xf;
+    // Integral lengths the flow sweeps past here a second, at its speed
+    // here (the camera rides with the vessel).
+    float sweep = abs(f.flow.y + excess * g) / (pf.flowRates2.x * lf);
+    float tau = lf / max(pf.flow.y * abs(excess), 0.5);
+    float b = clamp(log2(pf.flowRates.x * tau * 8192.0), 0.0, 18.999);
+    int j0 = int(b);
+    // The next band blends in over the octave's middle 30 %
+    // (PlumeTurbulence.blend): most samples read one band.
+    float beta = plume_smoothstep(0.35, 0.65, b - float(j0));
+    // The noise's frame, off the texture's lattice, in tiles; the cluster's
+    // seed's offset.
+    float3 across = float3(dot(PLUME_NOISE_BASIS[0], perp), dot(PLUME_NOISE_BASIS[1], perp),
+                           dot(PLUME_NOISE_BASIS[2], perp)) / (l * pf.flow.w);
+    float3 along = float3(dot(PLUME_NOISE_BASIS[0], m.axis.xyz), dot(PLUME_NOISE_BASIS[1], m.axis.xyz),
+                          dot(PLUME_NOISE_BASIS[2], m.axis.xyz)) / pf.flow.w;
+    float3 seedOffset = float3(m.flow.z, m.flow.w, m.noise.w);
+    float total = 0.0, weight = 0.0;
+    for (int i = 0; i < 2; i++) {
+        float wb = i == 0 ? 1.0 - beta : beta;
+        if (wb <= 1e-3) { continue; }
+        int band = j0 + i;
+        float life = exp2(float(band) - 13.0);
+        // The shutter's average (PlumeTurbulence.shutterAverage).
+        float depth = rsqrt(1.0 + pf.flow.x * (sweep + pf.flowRates.z / life) / 2.0);
+        float stretch = 1.0 + pf.flowRates.y * min(pf.flow.x, pf.flowRates.w * life) / life;
+        for (int layer = 0; layer < 2; layer++) {
+            float4 lay = pf.layers[2 * band + layer];
+            float w = wb * (1.0 - abs(2.0 * lay.x - 1.0));
+            float age = lay.x * life;
+            // Laid out where the flow carried it from since the layer's
+            // birth (PlumeTurbulence.carriedFrom): a midpoint step back.
+            float mid = xf - 0.5 * age * (f.flow.y + e * min(1.0, core / xf));
+            float from = x - age * (f.flow.y + e * min(1.0, core / max(mid, 1e-3)));
+            float s = from > 0.0 ? (k > 1e-5 ? log(1.0 + k * from / l0) / k : from / l0) : from / l0;
+            float4 t = noise.sample(ns, across + along * (s / stretch) + lay.yzw + seedOffset);
+            float n = 2.0 * (layer == 0 ? t.r : t.g) - 1.0;
+            total += w * depth * n;
+            weight += w * w;
+        }
+    }
+    return pf.flow.z * total * rsqrt(max(weight, 1e-12));
+}
+
+// The sample's turbulence, evaluated once, when a member first needs it,
+// on that member's flow.
+struct PlumeNoiseAt {
+    const device PlumeMember *frame;
+    bool done;
+    float value;
+};
+
+inline float plume_noiseAt(thread PlumeNoiseAt &n, const device PlumeMember &f, float x, float r, float big,
+                           float3 p, constant PlumeFrame &pf, texture3d<float> noise, sampler ns) {
+    if (!n.done) {
+        n.value = plume_noise(*n.frame, f, x, r, big, p, pf, noise, ns);
+        n.done = true;
+    }
+    return n.value;
 }
 
 inline void plume_member(thread PlumeSample &s, const device PlumeMember &m, float3 p, constant PlumeFrame &pf,
-                         float nv, thread float &sunDepth, float3 sunDir) {
+                         thread PlumeNoiseAt &na, texture3d<float> noise, sampler ns, thread float &sunDepth,
+                         float3 sunDir) {
     float3 d = p - m.exit.xyz;
     float x = dot(d, m.axis.xyz);
     float upstream = m.structure.w, length_ = m.axis.w;
@@ -264,9 +355,10 @@ inline void plume_member(thread PlumeSample &s, const device PlumeMember &m, flo
 
     // The turbulence's depth here (the noise is the sample's), faded out
     // where its eddies are under a few texels across.
-    float eddy = m.noise.x * pow(max(R / re, 1.0), 0.7);
+    float eddy = m.noise.x + m.noise.y * xp;
     float footprint = length(p) * pf.params.z;
     float depth = m.noise.z * plume_smoothstep(0.0, 4.0 * de, xp) * plume_smoothstep(1.5, 4.0, eddy / max(footprint, 1e-6));
+    float nv = depth > 0.0 ? plume_noiseAt(na, m, x, r, R, p, pf, noise, ns) : 0.0;
     float turb = max(1.0 + depth * 3.0 * nv, 0.05);
     float hot = 1.0 + depth * 0.15 * nv;                            // hot and cool pockets
 
@@ -574,19 +666,19 @@ fragment EffectVolumeOut plume_march_fragment(PlumeProxyOut in [[stage_in]],
         float3 p = dir * s;
         PlumeSample x = {0.0, 0.0, float3(0.0), 0.0};
         float sunDepth = 0.0;
-        float nv = members[first_].noise.z > 0.0 ? plume_noise(members[first_], p, noise, ns) : 0.0;
+        PlumeNoiseAt na = {&members[first_], false, 0.0};
         // The members, and beyond mergeX the merged far field in their
         // place, blended over 15 % of that distance.
         float wm = mergeX > 0.0 ? plume_smoothstep(mergeX, 1.15 * mergeX, dot(p - c.origin.xyz, a)) : 0.0;
         if (wm < 1.0) {
             for (int k = 0; k < count; k++) {
-                plume_member(x, members[first_ + k], p, pf, nv, sunDepth, sunDir);
+                plume_member(x, members[first_ + k], p, pf, na, noise, ns, sunDepth, sunDir);
             }
         }
         if (wm > 0.0) {
             PlumeSample y = {0.0, 0.0, float3(0.0), 0.0};
             float sunY = 0.0;
-            plume_member(y, members[first_ + count], p, pf, nv, sunY, sunDir);
+            plume_member(y, members[first_ + count], p, pf, na, noise, ns, sunY, sunDir);
             x.absorption = mix(x.absorption, y.absorption, wm);
             x.scattering = mix(x.scattering, y.scattering, wm);
             x.emission = mix(x.emission, y.emission, wm);

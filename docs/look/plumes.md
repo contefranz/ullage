@@ -135,7 +135,7 @@ medium, L low (visual, calibrated or assumed).
 | Mach disk | P1's distance and radius; 0.85 Tc; emissivity 0.5 soot/alumina, 0.02 hydrogen, 0.05 hypergols; diluted as the free expansion there; faded in from n 2 to 3 | L |
 | Shock cells | P1's length and count; ±30 % of temperature and density, times P1's structure visibility; faded in from n 0.30 to 0.36 and out from 4 to 5 (P1's bounds) | L |
 | Alumina | extinction 3 Q Y ρe/(2 ρp d): Q 2 (particles much larger than the light's wavelength), Y the alumina's mass fraction, ρe P1's exit density, ρp 3,950 kg/m³, d 3 µm (3.0 across the S-IC retro's exit, 1.5 across the TJM's); leaves at Te + (Tc − Te)/2; cools by radiation (ε 0.3); cone lip + 5°; albedo 0.5 hot, 0.9 cold | H the optics and density, P1 the exit; L the diameter, the lag, ε, the albedos |
-| Turbulence | 128³ gradient noise (P3's), two octaves, eddies 0.8 re growing with R, moving downstream at 10 re/s on the turbulence clock; ragged boundary, outwards within 15 % (the proxy's reach); temperature ±5 %; density ±70 %; faded out where the eddies are under 1.5-4 half-resolution texels | L |
+| Turbulence | Flow noise (next section): eddies 0.25 re at the lip, growing with the compressible mixing layer, carried at the jet's mean speed, decaying as a jet's turbulence (T_L 0.55 L/u', u'/ΔU 0.28), averaged over a 180° shutter; never repeating. Ragged boundary, outwards within 15 % (the proxy's reach); temperature ±5 %; density ±70 %; faded out where the eddies are under 1.5-4 half-resolution texels | the growth, intensity and decay M-H (below); the lip's eddies, the shutter and the depths L |
 | Blackbody | per channel exp(c0 + c1/T + c2/T²), fitted to `Photometry.blackbody` | within 6 % in luminance over 1,200-3,500 K |
 | SPS extension | 1,480 K at the 6:1 top, T ∝ r^-0.45, ε 0.8, 4 s heating, 12 s cooling | L (AOH: columbium, radiation-cooled) |
 | Readable floor | 0.3 E⊙/π near the exit, the family's colour, times the flow fraction (at most 1), over M1.5's length times 0.5 + 0.5 of it; B in the app | decision 19 (M1.5) |
@@ -260,6 +260,73 @@ field stays on the nozzle, gimbal and all.
   afterburning's end (37 km) by under 25 % a half second, under 1 % a
   frame.
 
+## The turbulence
+
+The volume noise (P3's 128³ texture) is laid into each cluster as flow
+noise (`OrbitScene/Look/PlumeTurbulence.swift`, the shader's `plume_noise`),
+so the plume's mottling is the jet's own and never repeats. M1.6's first
+noise slid one tile down the axis at a visual 10 re/s, so it looped every
+tile over that speed (1.28 s for the F-1).
+
+- **Eddies grow with the mixing layer.** Born at the lip at 0.25 re (L),
+  growing as the shear layer's vorticity thickness, dδω/dx = C (1 − r)(1 +
+  √s)/(2(1 + r√s)) Φ(Mc): Brown and Roshko's C = 0.181 in Brown's form
+  (Pantano and Sarkar 2002), r the stream's speed over the jet's, s the
+  air's density over the jet's, and Dimotakis's (1991) fit to the Langley
+  curve, Φ = 0.2 + 0.8 exp(−3 Mc²) (as Padnos et al. 2018 quote it), on the
+  convective Mach number (U1 − U2)/(a1 + a2) (Papamoschou and Roshko 1988).
+  In vacuum, half the free expansion's cone. The F-1 at the pad: 0.44 m at
+  the lip, 0.076 per metre (12 m eddies 150 m out); at max-Q the airspeed's
+  coflow slows the growth to 0.045. Along the axis the noise is laid out in
+  eddies, ∫dx/ℓ, across it in ℓ.
+- **Carried at the mean speed.** The stream along the jet plus the jet's
+  excess, constant through the potential core and falling as 1/x beyond it;
+  across the jet a Gaussian of half-width R/2 (exp(−ln2 (r/r½)²), the round
+  jet's) outside the core's shrinking top hat; uniform in a free expansion.
+  Each layer's pattern is laid out where the flow carried each point from
+  since the layer's birth (three midpoint steps back along the
+  decelerating jet), so it rides the flow: on the axis 1.02 m against the
+  flow's 1.10 m over 3 ms at 110 m, half-way out half as far
+  (`PlumeTurbulenceTests`).
+- **Decaying as a jet's turbulence.** Each octave band of lifetimes (0.12
+  ms to 64 s) holds two layers, cross-faded half a life apart and re-seeded
+  at each birth with an offset hashed from the band's cycle and the
+  cluster's seed (flow noise, Neyret 2003); a sample blends the two bands
+  about its own lifetime and keeps the noise's variance (Heitz and Neyret
+  2018), so nothing pulses. A layer lives 0.55 × 0.39 / 0.389 ℓ/u': the
+  cross-fade's own Lagrangian integral time is 0.389 of a life and the
+  noise's integral length 0.39 of its cell (both integrated in the tests),
+  so the field's Lagrangian integral time is 0.55 L/u' on the jet's axis
+  (Viggiano et al. 2021, T_E/T_L ≈ 1.8), with u' = 0.28 of the centreline's
+  excess speed (Hussein, Capp and George 1994, as Pope 2000 fits it).
+- **The shutter.** The camera sees the field averaged over a 180° shutter
+  at 60 frames a second (1/120 s of turbulence time, L): at a point it
+  holds for an Eulerian time T_E, 1/T_E = u/L + 1/T_L, so the average keeps
+  1/√(1 + Δ/2T_E) of the depth, at each point's own speed (the camera rides
+  with the vessel, so the coflow counts); and it streaks along the flow by
+  what the mixing layer carries past in the exposure or a Lagrangian time.
+  The F-1's near field, renewed every few milliseconds, is smooth and
+  streaked, its slower edges ragged, its far field billowing.
+- **Seeds and determinism.** A cluster's seed is its first engine's by
+  name (FNV-1a of part and thruster), so an engine shutting down does not
+  re-seed its neighbours. The layers' phases and cycles come from the
+  turbulence clock (real time × min(warp, 4), reset with the scene) in
+  double precision, unwrapped; a snapshot's first frame is the clock's
+  start.
+- **Checks** (`PlumeTurbulenceTests`, `PlumeTurbulenceRenderTests`): the
+  mixing layer's constants; the mean speed; carried at it; the Lagrangian
+  integral time; no pulsing; the shutter's average, the edge smoothed less;
+  deterministic and seeded; the field's correlation with itself under 0.2
+  at 261 lags to ten minutes (whole numbers of the old loop, of the tile
+  carried at the flow's speed and of every band's life, and lags at
+  random); the GPU's field against the reference (mean difference 0.0004);
+  and on screen, frames whole numbers of the old loop apart differ as much
+  as frames ten seconds apart.
+- **Other animations checked for loops.** The Mach disk, the shock cells
+  and the base glow are steady fields (they move only with the state); the
+  SPS's glow follows its heat in simulation time; the march's jitter turns
+  every frame by design. None repeats.
+
 ## The photographs as checks
 
 The look comes from P1's physics where P1 has it; the photographs check
@@ -297,7 +364,8 @@ it, they do not set it.
   albedo 0.8), **the clear exhausts' condensate and gas depths**, **their
   near-exit light**: no measured column densities.
 - **The base glow** (depth 1.5, 1,750-2,000 K), **the shock cells'
-  strength** (±30 %), **the Mach disk's emissivity**, **the turbulence**:
+  strength** (±30 %), **the Mach disk's emissivity**, **the turbulence's
+  depths** and **its lip eddies and shutter**:
   visual.
 - **The phase functions' g**, **the alumina's diameter** (3 µm), **its
   thermal lag and emissivity**: particle optics without a measured size
@@ -313,10 +381,20 @@ plumes on and off on alternate frames, the difference of the medians, at
 High (32 steps); the plan's budget is 1.5 ms on the pad and 0.5 ms in
 LEO, for the default physical look.
 
-- Pad 1.02-1.42 ms; ascent (T+30 s) 2.24 ms; max-Q 2.42 ms. The ascent
-  and max-Q overrun is accepted: there the plume fills much of the frame,
-  and P1's flame is long, the more so in the airstream (184 m at max-Q).
-  Medium (16 steps) is the lever R7's tiers have.
+- **The turbulence's flow noise** (2026-11-22), against main measured the
+  same day under the same load (main / with it, ms): pad 0.89 / 0.89-0.98
+  and 1.40 / 1.37-1.42; ascent 2.12 / 2.35-2.43; max-Q 2.41 / 2.83-2.91;
+  staging 4.04 / 4.66-4.93 (auto 4.40 / 5.21-5.66); the SPS at night 0.48
+  / 0.55; LEO by day unchanged. With no noise at all the pass costs 2.13
+  at max-Q and 3.95 at staging: M1.6's first noise cost about 0.3 ms
+  there, the flow noise 0.7-0.8 (two to four lookups a sample against two,
+  each layer's coordinate carried back along the jet). Evaluated lazily,
+  once a member takes the sample, on that member's flow; the layers'
+  offsets hashed on the CPU each frame.
+- Before it: pad 1.02-1.42 ms; ascent (T+30 s) 2.24 ms; max-Q 2.42 ms. The
+  ascent and max-Q overrun is accepted: there the plume fills much of the
+  frame, and P1's flame is long, the more so in the airstream (184 m at
+  max-Q). Medium (16 steps) is the lever R7's tiers have.
 - Staging (0.3 s after S-IC/S-II separation: the eight S-IC retros in
   four pairs and the four S-II ullage motors, eight clusters): 3.94 ms at
   EV 15, 3.90 ms under the app's auto exposure. It was 38 ms with each
@@ -348,8 +426,9 @@ LEO, for the default physical look.
 
 ## Known limits
 
-- The plume looks are calibrated to stills; the far field's mottling is
-  frozen turbulence, not a simulation.
+- The turbulence is flow noise with a jet's statistics, not a simulation of
+  its eddies: no vortex pairing, no intermittent edge, one length scale per
+  place (the noise's three octaves below it).
 - C2's clouds are treated as one sheet at their mean depth for the plume
   inside them.
 - Members are evaluated per sample with an early radial reject; the cost
@@ -365,7 +444,10 @@ LEO, for the default physical look.
   ends where its path turns back past 70°: the part swept back along the
   vehicle is not drawn. The bend is a shear of the straight field, so the
   far field's cross-sections are not tilted with it.
-- The far field's slowing to the air shows in its path and its hand-over,
-  not as motion: the eddies drift at a visual speed.
+- The eddies' decay uses the centreline's turbulence intensity across the
+  whole jet (the measured profile falls off past r½), and their streak
+  through the shutter is the mixing layer's in a band (the axis's is
+  longer, the edge's shorter); the depth the shutter keeps is each point's
+  own.
 - Small impostors still draw before R6's composite (C2's clouds lie over
   them); the large ones are marched.
