@@ -590,8 +590,9 @@ extension LC39A {
         /// Arm 2's retract command.
         public var sICForwardCommand: Double
 
-        /// Range time at which the liftoff switches closed, when a count
-        /// that ran says (`init(_:at:)`); nil takes `liftoffSwitch`'s estimate.
+        /// Range time at which the liftoff switches closed, as a count
+        /// says (`init(_:at:)`: infinitely far until it has found them);
+        /// nil, for a historic launch, takes `liftoffSwitch`'s estimate.
         public var liftoffSwitchTime: Double?
         /// The count holds: range time stands still (`rangeTime(at:)` reads
         /// the hold at any epoch near it).
@@ -704,7 +705,9 @@ extension LC39A.Countdown {
     /// zero (Apollo 8's or Apollo 11's), with the count's own range zero
     /// (while it holds, where it would fall if it ran on now, so range
     /// time stands at the hold), release, first motion and liftoff
-    /// switches; those still to come at their planned range times.
+    /// switches. Before the release first motion is the planned release;
+    /// after it, what the count has not yet seen has not happened
+    /// (infinitely far), never an estimate earlier than the event.
     public init(_ count: TerminalCount.Record, at now: Epoch) {
         self = LaunchCountdown.nearest(count.plannedRangeZero)
         name = "\(name) (count)"
@@ -712,8 +715,9 @@ extension LC39A.Countdown {
         rangeZero = zero
         holding = count.rangeZero == nil
         holdDownRelease = count.released.map { $0 - zero } ?? count.plan.release
-        firstMotion = count.firstMotion.map { $0 - zero } ?? count.plan.release
-        liftoffSwitchTime = count.liftoffSwitch.map { $0 - zero }
+        let pending = count.released == nil ? count.plan.release : Double.infinity
+        firstMotion = count.firstMotion.map { $0 - zero } ?? pending
+        liftoffSwitchTime = count.liftoffSwitch.map { $0 - zero } ?? .infinity
         // A scrubbed launch: nothing more moves.
         if count.scrubbed != nil && count.released == nil {
             holdDownRelease = .infinity

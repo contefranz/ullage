@@ -265,13 +265,14 @@ public final class ExhaustTrail {
         let up = c.toAnchor * .unitZ
         let base = PadExhaust.exitHeightOnPad - Self.offset(altitude: c.site.placement.height)
         let pad = Point(epoch: c.firstMotion, position: c.toAnchor * Vec3(0, 0, base), velocity: .zero)
-        let d = here.epoch - c.firstMotion, tp = LiftoffRise.programStart
+        let d = here.epoch - c.firstMotion, tp = c.programStart
         var curves: [Curve] = []
         if d <= tp {
             curves.append(Self.climb(from: pad, to: here, axes: c.toAnchor))
         } else {
-            let pitch = Point(epoch: c.firstMotion + tp, position: pad.position + up * LiftoffRise.rise(after: tp),
-                              velocity: up * LiftoffRise.speed(after: tp))
+            let pitch = Point(epoch: c.firstMotion + tp,
+                              position: pad.position + up * LiftoffRise.rise(after: tp, release: c.release),
+                              velocity: up * LiftoffRise.speed(after: tp, release: c.release))
             curves.append(.hermite(start: pad.epoch, duration: tp, p0: pad.position, v0: .zero, p1: pitch.position,
                                    v1: pitch.velocity))
             curves.append(Self.climb(from: pitch, to: here, axes: c.toAnchor))

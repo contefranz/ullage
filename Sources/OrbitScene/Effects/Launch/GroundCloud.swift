@@ -217,12 +217,17 @@ public struct GroundCloud: Equatable {
     public private(set) var samples: [[Lobe]] = []
     public static let sampleInterval = 0.5
 
-    /// The lobes as they were at `epoch` (the last sample at or before it),
-    /// the present ones after the last sample.
-    public func lobes(at epoch: Epoch) -> [Lobe] {
+    /// The lobes as they were at `epoch` (`state(at:)`).
+    public func lobes(at epoch: Epoch) -> [Lobe] { state(at: epoch).lobes }
+
+    /// The lobes as they were at `epoch`, and the epoch they are of: the
+    /// present ones from the state's time on, before it the last sample at
+    /// or before `epoch` (the first before the first).
+    public func state(at epoch: Epoch) -> (time: Epoch, lobes: [Lobe]) {
+        guard epoch < time, !samples.isEmpty else { return (time, lobes) }
         let k = Int(((epoch - origin) / Self.sampleInterval).rounded(.down))
-        guard k >= 0 else { return samples.first ?? lobes }
-        return k < samples.count ? samples[k] : lobes
+        let j = min(samples.count - 1, max(0, k))
+        return (origin + Double(j) * Self.sampleInterval, samples[j])
     }
 
     /// Nothing out yet at `origin` (the first engine's start command).

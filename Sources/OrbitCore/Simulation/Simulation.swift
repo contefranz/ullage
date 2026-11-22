@@ -184,6 +184,8 @@ public final class Simulation {
                 checkReferenceBody(v, snapshot: snap)
             }
         }
+        // The count's first motion and liftoff switches, as of the step's end.
+        if let c = terminalCount, let v = c.vehicle, v.status != .crashed { c.stepped(v, in: self) }
     }
 
     /// Geodetic altitude at `r` and the air there.
@@ -273,9 +275,12 @@ public final class Simulation {
         // What its engines push with, held or not (the hold-down's thrust
         // buildup reads on the panel).
         v.thrustAcceleration = thrust.length / v.mass
-        // The hold-down arms hold it whatever its thrust, until released.
+        // The hold-down arms hold it whatever its thrust, until released;
+        // then the controlled release's rods, until its thrust exceeds its
+        // weight and their force.
         let held = terminalCount?.holdsDown(v) ?? false
-        if !held, (thrust + g * v.mass).dot(up) > 0 {
+        let rods = terminalCount?.restraintOnThePad(v) ?? 0
+        if !held, (thrust + g * v.mass).dot(up) > rods {
             v.landed = nil
             v.status = .flying
             log("\(v.name): liftoff")

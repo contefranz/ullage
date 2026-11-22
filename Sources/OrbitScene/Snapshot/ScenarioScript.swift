@@ -15,6 +15,8 @@ import OrbitCore
 ///   contains `text` (case-insensitive), e.g. `ev:S-IC OECO`, `ev:mains deployed`.
 /// - `liftoff`: run until the focus vessel leaves the ground.
 /// - `t<n>`: run until the IU starts time base n (`t3`).
+/// - A holding count is resumed first by `ev:`, `liftoff` and `t<n>` too:
+///   nothing they wait for comes while it holds. `wait:` leaves it holding.
 /// - `stage`: Space: the next staging event, or the ELS backup's next step
 ///   once the CM's entry program is awake.
 /// - `throttle:<0...1>`, `warp:<x>`, `autopilot:<mode|off>` (a mode's name,
@@ -125,6 +127,7 @@ public struct ScenarioScript: Equatable {
             case .wait(let s):
                 Self.advance(sim, s, observe: observe)
             case .event(let text):
+                sim.terminalCount?.resume(at: sim.time, in: sim)
                 let needle = text.lowercased()
                 let simEvents = sim.events.count
                 // What each IU had logged when the command began; an IU seen
@@ -140,9 +143,11 @@ public struct ScenarioScript: Equatable {
                     }
                 }
             case .liftoff:
+                sim.terminalCount?.resume(at: sim.time, in: sim)
                 try runUntil(sim, "\(label), liftoff", observe: observe) { $0.focus?.landed == nil }
             case .timeBase(let n):
                 guard let base = SaturnIU.TimeBase(rawValue: n) else { throw Failure.badValue("t\(n)") }
+                sim.terminalCount?.resume(at: sim.time, in: sim)
                 try runUntil(sim, "\(label), t\(n)", observe: observe) { sim in
                     sim.vessels.contains { ($0.flightProgram as? SaturnIU)?.timeBases[base] != nil }
                 }

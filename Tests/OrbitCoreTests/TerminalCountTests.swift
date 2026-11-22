@@ -152,6 +152,7 @@ final class TerminalCountTests: XCTestCase {
         let (sim, v, count) = try countOnThePad()
         count.resume(at: sim.time, in: sim)
         run(sim) { sim.time - count.rangeZero! >= -3 }
+        let failed = sim.time - count.rangeZero!
         s(v, "S-IC engine 2").fail()
         run(sim) { sim.time - count.rangeZero! >= 5 }
         XCTAssertNil(count.committed)
@@ -161,6 +162,103 @@ final class TerminalCountTests: XCTestCase {
         XCTAssertNotNil(v.landed)
         XCTAssertTrue(v.thrusters.allSatisfy { !$0.isDelivering })
         XCTAssertGreaterThan(v.mass, AS506.firstMotionMass + 0.2 * 39_307 / 5, "engine 2's unburned share aboard")
+        // Failed after its command, before its ignition: it started, and its
+        // propellant stopped where it failed.
+        let i = try XCTUnwrap(count.plan.starts.firstIndex { $0.engine == "S-IC engine 2" })
+        XCTAssertNotNil(count.record.start(i))
+        XCTAssertEqual(count.record.stop(i).map { $0 - count.rangeZero! } ?? 0, failed, accuracy: 1e-9)
+    }
+
+    // An engine failed while the count holds never starts: the record has
+    // no start for it (the scene draws no smoke or ignition flash), its
+    // whole share of the buildup stays aboard, and the launch scrubs at T−0
+    // with the other four's unburned shares aboard too.
+    func testAnEngineFailedInTheHoldNeverStarts() throws {
+        let (sim, v, count) = try countOnThePad()
+        let m0 = v.mass
+        s(v, "S-IC engine 2").fail()
+        count.resume(at: sim.time, in: sim)
+        run(sim) { sim.time - count.rangeZero! >= 1 }
+        let i = try XCTUnwrap(count.plan.starts.firstIndex { $0.engine == "S-IC engine 2" })
+        XCTAssertNil(count.record.start(i))
+        XCTAssertEqual(count.record.stop(i).map { $0 - count.rangeZero! } ?? 0, Self.hold, accuracy: 1e-6)
+        for j in count.plan.starts.indices where j != i { XCTAssertNotNil(count.record.start(j)) }
+        XCTAssertNotNil(count.scrub)
+        XCTAssertNil(count.released)
+        XCTAssertEqual(count.record.fraction(i, at: sim.time), 0)
+        // What the other four burned to T−0, and nothing more.
+        let flow = AS506.f1.massFlow
+        let burned = count.plan.starts.indices.filter { $0 != i }
+            .reduce(0) { $0 + flow * count.plan.flowIntegral($1, from: Self.hold, to: 0) }
+        XCTAssertEqual(m0 - v.mass, burned, accuracy: 0.01)
+    }
+
+    // An engine lost after launch commit does not stop the release (the
+    // commit is the launch's), but its share of the buildup that it did not
+    // burn stays aboard, and first motion waits for the other four to lift
+    // the stack (the model's T/W at the release, 1.21 × 4/5, is under 1):
+    // the start of the step it left the pad in, not the release.
+    func testAnEngineLostAfterCommitKeepsItsShareAndLiftsLater() throws {
+        let (sim, v, count) = try countOnThePad()
+        let built = VesselLibrary.apollo11OnPad(in: try Simulation.forTests(perturbations: true)).mass
+        count.resume(at: sim.time, in: sim)
+        run(sim) { sim.time - count.rangeZero! >= 0.1 }
+        XCTAssertNotNil(count.committed)
+        let failed = sim.time - count.rangeZero!
+        s(v, "S-IC engine 2").fail()
+        let i = try XCTUnwrap(count.plan.starts.firstIndex { $0.engine == "S-IC engine 2" })
+        while true {
+            for u in sim.vessels { sim.prepareControls(u) }
+            if count.released != nil { break }
+            sim.step(min(0.02, sim.maxStep()))
+        }
+        let release = try XCTUnwrap(count.released)
+        XCTAssertEqual(release, count.rangeZero! + count.plan.release)
+        let stop = try XCTUnwrap(count.record.stop(i)) - count.rangeZero!
+        XCTAssertEqual(stop, failed, accuracy: 1e-9)
+        let unburned = AS506.f1.massFlow * count.plan.flowIntegral(i, from: stop, to: count.plan.release)
+        XCTAssertEqual(unburned, AS506.f1.massFlow * (count.plan.release - failed), accuracy: 1e-6)
+        XCTAssertEqual(v.mass, built + unburned, accuracy: 1e-3)
+        XCTAssertEqual(count.record.fraction(i, at: release + 1), 0, "engine 2 stays out after the release")
+        // Four F-1s, 27.6 MN, lift it once it weighs less than that less the
+        // rods' 3.2 MN: about 39 s of their 10.5 t/s on.
+        sim.step(min(0.02, sim.maxStep()))
+        let p0 = sim.atmosphere(of: sim.system.earth)!.seaLevelPressure
+        let four = v.thrusters.reduce(0) { $0 + $1.thrust(ambientPressure: v.atmosphere.pressure, seaLevelPressure: p0) }
+        run(sim, until: { v.landed == nil }, limit: 120)
+        let fm = try XCTUnwrap(count.firstMotion)
+        XCTAssertEqual(v.mass * 9.79, four - 3.2e6, accuracy: 0.01 * four, "lifted at T = W + rods")
+        XCTAssertGreaterThan(fm - release, 30, "four F-1s lift the stack only once it is lighter")
+        XCTAssertNil(count.liftoffSwitch)
+        run(sim, until: { count.liftoffSwitch != nil }, limit: 10)
+        XCTAssertGreaterThan(try XCTUnwrap(count.liftoffSwitch), fm)
+        XCTAssertNil(v.landed)
+    }
+
+    // At any time warp the count's steps end on its events, taken between
+    // epochs: frames of 1/60 s at 100× and 1,000× (16.7 s of simulation
+    // each) from the hold land on every event's epoch, which the
+    // simulation's log stamps, and release at T+0.30 s exactly, first motion
+    // there and the liftoff switches as the 0.02 s steps find them.
+    func testTheCountsEventsLandOnTheirEpochsAtAnyWarp() throws {
+        for warp in [100.0, 1_000.0] {
+            let (sim, v, count) = try countOnThePad()
+            sim.stepBudget = nil
+            sim.maxSubsteps = .max
+            sim.warp = warp
+            sim.stage(v)
+            let zero = try XCTUnwrap(count.rangeZero)
+            while count.liftoffSwitch == nil && sim.time - zero < 10 { sim.advance(by: 1.0 / 60) }
+            XCTAssertEqual(count.released, zero + count.plan.release, "at \(warp)×")
+            XCTAssertEqual(count.firstMotion, count.released, "at \(warp)×")
+            let planned = count.plan.events.map { ($0.name, $0.time) }
+                + [("launch commit: thrust OK", count.plan.commit), ("hold-down release", count.plan.release)]
+            for (name, time) in planned {
+                let logged = try XCTUnwrap(sim.events.first { $0.message == "Apollo 11: \(name)" }, name)
+                XCTAssertEqual(logged.time - zero, time, accuracy: 1e-6, "\(name) at \(warp)×")
+            }
+            XCTAssertEqual(try XCTUnwrap(count.liftoffSwitch) - zero, count.plan.release + 0.21, accuracy: 0.03)
+        }
     }
 }
 

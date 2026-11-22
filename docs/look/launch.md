@@ -40,7 +40,17 @@ the drawing. Now the elements move on the count: arm 1 from its T−30 s
 command, arm 2 from T−16.2 s, the hold-down links at the release, the
 in-flight arms and the masts at the liftoff switches the count finds (0.20
 s after the release, the controlled release's rise, against the 0.16 s
-estimated before).
+estimated before). The count finds them, and first motion, at the end of the
+step that crossed them, so a frame's record holds what its last step did;
+until it has, the countdown has them infinitely far, never at the historic
+estimate (which is earlier: an umbilical burst there would come twice).
+
+**A scrub.** An engine lost before T−0 scrubs the launch: nothing more
+moves, and the pad's effects run their windows from the cutoff instead of
+first motion, so the clouds stop being integrated and filled 480 s after it
+(and a reset later rebuilds nothing). An engine lost before its start
+command never starts: no smoke, no flash from it; one lost after its command
+smokes until it stopped.
 
 ## Effects on the core's thrust
 
@@ -63,7 +73,9 @@ estimated before).
   ignition the TEA-TEB igniter burns with the LOX, its boron green (BO₂'s
   bands about 545 nm), for a fraction of a second: a held flash of 16
   emissive puffs at the nozzle exit, from the count's ignition epochs.
-  Brightness and duration are L.
+  Above 10× a flash is held into the frame after it ended (P3's rule), so it
+  is requested up to a frame's interval past its life. Brightness and
+  duration are L.
 - The LOX tank's fog and the umbilicals' trickle stream while the count
   holds, as they did on the pad.
 
@@ -105,9 +117,10 @@ density; a hot, light one faster, as a light jet's near field is).
 
 - The jets' eddies (`p4 pad exhaust`) are born at the exits with the jet's
   speed, 0.7 of its half-width, and the temperature its heat gives the
-  volume it carries; as many as fill 30 % of that volume (L, the look's
-  density). Their optical depth is the exhaust's soot and water across an
-  eddy at full thrust, about 130.
+  volume it carries (the trench's and the deck's alike: the heat their
+  clouds get, once their water has boiled); as many as fill 30 % of that
+  volume (L, the look's density). Their optical depth is the exhaust's soot
+  and water across an eddy at full thrust, about 130.
 - The clouds' eddies (`p4 ground cloud`) are born inside the thermals,
   a fifth of their radius, with the cloud's rise and the wind and its
   growth, living 20-32 s; as many as keep 3 × its volume covered (L) while
@@ -115,9 +128,18 @@ density; a hot, light one faster, as a light jet's near field is).
   the boiled deluge, 0.5 % soot: L) hide what is behind, fewer after. A
   stem of eddies rises from each jet's end into its cloud while it is fed.
   Their albedo is their water's and soot's, 0.72.
+- The clouds' eddies are born moving with their lobe: placed back along its
+  motion by their ages (`sourceVelocity`), nothing added on.
 - A rebuilt history (a snapshot, a reset) integrates the clouds from the
-  first start command on the same 0.05 s grid and fills them from their
-  sampled past (`GroundCloud.samples`), so frames and rebuilds agree.
+  first start command on the same 0.05 s grid and fills each slice from the
+  lobe as it was then (`GroundCloud.state(at:)`, its 0.5 s samples): its
+  centre carried on to now along its motion then, its radius, eddies and
+  rise; so frames and rebuilds agree (`LaunchSequenceSceneTests`: the eddies'
+  mean size within 10 %).
+- A rebuilt climb off the pad is `LiftoffRise`'s, with the live count's
+  controlled release in closed form over its stroke (the first-motion stands
+  have none): what it puts the live climb behind the stands' is the core's
+  within 5 % (0.4-4 m at 2-10 s after first motion).
 
 Seeds: every request takes a fresh seed from its key and the producer's
 running serial (`LaunchEffects.nextSeed`, `ParticleRandom`), and the

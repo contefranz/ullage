@@ -113,6 +113,34 @@ final class GroundCloudTests: XCTestCase {
         _ = c
     }
 
+    // The deck's wall jet carries the heat its cloud gets: the deck share's
+    // once its share of the deck's 50,000 gpm has boiled (with 30 % of the
+    // exhaust on the deck, about 7 % of that heat), and its eddies are that
+    // much less hot than they would be dry.
+    func testDeckJetCarriesTheHeatLeftByItsWater() {
+        let gpm = GroundCloud.gallon / GroundCloud.minute
+        let wet = GroundCloud.Sources(exhaust: LiftoffRise.flow, thrust: LiftoffRise.thrust, trench: 0.7, deck: 0.3,
+                                      trenchWater: PadExhaust.trenchWater * gpm,
+                                      deckWater: PadExhaust.deckWater(sinceFirstMotion: 1) * gpm)
+        var dry = wet
+        dry.deckWater = 0
+        let rho = 1.17, ambient = 300.0, r0 = 12.0
+        let w = LaunchEffects.deckJet(wet, from: r0, density: rho, ambient: ambient)
+        let d = LaunchEffects.deckJet(dry, from: r0, density: rho, ambient: ambient)
+        let left = GroundCloud.fluxes(wet, lobe: .deck, density: rho, ambient: ambient).heat
+        let all = GroundCloud.fluxes(dry, lobe: .deck, density: rho, ambient: ambient).heat
+        let boiled = wet.deckWater * wet.deck * (GroundCloud.waterHeat * (373.15 - ambient) + GroundCloud.waterLatent)
+        XCTAssertEqual(all - left, boiled, accuracy: 1e-9 * all)
+        XCTAssertEqual(1 - left / all, 0.07, accuracy: 0.02)
+        // Below the 2,000 K cap the excess is the heat over the volume's heat capacity.
+        if d.temperature < 2_000 {
+            XCTAssertEqual((w.temperature - ambient) / (d.temperature - ambient), left / all, accuracy: 1e-9)
+        } else {
+            XCTAssertLessThanOrEqual(w.temperature, d.temperature)
+        }
+        XCTAssertEqual(w.speed, d.speed)
+    }
+
     // The state is integrated on a fixed grid from the first start command:
     // advanced in frames of any length to the same epoch, it is the same,
     // and its samples give the lobes as they were.

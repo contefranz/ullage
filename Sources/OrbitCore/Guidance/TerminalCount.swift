@@ -20,7 +20,9 @@ import Foundation
 ///   thrust OK level; then the arms release at `Plan.release` and the
 ///   engines run on in flight, their burn clocks starting there. An engine
 ///   that failed or is short of thrust at commit scrubs the launch: the
-///   engines stop and the vehicle stays held.
+///   engines stop and the vehicle stays held. One lost after commit does
+///   not stop the release; first motion then waits for the others to lift
+///   the vehicle.
 /// - Controlled release: for the first `ControlledRelease.stroke` of rise
 ///   the tapered pins drawn through their dies hold the vehicle back
 ///   (`restraint`).
@@ -33,8 +35,9 @@ import Foundation
 ///   mass at the release, Table 20-9's thrust buildup apart.
 ///
 /// The simulation runs it for `vehicle` (`Simulation.terminalCount`): at the
-/// start of each of its steps, before the flight program, and it ends a
-/// step on each of the count's events.
+/// start of each of its steps, before the flight program (`update`), and at
+/// the end of each (`stepped`), and it ends a step on each of the count's
+/// events.
 public final class TerminalCount {
     /// The restraint of the controlled release mechanisms: a force against
     /// the rise falling linearly from `force` at release to zero at
@@ -162,13 +165,12 @@ public final class TerminalCount {
             starts.indices.reduce(0) { $0 + integral($1, from: t0, to: t1) } / Double(starts.count)
         }
 
-        /// The next of the plan's own times after range time `t`: the
-        /// events, the commands, ignitions and ends of the rises, commit and
-        /// release.
-        func nextTime(after t: Double) -> Double? {
+        /// The plan's own times: the events, the commands, ignitions and
+        /// ends of the rises, commit and release.
+        var times: [Double] {
             var times = events.map(\.time) + [commit, release]
             for s in starts { times += [s.command, s.ignition, s.ignition + rise] }
-            return times.filter { $0 > t + 1e-9 }.min()
+            return times
         }
     }
 
@@ -210,6 +212,9 @@ public final class TerminalCount {
     private var pad: (body: CelestialBody, point: Vec3, up: Vec3)?
     /// The rise at the last step after the release, for the liftoff switch.
     private var lastRise: (time: Epoch, rise: Double)?
+    /// The last epoch the vehicle was seen standing after the release: the
+    /// start of the step it lifted off in, once it has.
+    private var lastStanding: Epoch?
 
     /// The count of `vehicle`, standing landed on its pad at `now`, held at
     /// range time `hold` (negative: before T−0) with its engines off. Its
@@ -252,8 +257,8 @@ public final class TerminalCount {
     /// (`VesselLibrary.apollo11OnPad`, its engines at full): released at
     /// `plan.release` with range zero `rangeZero`, its history as planned.
     /// It drives nothing, not even the controlled release (the vehicle flies
-    /// as it was placed); it tells the scene when the count ran, and finds
-    /// first motion and the liftoff switches.
+    /// as it was placed); it tells the scene when the count ran, first motion
+    /// at the release, and finds the liftoff switches.
     public init(releasedVehicle vehicle: Vessel, plan: Plan, rangeZero: Epoch) {
         var plan = plan
         plan.controlledRelease = nil
@@ -264,6 +269,7 @@ public final class TerminalCount {
         plannedRangeZero = rangeZero
         committed = rangeZero + plan.commit
         released = rangeZero + plan.release
+        firstMotion = released
         for (i, e) in plan.events.enumerated() {
             done.insert(i)
             log.append((rangeZero + e.time, e.name))
@@ -298,12 +304,13 @@ public final class TerminalCount {
         /// Where range time counts from at `now`.
         public func rangeZero(at now: Epoch) -> Epoch { rangeZero ?? now + (-hold) }
 
-        /// Engine `i`'s thrust over full at `epoch`, as the count ran it.
+        /// Engine `i`'s thrust over full at `epoch`, as the count ran it: 0
+        /// once it stopped before the release, then and after.
         public func fraction(_ i: Int, at epoch: Epoch) -> Double {
             guard let zero = rangeZero else { return 0 }
-            if let r = released, epoch >= r { return 1 }
             let t = epoch - zero
             if let s = stops[i], t >= s { return 0 }
+            if let r = released, epoch >= r { return 1 }
             return plan.fraction(i, rangeTime: t)
         }
 
@@ -311,19 +318,26 @@ public final class TerminalCount {
         /// command to its ignition, then its thrust's fraction.
         public func flowFraction(_ i: Int, at epoch: Epoch) -> Double {
             guard let zero = rangeZero else { return 0 }
-            if let r = released, epoch >= r { return 1 }
             let t = epoch - zero
             if let s = stops[i], t >= s { return 0 }
+            if let r = released, epoch >= r { return 1 }
             return plan.flowFraction(i, rangeTime: t)
         }
 
         /// The epochs engine `i` was commanded to start and ignited at; nil
-        /// while the count holds, or for one it never reached.
+        /// while the count holds, or for one it never reached (it failed
+        /// before its command).
         public func start(_ i: Int) -> (command: Epoch, ignition: Epoch)? {
             guard let zero = rangeZero else { return nil }
             let s = plan.starts[i]
             if let stop = stops[i], stop < s.command { return nil }
             return (zero + s.command, zero + s.ignition)
+        }
+
+        /// The epoch engine `i` stopped at before the release, if it did.
+        public func stop(_ i: Int) -> Epoch? {
+            guard let zero = rangeZero, let s = stops[i] else { return nil }
+            return zero + s
         }
     }
 
@@ -359,13 +373,7 @@ public final class TerminalCount {
     /// Engine `i`'s thrust over its full thrust at `epoch` as the count ran
     /// it: as planned from range zero, 0 once it stopped before the release
     /// (`stops`), 1 after the release; 0 while the count holds.
-    public func fraction(_ i: Int, at epoch: Epoch) -> Double {
-        guard let zero = rangeZero else { return 0 }
-        let t = epoch - zero
-        if let r = released, epoch >= r { return 1 }
-        if let s = stops[i], t >= s { return 0 }
-        return plan.fraction(i, rangeTime: t)
-    }
+    public func fraction(_ i: Int, at epoch: Epoch) -> Double { record.fraction(i, at: epoch) }
 
     // MARK: The simulation's hooks
 
@@ -374,7 +382,8 @@ public final class TerminalCount {
 
     /// One step of the count at `sim.time`, before the vehicle's flight
     /// program: the events due, the engines' thrust, the tanks, commit and
-    /// the release; after it, first motion and the liftoff switches.
+    /// the release. First motion and the liftoff switches are found at the
+    /// end of each step (`stepped`).
     public func update(_ v: Vessel, in sim: Simulation) {
         guard v === vehicle, let zero = rangeZero else {
             // Holding: the engines stay off whatever the throttle says.
@@ -393,7 +402,7 @@ public final class TerminalCount {
             }
         }
         guard released == nil else {
-            watchLiftoff(v, sim, now: now)
+            if v.landed != nil { lastStanding = now }
             return
         }
         // Until the release the count, not the pilot, runs the engines.
@@ -402,14 +411,17 @@ public final class TerminalCount {
         let engines = plan.starts.map { s in v.thrusters.first { $0.name == s.engine } }
         for (i, e) in engines.enumerated() {
             guard let e else { continue }
-            if stops[i] == nil, !e.isAvailable, t > plan.starts[i].command { stops[i] = t }
+            // An engine lost since the resume stops there: before its
+            // command it never starts (`Record.start`), and what it was to
+            // burn stays in the tanks.
+            if stops[i] == nil, !e.isAvailable { stops[i] = t }
             guard stops[i] == nil, t >= plan.starts[i].ignition - 1e-6 else {
                 e.groundStart = nil
                 continue
             }
             // The fraction at the middle of the coming step: 0.02 s, as a
             // thrusting landed vessel steps, or to the count's next time.
-            let next = plan.nextTime(after: t).map { $0 - t } ?? .infinity
+            let next = timeToNextEvent(at: now) ?? .infinity
             e.groundStart = plan.fraction(i, rangeTime: t + 0.5 * min(0.02, next))
         }
         if committed == nil, t >= plan.commit - 1e-6 {
@@ -433,12 +445,14 @@ public final class TerminalCount {
         }
         if committed != nil, now >= zero + plan.release {
             // The release: every tank at its first-motion load (what the
-            // engines still had to burn is nothing now), the engines on to
-            // the flight under the throttle, their clocks from here.
+            // engines still had to burn is nothing now; an engine lost since
+            // commit leaves its unburned share aboard), the engines on to the
+            // flight under the throttle, their clocks from here.
             for e in engines { e?.groundStart = nil }
-            for k in tanks.indices { tanks[k].tank.mass = tanks[k].load }
+            bookTanks(rangeTime: plan.release)
             v.mainThrottle = 1
             released = now
+            lastStanding = now
             record("hold-down release", at: now, sim)
             return
         }
@@ -446,13 +460,14 @@ public final class TerminalCount {
     }
 
     /// Seconds from `now` to the count's next event, to end a step there;
-    /// nil while it holds or once it has released. The release counts until
-    /// `now` is at its epoch exactly.
+    /// nil while it holds or once it has released. Taken between epochs: a
+    /// step that lands on an event's epoch reads a range time a few 1e-8 s
+    /// off the event's (the epoch's grid is 2⁻²³ s in 1969), and the next
+    /// event is the first epoch after `now`, the release's until `now` is
+    /// at it exactly.
     public func timeToNextEvent(at now: Epoch) -> Double? {
         guard let zero = rangeZero, released == nil, scrub == nil else { return nil }
-        let release = zero + plan.release
-        if now < release, release - now <= 1e-6 { return release - now }
-        return plan.nextTime(after: now - zero).map { zero + $0 - now }
+        return plan.times.map { zero + $0 - now }.filter { $0 > 0 }.min()
     }
 
     /// The next event for the pilot: while the count holds, T−0 as if it
@@ -486,6 +501,16 @@ public final class TerminalCount {
         }
     }
 
+    /// The controlled release's force on `v` standing on the pad, N: the
+    /// rods' whole force once released, until the vehicle has risen through
+    /// their stroke; 0 otherwise. To leave the pad its thrust must exceed
+    /// its weight and this (`Simulation.stepLanded`).
+    func restraintOnThePad(_ v: Vessel) -> Double {
+        guard v === vehicle, released != nil, let crm = plan.controlledRelease,
+              (lastRise?.rise ?? 0) < crm.stroke else { return 0 }
+        return crm.force(atRise: 0)
+    }
+
     /// The vehicle's rise off the pad now, m: its structure's origin along
     /// the pad's up from where it stood. Nil off its body.
     public func rise(of v: Vessel, snapshot s: SystemSnapshot) -> Double? {
@@ -495,13 +520,15 @@ public final class TerminalCount {
         return (point - pad.point).dot(pad.up)
     }
 
-    // MARK: Inside
-
-    /// After the release: first motion once the vehicle has left the pad,
-    /// the liftoff switches at their rise, and the rise itself until it is
-    /// past them and the controlled release's stroke.
-    private func watchLiftoff(_ v: Vessel, _ sim: Simulation, now: Epoch) {
-        if firstMotion == nil, v.landed == nil { firstMotion = released }
+    /// At the end of each of the simulation's steps, after the release:
+    /// first motion once the vehicle has left the pad (the start of the step
+    /// it lifted off in), the liftoff switches at their rise, and the rise
+    /// itself until it is past them and the controlled release's stroke. So
+    /// a frame's record says what happened in its last step.
+    public func stepped(_ v: Vessel, in sim: Simulation) {
+        guard v === vehicle, released != nil else { return }
+        let now = sim.time
+        if firstMotion == nil, v.landed == nil { firstMotion = lastStanding ?? released }
         let watched = max(plan.liftoffSwitchRise, plan.controlledRelease?.stroke ?? 0)
         guard firstMotion != nil, (lastRise?.rise ?? 0) < watched, let rise = rise(of: v, snapshot: sim.snapshot)
         else { return }
@@ -516,6 +543,8 @@ public final class TerminalCount {
         }
         lastRise = (now, rise)
     }
+
+    // MARK: Inside
 
     /// Every tank at its load plus what the engines have not burned by range
     /// time `t` of what they were to burn by the release: from `t`, or from

@@ -53,37 +53,80 @@ public enum PadIgnition {
 ///   FER §5: `LaunchEffectsTests.testLiftoffRiseIsTheModels` checks it
 ///   against the vehicle).
 ///
-/// Drag is negligible this low. It reproduces the model's climb in the
-/// datasheet (§8.5): 105 m at range 10 s and 473 m at 20 s, within 3 m, and
-/// GE504's 137 m rise, at which the IU starts the roll and pitch programs
-/// (SaturnIU), 11.0 s after first motion (T1 + 10.7 s). AS-506 itself,
-/// slower off the pad with its controlled release, started them at
-/// T1 + 12.6 s (FER Table 2-2).
+/// Drag is negligible this low. Without rods (the first-motion stands) it
+/// reproduces the model's climb in the datasheet (§8.5): 105 m at range
+/// 10 s and 473 m at 20 s, within 3 m, and GE504's 137 m rise, at which the
+/// IU starts the roll and pitch programs (SaturnIU), 11.0 s after first
+/// motion (T1 + 10.7 s). With the live count's controlled release
+/// (`TerminalCount.ControlledRelease`) the rods hold it back over their
+/// stroke, the closed form of `stroke(_:)`: the free rise after it, slower
+/// by the stroke's deficit in speed and behind by its deficit in height,
+/// which starts the programs 0.16 s later (the core's, within 0.03 s:
+/// `LaunchSequenceSceneTests.testTheLiveClimbIsTheRebuiltOneWithTheRods`). AS-506 itself, slower still,
+/// started them at T1 + 12.6 s (FER Table 2-2).
 public enum LiftoffRise {
+    public typealias Release = TerminalCount.ControlledRelease
     public static let thrust = 34.34e6
     public static let mass = 2_899_008.0
     public static let flow = 13_157.0
     public static let gravity = 9.79
-    /// The rise at which the pitch program starts, m, and when, s after first motion.
+    /// The rise at which the pitch program starts, m, and when, s after
+    /// first motion: without rods, and with `release`'s.
     public static let programStartRise = 137.0
-    public static let programStart: Double = {
+    public static let programStart = programStart(release: nil)
+    public static func programStart(release: Release?) -> Double {
         var lo = 0.0, hi = 30.0
         for _ in 0..<60 {
             let mid = 0.5 * (lo + hi)
-            if rise(after: mid) < programStartRise { lo = mid } else { hi = mid }
+            if rise(after: mid, release: release) < programStartRise { lo = mid } else { hi = mid }
         }
         return 0.5 * (lo + hi)
-    }()
+    }
 
-    /// The speed `t` s after first motion, m/s: (F / ṁ) ln(m0 / m) − g t.
-    public static func speed(after t: Double) -> Double {
+    /// The rods' stroke: over it x'' = a0 + ω² x, their force R falling
+    /// linearly over the stroke s, with a0 = (F − R) / m0 − g and
+    /// ω² = R / (m0 s) (the mass's 0.2 % fall over it neglected), so
+    /// x = (a0 / ω²)(cosh ωt − 1). Its end, s after first motion, and how
+    /// far the free rise is ahead of it then, in speed and height.
+    public static func stroke(_ r: Release) -> (time: Double, speedDeficit: Double, riseDeficit: Double) {
+        let a0 = (thrust - r.force) / mass - gravity, w = (r.force / (mass * r.stroke)).squareRoot()
+        guard a0 > 0, w > 0 else { return (.infinity, 0, 0) }
+        let time = acosh(1 + r.stroke * w * w / a0) / w
+        let speed = a0 / w * sinh(w * time)
+        return (time, freeSpeed(after: time) - speed, freeRise(after: time) - r.stroke)
+    }
+
+    /// The speed `t` s after first motion, m/s: (F / ṁ) ln(m0 / m) − g t,
+    /// less the rods' deficit after their stroke.
+    public static func speed(after t: Double, release: Release? = nil) -> Double {
+        guard let r = release else { return freeSpeed(after: t) }
+        let s = stroke(r)
+        guard t >= s.time else {
+            let a0 = (thrust - r.force) / mass - gravity, w = (r.force / (mass * r.stroke)).squareRoot()
+            return a0 > 0 ? a0 / w * sinh(w * max(0, t)) : 0
+        }
+        return freeSpeed(after: t) - s.speedDeficit
+    }
+
+    /// The rise `t` s after first motion, m: the speed's integral,
+    /// (F / ṁ) ((1 − k t) ln(1 − k t) / k + t) − g t² / 2 with k = ṁ / m0,
+    /// less the rods' deficit after their stroke.
+    public static func rise(after t: Double, release: Release? = nil) -> Double {
+        guard let r = release else { return freeRise(after: t) }
+        let s = stroke(r)
+        guard t >= s.time else {
+            let a0 = (thrust - r.force) / mass - gravity, w2 = r.force / (mass * r.stroke)
+            return a0 > 0 ? a0 / w2 * (cosh(w2.squareRoot() * max(0, t)) - 1) : 0
+        }
+        return freeRise(after: t) - s.riseDeficit - s.speedDeficit * (t - s.time)
+    }
+
+    static func freeSpeed(after t: Double) -> Double {
         let s = max(0, t), k = flow / mass
         return -(thrust / flow) * log(1 - k * s) - gravity * s
     }
 
-    /// The rise `t` s after first motion, m: the speed's integral,
-    /// (F / ṁ) ((1 − k t) ln(1 − k t) / k + t) − g t² / 2 with k = ṁ / m0.
-    public static func rise(after t: Double) -> Double {
+    static func freeRise(after t: Double) -> Double {
         let s = max(0, t), k = flow / mass
         return (thrust / flow) * ((1 - k * s) * log(1 - k * s) / k + s) - 0.5 * gravity * s * s
     }

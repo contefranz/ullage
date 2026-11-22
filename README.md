@@ -85,12 +85,12 @@ them the Earth keeps `earth.jpg` (or the plain ocean), and the console says so.
 | W S A D Q E | Pitch down / up, yaw left / right, roll left / right (RCS: tap for a pulse, hold to fire on) |
 | I K J L U O | Translate up / down / left / right / forward / back (RCS: tap for a pulse, hold to fire on) |
 | Ctrl + RCS key | Fine RCS: the tap's pulse is the jets' 14 ms minimum impulse, the hold a tenth of the thrust (docking) |
-| Space | Next staging event: on the Saturn V only after the S-IC cutoff; CM/SM separation takes two presses within 2 s; on the CM once the SM has gone, the backup of the earth landing system (apex cover and drogues, then mains), below 40,000 ft |
+| Space | On the pad, resume the terminal count (the Saturn V holds at T−35 s); then the next staging event: on the Saturn V only after the S-IC cutoff; CM/SM separation takes two presses within 2 s; on the CM once the SM has gone, the backup of the earth landing system (apex cover and drogues, then mains), below 40,000 ft |
 | T | Kill rotation (toggle; damps rates only) |
 | 1–7 | Prograde, retrograde, normal, anti-normal, radial out, radial in, hold level |
 | 8, 0 | Hold attitude (on the Saturn V, gives the attitude back to the IU); autopilot off |
 | 9 | CM entry mode: manual (Q/E roll the lift about the air velocity), bank hold (the bank flown), rolling |
-| F, then 1–5 | Fail engine n of the stage now firing (S-IC and S-II: 5 is the centre engine); Esc cancels |
+| F, then 1–5 | Fail engine n of the stage now firing, or about to on the pad (S-IC and S-II: 5 is the centre engine; an S-IC engine lost before T−0 scrubs the launch); Esc cancels |
 | . , / | Time warp up / down / reset to 1× |
 | P | Pause |
 | N | Navball speed mode: orbit / surface / target (automatic: surface below 40 km, orbit above 50 km; target only with a target set) |
@@ -124,8 +124,8 @@ takes over again once a pulse ends. In the CM entry's manual mode, from
 In the **Scenario** menu:
 
 - **Pathfinder on LC-39A**: the two-stage test rocket on 16 July 1969.
-- **Saturn V (AS-506) on LC-39A**: Apollo 11 at first motion, flown by its IU
-  to the parking orbit.
+- **Saturn V (AS-506) on LC-39A**: Apollo 11 in its terminal count, holding at
+  T−35 s; Space launches it, and its IU flies it to the parking orbit.
 - **Apollo 11: pad to splashdown (TLI no-go)**: the same stack, flown on from
   the parking orbit back to the Atlantic (see *The Earth-orbit mission*).
 - **Apollo 11 in parking orbit**: the stack at orbit insertion, GET 00:11:49,
@@ -194,8 +194,19 @@ liftoff.
 
 ## The Earth-orbit mission
 
-**Ascent.** The Saturn V opens paused at first motion, 13:32:00.3 UTC, with the F-1s at
-full thrust: P releases it, and the Instrument Unit takes over at liftoff: the
+**Ascent.** The Saturn V opens on the pad, running, its terminal count holding
+at T−35 s with the F-1s off; the HUD's next-event line shows the count. Space
+resumes it: the S-IC intertank and forward arms retract (T−30 and T−16.2 s),
+the IU takes its launch azimuth for the time of launch at guidance reference
+release (T−17 s), the ignition sequence starts at T−8.9 s, and the F-1s light
+in their 1-2-2 order from T−3.05 s while the hold-down arms hold the stack. At
+T−0 every engine must be at its thrust OK level (one lost before then scrubs
+the launch), and the arms release at T+0.3 s, the controlled release's rods
+holding the stack back over its first 6 in. The mission clock counts from the
+count's T−0: resumed at once, the launch is at Apollo 11's 13:32:00 UTC; later,
+the IU flies the launch window's azimuth (72.06° rising 8.2° an hour, to 108°)
+and its plane to the same parking orbit. P only pauses. The Instrument Unit
+takes over at liftoff: the
 tower-clearance yaw, the roll to the 72.058° flight azimuth, the pitch
 program, the engine cutoffs, every separation and ignition on Apollo 11's
 times, and the turn to the local horizontal after the S-IVB cutoff. The crew
@@ -204,8 +215,8 @@ program and roll 180 once pitched over. The stages
 separate on their solid motors: the retros back each spent stage away, burning
 on with it, the ullage motors push the stack that stays, and the tower's
 jettison motor pitches the escape tower over and throws it clear; the HUD's
-IU row shows its time base and phase. Space does nothing until the S-IC has
-burned out. Flying by hand or selecting another autopilot mode takes the
+IU row shows its time base and phase. In flight Space does nothing until the
+S-IC has burned out. Flying by hand or selecting another autopilot mode takes the
 attitude away from the IU, which keeps sequencing the flight. Releasing the
 keys (or 8, after another mode) gives it back, and the IU returns to its
 program at its command rate limits: 1°/s until the S-IVB cutoff, 0.4°/s

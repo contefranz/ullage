@@ -127,6 +127,9 @@ public final class LaunchEffects: EffectProducer {
         let countdown: LC39A.Countdown
         let ignition: Ignition
         let firstMotion: Epoch
+        /// Where the pad's windows count from: first motion, or a scrubbed
+        /// launch's cutoff (the engines stopped there, nothing lifts off).
+        let windowStart: Epoch
         let now: Epoch
         /// Where this frame's interval starts: the last frame's epoch, or on
         /// a rebuilt history the thrust buildup's.
@@ -136,6 +139,12 @@ public final class LaunchEffects: EffectProducer {
         /// Site axes to the anchor's (the body's).
         let toAnchor: Mat3
         var anchor: EffectAnchorID?
+        /// The controlled release the vehicle rose against (the live
+        /// count's; none for the first-motion stands), and when its pitch
+        /// program starts after first motion as a rebuilt climb has it
+        /// (`LiftoffRise`).
+        var release: LiftoffRise.Release? { ignition.record?.plan.controlledRelease }
+        let programStart: Double
 
         func range(_ t: Epoch) -> Double { countdown.rangeTime(at: t) }
     }
@@ -171,6 +180,12 @@ public final class LaunchEffects: EffectProducer {
             if let r = record { return r.start(i) }
             return (zero + plan.starts[i].command, zero + plan.starts[i].ignition)
         }
+
+        /// Where engine `i` stopped before the release, if it did.
+        func stop(_ i: Int) -> Epoch? { record?.stop(i) }
+
+        /// When a scrubbed launch was cut off (it never released).
+        var scrubbed: Epoch? { record.flatMap { $0.released == nil ? $0.scrubbed : nil } }
 
         /// The first start command, and the first ignition; nil while the count holds.
         var firstCommand: Epoch? { plan.starts.indices.compactMap { start($0)?.command }.min() }
@@ -208,13 +223,14 @@ public final class LaunchEffects: EffectProducer {
         let ignition = Ignition(scene: f.scene, countdown: countdown)
         let range = countdown.rangeTime(at: now)
         let firstMotion = LaunchCountdown.epoch(countdown.firstMotion, in: countdown)
+        let windowStart = ignition.scrubbed ?? firstMotion
         // A history is rebuilt only on the first frame after a reset; later
         // frames carry on from the last one's epoch, whatever happened in
         // between (a staging's new vessels, a stretch with no vehicle). With
         // a count the pad's vapour streams from the count's start; without
         // one the effects start at the first engine's start command.
         let last = seen
-        guard f.scene.launch != nil || range >= PadIgnition.firstCommand, range < countdown.firstMotion + Self.window,
+        guard f.scene.launch != nil || range >= PadIgnition.firstCommand, now - windowStart < Self.window,
               let vehicle = Self.vehicle(in: f.scene, site: site)
         else {
             seen = Seen(epoch: now, vessel: nil, climb: 0)
@@ -226,11 +242,12 @@ public final class LaunchEffects: EffectProducer {
         guard now > from || rebuilt else { return }
         let toAnchor = body.orientation.icrfToBody * site.orientation
         var c = Context(frame: f, site: site, body: body, countdown: countdown, ignition: ignition,
-                        firstMotion: firstMotion, now: now, from: from, rebuilt: rebuilt, vehicle: vehicle,
-                        toAnchor: toAnchor, anchor: nil)
+                        firstMotion: firstMotion, windowStart: windowStart, now: now, from: from, rebuilt: rebuilt,
+                        vehicle: vehicle, toAnchor: toAnchor, anchor: nil,
+                        programStart: LiftoffRise.programStart(release: ignition.record?.plan.controlledRelease))
         let previousClimb = last?.vessel == vehicle.vessel.id ? last?.climb : nil
-        if now - firstMotion < Self.cloudWindow + ParticleLifetimes.groundCloud.upperBound {
-            if now - firstMotion < Self.padWindow + ParticleLifetimes.padExhaust.upperBound {
+        if now - windowStart < Self.cloudWindow + ParticleLifetimes.groundCloud.upperBound {
+            if now - windowStart < Self.padWindow + ParticleLifetimes.padExhaust.upperBound {
                 ignitionFlashes(&c, m)
                 startSmoke(&c, m)
                 padExhaust(&c, m, previousClimb: previousClimb)
@@ -300,11 +317,11 @@ public final class LaunchEffects: EffectProducer {
             return p + (now - p) * u
         }
         let d = c.now - c.firstMotion, tau = min(t - c.firstMotion, d)
-        guard d > LiftoffRise.programStart else {
+        guard d > c.programStart else {
             let u = tau / max(d, 1e-9)
             return now * u * u
         }
-        return min(now, LiftoffRise.rise(after: tau))
+        return min(now, LiftoffRise.rise(after: tau, release: c.release))
     }
 
     /// Emits the particles a source gives over `start`...`end` (by default
@@ -435,7 +452,7 @@ public final class LaunchEffects: EffectProducer {
             let axis = (c.toAnchor * (exit.direction + Vec3(0, 0, 0.15))).normalized
             guard let a = anchor(&c) else { return }
             emitSlices("trench \(k)", &c, lifetime: ParticleLifetimes.padExhaust, from: max(c.from, start),
-                       to: c.firstMotion + Self.padWindow, maxSlices: c.rebuilt ? 48 : 24,
+                       to: c.windowStart + Self.padWindow, maxSlices: c.rebuilt ? 48 : 24,
                        expected: { s, e in Self.integral(s, e) { jet($0).rate } },
                        make: { s, e in
                            let j = jet(s + 0.5 * (e - s))
@@ -461,14 +478,8 @@ public final class LaunchEffects: EffectProducer {
             let z = PadExhaust.exitHeightOnPad + climb(ctx, t, previous: previousClimb)
             let r0 = max(PadExhaust.envelopeRadius(atDeckFrom: z, radius: ctx.vehicle.clusterRadius),
                          PadExhaust.openingHalf)
-            let m = (s.thrust * s.deck / air.rho).squareRoot()
-            let volume = GroundCloud.jetVolume * m * r0
-            let e = Self.jetEddy * GroundCloud.jetSpread * r0
-            let heat = s.exhaust * s.deck * GroundCloud.exhaustHeat(ambient: air.temperature)
-                * (1 - GroundCloud.radiantFraction)
-            let excess = heat / (air.rho * GroundCloud.airHeat * volume)
-            return (GroundCloud.jetVelocity * m / r0, Self.jetFill * volume / (4 / 3 * .pi * e * e * e), r0,
-                    min(air.temperature + excess, 2_000))
+            let j = Self.deckJet(s, from: r0, density: air.rho, ambient: air.temperature)
+            return (j.speed, j.rate, r0, j.temperature)
         }
         guard let a = anchor(&c) else { return }
         emitSlices("deck", &c, lifetime: ParticleLifetimes.padExhaust, from: max(c.from, c.firstMotion),
@@ -495,6 +506,23 @@ public final class LaunchEffects: EffectProducer {
                    })
     }
 
+    /// The deck's wall jet at `s` from `r0` m off the pad's axis, in air of
+    /// `rho` and `ambient` K: its speed there, its eddies a second (as many
+    /// as fill `jetFill` of its volume flux), and their temperature, hot
+    /// with the heat its cloud gets: the deck share's once the deck's water
+    /// has boiled (`GroundCloud.fluxes`), in the volume it carries.
+    static func deckJet(_ s: GroundCloud.Sources, from r0: Double, density rho: Double, ambient: Double)
+        -> (speed: Double, rate: Double, temperature: Double) {
+        guard s.deck > 0, s.exhaust > 0, r0 > 0 else { return (0, 0, ambient) }
+        let m = (s.thrust * s.deck / rho).squareRoot()
+        let volume = GroundCloud.jetVolume * m * r0
+        let e = jetEddy * GroundCloud.jetSpread * r0
+        let heat = GroundCloud.fluxes(s, lobe: .deck, density: rho, ambient: ambient).heat
+        let excess = heat / (rho * GroundCloud.airHeat * volume)
+        return (GroundCloud.jetVelocity * m / r0, jetFill * volume / (4 / 3 * .pi * e * e * e),
+                min(ambient + excess, 2_000))
+    }
+
     // MARK: The ground cloud
 
     /// The two clouds the jets feed (`GroundCloud`), integrated on to this
@@ -519,7 +547,7 @@ public final class LaunchEffects: EffectProducer {
         cloud!.advance(to: c.now, sources: { self.sources(ctx, $0, previousClimb: previousClimb) }, air: c.body.air,
                        deckHeight: c.site.placement.height,
                        siteFromEastNorth: { e, n in eastSite * e + northSite * n })
-        guard let state = cloud, c.now - c.firstMotion < Self.cloudWindow + ParticleLifetimes.groundCloud.upperBound,
+        guard let state = cloud, c.now - c.windowStart < Self.cloudWindow + ParticleLifetimes.groundCloud.upperBound,
               let a = anchor(&c) else { return }
         let life = ParticleLifetimes.groundCloud, stemLife = ParticleLifetimes.stem
         let deck = c.site.placement.height
@@ -542,43 +570,56 @@ public final class LaunchEffects: EffectProducer {
             return (share * Self.cloudFill / pow(Self.cloudEddy, 3), stem, growth, feed)
         }
         func births(_ count: Double, _ l: ClosedRange<Double>) -> Double { 2 * count / (l.lowerBound + l.upperBound) }
-        for (k, lobe) in state.lobes.enumerated() where lobe.volume > 0 {
-            let radius = lobe.radius, now = fill(lobe)
-            let air = GroundCloud.air(c.body.air, at: lobe.centre.z, deckHeight: deck, wind: wind)
-            let velocity = air.wind + Vec3(0, 0, lobe.rise)
+        for k in state.lobes.indices {
+            // Each slice from the lobe as it was then (its last sample on a
+            // rebuilt history), placed on to now along its motion then.
+            func lobe(_ s: Epoch, _ e: Epoch) -> (time: Epoch, lobe: GroundCloud.Lobe) {
+                let then = state.state(at: s + 0.5 * (e - s))
+                return (then.time, then.lobes[k])
+            }
+            func velocity(_ lobe: GroundCloud.Lobe) -> Vec3 {
+                let air = GroundCloud.air(ctx.body.air, at: lobe.centre.z, deckHeight: deck, wind: wind)
+                return air.wind + Vec3(0, 0, lobe.rise)
+            }
             // The stem: the plume rising from the jet's end into the cloud
             // while the jet feeds it, eddies of `stemEddy` of the jet's
             // half-width there, rising with the cloud.
-            let base = lobe.centre.z - radius
-            if case .trench(let side) = lobe.kind, base > 1 {
-                let b = GroundCloud.jetSpread * lobe.front, e = Self.stemEddy * b
-                let foot = Vec3(side * lobe.front + lobe.drift.x, lobe.drift.y, 0)
+            if case .trench(let side) = state.lobes[k].kind {
                 emitSlices("stem \(k)", &c, lifetime: stemLife, from: max(c.from, origin), longest: 1,
-                           expected: { s, e in births(fill(state.lobes(at: s + 0.5 * (e - s))[k]).stem, stemLife) * (e - s) },
-                           make: { _, _ in
+                           expected: { s, e in births(fill(lobe(s, e).lobe).stem, stemLife) * (e - s) },
+                           make: { s, e in
+                               let l = lobe(s, e).lobe
+                               let base = l.centre.z - l.radius
+                               guard l.volume > 0, base > 1 else { return nil }
+                               let b = GroundCloud.jetSpread * l.front, size = Self.stemEddy * b
                                var r = EmitRequest(anchor: a, material: m.groundCloud, count: 0)
-                               r.origin = ctx.toAnchor * foot
+                               r.origin = ctx.toAnchor * Vec3(side * l.front + l.drift.x, l.drift.y, 0)
                                r.axis = ctx.toAnchor * .unitZ
                                r.shape = .line(length: base)
                                r.direction = .radial(spread: 0.8)
-                               r.speed = 0...max(0, now.growth)
-                               r.velocity = ctx.toAnchor * velocity
-                               r.radius = (0.8 * e)...(1.2 * e)
+                               r.speed = 0...max(0, fill(l).growth)
+                               r.velocity = ctx.toAnchor * velocity(l)
+                               r.radius = (0.8 * size)...(1.2 * size)
                                return r
                            })
             }
+            // The cloud's eddies, born moving with it: placed back along its
+            // motion by their ages (`sourceVelocity`), from where it would
+            // be now at that motion.
             emitSlices("cloud \(k)", &c, lifetime: life, from: max(c.from, origin),
-                       to: c.firstMotion + Self.cloudWindow, longest: 1,
-                       expected: { s, e in births(fill(state.lobes(at: s + 0.5 * (e - s))[k]).eddies, life) * (e - s) },
-                       make: { _, _ in
+                       to: c.windowStart + Self.cloudWindow, longest: 1,
+                       expected: { s, e in births(fill(lobe(s, e).lobe).eddies, life) * (e - s) },
+                       make: { s, e in
+                           let (time, l) = lobe(s, e)
+                           guard l.volume > 0 else { return nil }
+                           let radius = l.radius, v = velocity(l)
                            var r = EmitRequest(anchor: a, material: m.groundCloud, count: 0)
-                           r.origin = ctx.toAnchor * lobe.centre
+                           r.origin = ctx.toAnchor * (l.centre + v * (ctx.now - time))
                            r.axis = ctx.toAnchor * .unitZ
                            r.shape = .ball(radius: radius)
                            r.direction = .radial(spread: 0.6)
-                           r.speed = 0...max(0, now.growth)
-                           r.sourceVelocity = ctx.toAnchor * velocity
-                           r.velocity = ctx.toAnchor * velocity
+                           r.speed = 0...max(0, fill(l).growth)
+                           r.sourceVelocity = ctx.toAnchor * v
                            r.radius = (0.8 * Self.cloudEddy * radius)...(1.2 * Self.cloudEddy * radius)
                            return r
                        })
@@ -615,9 +656,11 @@ public final class LaunchEffects: EffectProducer {
         for (i, _) in c.ignition.plan.starts.enumerated() {
             guard let start = c.ignition.start(i), let a = anchor(&c) else { continue }
             let ctx = c
+            // Until the chamber lights, or the engine is lost.
+            let end = c.ignition.stop(i).map { min($0, start.ignition) } ?? start.ignition
             for outlet in 0..<3 {
                 emitSlices("start smoke \(i) \(outlet)", &c, lifetime: ParticleLifetimes.startSmoke,
-                           from: max(c.from, start.command), to: start.ignition, longest: 0.25,
+                           from: max(c.from, start.command), to: end, longest: 0.25,
                            expected: { s, e in (outlet == 0 ? 0.5 : 0.25) * rate * (e - s) },
                            make: { _, _ in
                                var r = EmitRequest(anchor: a, material: m.startSmoke, count: 0)
@@ -653,11 +696,16 @@ public final class LaunchEffects: EffectProducer {
 
     func ignitionFlashes(_ c: inout Context, _ m: Materials) {
         let down = c.toAnchor * -Vec3.unitZ
+        // Above 10× a flash is held into the frame after it ended (P3's
+        // `EffectTimeRules.spawns`), so one a frame's interval old still shows.
+        let clock = c.frame.clock
+        let oldest = ParticleLifetimes.ignitionFlash.upperBound + (clock.holdsFlashes ? max(clock.dt, 0) : 0)
         for (i, s) in c.ignition.plan.starts.enumerated() {
             guard let start = c.ignition.start(i), let exit = c.vehicle.exitByEngine[s.engine] else { continue }
             let t = start.ignition
-            guard t <= c.now, t > c.from || c.rebuilt, c.now - t < ParticleLifetimes.ignitionFlash.upperBound,
-                  let a = anchor(&c) else { continue }
+            // An engine lost before its chamber lit never flashes.
+            if let stop = c.ignition.stop(i), stop <= t { continue }
+            guard t <= c.now, t > c.from || c.rebuilt, c.now - t < oldest, let a = anchor(&c) else { continue }
             var r = EmitRequest(anchor: a, material: m.ignitionFlash, count: Self.flashCount)
             r.origin = c.toAnchor * (c.rebuilt ? Vec3(exit.centre.x, exit.centre.y, PadExhaust.exitHeightOnPad)
                                                : exit.centre)
@@ -710,7 +758,7 @@ public final class LaunchEffects: EffectProducer {
         }
         let d = c.now - c.firstMotion
         guard d > 0 else { return SourceMotion(origin: p.position, velocity: .zero, acceleration: .zero, axis: axis) }
-        if recent && d > LiftoffRise.programStart {
+        if recent && d > c.programStart {
             return SourceMotion(origin: p.position, velocity: p.velocity, acceleration: .zero, axis: axis)
         }
         let accel = 2 * c.vehicle.climb / (d * d)
@@ -852,7 +900,7 @@ public final class LaunchEffects: EffectProducer {
                 // In flight a rebuilt history keeps only its last second:
                 // the path before the frame is not known there.
                 var start = before ? c.from : max(c.from, c.firstMotion)
-                if c.rebuilt && !before && c.now - c.firstMotion > LiftoffRise.programStart {
+                if c.rebuilt && !before && c.now - c.firstMotion > c.programStart {
                     start = max(start, c.now + -Self.rebuiltFrostHistory)
                 }
                 for slab in [false, true] {
