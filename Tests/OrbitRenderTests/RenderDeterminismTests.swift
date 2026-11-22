@@ -308,13 +308,17 @@ final class RenderDeterminismTests: XCTestCase {
 
     /// E1's cache started over loads and maps as a new cache: the same tiles
     /// in the same slots, the same indirection and deep table on the GPU,
-    /// none of the last shot's tiles kept (pinned levels' included).
+    /// none of the last shot's tiles kept (pinned levels' included). Frame a
+    /// reaches level 4, which the deep table holds; frame b wants level 3 at
+    /// most, so nothing it loads rewrites the deep table, and only starting
+    /// over clears a's level-4 entries from it.
     func testTileCacheStartsOverAsANewCache() throws {
         let url = try tileLayer(maxLevel: 4)
         let used = try tileCache(url), fresh = try tileCache(url)
+        XCTAssertEqual(used.residency.indirection.textureMaxLevel, 3, "level 4 lives in the deep table")
         let queue = try XCTUnwrap(used.device.makeCommandQueue())
-        func frame(_ c: PlanetTileCache, around d: Vec3) throws {
-            let centre = TileKey.containing(d, level: 4)
+        func frame(_ c: PlanetTileCache, around d: Vec3, level: Int) throws {
+            let centre = TileKey.containing(d, level: level)
             var keys = [centre] + TileKey.Edge.allCases.map { centre.neighbor($0) }
             for k in 0 ..< 4 { if let g = centre.diagonalNeighbor(corner: k) { keys.append(g.key) } }
             let tiles = keys.map { PlanetQuadtree.Tile(key: $0, distance: ($0.centre - d).length, morphStart: 0, morphEnd: 1,
@@ -327,13 +331,16 @@ final class RenderDeterminismTests: XCTestCase {
             cb.waitUntilCompleted()
         }
         let a = Vec3(1, 0.2, 0.1).normalized, b = Vec3(-0.3, 1, 0.4).normalized
-        try frame(used, around: a)
+        try frame(used, around: a, level: 4)
         XCTAssertGreaterThan(used.residency.residentCount, 30)
+        XCTAssertEqual(used.residency.residentKeys.filter { $0.level == 4 }.count, 9)
         used.startOver()
         XCTAssertEqual(used.residency.residentCount, 0)
-        try frame(used, around: b)
-        try frame(fresh, around: b)
+        try frame(used, around: b, level: 3)
+        try frame(fresh, around: b, level: 3)
         XCTAssertNil(used.residency.validate())
+        XCTAssertGreaterThan(fresh.residency.residentKeys.filter { $0.level == 3 }.count, 0)
+        XCTAssertTrue(fresh.residency.residentKeys.allSatisfy { $0.level <= 3 })
         XCTAssertEqual(slots(used), slots(fresh))
         XCTAssertTrue(try indirectionBytes(used) == indirectionBytes(fresh), "the indirection on the GPU")
         XCTAssertEqual(used.deepTable.length, fresh.deepTable.length)
