@@ -92,7 +92,7 @@ extension Simulation {
     /// warp further and approaches it (`warpApproachTime`), with the event
     /// it ends on, if it does.
     func governedSpan(_ events: [WarpEvent], real: Double) -> (span: Double, endsOn: WarpEvent?) {
-        for e in events where e.holds(at: time) { lowerWarp(for: e) }
+        for e in events where e.holds(at: time) { apply(e) }
         var span = real * warp, endsOn: WarpEvent?
         let share = -expm1(-real / Self.warpApproachTime)
         for e in events where e.at - time > WarpEvent.reachedWithin && warp > e.maxWarp {
@@ -112,8 +112,20 @@ extension Simulation {
     /// After a frame: lower the warp for the events it reached, `endsOn`
     /// included (the frame's steps land on it to within their rounding).
     func governorReached(_ events: [WarpEvent], endsOn: WarpEvent?) {
-        if let e = endsOn { lowerWarp(for: e) }
-        for e in events where e.holds(at: time) { lowerWarp(for: e) }
+        if let e = endsOn { apply(e) }
+        for e in events where e.holds(at: time) { apply(e) }
+    }
+
+    /// Apply `e` now: a cap at every frame inside its window, a stop once,
+    /// when it is first reached (the frame that ends on it, or the first to
+    /// find it holding), so a warp the pilot raises at the stop stays raised.
+    func apply(_ e: WarpEvent) {
+        if case .stop = e.kind {
+            let key = WarpLogKey(at: e.at, reason: e.reason)
+            guard !appliedWarpStops.contains(key) else { return }
+            appliedWarpStops.insert(key)
+        }
+        lowerWarp(for: e)
     }
 
     /// Lower the warp to what `e` allows, logging it once per event.
@@ -131,7 +143,7 @@ extension Simulation {
     }
 }
 
-/// An event the governor has logged.
+/// An event the governor has logged, or a stop it has applied.
 struct WarpLogKey: Hashable {
     var at: Epoch
     var reason: String

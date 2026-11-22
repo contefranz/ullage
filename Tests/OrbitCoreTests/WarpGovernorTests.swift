@@ -58,13 +58,43 @@ final class WarpGovernorTests: XCTestCase {
         XCTAssertGreaterThan(Double(frames) * frame, 3)
         XCTAssertLessThan(Double(frames) * frame, 7)
 
-        sim.advance(by: frame)
-        XCTAssertEqual(sim.time - stop, frame, accuracy: 1e-6)
+        // Raised right at the stop, with no frame at 1x between (the pilot,
+        // or a script answering the log line): the stop does not take it
+        // back.
         sim.warp = 1_000
         sim.advance(by: 0.1)
         XCTAssertEqual(sim.warp, 1_000)
-        XCTAssertEqual(sim.time - stop, frame + 100, accuracy: 1e-6)
+        XCTAssertEqual(sim.time - stop, 100, accuracy: 1e-6)
         XCTAssertEqual(count(sim, "Warp 1×: TIG-2 min"), 1)
+    }
+
+    // A stop found already holding at a frame's start (the frame before
+    // ended on it within the rounding) is applied once too: raised while
+    // paused there, the warp stays raised.
+    func testAStopAppliesOnce() throws {
+        let start = try Simulation.forTests(perturbations: false).time
+        let (sim, _) = try coasting([.stop(at: start + 30, reason: "stop")])
+        sim.warp = 10
+        while start + 30 - sim.time > WarpEvent.reachedWithin { sim.advance(by: frame) }
+        XCTAssertEqual(sim.time - start, 30, accuracy: 1e-6)
+        XCTAssertEqual(sim.warp, 1)
+        sim.paused = true
+        sim.advance(by: 0.1)
+        sim.warp = 100
+        sim.paused = false
+        sim.advance(by: 0.1)
+        XCTAssertEqual(sim.warp, 100)
+        XCTAssertEqual(sim.time - start, 40, accuracy: 1e-6)
+
+        // Met already holding at the first frame: applied, once.
+        let (late, _) = try coasting([.stop(at: start, reason: "now")])
+        late.warp = 100
+        late.advance(by: 0.1)
+        XCTAssertEqual(late.warp, 1)
+        late.warp = 100
+        late.advance(by: 0.1)
+        XCTAssertEqual(late.warp, 100)
+        XCTAssertEqual(count(late, "Warp 1×: now"), 1)
     }
 
     // A 10x cap from 600 s to 1,200 s ahead, met at 1,000x: the frames end

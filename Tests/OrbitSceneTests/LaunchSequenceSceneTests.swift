@@ -258,13 +258,14 @@ final class LaunchSequenceSceneTests: XCTestCase {
         XCTAssertGreaterThan(fresh.count("p4 cold vapour"), 0, "it vents on an hour later")
     }
 
-    // A stack released but left standing on the rods (here one F-1 lost
-    // after commit and three more in the sit, which keep it on the pad for
-    // good) runs the pad's windows from the release, since its first motion
-    // is not found: the record follows the core's losses (a fifth of the
-    // flow feeds the trench), and the ground cloud is integrated no further
-    // than its window after the release. The stack still vents.
-    func testAStackLeftOnTheRodsClosesItsWindows() throws {
+    // A stack released but left standing on the rods (here two F-1s lost
+    // after commit, the three left lifting it only after about 140 s) keeps
+    // the pad's windows open while an F-1 burns there, its first motion not
+    // found: the trench jets are still fed 100 s after the release. Once the
+    // last has stopped (here the three lost in the sit) the windows run from
+    // there: the ground cloud is integrated no further than its window. The
+    // stack still vents.
+    func testAStackOnTheRodsKeepsItsWindowsWhileAnF1Burns() throws {
         let (sim, camera) = try open()
         let v = try XCTUnwrap(sim.focus)
         func fail(_ n: Int) { v.thrusters.first { $0.name == "S-IC engine \(n)" }!.fail() }
@@ -273,21 +274,79 @@ final class LaunchSequenceSceneTests: XCTestCase {
         let count = try XCTUnwrap(sim.terminalCount)
         XCTAssertNotNil(count.committed)
         fail(1)
+        fail(2)
         advance(sim, to: 1)
         let release = try XCTUnwrap(count.released)
-        for n in 2...4 { fail(n) }
         let run = LaunchEffectsTests.Run(sim, camera)
         run.frame()
-        let end = release + LaunchEffects.cloudWindow + ParticleLifetimes.groundCloud.upperBound
+        fly(run, step: 5, to: release - count.rangeZero! + 100)
+        XCTAssertNotNil(v.landed)
+        XCTAssertNil(count.firstMotion)
+        XCTAssertEqual(count.plan.starts.indices.filter { count.record.fraction($0, at: sim.time) > 0 }.count, 3)
+        XCTAssertFalse(run.requests("p4 pad exhaust", in: run.outputs.last!).isEmpty, "the trench fed")
+        XCTAssertFalse(run.requests("p4 ground cloud", in: run.outputs.last!).isEmpty)
+        let fresh = LaunchEffectsTests.Run(sim, camera)
+        XCTAssertFalse(fresh.requests("p4 pad exhaust", in: fresh.frame()).filter { $0.ages.lowerBound < 1 }.isEmpty,
+                       "and on a rebuilt history")
+        for n in 3...5 { fail(n) }
+        let last = sim.time
+        let end = last + LaunchEffects.cloudWindow + ParticleLifetimes.groundCloud.upperBound
         fly(run, step: 5, to: end - count.rangeZero! + 30)
         XCTAssertNotNil(v.landed)
         XCTAssertNil(count.firstMotion)
-        let record = count.record
-        XCTAssertEqual(count.plan.starts.indices.filter { record.fraction($0, at: sim.time) > 0 }.count, 1)
         let cloud = try XCTUnwrap(run.effects.cloud)
         XCTAssertLessThan(cloud.time - end, 5.1, "integrated no further than the window")
         XCTAssertTrue(run.requests("p4 ground cloud", in: run.outputs.last!).isEmpty)
         XCTAssertTrue(run.requests("p4 pad exhaust", in: run.outputs.last!).isEmpty)
+        XCTAssertFalse(run.requests("p4 cold vapour", in: run.outputs.last!).isEmpty, "it vents on")
+    }
+
+    // A stack on the rods (one F-1 lost after commit) whose F-1s the
+    // throttle shuts down after the release (the pilot's X, a script's
+    // `throttle:0`) feeds the trench and the clouds only through their
+    // tail-off: after the release the pad's flow is the emitters', on a
+    // rebuilt history the journal's cutoffs, not the count's record. The
+    // count records the cut, so the windows close from it.
+    func testAThrottleCutOnTheRodsStopsThePadsFlow() throws {
+        let (sim, camera) = try open()
+        let v = try XCTUnwrap(sim.focus)
+        sim.stage(v)
+        advance(sim, to: 0.1)
+        let count = try XCTUnwrap(sim.terminalCount)
+        v.thrusters.first { $0.name == "S-IC engine 1" }!.fail()
+        advance(sim, to: 1)
+        XCTAssertNotNil(count.released)
+        let run = LaunchEffectsTests.Run(sim, camera)
+        run.frame()
+        fly(run, step: 1.0 / 30, to: 4)
+        XCTAssertFalse(run.requests("p4 pad exhaust", in: run.outputs.last!).isEmpty)
+        let cut = sim.time, zero = try XCTUnwrap(count.rangeZero)
+        v.mainThrottle = 0
+        func trench(_ c: GroundCloud) -> [GroundCloud.Lobe] {
+            c.lobes.filter { if case .trench = $0.kind { true } else { false } }
+        }
+        fly(run, step: 1.0 / 30, to: cut - zero + 0.3)
+        XCTAssertTrue(trench(try XCTUnwrap(run.effects.cloud)).allSatisfy { $0.jet.momentum > 0 }, "the tail-off")
+        fly(run, step: 1.0 / 30, to: cut - zero + 2)
+        let cloud = try XCTUnwrap(run.effects.cloud)
+        XCTAssertEqual(trench(cloud).count, 2)
+        XCTAssertTrue(cloud.lobes.allSatisfy { $0.jet.momentum == 0 })
+        XCTAssertTrue(run.requests("p4 pad exhaust", in: run.outputs.last!).isEmpty)
+        let exhaust = cloud.lobes.map(\.exhaust)
+        fly(run, step: 1.0 / 30, to: cut - zero + 3)
+        XCTAssertEqual(try XCTUnwrap(run.effects.cloud).lobes.map(\.exhaust), exhaust, "no exhaust after the cut")
+        let fresh = LaunchEffectsTests.Run(sim, camera)
+        let rebuilt = fresh.frame()
+        XCTAssertTrue(try XCTUnwrap(fresh.effects.cloud).lobes.allSatisfy { $0.jet.momentum == 0 })
+        let after = sim.time - cut - LaunchEffects.tailOff
+        XCTAssertFalse(fresh.requests("p4 pad exhaust", in: rebuilt).isEmpty)
+        XCTAssertTrue(fresh.requests("p4 pad exhaust", in: rebuilt).allSatisfy { $0.ages.upperBound > after },
+                      "none born after the tail-off")
+        XCTAssertTrue(count.plan.starts.indices.allSatisfy { count.record.stop($0) != nil }, "the count's cut")
+        let end = cut + LaunchEffects.cloudWindow + ParticleLifetimes.groundCloud.upperBound
+        fly(run, step: 5, to: end - zero + 30)
+        XCTAssertLessThan(try XCTUnwrap(run.effects.cloud).time - end, 5.1, "integrated no further than the window")
+        XCTAssertTrue(run.requests("p4 ground cloud", in: run.outputs.last!).isEmpty)
         XCTAssertFalse(run.requests("p4 cold vapour", in: run.outputs.last!).isEmpty, "it vents on")
     }
 
