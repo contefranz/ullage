@@ -355,6 +355,20 @@ public final class Thruster {
     /// Seconds the engine has been commanded on since it last started (0
     /// while it is off). The schedule and the start ramp run on it.
     public private(set) var burnTime = 0.0
+    /// How many times a liquid engine can be started, its ground start
+    /// included; nil for no limit (the SPS, the RCS). The F-1's hypergol
+    /// cartridge and the S-II J-2's start tank serve one start; the S-IVB's
+    /// J-2 recharges its start tank for one restart. Once they are spent, a
+    /// cutoff is final: nothing the controls command lights it again.
+    public var ignitionLimit: Int?
+    /// The starts made so far: a ground start (`groundStart`) and each time
+    /// the controls light it from rest.
+    public private(set) var ignitions = 0
+    /// Lit since its last start: on the ground start or commanded, until a
+    /// step in which it is neither.
+    private var lit = false
+    /// No start is left, and the engine is not burning.
+    public var ignitionsSpent: Bool { !lit && ignitionLimit.map { ignitions >= $0 } ?? false }
     /// What the engine delivered on the last step it was commanded on: the
     /// fraction of full output and the rating then. A shutdown ramp falls from it.
     private var lastOutput: (fraction: Double, rating: EngineRating)?
@@ -480,7 +494,8 @@ public final class Thruster {
     /// delivers thrust. A solid is commanded from ignition to burnout, a
     /// liquid engine also through its sequence's window.
     public var isCommanded: Bool {
-        (isSolid ? isIgnited : isAvailable && (level > 0 || isSequenced)) && hasPropellant && shutdownElapsed == nil
+        (isSolid ? isIgnited : isAvailable && (level > 0 || isSequenced) && !ignitionsSpent) && hasPropellant
+            && shutdownElapsed == nil
     }
 
     /// True while the engine's sequence holds it at full level.
@@ -538,6 +553,7 @@ public final class Thruster {
         shutdownElapsed = nil
         lastStep = 0
         sequenceElapsed = nil
+        lit = false
         if isSolid { isIgnited = false }
     }
 
@@ -564,7 +580,14 @@ public final class Thruster {
     /// Move the burn clock and the ramps on by `dt`, after the step has used
     /// this step's output. Call once per step.
     func advanceTransients(dt: Double) {
-        guard groundStart == nil else { return }
+        guard groundStart == nil else {
+            // A ground start is the engine's start: the flight goes on from it.
+            if (groundStart ?? 0) > 0, !lit {
+                lit = true
+                ignitions += 1
+            }
+            return
+        }
         defer {
             // A rating ramp runs whether or not the engine fires, and so
             // does a sequence's clock.
@@ -575,12 +598,17 @@ public final class Thruster {
             if let e = sequenceElapsed { sequenceElapsed = e + dt }
         }
         if isCommanded {
+            if !lit, !isSolid {
+                lit = true
+                ignitions += 1
+            }
             lastOutput = output
             shutdownElapsed = nil
             burnTime += dt
             lastStep = dt
             return
         }
+        lit = false
         burnTime = 0
         guard let tr = transients, tr.shutdown > 0, let last = lastOutput, last.fraction > 0 else {
             lastOutput = nil

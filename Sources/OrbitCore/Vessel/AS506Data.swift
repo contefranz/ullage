@@ -656,6 +656,16 @@ enum AS506 {
     /// to separation, 2,659,605 N s for the centre engine), a linear decay
     /// over 0.66 s. Its 908 kg per engine (Table 20-9) comes from the residual.
     static let f1Transients = EngineTransients(shutdown: 0.66)   // FER §5.4, Table 20-9 (H impulse; shape L)
+    /// Starts each engine has (`Thruster.ignitionLimit`). The F-1 lit once:
+    /// its hypergol cartridge and pyrotechnic igniters are spent at the
+    /// start, so it cannot relight after a cutoff, on the pad or in flight.
+    /// The S-II's J-2s start once from a start tank charged on the ground;
+    /// the S-IVB's J-2 recharges its start tank during burn 1 for the
+    /// restart, TLI (MSFC-MAN-503, the Saturn V flight manual: the F-1's and
+    /// the J-2's starting sequences, M).
+    static let f1Ignitions = 1
+    static let sIIJ2Ignitions = 1
+    static let sIVBJ2Ignitions = 2
     /// Outboard engines only, each with a pitch-plane and a yaw-plane actuator
     /// (square pattern); the centre engine is fixed. Single secondary source.
     /// It is the control limit: the actuator stop (5.25°) and the bearing
