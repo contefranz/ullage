@@ -181,17 +181,19 @@ final class PlumeTurbulenceTests: XCTestCase {
     /// time, is the cross-fade's of the point's two bands as the blend
     /// weighs them, within 35 % at each of three points on the axis (the
     /// blend's normalisation couples the bands, and the parcel moves to
-    /// longer lives as it goes); and a
-    /// layer lives so that this is 0.55 L/u' (Viggiano et al. 2021), L the
-    /// noise's integral length, where its turnover falls on a band (the
-    /// bands' lives are octaves). Two turnovers on it has forgotten itself.
+    /// longer lives as it goes); and a layer lives so that this is
+    /// Viggiano et al.'s (2021) L/u' there, L the noise's integral length,
+    /// where its turnover falls on a band (the bands' lives are octaves).
+    /// Two Lagrangian times on it has forgotten itself.
     func testDecaysAsAJetsTurbulence() {
         let m = member(ApolloExhaust.f1, altitude: 0)
-        XCTAssertEqual(PlumeTurbulence.lifeOverTurnover * PlumeTurbulence.fadeIntegral,
-                       PlumeTurbulence.lagrangianTime * PlumeTurbulence.integralLength, accuracy: 1e-12)
         for x in [70.0, 110, 150] {
+            let xi = x / m.coreLength
+            XCTAssertEqual(PlumeTurbulence.lifeOverTurnover(coreLengths: xi) * PlumeTurbulence.fadeIntegral,
+                           PlumeTurbulence.lagrangianTime(coreLengths: xi) * PlumeTurbulence.integralLength,
+                           accuracy: 1e-12)
             let tau = PlumeTurbulence.turnover(m, atX: x)
-            let b = PlumeTurbulence.band(turnover: tau), j = Int(b), beta = PlumeTurbulence.blend(b - Double(j))
+            let b = PlumeTurbulence.band(m, atX: x), j = Int(b), beta = PlumeTurbulence.blend(b - Double(j))
             let w0 = (1 - beta) * (1 - beta), w1 = beta * beta
             let life = (w0 * PlumeTurbulence.life(band: j) + w1 * PlumeTurbulence.life(band: j + 1)) / (w0 + w1)
             let expected = PlumeTurbulence.fadeIntegral * life / tau
@@ -203,9 +205,10 @@ final class PlumeTurbulenceTests: XCTestCase {
                     return (value(m, Vec3(x, 0, 0), t0, seed: UInt32(k)), value(m, q, t0 + dt, seed: UInt32(k)))
                 })
             }
-            let step = 0.02
+            let lives = PlumeTurbulence.lifeOverTurnover(coreLengths: xi)
+            let step = 0.02 * lives
             var integral = 0.0, previous = 1.0
-            for k in 1..<50 {
+            for k in 1..<100 {
                 let rho = lagrangian(Double(k) * step)
                 if rho <= 0 {
                     integral += 0.5 * previous * step * previous / max(previous - rho, 1e-9)
@@ -214,13 +217,113 @@ final class PlumeTurbulenceTests: XCTestCase {
                 integral += 0.5 * (previous + rho) * step
                 previous = rho
             }
-            let later = lagrangian(2)
-            print(String(format: "PlumeTurbulenceTests: x %.0f m: Lagrangian integral time %.3f ℓ/u' (its bands' %.3f, "
-                         + "0.55 L/u' %.3f), correlation %.2f at 2 τ", x, integral, expected,
-                         PlumeTurbulence.lagrangianTime * PlumeTurbulence.integralLength, later))
+            let later = lagrangian(2 * lives)
+            print(String(format: "PlumeTurbulenceTests: x %.0f m (%.1f cores): Lagrangian integral time %.3f ℓ/u' "
+                         + "(its bands' %.3f, %.2f L/u' %.3f), correlation %.2f at two lives", x, xi, integral,
+                         expected, PlumeTurbulence.lagrangianTime(coreLengths: xi),
+                         PlumeTurbulence.lagrangianTime(coreLengths: xi) * PlumeTurbulence.integralLength, later))
             XCTAssertEqual(integral, expected, accuracy: 0.35 * expected, "x \(x)")
             XCTAssertLessThan(abs(later), 0.2)
         }
+    }
+
+    /// The time scales from where the eddies are: through the potential
+    /// core the shear layer's intensity (u'/ΔU 0.18, Bell and Mehta), rising
+    /// to the self-similar centreline's 0.28 (Hussein et al.) by 20 D; the
+    /// Lagrangian time over L/u' Viggiano et al.'s 1/(T_E/T_L), 0.6, 1.6,
+    /// 1.5, 1.8 at 15, 25, 35, 45 D, held before and beyond. So the F-1's
+    /// near field renews more slowly than the far field's constants would
+    /// have it.
+    func testTimeScalesDownTheJet() {
+        XCTAssertEqual(PlumeTurbulence.intensity(coreLengths: 0), 0.18, accuracy: 1e-12)
+        XCTAssertEqual(PlumeTurbulence.intensity(coreLengths: 1), 0.18, accuracy: 1e-12)
+        XCTAssertEqual(PlumeTurbulence.intensity(coreLengths: 2.5), 0.23, accuracy: 1e-12)
+        XCTAssertEqual(PlumeTurbulence.intensity(coreLengths: 4), 0.28, accuracy: 1e-12)
+        XCTAssertEqual(PlumeTurbulence.intensity(coreLengths: 50), 0.28, accuracy: 1e-12)
+        for (xi, ratio) in [(0.0, 0.6), (3, 0.6), (5, 1.6), (7, 1.5), (9, 1.8), (40, 1.8)] {
+            XCTAssertEqual(PlumeTurbulence.lagrangianTime(coreLengths: xi), 1 / ratio, accuracy: 1e-12, "\(xi)")
+        }
+        XCTAssertEqual(PlumeTurbulence.lagrangianTime(coreLengths: 4), 0.5 * (1 / 0.6 + 1 / 1.6), accuracy: 1e-12)
+        let m = member(ApolloExhaust.f1, altitude: 0)
+        let x = 10.0, tau = PlumeTurbulence.turnover(m, atX: x)
+        let farTau = PlumeTurbulence.eddySize(m, atX: x) / (0.28 * PlumeTurbulence.excessSpeed(m, atX: x))
+        XCTAssertEqual(tau / farTau, 0.28 / 0.18, accuracy: 1e-9)
+        let life = PlumeTurbulence.lifeOverTurnover(coreLengths: x / m.coreLength) * tau
+        let farLife = (1 / 1.8) * PlumeTurbulence.integralLength / PlumeTurbulence.fadeIntegral * farTau
+        XCTAssertEqual(life / farLife, 1.8 / 0.6 * 0.28 / 0.18, accuracy: 1e-9)
+    }
+
+    /// A stream the air no longer bounds the jet with does not carry its
+    /// eddies: the J-2 at 170 km (free-molecular, Kn ≫ 1) flying through
+    /// the rarefied air at 4.8 km/s, about its exhaust's speed, turns over
+    /// as in vacuum; at 13 km the F-1's airspeed is its coflow.
+    func testFreeMolecularStreamCarriesNothing() {
+        let vacuum = member(ApolloExhaust.j2), high = member(ApolloExhaust.j2, altitude: 170_000, stream: 4_800)
+        XCTAssertEqual(high.coflow, 0, accuracy: 1e-9)
+        for x in [2.0, 20, 60] {
+            XCTAssertEqual(PlumeTurbulence.turnover(high, atX: x), PlumeTurbulence.turnover(vacuum, atX: x),
+                           accuracy: 1e-9 * PlumeTurbulence.turnover(vacuum, atX: x), "x \(x)")
+            XCTAssertEqual(PlumeTurbulence.band(high, atX: x), PlumeTurbulence.band(vacuum, atX: x), accuracy: 1e-9)
+            XCTAssertEqual(PlumeTurbulence.meanSpeed(high, atX: x, r: 1), PlumeTurbulence.meanSpeed(vacuum, atX: x, r: 1),
+                           accuracy: 1e-6)
+        }
+        let flying = member(ApolloExhaust.f1, altitude: 13_000, stream: 480)
+        XCTAssertEqual(flying.coflow, 480, accuracy: 1e-9)
+    }
+
+    /// One flow through a cluster: the S-IC's five F-1s at the pad (the
+    /// centre and four on the diagonals, 182 in out), the noise's flow
+    /// (its speed, its band) and the field continuous across where an
+    /// outboard jet's reach ends over the centre one and across the merged
+    /// far field's window. 1 cm steps; the flow's speed never jumps by 1 %
+    /// of the exhaust's, the field by more than its smooth change.
+    func testContinuousThroughTheCluster() {
+        let one = member(ApolloExhaust.f1, altitude: 0)
+        let d = 182 * 0.0254 / 2.squareRoot()
+        let exits = [Vec3(0, 0, 0)] + [(1.0, 1.0), (-1, 1), (-1, -1), (1, -1)].map { Vec3(0, d * $0.0, d * $0.1) }
+        let members = exits.enumerated().map { i, e -> PlumeMember in
+            var m = one
+            m.exit = e
+            m.name = "S-IC engine \(i == 0 ? 5 : i)"
+            return m
+        }
+        let c = PlumeClusters.cluster(members)
+        let merged = c.merged
+        XCTAssertNotNil(merged)
+        XCTAssertGreaterThan(c.mergeX, 10)
+        let bands = PlumeTurbulence.bands(time: 41.3)
+        func walk(_ a: Vec3, _ b: Vec3, _ label: String) {
+            let n = Int(((b - a).length / 0.01).rounded())
+            var last: (PlumeTurbulence.Flow, Double)?
+            var worst = (speed: 0.0, band: 0.0, value: 0.0), typical = 0.0
+            for i in 0...n {
+                let p = a + (b - a) * (Double(i) / Double(n))
+                guard let f = PlumeTurbulence.flow(members, merged: merged, mergeX: c.mergeX, origin: c.origin,
+                                                   axis: c.axis, at: p) else { continue }
+                let v = PlumeTurbulence.value(frame: members[0], flow: f, at: p, bands: bands, seed: 5,
+                                              noise: PlumeTurbulence.continuousNoise)
+                if let l = last {
+                    worst.speed = max(worst.speed, abs(f.speed - l.0.speed))
+                    worst.band = max(worst.band, abs(f.band - l.0.band))
+                    worst.value = max(worst.value, abs(v - l.1))
+                    typical += abs(v - l.1)
+                }
+                last = (f, v)
+            }
+            typical /= Double(n)
+            print(String(format: "PlumeTurbulenceTests: %@: the flow's speed jumps at most %.1f m/s, its band %.4f, "
+                         + "the field %.4f (%.4f a step on average)", label, worst.speed, worst.band, worst.value, typical))
+            XCTAssertLessThan(worst.speed, 0.01 * one.exhaustSpeed, label)
+            XCTAssertLessThan(worst.band, 0.02, label)
+            XCTAssertLessThan(worst.value, 12 * typical + 1e-3, label)
+        }
+        // Across the cluster at 20 m: engine 1's reach (1.78 R) covers the
+        // centre's axis.
+        walk(Vec3(20, 1.5 * d, 1.5 * d), Vec3(20, -1.5 * d, -1.5 * d), "across at 20 m")
+        // Down the jet through the merge's window, off the axis.
+        let m0 = c.mergeX
+        walk(c.origin + c.axis * (0.8 * m0) + Vec3(0, 0.7 * d, 0.7 * d),
+             c.origin + c.axis * (1.3 * m0) + Vec3(0, 0.7 * d, 0.7 * d), "through the merge")
     }
 
     /// The constants the life is built on: two triangles half a life
@@ -332,7 +435,7 @@ final class PlumeTurbulenceTests: XCTestCase {
     func testSpreadDoesNotPulse() {
         let m = member(ApolloExhaust.f1, altitude: 0)
         let pts = farField(m, count: 60)
-        let b = PlumeTurbulence.band(turnover: PlumeTurbulence.turnover(m, atX: 110))
+        let b = PlumeTurbulence.band(m, atX: 110)
         let life = PlumeTurbulence.life(band: Int(b))
         let spreads = (0..<12).map { i -> Double in
             let t = 50 + life * Double(i) / 12
@@ -360,7 +463,7 @@ final class PlumeTurbulenceTests: XCTestCase {
         // The two bands' depths, as the blend weighs them (by their weights
         // squared, the layers' triangles alike).
         func expected(atX x: Double, eta: Double) -> Double {
-            let b = PlumeTurbulence.band(turnover: PlumeTurbulence.turnover(m, atX: x))
+            let b = PlumeTurbulence.band(m, atX: x)
             let j = Int(b), beta = PlumeTurbulence.blend(b - Double(j))
             let u = PlumeTurbulence.meanSpeed(m, atX: x, r: eta * m.radius(atX: x))
             let sweep = u / (PlumeTurbulence.integralLength * PlumeTurbulence.eddySize(m, atX: x))

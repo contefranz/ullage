@@ -5,10 +5,11 @@ import OrbitCore
 import OrbitScene
 @testable import OrbitRender
 
-/// The plumes' turbulence on the GPU (`plume_noise`) against its reference
-/// (`PlumeTurbulence.value` on the texture's own texels): the same flow
-/// noise at points through the F-1s' cluster, at the clock's start and
-/// minutes on; and the uniforms' Swift mirrors at MSL's sizes.
+/// The plumes' turbulence on the GPU (`plume_noise` on the cluster's flow)
+/// against its reference (`PlumeTurbulence.value` on the texture's own
+/// texels): the same flow noise at points through the F-1s' cluster and its
+/// merged far field, at the clock's start and minutes on; on screen, never
+/// looping; and the uniforms' Swift mirrors at MSL's sizes.
 @MainActor
 final class PlumeTurbulenceRenderTests: XCTestCase {
     static let probe = """
@@ -16,18 +17,18 @@ final class PlumeTurbulenceRenderTests: XCTestCase {
                                       constant PlumeFrame &pf [[buffer(1)]],
                                       const device float4 *points [[buffer(2)]],
                                       device float *out [[buffer(3)]],
-                                      constant float4 &cluster [[buffer(4)]],
+                                      constant float4 *cluster [[buffer(4)]],
                                       texture3d<float> noise [[texture(0)]], sampler ns [[sampler(0)]],
                                       uint id [[thread_position_in_grid]]) {
-            // The flow's member (the reference's pick), its x, r and radius.
-            const device PlumeMember &f = members[int(points[id].w)];
-            float3 p = points[id].xyz, d = p - f.exit.xyz;
-            float x = max(dot(d, f.axis.xyz), 0.0);
-            float r = length(d - f.axis.xyz * x - f.bendDirection.xyz * plume_bendOffset(f, x));
-            float re = f.exit.w;
-            float big = max(re + f.sheathLight.w + f.shape.x * (1.0 - exp(-x / max(f.shape.y, 1e-6)))
-                            + f.shape.z * max(0.0, x - f.shape.w) + f.extent.w * max(0.0, x - f.flame.y), 0.2 * re);
-            out[id] = plume_noise(members[0], f, x, r, big, p, pf, noise, ns);
+            // The cluster: x its members (the merged one after them), y
+            // mergeX; its origin; its axis. The march's sample, as it finds
+            // the flow and the noise.
+            float3 p = points[id].xyz;
+            float mergeX = cluster[0].y;
+            float wm = mergeX > 0.0 ? plume_smoothstep(mergeX, 1.15 * mergeX, dot(p - cluster[1].xyz, cluster[2].xyz))
+                                    : 0.0;
+            PlumeNoiseAt na = {members, 0, int(cluster[0].x), wm, false, 0.0};
+            out[id] = plume_noiseAt(na, p, pf, noise, ns);
         }
 
         kernel void plume_sizes(device uint *out [[buffer(0)]]) {
@@ -80,8 +81,10 @@ final class PlumeTurbulenceRenderTests: XCTestCase {
             cb.waitUntilCompleted()
         }
         let members = cluster()
+        let merge = PlumeClusters.cluster(members)
+        let merged = try XCTUnwrap(merge.merged)
         let seed: UInt32 = 0x1234_5678
-        let gpuMembers = members.map { Plumes.gpu($0, seed: seed) }
+        let gpuMembers = (members + [merged]).map { Plumes.gpu($0, seed: seed) }
         let m0 = members[0]
         let u = PlumeLook.perpendicular(m0.axis), v = m0.axis.cross(u).normalized
         var state: UInt32 = 11
@@ -94,27 +97,22 @@ final class PlumeTurbulenceRenderTests: XCTestCase {
         var worst = 0.0, sum = 0.0, spread = 0.0
         for t in [0.0, 13.7, 1_234.567] {
             var pf = PlumeFrameGPU()
-            pf.flow = SIMD4(Float(PlumeTurbulence.shutter), Float(PlumeTurbulence.intensity),
-                            Float(PlumeTurbulence.amplitude), Float(PlumeTurbulence.eddiesPerTile))
-            pf.flowRates = Plumes.flowRates
-            pf.flowRates2 = SIMD4(Float(PlumeTurbulence.integralLength), 0, 0, 0)
+            Plumes.setTurbulence(&pf)
             pf.setLayers(Plumes.layers(time: t))
             let memberBuffer = try XCTUnwrap(device.makeBuffer(bytes: gpuMembers,
                                                                length: MemoryLayout<PlumeMemberGPU>.stride * gpuMembers.count))
-            let flows = points.map { p in
-                PlumeTurbulence.flowMember(members, at: p).flatMap { f in members.firstIndex { $0.exit == f.exit } } ?? 0
-            }
-            let p4 = zip(points, flows).map { SIMD4(Float($0.x), Float($0.y), Float($0.z), Float($1)) }
+            let p4 = points.map { SIMD4(Float($0.x), Float($0.y), Float($0.z), 0) }
             let pointBuffer = try XCTUnwrap(device.makeBuffer(bytes: p4, length: 16 * p4.count))
             let out = try XCTUnwrap(device.makeBuffer(length: 4 * points.count, options: .storageModeShared))
-            var c = SIMD4<Float>(Float(members.count), 0, 0, 0)
+            var c = [SIMD4<Float>(Float(members.count), Float(merge.mergeX), 0, 0),
+                     Plumes.f4(merge.origin, 0), Plumes.f4(merge.axis, 0)]
             let cb = try XCTUnwrap(queue.makeCommandBuffer()), enc = try XCTUnwrap(cb.makeComputeCommandEncoder())
             enc.setComputePipelineState(pipeline)
             enc.setBuffer(memberBuffer, offset: 0, index: 0)
             enc.setBytes(&pf, length: MemoryLayout<PlumeFrameGPU>.stride, index: 1)
             enc.setBuffer(pointBuffer, offset: 0, index: 2)
             enc.setBuffer(out, offset: 0, index: 3)
-            enc.setBytes(&c, length: 16, index: 4)
+            enc.setBytes(&c, length: 16 * c.count, index: 4)
             enc.setTexture(noise.texture, index: 0)
             enc.setSamplerState(noise.sampler, index: 0)
             enc.dispatchThreads(MTLSize(width: points.count, height: 1, depth: 1),
@@ -125,7 +123,8 @@ final class PlumeTurbulenceRenderTests: XCTestCase {
             let gpu = out.contents().bindMemory(to: Float.self, capacity: points.count)
             let bands = PlumeTurbulence.bands(time: t)
             for (i, p) in points.enumerated() {
-                let reference = PlumeTurbulence.value(frame: members[0], flow: members[flows[i]], at: p, bands: bands,
+                let reference = PlumeTurbulence.value(members, merged: merged, mergeX: merge.mergeX,
+                                                      origin: merge.origin, axis: merge.axis, at: p, bands: bands,
                                                       seed: seed, noise: PlumeTurbulence.texel)
                 let d = abs(Double(gpu[i]) - reference)
                 worst = max(worst, d)
@@ -142,9 +141,10 @@ final class PlumeTurbulenceRenderTests: XCTestCase {
     }
 
     /// The F-1s at the pad's air (P2's look-dev shot) through the renderer
-    /// on the turbulence clock at `times` (s), the frames' pixels;
-    /// ORBITSIM_PLUME_FRAMES=<dir> writes them there for a look.
-    func frames(at times: [Double], name: String) throws -> [[UInt8]] {
+    /// on the turbulence clock at `times` (s), ascending, the frames'
+    /// pixels; the clock wrapped at `loop` (s) when given, as a loop would
+    /// draw it. ORBITSIM_PLUME_FRAMES=<dir> writes them there for a look.
+    func frames(at times: [Double], name: String, loop: Double? = nil) throws -> [[UInt8]] {
         let snapper = try SnapshotRenderer(device: try XCTUnwrap(RenderDevice.shared))
         let engine = PlumeTestEngine(engine: "F-1", position: [0, 0, 40], altitude: 0, ring: 4, ringRadius: 4.9)
         var shot = PlumeRenderTests.lookDev([engine], distance: 150, ev: 17)
@@ -156,21 +156,26 @@ final class PlumeTurbulenceRenderTests: XCTestCase {
         }
         r.startOver()
         r.settings = shot.settings
+        let system = try XCTUnwrap(r.graph.passes.compactMap { ($0 as? PlumePreparePass)?.system }.first)
+        system.testLoop = loop
         let dir = ProcessInfo.processInfo.environment["ORBITSIM_PLUME_FRAMES"].map { URL(fileURLWithPath: $0) }
+        // The shot opens paused: running, at real time. A first frame starts
+        // the clock at 0; each frame on steps it to its time, 1,024 frames on
+        // (every per-frame pattern's period: the jitter, the dither), so that only the turbulence differs.
+        var scene = scene0
+        scene.clock.paused = false
+        scene.clock.warp = 1
+        scene.clock.frameIndex = 1
+        scene.clock.realDt = 0
+        r.renderAndWait(scene, into: target)
+        XCTAssertEqual(system.turbulenceClock, 0)
         var out: [[UInt8]] = [], clock = 0.0
         for (i, t) in times.enumerated() {
-            var scene = scene0
-            scene.clock.frameIndex = i + 1
-            scene.clock.realDt = i == 0 ? 0 : t - clock
-            clock = i == 0 ? 0 : t
-            if i == 0 && t > 0 {
-                // The clock starts at 0: a first frame, then the step to t.
-                r.renderAndWait(scene, into: target)
-                scene.clock.frameIndex = 1_000
-                scene.clock.realDt = t
-                clock = t
-            }
+            scene.clock.frameIndex += 1 << 24
+            scene.clock.realDt = t - clock
+            clock = t
             r.renderAndWait(scene, into: target)
+            XCTAssertEqual(system.turbulenceClock, t, accuracy: 1e-9, "the clock frame \(i) was drawn at")
             let pixels = target.bytes()
             out.append(pixels)
             if let dir {
@@ -193,23 +198,31 @@ final class PlumeTurbulenceRenderTests: XCTestCase {
 
     /// The plume on screen never loops: frames whole numbers of M1.6's
     /// first noise's loop apart (its tile over its eddy speed, 1.28 s for
-    /// the F-1) differ as much as frames ten seconds apart, while the frame
-    /// a 60th of a second on moves on from its predecessor less.
+    /// the F-1) differ as much as frames ten seconds apart, while a frame a
+    /// millisecond on has moved on from its predecessor much less (a 60th
+    /// of a second carries the F-1's far field half an eddy on, and its
+    /// near field's eddies live a few milliseconds). The same
+    /// frames drawn on a clock that loops at that period match, so the
+    /// comparison sees a loop.
     func testOnScreenItNeverLoops() throws {
         let re = ApolloExhaust.f1.spec.exitRadius
         let loop = 16 * 0.8 * re / min(max(10 * re, 2), 40)
         let t0 = 3.0
-        let times = [t0, t0 + 1.0 / 60, t0 + loop, t0 + 2 * loop, t0 + 3 * loop, t0 + 10, t0 + 20]
+        let times = [t0, t0 + 0.001, t0 + loop, t0 + 2 * loop, t0 + 3 * loop, t0 + 10, t0 + 20]
         let f = try frames(at: times, name: "f1")
         let unrelated = Self.difference(f[0], f[5])
         let next = Self.difference(f[0], f[1])
         let loops = [2, 3, 4].map { Self.difference(f[0], f[$0]) }
-        print(String(format: "PlumeTurbulenceRenderTests: frame to frame %.2f, a loop on %@, ten seconds on %.2f, "
-                     + "twenty %.2f (mean |Δ| per pixel, 0-765)", next, loops.map { String(format: "%.2f", $0) }
-                         .joined(separator: ", "), unrelated, Self.difference(f[0], f[6])))
+        let looped = try frames(at: [t0, t0 + loop, t0 + 2 * loop], name: "f1-looped", loop: loop)
+        let seen = [1, 2].map { Self.difference(looped[0], looped[$0]) }
+        print(String(format: "PlumeTurbulenceRenderTests: a millisecond on %.2f, a loop on %@, ten seconds on %.2f, "
+                     + "twenty %.2f; on a looping clock a loop on %@ (mean |Δ| per pixel, 0-765)", next,
+                     loops.map { String(format: "%.2f", $0) }.joined(separator: ", "), unrelated,
+                     Self.difference(f[0], f[6]), seen.map { String(format: "%.3f", $0) }.joined(separator: ", ")))
         XCTAssertGreaterThan(unrelated, 0.3, "the plume moves")
+        for d in seen { XCTAssertLessThan(d, 0.05 * unrelated, "a loop is seen") }
         for d in loops { XCTAssertGreaterThan(d, 0.7 * unrelated) }
-        XCTAssertLessThan(next, unrelated)
+        XCTAssertLessThan(next, 0.5 * unrelated)
     }
 
     /// The uniforms' Swift mirrors have MSL's sizes.

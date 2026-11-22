@@ -35,10 +35,16 @@ enum Plumes {
         c.members.min { $0.name < $1.name }?.noiseSeed ?? 0
     }
 
-    /// The turbulence's rates as PlumeFrame.flowRates holds them.
-    static var flowRates: SIMD4<Float> {
-        SIMD4(Float(PlumeTurbulence.lifeOverTurnover), Float(PlumeTurbulence.sweepRate),
-              Float(PlumeTurbulence.decayRate), Float(PlumeTurbulence.fadeIntegral))
+    /// The turbulence's constants as PlumeFrame holds them (`flow`,
+    /// `flowRates`, `flowRates2` but its y, `lagrangian`).
+    static func setTurbulence(_ u: inout PlumeFrameGPU) {
+        typealias T = PlumeTurbulence
+        u.flow = SIMD4(Float(T.shutter), Float(T.similarFrom), Float(T.amplitude), Float(T.eddiesPerTile))
+        u.flowRates = SIMD4(Float(T.shearIntensity), Float(T.similarIntensity), Float(T.decayRate),
+                            Float(T.fadeIntegral))
+        u.flowRates2 = SIMD4(Float(T.integralLength), u.flowRates2.y, Float(T.lagrangianStart), Float(T.lagrangianStep))
+        let l = T.lagrangianTimes
+        u.lagrangian = SIMD4(Float(l[0]), Float(l[1]), Float(l[2]), Float(l[3]))
     }
 
     /// The turbulence's layers at turbulence time `t` (s, not wrapped), as
@@ -227,14 +233,18 @@ struct PlumeFrameGPU {
     var params = SIMD4<Float>.zero
     /// rgb: c2 (K²).
     var wienC = SIMD4<Float>.zero
-    /// The turbulence (`PlumeTurbulence`): x the shutter (s), y the
-    /// intensity u'/ΔU, z the noise's amplitude, w eddies per tile.
+    /// The turbulence (`PlumeTurbulence`, `Plumes.setTurbulence`): x the
+    /// shutter (s), y where the far field is self-similar (core lengths), z
+    /// the noise's amplitude, w eddies per tile.
     var flow = SIMD4<Float>.zero
-    /// x: a layer's life over ℓ/u', y: the shutter's sweep rate, z: its
-    /// decay rate, w: the cross-fade's integral (`PlumeTurbulence`).
+    /// x: the intensity u'/ΔU in the shear layer, y: self-similar, z: the
+    /// layers' decay rate, w: the cross-fade's integral.
     var flowRates = SIMD4<Float>.zero
-    /// x: the noise's integral length over its cell.
+    /// x: the noise's integral length over its cell, zw: the Lagrangian
+    /// times' first station and spacing (core lengths).
     var flowRates2 = SIMD4<Float>.zero
+    /// The Lagrangian integral time over L/u' at the four stations.
+    var lagrangian = SIMD4<Float>.zero
     /// Its bands' layers, two a band (`Plumes.layers`).
     var layers = PlumeFrameGPU.noLayers
 
@@ -361,7 +371,14 @@ public final class PlumeSystem {
     private(set) var noise: VolumeNoise?
     private var turbulence = 0.0
     /// The same clock, not wrapped: the turbulence's bands (`PlumeTurbulence`).
-    private var turbulenceClock = 0.0
+    private(set) var turbulenceClock = 0.0
+    /// Tests only: the turbulence drawn at the clock wrapped at this period
+    /// (s), as a loop would draw it, so that a test of the field's never
+    /// looping can show that it sees a loop.
+    var testLoop: Double?
+    /// The turbulence clock the last frame was drawn at (s): wrapped at
+    /// `testLoop` when a test sets it.
+    var drawnClock: Double { testLoop.map { turbulenceClock.truncatingRemainder(dividingBy: $0) } ?? turbulenceClock }
     private var last: (frame: Int, time: Epoch)?
     /// The last frame's pre-exposure (R1's, set in P0 after the graph has
     /// asked which passes run): the culling's.
@@ -680,11 +697,8 @@ public final class PlumeSystem {
         u.wienK = SIMD4(Float(w[0].0), Float(w[1].0), Float(w[2].0), Float(settings.quality.steps))
         u.wienA = SIMD4(Float(w[0].1), Float(w[1].1), Float(w[2].1), Float(turbulence))
         u.wienC = SIMD4(Float(w[0].2), Float(w[1].2), Float(w[2].2), 0)
-        u.flow = SIMD4(Float(PlumeTurbulence.shutter), Float(PlumeTurbulence.intensity),
-                       Float(PlumeTurbulence.amplitude), Float(PlumeTurbulence.eddiesPerTile))
-        u.flowRates = Plumes.flowRates
-        u.flowRates2 = SIMD4(Float(PlumeTurbulence.integralLength), 0, 0, 0)
-        u.setLayers(Plumes.layers(time: turbulenceClock))
+        Plumes.setTurbulence(&u)
+        u.setLayers(Plumes.layers(time: drawnClock))
         u.sun = Plumes.f4(sun.direction, f.textures[.cloudLayer] != nil ? 1 : 0)
         u.sunLight = Plumes.f4(sunLux, f.settings.shadow.enabled ? 1 : 0)
         u.ambient = Plumes.f4(ambient, 0)

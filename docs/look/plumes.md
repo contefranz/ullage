@@ -135,7 +135,7 @@ medium, L low (visual, calibrated or assumed).
 | Mach disk | P1's distance and radius; 0.85 Tc; emissivity 0.5 soot/alumina, 0.02 hydrogen, 0.05 hypergols; diluted as the free expansion there; faded in from n 2 to 3 | L |
 | Shock cells | P1's length and count; ±30 % of temperature and density, times P1's structure visibility; faded in from n 0.30 to 0.36 and out from 4 to 5 (P1's bounds) | L |
 | Alumina | extinction 3 Q Y ρe/(2 ρp d): Q 2 (particles much larger than the light's wavelength), Y the alumina's mass fraction, ρe P1's exit density, ρp 3,950 kg/m³, d 3 µm (3.0 across the S-IC retro's exit, 1.5 across the TJM's); leaves at Te + (Tc − Te)/2; cools by radiation (ε 0.3); cone lip + 5°; albedo 0.5 hot, 0.9 cold | H the optics and density, P1 the exit; L the diameter, the lag, ε, the albedos |
-| Turbulence | Flow noise (next section): eddies 0.25 re at the lip, growing with the compressible mixing layer, carried at the jet's mean speed, decaying as a jet's turbulence (T_L 0.55 L/u', u'/ΔU 0.28), averaged over a 180° shutter; never repeating. Ragged boundary, outwards within 15 % (the proxy's reach); temperature ±5 %; density ±70 %; faded out where the eddies are under 1.5-4 half-resolution texels | the growth, intensity and decay M-H (below); the lip's eddies, the shutter and the depths L |
+| Turbulence | Flow noise (next section): eddies 0.25 re at the lip, growing with the compressible mixing layer, carried at the jet's mean speed, decaying as a jet's turbulence (T_L 1.7 L/u' at u'/ΔU 0.18 by the core, 0.55 L/u' at 0.28 in the far field), averaged over a 180° shutter; never repeating. Ragged boundary, outwards within 15 % (the proxy's reach); temperature ±5 %; density ±70 %; faded out where the eddies are under 1.5-4 half-resolution texels | the growth, intensity and decay M-H (below); the lip's eddies, the shutter and the depths L |
 | Blackbody | per channel exp(c0 + c1/T + c2/T²), fitted to `Photometry.blackbody` | within 6 % in luminance over 1,200-3,500 K |
 | SPS extension | 1,480 K at the 6:1 top, T ∝ r^-0.45, ε 0.8, 4 s heating, 12 s cooling | L (AOH: columbium, radiation-cooled) |
 | Readable floor | 0.3 E⊙/π near the exit, the family's colour, times the flow fraction (at most 1), over M1.5's length times 0.5 + 0.5 of it; B in the app | decision 19 (M1.5) |
@@ -275,7 +275,10 @@ tile over that speed (1.28 s for the F-1).
   air's density over the jet's, and Dimotakis's (1991) fit to the Langley
   curve, Φ = 0.2 + 0.8 exp(−3 Mc²) (as Padnos et al. 2018 quote it), on the
   convective Mach number (U1 − U2)/(a1 + a2) (Papamoschou and Roshko 1988).
-  In vacuum, half the free expansion's cone. The F-1 at the pad: 0.44 m at
+  In vacuum, half the free expansion's cone. The stream counts as much as
+  the air bounds the jet (P1's structure visibility, 1 at Kn ≤ 0.01): in
+  free-molecular flow the rarefied air the S-II and S-IVB fly through at
+  3-7.8 km/s passes through the exhaust and carries nothing. The F-1 at the pad: 0.44 m at
   the lip, 0.076 per metre (12 m eddies 150 m out); at max-Q the airspeed's
   coflow slows the growth to 0.045. Along the axis the noise is laid out in
   eddies, ∫dx/ℓ, across it in ℓ.
@@ -284,7 +287,7 @@ tile over that speed (1.28 s for the F-1).
   across the jet a Gaussian of half-width R/2 (exp(−ln2 (r/r½)²), the round
   jet's) outside the core's shrinking top hat; uniform in a free expansion.
   Each layer's pattern is laid out where the flow carried each point from
-  since the layer's birth (three midpoint steps back along the
+  since the layer's birth (one midpoint step back along the
   decelerating jet), so it rides the flow: on the axis 1.02 m against the
   flow's 1.10 m over 3 ms at 110 m, half-way out half as far
   (`PlumeTurbulenceTests`).
@@ -293,12 +296,20 @@ tile over that speed (1.28 s for the F-1).
   at each birth with an offset hashed from the band's cycle and the
   cluster's seed (flow noise, Neyret 2003); a sample blends the two bands
   about its own lifetime and keeps the noise's variance (Heitz and Neyret
-  2018), so nothing pulses. A layer lives 0.55 × 0.39 / 0.389 ℓ/u': the
+  2018), so nothing pulses. A layer lives λ × 0.39 / 0.389 ℓ/u': the
   cross-fade's own Lagrangian integral time is 0.389 of a life and the
   noise's integral length 0.39 of its cell (both integrated in the tests),
-  so the field's Lagrangian integral time is 0.55 L/u' on the jet's axis
-  (Viggiano et al. 2021, T_E/T_L ≈ 1.8), with u' = 0.28 of the centreline's
-  excess speed (Hussein, Capp and George 1994, as Pope 2000 fits it).
+  so the field's Lagrangian integral time is λ L/u'. Both from where the
+  eddies are, by x over the potential core's length (a core of about 5 D):
+  u' is 0.18 of the centreline's excess speed through the core, the shear
+  layer's peak about it (⟨u²⟩/ΔU² ≈ 0.032, Bell and Mehta 1990, as Rogers
+  and Moser 1994 compile it, M), rising linearly to the self-similar
+  centreline's 0.28 by four core lengths, 20 D (Hussein, Capp and George
+  1994, as Pope 2000 fits it, H; the ramp L); λ is 1/(T_E/T_L) on the axis,
+  1.67, 0.63, 0.67, 0.56 at 15, 25, 35 and 45 D (Viggiano et al. 2021,
+  Table 2, T_E = L/σ_u, M), held before and beyond (L). So the F-1's near
+  field at the pad renews about 4.7 times more slowly than the far field's
+  constants would have it.
 - **The shutter.** The camera sees the field averaged over a 180° shutter
   at 60 frames a second (1/120 s of turbulence time, L): at a point it
   holds for an Eulerian time T_E, 1/T_E = u/L + 1/T_L, so the average keeps
@@ -307,6 +318,14 @@ tile over that speed (1.28 s for the F-1).
   what the mixing layer carries past in the exposure or a Lagrangian time.
   The F-1's near field, renewed every few milliseconds, is smooth and
   streaked, its slower edges ragged, its far field billowing.
+- **One flow through a cluster.** At each point the jet strongest there
+  (the largest share of its excess speed, among the members whose field
+  reaches it) carries the noise, and the merged far field's flow takes
+  over across the merge's window as its field does, so the field is
+  continuous where jets meet (in a cluster of like engines) and across the
+  merge: across the S-IC at 20 m, where engine 1's reach covers the centre
+  engine's axis, the flow's speed changes by under 1 % of the exhaust's
+  from one centimetre to the next (`PlumeTurbulenceTests`).
 - **Seeds and determinism.** A cluster's seed is its first engine's by
   name (FNV-1a of part and thruster), so an engine shutting down does not
   re-seed its neighbours. The layers' phases and cycles come from the
@@ -445,7 +464,10 @@ LEO, for the default physical look.
   vehicle is not drawn. The bend is a shear of the straight field, so the
   far field's cross-sections are not tilted with it.
 - The eddies' decay uses the centreline's turbulence intensity across the
-  whole jet (the measured profile falls off past r½), and their streak
+  whole jet (the measured profile falls off past r½), the shear layer's
+  through the core and a linear ramp to the far field's, and Viggiano's
+  Lagrangian times from an incompressible water jet mapped on the core's
+  length, held upstream of 15 D; their streak
   through the shutter is the mixing layer's in a band (the axis's is
   longer, the edge's shorter); the depth the shutter keeps is each point's
   own.

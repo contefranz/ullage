@@ -202,9 +202,14 @@ public struct PlumeMember: Equatable {
     public var name = ""
     public var noiseSeed: UInt32 = 0
 
-    /// The stream's speed along the jet (m/s, downstream positive): the
-    /// coflow that carries its eddies.
-    public var coflow: Double { relativeWind.dot(axis) }
+    /// How much of the stream bounds the jet: P1's structure visibility
+    /// (the air a continuum about it, 1 at Kn ≤ 0.01, none in free-molecular
+    /// flow, where the rarefied stream passes through the exhaust; the
+    /// legacy look's √(p/p0)).
+    public var coflowShare = 1.0
+    /// The stream's speed along the jet (m/s, downstream positive) as much
+    /// as it bounds it: the coflow that carries its eddies.
+    public var coflow: Double { relativeWind.dot(axis) * coflowShare }
 
     /// An emission-only glow, cd/m² seen through the axis (the readable
     /// floor, the legacy look, the near-exit light), fading to nothing at
@@ -631,6 +636,7 @@ public enum PlumeLook {
         }
         m.vacuumBlend = v
         m.confinement = inAir ? w : 0
+        m.coflowShare = m.confinement
         m.simonsExponent = 2 / (s.gamma - 1)
         m.limitingAngle = max(0.2, s.limitingAngle)
         let half = m.simonsAngle(fraction: 0.5)
@@ -1002,6 +1008,7 @@ public enum PlumeLook {
         m.turbulence = 0.2
         m.eddySize = PlumeTurbulence.lipEddy * re
         m.eddyGrowth = 0.05
+        m.coflowShare = k
         return m
     }
 

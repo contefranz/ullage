@@ -23,13 +23,20 @@ import OrbitCore
 ///   layer's birth (`carriedFrom`), so it rides the decelerating jet.
 /// - **They decay** as a jet's turbulence does following the flow: its
 ///   Lagrangian integral time is `lagrangianTime` L/u' (L the integral
-///   length, u' = `intensity` times the centreline's excess speed). Each
+///   length, u' the turbulence's intensity times the centreline's excess
+///   speed), both from where the eddies are: the shear layer about the
+///   potential core, then the jet developing towards its self-similar far
+///   field (`intensity(coreLengths:)`, `lagrangianTime(coreLengths:)`). Each
 ///   octave band of lifetimes holds two layers of the noise, cross-faded
 ///   half a life apart and re-seeded at each birth with a fresh
 ///   pseudo-random offset (a hash of the band's cycle, moved by the
 ///   cluster's seed's offset): flow noise (Neyret 2003), never repeating. A sample blends the
 ///   two bands about its own lifetime, keeping the noise's variance (Heitz
 ///   and Neyret 2018), so nothing pulses.
+/// - **One flow through a cluster** (`flow(_:merged:mergeX:origin:axis:at:)`):
+///   at each point the jet strongest there carries the noise (its profile's
+///   share the largest), and the merged far field takes over across the
+///   merge's window, so that the field is continuous where jets meet.
 /// - **The shutter.** The camera sees the field averaged over its exposure
 ///   (`shutter`): at a point the field holds for an Eulerian time T_E,
 ///   1/T_E = u/L + 1/T_L (swept past, and decaying), so the average's
@@ -40,14 +47,38 @@ import OrbitCore
 /// Deterministic: a function of the turbulence clock (real time × min(warp,
 /// 4), reset with the scene) and the cluster's seed.
 public enum PlumeTurbulence {
-    /// The centreline's turbulence intensity u'/ΔU in a round jet's
-    /// self-similar region: ⟨u²⟩/Uc² ≈ 0.076 on the axis (Hussein, Capp and
-    /// George 1994, LDA, as Pope 2000's Fig. 5.7 fits it), H.
-    public static let intensity = 0.28
+    /// The turbulence's intensity u'/ΔU, ΔU the centreline's excess over
+    /// the stream, in the shear layer about the potential core: the
+    /// self-similar mixing layer's peak, ⟨u²⟩/ΔU² ≈ 0.032 (Bell and Mehta
+    /// 1990, as Rogers and Moser 1994 compile it), M.
+    public static let shearIntensity = 0.18
+    /// On the axis of a round jet's self-similar far field: ⟨u²⟩/Uc² ≈ 0.076
+    /// (Hussein, Capp and George 1994, LDA, as Pope 2000's Fig. 5.7 fits
+    /// it), H.
+    public static let similarIntensity = 0.28
+    /// Where the far field is self-similar, in core lengths: z ≳ 20 D
+    /// (Pope 2000, as Viggiano et al. 2021 take it), an incompressible
+    /// round jet's potential core being about 5 D, L.
+    public static let similarFrom = 4.0
+    /// The intensity `coreLengths` (x over the potential core's length)
+    /// down the jet: the shear layer's through the core, rising linearly to
+    /// the self-similar centreline's (L between).
+    public static func intensity(coreLengths xi: Double) -> Double {
+        shearIntensity + (similarIntensity - shearIntensity) * min(max((xi - 1) / (similarFrom - 1), 0), 1)
+    }
     /// The Lagrangian integral time of the axial velocity on a jet's axis
-    /// over the eddy turnover time L/u': T_E/T_L ≈ 1.8 (Viggiano et al.
-    /// 2021, z/D ≥ 25), M.
-    public static let lagrangianTime = 0.55
+    /// over the eddy turnover time L/u', at x/core = `lagrangianStart` +
+    /// `lagrangianStep` i: 1/(T_E/T_L), T_E/T_L = 0.6, 1.6, 1.5, 1.8 at z/D
+    /// = 15, 25, 35, 45 with T_E = L_E/σ_u (Viggiano et al. 2021, Table 2),
+    /// a core of 5 D, M; held before and beyond (L).
+    public static let lagrangianTimes = [1 / 0.6, 1 / 1.6, 1 / 1.5, 1 / 1.8]
+    public static let lagrangianStart = 3.0, lagrangianStep = 2.0
+    /// It `coreLengths` down the jet, linearly between the stations.
+    public static func lagrangianTime(coreLengths xi: Double) -> Double {
+        let t = min(max((xi - lagrangianStart) / lagrangianStep, 0), Double(lagrangianTimes.count - 1))
+        let i = min(Int(t), lagrangianTimes.count - 2), f = t - Double(i)
+        return lagrangianTimes[i] + (lagrangianTimes[i + 1] - lagrangianTimes[i]) * f
+    }
     /// The cross-fade's own Lagrangian integral time over a layer's life:
     /// two triangles half a life apart, normalised (`PlumeTurbulenceTests`
     /// integrates it).
@@ -56,9 +87,11 @@ public enum PlumeTurbulence {
     /// correlation integrated to the first zero (`PlumeTurbulenceTests`):
     /// the eddy cell ℓ holds an integral length of 0.39 ℓ.
     public static let integralLength = 0.39
-    /// A layer's life over ℓ/u', so that the field's Lagrangian integral
-    /// time is `lagrangianTime` L/u'.
-    public static var lifeOverTurnover: Double { lagrangianTime * integralLength / fadeIntegral }
+    /// A layer's life over ℓ/u' `coreLengths` down the jet, so that the
+    /// field's Lagrangian integral time is `lagrangianTime` L/u'.
+    public static func lifeOverTurnover(coreLengths xi: Double) -> Double {
+        lagrangianTime(coreLengths: xi) * integralLength / fadeIntegral
+    }
     /// The eddies at the lip, over the exit radius: the nozzle's boundary
     /// layer and film (L).
     public static let lipEddy = 0.25
@@ -81,21 +114,26 @@ public enum PlumeTurbulence {
     /// coarsest octave's cells across the 128³ texture).
     public static let eddiesPerTile = 8.0
 
-    /// Over a band's life T, in the mixing layer's middle (half the jet's
-    /// excess speed, no coflow): the rate the flow sweeps integral lengths
-    /// past a point (u/L = this / T); and the layers' decay (1/T_L = this
-    /// / T).
-    public static var sweepRate: Double { 0.5 * lagrangianTime / (fadeIntegral * intensity) }
+    /// Over a band's life T, in the self-similar mixing layer's middle
+    /// (half the jet's excess speed, no coflow): the rate the flow sweeps
+    /// integral lengths past a point (u/L = this / T), the streak's, the
+    /// same down the whole jet (a streak varying with x would warp the
+    /// noise's axial coordinate, and the pattern would ride the flow at
+    /// two-thirds of its speed); and the layers' decay (1/T_L = this / T).
+    public static var streakRate: Double {
+        0.5 * lagrangianTimes[lagrangianTimes.count - 1] / (fadeIntegral * similarIntensity)
+    }
     public static var decayRate: Double { 1 / fadeIntegral }
 
     /// The shutter's average for layers living `life` s where the flow
     /// sweeps `sweep` integral lengths a second past the point (u/L): the
     /// depth it keeps, 1/√(1 + Δ/(2 T_E)), 1/T_E = u/L + 1/T_L; and how far
     /// it streaks the pattern along the flow (a factor on the axial
-    /// coordinate, the same through a band: the mixing layer's).
+    /// coordinate, the same through a band: the self-similar mixing
+    /// layer's, `streakRate`).
     public static func shutterAverage(life: Double, sweep: Double) -> (depth: Double, stretch: Double) {
         let depth = 1 / (1 + shutter * (sweep + decayRate / life) / 2).squareRoot()
-        let stretch = 1 + sweepRate * min(shutter, fadeIntegral * life) / life
+        let stretch = 1 + streakRate * min(shutter, fadeIntegral * life) / life
         return (depth, stretch)
     }
 
@@ -144,22 +182,84 @@ public enum PlumeTurbulence {
         return k > 1e-5 ? log(1 + k * x / l0) / k : x / l0
     }
 
-    /// Where the flow at x carried a parcel from over `age` s: back along
-    /// the jet at its mean speed there, Ua + E(x) g, g the profile's share
-    /// across the jet held along the way (a parcel keeps its place in the
-    /// jet's self-similar profile), in one midpoint step (a layer lives
-    /// less than a turnover, over which the speed changes little).
+    /// The flow that carries the noise at a point: x along the jet that
+    /// carries it (m), the share of its excess speed there (`profile`), the
+    /// stream along it and the jet's excess over it at the exit (m/s), its
+    /// potential core (m), its eddies at the lip (m) and their growth.
+    public struct Flow: Equatable {
+        public var x, profile, coflow, excess, coreLength, eddySize, eddyGrowth: Double
+
+        public init(_ m: PlumeMember, atX x: Double, profile: Double) {
+            self.x = max(x, 0)
+            self.profile = profile
+            coflow = m.coflow
+            excess = m.exhaustSpeed - m.coflow
+            coreLength = m.coreLength
+            eddySize = m.eddySize
+            eddyGrowth = m.eddyGrowth
+        }
+
+        /// Mixed towards `b` by `w` (0-1), linearly.
+        public func mixed(_ b: Flow, _ w: Double) -> Flow {
+            var f = self
+            func mix(_ a: Double, _ c: Double) -> Double { a + (c - a) * w }
+            f.x = mix(x, b.x)
+            f.profile = mix(profile, b.profile)
+            f.coflow = mix(coflow, b.coflow)
+            f.excess = mix(excess, b.excess)
+            f.coreLength = mix(coreLength, b.coreLength)
+            f.eddySize = mix(eddySize, b.eddySize)
+            f.eddyGrowth = mix(eddyGrowth, b.eddyGrowth)
+            return f
+        }
+
+        /// x over the potential core's length.
+        public var coreLengths: Double { x / max(coreLength, 1e-6) }
+        /// The centreline's speed in excess of the stream at x (m/s).
+        public var centreline: Double { speed(atX: x, profile: 1) - coflow }
+        /// The mean speed at x (m/s): the stream's plus the excess's share.
+        public var speed: Double { speed(atX: x, profile: profile) }
+        func speed(atX y: Double, profile g: Double) -> Double {
+            coflow + excess * g * min(1, max(coreLength, 1e-6) / max(y, 1e-3))
+        }
+        /// The eddies' cell at x (m).
+        public var eddy: Double { eddySize + eddyGrowth * x }
+        /// The eddies' turnover time ℓ / u' (s).
+        public var turnover: Double {
+            eddy / max(PlumeTurbulence.intensity(coreLengths: coreLengths) * abs(centreline), 0.5)
+        }
+        /// Its band of lifetimes (fractional).
+        public var band: Double { PlumeTurbulence.band(turnover: turnover, coreLengths: coreLengths) }
+        /// Integral lengths the flow sweeps past here a second, at its speed
+        /// here (the camera rides with the vessel).
+        public var sweep: Double { abs(speed) / (integralLength * eddy) }
+
+        /// Where the flow here carried a parcel from over `age` s: back
+        /// along the jet at its mean speed, Ua + E(x) g, g the profile's
+        /// share held along the way (a parcel keeps its place in the jet's
+        /// self-similar profile), in one midpoint step (a layer lives less
+        /// than a turnover, over which the speed changes little).
+        public func carriedFrom(age: Double) -> Double {
+            let mid = x - 0.5 * age * speed
+            return x - age * speed(atX: mid, profile: profile)
+        }
+    }
+
+    /// Member `m`'s flow at camera-relative `p`.
+    public static func flow(_ m: PlumeMember, at p: Vec3) -> Flow {
+        let d = p - m.exit, x = max(d.dot(m.axis), 0)
+        let r = (d - m.axis * x - m.bend.direction * m.bend.offset(atX: x)).length
+        return Flow(m, atX: x, profile: profile(m, atX: x, r: r))
+    }
+
+    /// Where the flow at x carried a parcel from over `age` s (`Flow.carriedFrom`).
     public static func carriedFrom(_ m: PlumeMember, x: Double, profile g: Double, age: Double) -> Double {
-        let e = m.exhaustSpeed - m.coflow, core = max(m.coreLength, 1e-6)
-        func u(_ y: Double) -> Double { m.coflow + e * g * min(1, core / max(y, 1e-3)) }
-        let mid = x - 0.5 * age * u(x)
-        return x - age * u(mid)
+        Flow(m, atX: x, profile: g).carriedFrom(age: age)
     }
 
     /// The centreline's speed in excess of the stream at x (m/s).
     public static func excessSpeed(_ m: PlumeMember, atX x: Double) -> Double {
-        let e = m.exhaustSpeed - m.coflow
-        return e * min(1, m.coreLength / max(x, 1e-3))
+        Flow(m, atX: x, profile: 1).centreline
     }
 
     /// The mean speed along the jet at x, r off its axis (m/s), relative
@@ -167,7 +267,7 @@ public enum PlumeTurbulence {
     /// potential core and a Gaussian outside it; uniform in a free
     /// expansion.
     public static func meanSpeed(_ m: PlumeMember, atX x: Double, r: Double) -> Double {
-        m.coflow + excessSpeed(m, atX: x) * profile(m, atX: x, r: r)
+        Flow(m, atX: x, profile: profile(m, atX: x, r: r)).speed
     }
 
     /// The excess speed's share at r off the axis at x: 1 in the potential
@@ -184,14 +284,17 @@ public enum PlumeTurbulence {
 
     /// The eddies' turnover time at x (s): ℓ / u', ℓ the cell.
     public static func turnover(_ m: PlumeMember, atX x: Double) -> Double {
-        eddySize(m, atX: x) / max(intensity * abs(excessSpeed(m, atX: x)), 0.5)
+        Flow(m, atX: x, profile: 1).turnover
     }
 
-    /// The band (fractional) of a turnover time: its layers live
-    /// `lifeOverTurnover` τ.
-    public static func band(turnover tau: Double) -> Double {
-        min(max(log2(lifeOverTurnover * tau / shortestLife), 0), Double(bandCount - 1) - 1e-3)
+    /// The band (fractional) of a turnover time `coreLengths` down the jet:
+    /// its layers live `lifeOverTurnover` τ.
+    public static func band(turnover tau: Double, coreLengths xi: Double) -> Double {
+        min(max(log2(lifeOverTurnover(coreLengths: xi) * tau / shortestLife), 0), Double(bandCount - 1) - 1e-3)
     }
+
+    /// The band of `m`'s eddies at x.
+    public static func band(_ m: PlumeMember, atX x: Double) -> Double { Flow(m, atX: x, profile: 1).band }
 
     /// The next band's weight at a fraction `f` of the octave: blended in
     /// over its middle 30 %, so that most samples read one band.
@@ -275,25 +378,18 @@ public enum PlumeTurbulence {
     // MARK: The field
 
     /// The turbulence at camera-relative `p` in a cluster whose first
-    /// member is `frame` (the noise's frame), carried by the flow of member
-    /// `flow` (the first to take the sample, as the shader's march finds
-    /// it), about 0 on average: the shader's `plume_noise`. `bands` from
-    /// `bands(time:)`; `noise(c, channel)` the volume noise's value (0-1) at
-    /// c in tiles.
-    public static func value(frame m: PlumeMember, flow: PlumeMember, at p: Vec3, bands: [Band], seed: UInt32,
+    /// member is `frame` (the noise's frame), carried by `flow` (the
+    /// cluster's there, `flow(_:merged:mergeX:origin:axis:at:)`), about 0
+    /// on average: the shader's `plume_noise`. `bands` from `bands(time:)`;
+    /// `noise(c, channel)` the volume noise's value (0-1) at c in tiles.
+    public static func value(frame m: PlumeMember, flow f: Flow, at p: Vec3, bands: [Band], seed: UInt32,
                              noise: (Vec3, Int) -> Double) -> Double {
         let d0 = p - m.exit
         let x = max(d0.dot(m.axis), 0)
         let d = d0 - m.bend.direction * m.bend.offset(atX: x)
         let perp = d - m.axis * x
         let l = eddySize(m, atX: x)
-        let df = p - flow.exit, xf = max(df.dot(flow.axis), 0)
-        let r = (df - flow.axis * xf - flow.bend.direction * flow.bend.offset(atX: xf)).length
-        let g = profile(flow, atX: xf, r: r)
-        let b = band(turnover: turnover(flow, atX: xf))
-        // Integral lengths the flow sweeps past here a second, at its speed
-        // here (the camera rides with the vessel).
-        let sweep = abs(flow.coflow + excessSpeed(flow, atX: xf) * g) / (integralLength * eddySize(flow, atX: xf))
+        let b = f.band, sweep = f.sweep
         let j = Int(b), beta = blend(b - Double(j))
         var total = 0.0, weight = 0.0
         for (band, wb) in [(j, 1 - beta), (j + 1, beta)] where wb > 1e-3 {
@@ -306,7 +402,7 @@ public enum PlumeTurbulence {
                 let w = wb * (1 - abs(2 * phase - 1))
                 let age = phase * life
                 // Laid out where the flow carried it from since the layer's birth.
-                let from = x + carriedFrom(flow, x: xf, profile: g, age: age) - xf
+                let from = x + f.carriedFrom(age: age) - f.x
                 let c = perp / l + m.axis * (eddies(m, atX: from) / stretch)
                 let rotated = Vec3(basis[0].dot(c), basis[1].dot(c), basis[2].dot(c)) / eddiesPerTile
                 let shift = offset(cycle: cycle, band: band, layer: layer) + seedOffset(seed)
@@ -318,32 +414,46 @@ public enum PlumeTurbulence {
         return amplitude * total / max(weight, 1e-12).squareRoot()
     }
 
-    /// The member of a cluster that takes the sample at `p` first, as the
-    /// march meets them: the members in order, then (beyond `mergeX` along
-    /// `axis` from `origin`) the merged far field; the first whose field
-    /// reaches p.
-    public static func flowMember(_ members: [PlumeMember], merged: PlumeMember? = nil, mergeX: Double = 0,
-                                  origin: Vec3 = .zero, axis: Vec3 = .unitX, at p: Vec3) -> PlumeMember? {
-        func takes(_ k: PlumeMember) -> Bool {
-            let dk = p - k.exit, xk = dk.dot(k.axis)
-            guard xk >= 0, xk <= k.length else { return false }
-            let rk = (dk - k.axis * xk - k.bend.direction * k.bend.offset(atX: xk)).length
-            return rk <= k.fieldExtent(atX: xk)
+    /// Whether member `k`'s field reaches camera-relative `p` (as the
+    /// shader's early reject finds it, downstream of the exit).
+    public static func reaches(_ k: PlumeMember, _ p: Vec3) -> Bool {
+        let dk = p - k.exit, xk = dk.dot(k.axis)
+        guard xk >= 0, xk <= k.length else { return false }
+        let rk = (dk - k.axis * xk - k.bend.direction * k.bend.offset(atX: xk)).length
+        return rk <= k.fieldExtent(atX: xk)
+    }
+
+    /// The flow that carries a cluster's noise at camera-relative `p`: the
+    /// flow of the member whose jet is strongest there (the largest share of
+    /// its excess, the first of equals), among those whose field reaches it,
+    /// which is continuous wherever the cluster's jets are alike; beyond
+    /// `mergeX` along `axis` from `origin`, mixed into the merged far
+    /// field's over the merge's window (15 % of that distance), as the
+    /// march mixes their fields. Nil where none reaches p.
+    public static func flow(_ members: [PlumeMember], merged: PlumeMember? = nil, mergeX: Double = 0,
+                            origin: Vec3 = .zero, axis: Vec3 = .unitX, at p: Vec3) -> Flow? {
+        let wm = merged != nil && mergeX > 0
+            ? PlumeMember.smoothstep(mergeX, 1.15 * mergeX, (p - origin).dot(axis)) : 0
+        var best: Flow?
+        if wm < 1 {
+            for k in members where reaches(k, p) {
+                let f = flow(k, at: p)
+                if best == nil || f.profile > best!.profile { best = f }
+            }
         }
-        let beyond = merged != nil && mergeX > 0 && (p - origin).dot(axis) >= 1.15 * mergeX
-        if !beyond, let k = members.first(where: takes) { return k }
-        if let merged, mergeX > 0, (p - origin).dot(axis) > mergeX, takes(merged) { return merged }
-        return nil
+        var far: Flow?
+        if wm > 0, let merged, reaches(merged, p) { far = flow(merged, at: p) }
+        if let best, let far { return best.mixed(far, wm) }
+        return best ?? far
     }
 
     /// The turbulence at `p` in a cluster of `members` (as `value(frame:
-    /// flow:)`, on the member that takes the sample first; 0 where none
-    /// does).
+    /// flow:)`, on the cluster's flow there; 0 where no member reaches it).
     public static func value(_ members: [PlumeMember], merged: PlumeMember? = nil, mergeX: Double = 0,
                              origin: Vec3 = .zero, axis: Vec3 = .unitX, at p: Vec3, bands: [Band], seed: UInt32,
                              noise: (Vec3, Int) -> Double) -> Double {
         guard let m = members.first,
-              let f = flowMember(members, merged: merged, mergeX: mergeX, origin: origin, axis: axis, at: p) else {
+              let f = flow(members, merged: merged, mergeX: mergeX, origin: origin, axis: axis, at: p) else {
             return 0
         }
         return value(frame: m, flow: f, at: p, bands: bands, seed: seed, noise: noise)
