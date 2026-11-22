@@ -341,6 +341,15 @@ public final class Thruster {
     public var schedule: PerformanceSchedule?
     /// Start and shutdown ramps; nil switches thrust on and off within a step.
     public var transients: EngineTransients?
+    /// The fraction of full output a start on the ground holds the engine
+    /// at before first motion (`TerminalCount`: the S-IC's thrust buildup in
+    /// the hold-down arms), set step by step by the launch sequencer; nil
+    /// otherwise. While it is set the engine delivers it at its rating at
+    /// the burn clock's zero, whatever the controls command, and its burn
+    /// clock, ramps and propellant stand still: the sequencer books the
+    /// propellant in the tanks itself, and the flight's schedule, which
+    /// counts from first motion (`AS506.f1Schedule`), starts at the release.
+    public var groundStart: Double?
     /// Seconds the engine has been commanded on since it last started (0
     /// while it is off). The schedule and the start ramp run on it.
     public private(set) var burnTime = 0.0
@@ -516,6 +525,7 @@ public final class Thruster {
     /// Fraction of full output (level and transients) and the rating it
     /// applies to, this step; nil when the engine delivers nothing.
     var output: (fraction: Double, rating: EngineRating)? {
+        if let g = groundStart { return g > 0 ? (g, rating(atBurnTime: 0)) : nil }
         if isCommanded {
             var f = isSolid || isSequenced ? 1 : level
             if let tr = transients, tr.startDelay + tr.startRise > 0 {
@@ -535,6 +545,7 @@ public final class Thruster {
     /// Move the burn clock and the ramps on by `dt`, after the step has used
     /// this step's output. Call once per step.
     func advanceTransients(dt: Double) {
+        guard groundStart == nil else { return }
         defer {
             // A rating ramp runs whether or not the engine fires, and so
             // does a sequence's clock.
@@ -601,7 +612,7 @@ public final class Thruster {
     /// starts another's ramp within the step nor lets it draw below the
     /// unusable mass.
     func draw(dt: Double, output: (fraction: Double, rating: EngineRating)?, commanded: Bool) {
-        guard let (frac, r) = output, let feed else { return }
+        guard groundStart == nil, let (frac, r) = output, let feed else { return }
         let m = frac * r.massFlow * dt
         guard m > 0 else { return }
         let tailOff = !commanded

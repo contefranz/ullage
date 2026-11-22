@@ -97,7 +97,7 @@ final class PlumeAirflowTests: XCTestCase {
     // length fades by the cooling flame's luminance: M1) by under 25 %, a
     // shrink of under 1 % a frame over about 2 s.
     func testThroughThePitchProgram() throws {
-        let scenario = try XCTUnwrap(Scenario.named("as506-pad"))
+        let scenario = try XCTUnwrap(Scenario.named("as506-first-motion"))
         let sim = scenario.build(Self.system)
         sim.paused = false
         sim.stepBudget = nil
@@ -263,6 +263,8 @@ final class PlumeAirflowTests: XCTestCase {
     func testTrailHandoverFollowsTheClusterThroughAnEngineOut() throws {
         let scenario = try XCTUnwrap(Scenario.named("as506-sic-engine1-out"))
         let sim = scenario.build(Self.system)
+        // Its count resumed at once: T−0 at Apollo 11's range zero.
+        sim.terminalCount?.resume(at: sim.time, in: sim)
         sim.paused = false
         sim.stepBudget = nil
         var camera = OrbitCamera()

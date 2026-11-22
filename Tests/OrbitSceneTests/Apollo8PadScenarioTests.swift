@@ -14,9 +14,14 @@ final class Apollo8PadScenarioTests: XCTestCase {
         XCTAssertTrue(scenario.summary.contains("stand-in"))
         XCTAssertEqual(scenario.missionClockZero, Scenario.apollo8RangeZero)
         let sim = scenario.build(Self.system)
-        XCTAssertTrue(sim.paused)
-        // First motion 0.30 s after Apollo 8's range zero, 12:51:00 UTC.
-        XCTAssertEqual(sim.time - Epoch(utcYear: 1968, month: 12, day: 21, hour: 12, minute: 51), 0.30, accuracy: 1e-6)
+        XCTAssertFalse(sim.paused, "opens running")
+        // In the terminal count, holding at T−35 s before Apollo 8's range
+        // zero, 12:51:00 UTC.
+        let zero = Epoch(utcYear: 1968, month: 12, day: 21, hour: 12, minute: 51)
+        XCTAssertEqual(sim.time - zero, -35, accuracy: 1e-6)
+        let count = try XCTUnwrap(sim.terminalCount)
+        XCTAssertTrue(count.isHolding)
+        XCTAssertEqual(count.plannedRangeZero - zero, 0, accuracy: 1e-6)
         let v = try XCTUnwrap(sim.focus)
         XCTAssertTrue(v.parts.allSatisfy { $0.appearance == .apollo8 }, "dressed as AS-503, CSM-103, LTA-B")
         // The physics is AS-506's: the same parts, masses and engines.
@@ -29,6 +34,13 @@ final class Apollo8PadScenarioTests: XCTestCase {
         let lm = try XCTUnwrap(v.parts.first { $0.name == "LM" }), lm5 = try XCTUnwrap(a.parts.first { $0.name == "LM" })
         XCTAssertNotEqual(lm.shapes.count, 0)
         XCTAssertNotEqual("\(lm.shapes)", "\(lm5.shapes)")
+        // Its first-motion stand: 0.30 s after the range zero, the F-1s at
+        // full thrust, its count released then.
+        let stand = try XCTUnwrap(Scenario.named("apollo8-first-motion")).build(Self.system)
+        XCTAssertEqual(stand.time - zero, 0.30, accuracy: 1e-6)
+        XCTAssertEqual(stand.terminalCount?.released, zero + 0.30)
+        XCTAssertEqual(stand.focus?.mainThrottle, 1)
+        XCTAssertTrue(stand.focus?.parts.allSatisfy { $0.appearance == .apollo8 } ?? false)
     }
 
     func testScenarioListHasIt() {

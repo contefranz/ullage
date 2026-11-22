@@ -26,6 +26,10 @@ public struct RenderScene {
     public var transitions: [Transition]
     /// The focus vessel's orbit and its markers, when shown.
     public var orbit: OrbitOverlay?
+    /// The simulation's terminal count (`Simulation.terminalCount`), as a
+    /// record: when the launch's count ran, each engine's start and thrust
+    /// before first motion, the release; nil for none.
+    public var launch: TerminalCount.Record?
 
     public init(clock: Clock, camera: Camera, sun: Sun, bodies: [Body] = [], vessels: [Vessel] = [],
                 emitters: [Emitter] = [], canopies: [Canopy] = [], sites: [Site] = [],
@@ -411,14 +415,26 @@ public struct RenderScene {
         /// azimuth), left, up (the geodetic normal).
         public var orientation: Mat3
         public var placement: SitePlacement
+        /// The launch count the site stands in (LC-39A's swing arms,
+        /// hold-down arms and tail service masts move on it): the
+        /// simulation's terminal count, as it runs; nil for none, where the
+        /// site stands as in the historic launch nearest the epoch
+        /// (`LaunchCountdown.nearest`).
+        public var countdown: LC39A.Countdown?
 
-        public init(name: String, bodyID: Int, origin: Vec3, orientation: Mat3, placement: SitePlacement) {
+        public init(name: String, bodyID: Int, origin: Vec3, orientation: Mat3, placement: SitePlacement,
+                    countdown: LC39A.Countdown? = nil) {
             self.name = name
             self.bodyID = bodyID
             self.origin = origin
             self.orientation = orientation
             self.placement = placement
+            self.countdown = countdown
         }
+
+        /// The countdown its moving elements follow at `epoch`: its own, or
+        /// the historic launch's nearest `epoch`.
+        public func countdown(at epoch: Epoch) -> LC39A.Countdown { countdown ?? LaunchCountdown.nearest(epoch) }
     }
 
     // MARK: Overlay

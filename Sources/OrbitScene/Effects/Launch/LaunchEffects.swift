@@ -30,6 +30,7 @@ public final class LaunchEffects: EffectProducer {
     public struct Materials {
         public var padExhaust, deluge, coldVapour, iceFlake, iceSlab: ParticleMaterialID
         public var trail: [ParticleMaterialID]
+        public var groundCloud, startSmoke, ignitionFlash: ParticleMaterialID
     }
 
     public private(set) var materials: Materials?
@@ -43,6 +44,9 @@ public final class LaunchEffects: EffectProducer {
     }
 
     private var seen: Seen?
+    /// The ground cloud's two jets and clouds (`GroundCloud`), from the first
+    /// start command.
+    private(set) var cloud: GroundCloud?
     private var pad: EffectAnchorID?
     private var carry: [String: Double] = [:]
     private var serial = 0
@@ -62,7 +66,10 @@ public final class LaunchEffects: EffectProducer {
                               coldVapour: table.register(LaunchMaterials.coldVapour),
                               iceFlake: table.register(LaunchMaterials.iceFlake),
                               iceSlab: table.register(LaunchMaterials.iceSlab),
-                              trail: (0..<3).map { table.register(LaunchMaterials.trail($0)) })
+                              trail: (0..<3).map { table.register(LaunchMaterials.trail($0)) },
+                              groundCloud: table.register(LaunchMaterials.groundCloud),
+                              startSmoke: table.register(LaunchMaterials.startSmoke),
+                              ignitionFlash: table.register(LaunchMaterials.ignitionFlash))
     }
 
     /// A journal record: an S-IC engine's cutoff. A new simulation's frame
@@ -77,6 +84,7 @@ public final class LaunchEffects: EffectProducer {
 
     public func reset() {
         seen = nil
+        cloud = nil
         pad = nil
         carry = [:]
         serial = 0
@@ -117,6 +125,7 @@ public final class LaunchEffects: EffectProducer {
         let site: RenderScene.Site
         let body: RenderScene.Body
         let countdown: LC39A.Countdown
+        let ignition: Ignition
         let firstMotion: Epoch
         let now: Epoch
         /// Where this frame's interval starts: the last frame's epoch, or on
@@ -131,11 +140,50 @@ public final class LaunchEffects: EffectProducer {
         func range(_ t: Epoch) -> Double { countdown.rangeTime(at: t) }
     }
 
+    /// The S-IC's ignition as the scene knows it: the terminal count's
+    /// record (each engine's start and thrust as the core ran them), or, for
+    /// a scene without a count, AS-506's plan on the historic countdown.
+    struct Ignition {
+        let plan: TerminalCount.Plan
+        let record: TerminalCount.Record?
+        /// Range zero: the count's (while it holds, where it would fall now).
+        let zero: Epoch
+
+        init(scene: RenderScene, countdown: LC39A.Countdown) {
+            record = scene.launch
+            plan = scene.launch?.plan ?? PadIgnition.plan
+            zero = countdown.rangeZero
+        }
+
+        /// Engine `i`'s thrust over full at `t`.
+        func fraction(_ i: Int, at t: Epoch) -> Double {
+            record.map { $0.fraction(i, at: t) } ?? plan.fraction(i, rangeTime: t - zero)
+        }
+
+        /// The engines' mean thrust fraction at `t`.
+        func meanFraction(at t: Epoch) -> Double {
+            plan.starts.indices.reduce(0) { $0 + fraction($1, at: t) } / Double(plan.starts.count)
+        }
+
+        /// Engine `i`'s start command and ignition; nil before the count
+        /// runs, or for an engine that never started.
+        func start(_ i: Int) -> (command: Epoch, ignition: Epoch)? {
+            if let r = record { return r.start(i) }
+            return (zero + plan.starts[i].command, zero + plan.starts[i].ignition)
+        }
+
+        /// The first start command, and the first ignition; nil while the count holds.
+        var firstCommand: Epoch? { plan.starts.indices.compactMap { start($0)?.command }.min() }
+        var firstIgnition: Epoch? { plan.starts.indices.compactMap { start($0)?.ignition }.min() }
+    }
+
     /// The launch vehicle as this frame sees it.
     struct Vehicle {
         let vessel: RenderScene.Vessel
-        /// The S-IC's nozzle exits, site frame, gimbals at null.
+        /// The S-IC's nozzle exits, site frame, gimbals at null, and each by
+        /// its engine's name.
         let exits: [(centre: Vec3, radius: Double)]
+        let exitByEngine: [String: (centre: Vec3, radius: Double)]
         /// Their plane's height (site z) and climb since the pad.
         let exitHeight: Double
         let climb: Double
@@ -154,15 +202,19 @@ public final class LaunchEffects: EffectProducer {
         guard let m = materials, let site = f.scene.sites.first(where: { $0.name == LC39A.placement().name }),
               let body = f.body(site.bodyID) else { return }
         let now = f.clock.epoch
-        let countdown = LaunchCountdown.nearest(now)
+        // The pad stands in the simulation's count when it has one (the
+        // site's countdown runs on it), else in the historic launch's.
+        let countdown = site.countdown(at: now)
+        let ignition = Ignition(scene: f.scene, countdown: countdown)
         let range = countdown.rangeTime(at: now)
-        let buildup = LaunchCountdown.epoch(PadIgnition.thrustBuildup, in: countdown)
         let firstMotion = LaunchCountdown.epoch(countdown.firstMotion, in: countdown)
         // A history is rebuilt only on the first frame after a reset; later
         // frames carry on from the last one's epoch, whatever happened in
-        // between (a staging's new vessels, a stretch with no vehicle).
+        // between (a staging's new vessels, a stretch with no vehicle). With
+        // a count the pad's vapour streams from the count's start; without
+        // one the effects start at the first engine's start command.
         let last = seen
-        guard range >= PadIgnition.thrustBuildup, range < countdown.firstMotion + Self.window,
+        guard f.scene.launch != nil || range >= PadIgnition.firstCommand, range < countdown.firstMotion + Self.window,
               let vehicle = Self.vehicle(in: f.scene, site: site)
         else {
             seen = Seen(epoch: now, vessel: nil, climb: 0)
@@ -170,15 +222,21 @@ public final class LaunchEffects: EffectProducer {
         }
         seen = Seen(epoch: now, vessel: vehicle.vessel.id, climb: vehicle.climb)
         let rebuilt = last == nil
-        let from = last.map { min($0.epoch, now) } ?? buildup
+        let from = last.map { min($0.epoch, now) } ?? (ignition.firstCommand.map { min($0, now) } ?? now)
         guard now > from || rebuilt else { return }
         let toAnchor = body.orientation.icrfToBody * site.orientation
-        var c = Context(frame: f, site: site, body: body, countdown: countdown, firstMotion: firstMotion, now: now,
-                        from: from, rebuilt: rebuilt, vehicle: vehicle, toAnchor: toAnchor, anchor: nil)
+        var c = Context(frame: f, site: site, body: body, countdown: countdown, ignition: ignition,
+                        firstMotion: firstMotion, now: now, from: from, rebuilt: rebuilt, vehicle: vehicle,
+                        toAnchor: toAnchor, anchor: nil)
         let previousClimb = last?.vessel == vehicle.vessel.id ? last?.climb : nil
-        if now - firstMotion < Self.padWindow + ParticleLifetimes.padExhaust.upperBound {
-            padExhaust(&c, m, previousClimb: previousClimb)
-            vapour(&c, m)
+        if now - firstMotion < Self.cloudWindow + ParticleLifetimes.groundCloud.upperBound {
+            if now - firstMotion < Self.padWindow + ParticleLifetimes.padExhaust.upperBound {
+                ignitionFlashes(&c, m)
+                startSmoke(&c, m)
+                padExhaust(&c, m, previousClimb: previousClimb)
+                vapour(&c, m)
+            }
+            groundCloud(&c, m, previousClimb: previousClimb)
         }
         frost(&c, m)
         trail.update(&c, materials: m.trail, owner: self)
@@ -190,11 +248,13 @@ public final class LaunchEffects: EffectProducer {
         guard let v = scene.vessels.first(where: { $0.geometry.parts.contains { $0.name == "S-IC" } }) else { return nil }
         let toSite = site.orientation.transposed
         var exits: [(centre: Vec3, radius: Double)] = []
+        var byEngine: [String: (centre: Vec3, radius: Double)] = [:]
         for p in v.geometry.parts where p.name == "S-IC" {
             for t in p.thrusters where t.name.hasPrefix("S-IC engine") {
                 guard let n = v.geometry.nozzles[t.key] else { continue }
                 let world = v.position + v.attitude.rotate(v.structureOrigin + n.exit)
                 exits.append((toSite * (world - site.origin), n.radius))
+                byEngine[t.name] = exits.last!
             }
         }
         guard !exits.isEmpty else { return nil }
@@ -202,7 +262,7 @@ public final class LaunchEffects: EffectProducer {
         let kerosene = scene.emitters.filter { $0.vesselID == v.id && $0.style == .kerosene && !$0.isJet && !$0.isSolid }
         let flow = kerosene.reduce(0) { $0 + min(1, $1.thrustFraction / seaLevelThrustFraction) } / Double(exits.count)
         let own = scene.emitters.filter { $0.vesselID == v.id }
-        return Vehicle(vessel: v, exits: exits, exitHeight: height,
+        return Vehicle(vessel: v, exits: exits, exitByEngine: byEngine, exitHeight: height,
                        climb: max(0, height - PadExhaust.exitHeightOnPad), flow: flow,
                        clusterRadius: PadExhaust.clusterRadius(exits: exits),
                        trailHead: PlumeAirflow.trailHandover(own),
@@ -216,7 +276,7 @@ public final class LaunchEffects: EffectProducer {
     /// rebuilt history the journal's: each engine at full flow until its
     /// recorded cutoff, tailing off linearly over `tailOff`.
     func flow(_ c: Context, _ t: Epoch) -> Double {
-        if t <= c.firstMotion { return PadIgnition.thrustFraction(rangeTime: c.range(t)) }
+        if t <= c.firstMotion { return c.ignition.meanFraction(at: t) }
         guard c.rebuilt else { return c.vehicle.flow }
         return Self.flow(at: t, cutoffs: Array(cutoffs.values), engines: c.vehicle.exits.count)
     }
@@ -303,74 +363,313 @@ public final class LaunchEffects: EffectProducer {
         return (e - s) * (rate(s) + 4 * rate(mid) + rate(e)) / 6
     }
 
-    // MARK: Pad exhaust and deluge
+    // MARK: Pad exhaust: the trench's jets and the deck's
 
+    /// The trench jets' particles: eddies of half the jet's half-width,
+    /// filling this share of the volume the jet carries out of an exit (L,
+    /// the look's density), for `ParticleLifetimes.padExhaust`.
+    public static let jetEddy = 0.7
+    public static let jetFill = 0.3
+    /// The clouds' particles: eddies of this share of a cloud's radius, as
+    /// many as fill `cloudFill` of its volume (L).
+    public static let cloudEddy = 0.2
+    public static let cloudFill = 3.0
+    /// The plume stems' eddies, of the jet's half-width at its end (L).
+    public static let stemEddy = 0.4
+    /// The clouds are filled until this long after first motion, s: they
+    /// have stabilised and drift off by then (Apollo 16's in 6 minutes,
+    /// TM X-2935).
+    public static let cloudWindow = 480.0
+
+    /// What reaches the ground at `t` (`GroundCloud.Sources`): the F-1s'
+    /// flow and thrust (`LiftoffRise`'s at full, times their fraction:
+    /// the count's before first motion), the shares with the climb, and the
+    /// deluge's water.
+    func sources(_ c: Context, _ t: Epoch, previousClimb: Double?) -> GroundCloud.Sources {
+        let fraction = flow(c, t)
+        let shares = PadExhaust.shares(exitHeight: PadExhaust.exitHeightOnPad + climb(c, t, previous: previousClimb),
+                                       radius: c.vehicle.clusterRadius)
+        let gpm = GroundCloud.gallon / GroundCloud.minute
+        return GroundCloud.Sources(exhaust: LiftoffRise.flow * fraction, thrust: LiftoffRise.thrust * fraction,
+                                   trench: shares.trench, deck: shares.deck,
+                                   trenchWater: PadExhaust.trenchWater * gpm,
+                                   deckWater: PadExhaust.deckWater(sinceFirstMotion: t - c.firstMotion) * gpm)
+    }
+
+    /// The air at the deck: its density and temperature.
+    func deckAir(_ c: Context) -> (rho: Double, temperature: Double) {
+        let a = c.body.air?.sample(altitude: c.site.placement.height)
+        return (a?.density ?? 1.225, a?.temperature ?? 288.15)
+    }
+
+    /// The two jets out of the flame trench (`GroundCloud`): round momentum
+    /// jets from the deflector, out of each exit at 7.0 √(M/ρ) / x with a
+    /// half-width of 0.107 x, hot with the heat their volume carries; and,
+    /// once the plume outgrows the ML's opening, the deck's wall jet, radial
+    /// from under the vehicle at the same law. Each eddy follows its jet's
+    /// similarity solution (`LaunchMaterials.padExhaust`), born with the
+    /// jet's speed, size and temperature at the exit and as many a second as
+    /// the jet's volume flux fills (`jetFill`).
     func padExhaust(_ c: inout Context, _ m: Materials, previousClimb: Double?) {
+        guard let start = c.ignition.firstIgnition else { return }
         let ctx = c
         let up = c.toAnchor * .unitZ
-        func shares(_ t: Epoch) -> PadExhaust.Shares {
-            PadExhaust.shares(exitHeight: PadExhaust.exitHeightOnPad + climb(ctx, t, previous: previousClimb),
-                              radius: ctx.vehicle.clusterRadius)
+        let air = deckAir(c)
+        let x = GroundCloud.exitDistance, b = GroundCloud.jetSpread * x
+        let eddy = Self.jetEddy * b, eddyVolume = 4 / 3 * Double.pi * eddy * eddy * eddy
+        func jet(_ t: Epoch) -> (speed: Double, rate: Double, temperature: Double) {
+            let f = GroundCloud.side(sources(ctx, t, previousClimb: previousClimb), density: air.rho,
+                                     ambient: air.temperature)
+            let m = f.momentum.squareRoot()
+            guard m > 0 else { return (0, 0, air.temperature) }
+            let volume = GroundCloud.jetVolume * m * x
+            // The heat the jet carries out, in its volume.
+            let excess = f.heat / (air.rho * GroundCloud.airHeat * volume)
+            return (GroundCloud.jetVelocity * m / x, Self.jetFill * volume / eddyVolume,
+                    min(air.temperature + excess, 2_000))
         }
-        // Each exit's exhaust and steam, out of the trench at grade.
+        let now = jet(c.now)
         for (k, exit) in PadExhaust.trenchExits.enumerated() {
             let origin = c.toAnchor * exit.position
+            // Out along the trench's floor, which opens to grade.
             let axis = (c.toAnchor * (exit.direction + Vec3(0, 0, 0.15))).normalized
-            for steam in [false, true] {
-                let rate = steam ? PadExhaust.trenchSteamRate : PadExhaust.trenchPuffRate
-                let life = steam ? ParticleLifetimes.deluge : ParticleLifetimes.padExhaust
-                guard let a = anchor(&c) else { return }
-                emitSlices("trench \(k) \(steam)", &c, lifetime: life, to: c.firstMotion + Self.padWindow,
-                           maxSlices: c.rebuilt ? 48 : 24,
-                           expected: { s, e in Self.integral(s, e) { rate * self.flow(ctx, $0) * shares($0).trench } },
+            guard let a = anchor(&c) else { return }
+            emitSlices("trench \(k)", &c, lifetime: ParticleLifetimes.padExhaust, from: max(c.from, start),
+                       to: c.firstMotion + Self.padWindow, maxSlices: c.rebuilt ? 48 : 24,
+                       expected: { s, e in Self.integral(s, e) { jet($0).rate } },
+                       make: { s, e in
+                           let j = jet(s + 0.5 * (e - s))
+                           guard j.speed > 0 else { return nil }
+                           var r = EmitRequest(anchor: a, material: m.padExhaust, count: 0)
+                           r.origin = origin
+                           r.axis = axis
+                           r.shape = .disc(radius: exit.radius * 0.8)
+                           r.direction = .axis(spread: atan(GroundCloud.jetSpread))
+                           r.speed = (0.8 * j.speed)...(1.2 * j.speed)
+                           r.radius = (0.8 * eddy)...(1.2 * eddy)
+                           r.temperature = j.temperature
+                           return r
+                       })
+        }
+        _ = now
+        // Onto the deck, once the envelope outgrows the opening: an
+        // impinging jet turned radial, its momentum the deck's share of the
+        // thrust, from the envelope's edge.
+        func deck(_ t: Epoch) -> (speed: Double, rate: Double, r0: Double, temperature: Double) {
+            let s = sources(ctx, t, previousClimb: previousClimb)
+            guard s.deck > 0, s.exhaust > 0 else { return (0, 0, 0, air.temperature) }
+            let z = PadExhaust.exitHeightOnPad + climb(ctx, t, previous: previousClimb)
+            let r0 = max(PadExhaust.envelopeRadius(atDeckFrom: z, radius: ctx.vehicle.clusterRadius),
+                         PadExhaust.openingHalf)
+            let m = (s.thrust * s.deck / air.rho).squareRoot()
+            let volume = GroundCloud.jetVolume * m * r0
+            let e = Self.jetEddy * GroundCloud.jetSpread * r0
+            let heat = s.exhaust * s.deck * GroundCloud.exhaustHeat(ambient: air.temperature)
+                * (1 - GroundCloud.radiantFraction)
+            let excess = heat / (air.rho * GroundCloud.airHeat * volume)
+            return (GroundCloud.jetVelocity * m / r0, Self.jetFill * volume / (4 / 3 * .pi * e * e * e), r0,
+                    min(air.temperature + excess, 2_000))
+        }
+        guard let a = anchor(&c) else { return }
+        emitSlices("deck", &c, lifetime: ParticleLifetimes.padExhaust, from: max(c.from, c.firstMotion),
+                   to: c.firstMotion + Self.padWindow, maxSlices: c.rebuilt ? 48 : 24,
+                   expected: { s, e in Self.integral(s, e) { deck($0).rate } },
+                   make: { s, e in
+                       let d = deck(s + 0.5 * (e - s))
+                       guard d.speed > 0 else { return nil }
+                       // Under the vehicle on a frame after another; on the
+                       // pad's axis in a rebuilt history, where the vehicle
+                       // was while it was low enough to reach.
+                       let centre = ctx.rebuilt ? Vec3.zero
+                           : ctx.vehicle.exits.reduce(Vec3.zero) { $0 + $1.centre } * (1 / Double(ctx.vehicle.exits.count))
+                       let e = Self.jetEddy * GroundCloud.jetSpread * d.r0
+                       var r = EmitRequest(anchor: a, material: m.padExhaust, count: 0)
+                       r.origin = ctx.toAnchor * Vec3(centre.x, centre.y, 2)
+                       r.axis = up
+                       r.shape = .ring(radius: d.r0, width: 2)
+                       r.direction = .radial(spread: atan(GroundCloud.jetSpread))
+                       r.speed = (0.8 * d.speed)...(1.2 * d.speed)
+                       r.radius = (0.8 * e)...(1.2 * e)
+                       r.temperature = d.temperature
+                       return r
+                   })
+    }
+
+    // MARK: The ground cloud
+
+    /// The two clouds the jets feed (`GroundCloud`), integrated on to this
+    /// frame (from the first start command after a reset), and filled with
+    /// eddies of `cloudEddy` of their radius, born inside them with their
+    /// rise and the wind there, expanding with them, each living
+    /// `ParticleLifetimes.groundCloud`: as many as keep `cloudFill` of the
+    /// volume filled, fewer once the water and soot they carry are spread
+    /// too thin to hide what is behind (an optical depth through the cloud
+    /// under the eddies' own).
+    func groundCloud(_ c: inout Context, _ m: Materials, previousClimb: Double?) {
+        guard let origin = c.ignition.firstCommand, origin < c.now else { return }
+        if cloud == nil || c.rebuilt || cloud!.origin != origin { cloud = GroundCloud(origin: origin) }
+        let ctx = c
+        let east = c.site.placement.azimuth, toSite = c.site.orientation.transposed
+        let o = c.body.orientation
+        let lat = c.site.placement.latitude, lon = c.site.placement.longitude
+        let upBF = Vec3(cos(lat) * cos(lon), cos(lat) * sin(lon), sin(lat))
+        let eastBF = Vec3(-sin(lon), cos(lon), 0), northBF = upBF.cross(eastBF)
+        let eastSite = toSite * o.toInertial(eastBF), northSite = toSite * o.toInertial(northBF)
+        _ = east
+        cloud!.advance(to: c.now, sources: { self.sources(ctx, $0, previousClimb: previousClimb) }, air: c.body.air,
+                       deckHeight: c.site.placement.height,
+                       siteFromEastNorth: { e, n in eastSite * e + northSite * n })
+        guard let state = cloud, c.now - c.firstMotion < Self.cloudWindow + ParticleLifetimes.groundCloud.upperBound,
+              let a = anchor(&c) else { return }
+        let life = ParticleLifetimes.groundCloud, stemLife = ParticleLifetimes.stem
+        let deck = c.site.placement.height
+        func wind(_ e: Double, _ n: Double) -> Vec3 { eastSite * e + northSite * n }
+        /// A lobe's eddies to keep alive, its stem's, and how it grows.
+        func fill(_ lobe: GroundCloud.Lobe) -> (eddies: Double, stem: Double, growth: Double, feed: Double) {
+            guard lobe.volume > 0 else { return (0, 0, 0, 0) }
+            let radius = lobe.radius
+            let feed = lobe.jet.momentum > 0 ? GroundCloud.jetVolume * lobe.jet.momentum.squareRoot() * lobe.front : 0
+            let growth = GroundCloud.thermalEntrainment * abs(lobe.rise) + feed / (4 * .pi * radius * radius)
+            // The water and soot it carries, as an optical depth through it.
+            let column = 1.5 * LaunchMaterials.cloudExtinction(exhaust: lobe.exhaust, water: lobe.water)
+                / (.pi * radius * radius)
+            let share = min(1, column * Self.cloudEddy / LaunchMaterials.groundCloud.opticalDepth)
+            var stem = 0.0
+            if feed > 0, case .trench = lobe.kind, lobe.centre.z - radius > 1 {
+                let b = GroundCloud.jetSpread * lobe.front, e = Self.stemEddy * b
+                stem = Self.cloudFill * .pi * b * b * (lobe.centre.z - radius) / (4 / 3 * .pi * e * e * e)
+            }
+            return (share * Self.cloudFill / pow(Self.cloudEddy, 3), stem, growth, feed)
+        }
+        func births(_ count: Double, _ l: ClosedRange<Double>) -> Double { 2 * count / (l.lowerBound + l.upperBound) }
+        for (k, lobe) in state.lobes.enumerated() where lobe.volume > 0 {
+            let radius = lobe.radius, now = fill(lobe)
+            let air = GroundCloud.air(c.body.air, at: lobe.centre.z, deckHeight: deck, wind: wind)
+            let velocity = air.wind + Vec3(0, 0, lobe.rise)
+            // The stem: the plume rising from the jet's end into the cloud
+            // while the jet feeds it, eddies of `stemEddy` of the jet's
+            // half-width there, rising with the cloud.
+            let base = lobe.centre.z - radius
+            if case .trench(let side) = lobe.kind, base > 1 {
+                let b = GroundCloud.jetSpread * lobe.front, e = Self.stemEddy * b
+                let foot = Vec3(side * lobe.front + lobe.drift.x, lobe.drift.y, 0)
+                emitSlices("stem \(k)", &c, lifetime: stemLife, from: max(c.from, origin), longest: 1,
+                           expected: { s, e in births(fill(state.lobes(at: s + 0.5 * (e - s))[k]).stem, stemLife) * (e - s) },
                            make: { _, _ in
-                               var r = EmitRequest(anchor: a, material: steam ? m.deluge : m.padExhaust, count: 0)
-                               r.origin = origin
-                               r.axis = axis
-                               r.shape = .disc(radius: exit.radius * 0.8)
-                               r.direction = .axis(spread: 0.3)
-                               r.speed = steam ? 60...120 : 70...150
-                               r.radius = steam ? 5...8 : 6...10
-                               r.temperature = steam ? 380 : 700
+                               var r = EmitRequest(anchor: a, material: m.groundCloud, count: 0)
+                               r.origin = ctx.toAnchor * foot
+                               r.axis = ctx.toAnchor * .unitZ
+                               r.shape = .line(length: base)
+                               r.direction = .radial(spread: 0.8)
+                               r.speed = 0...max(0, now.growth)
+                               r.velocity = ctx.toAnchor * velocity
+                               r.radius = (0.8 * e)...(1.2 * e)
+                               return r
+                           })
+            }
+            emitSlices("cloud \(k)", &c, lifetime: life, from: max(c.from, origin),
+                       to: c.firstMotion + Self.cloudWindow, longest: 1,
+                       expected: { s, e in births(fill(state.lobes(at: s + 0.5 * (e - s))[k]).eddies, life) * (e - s) },
+                       make: { _, _ in
+                           var r = EmitRequest(anchor: a, material: m.groundCloud, count: 0)
+                           r.origin = ctx.toAnchor * lobe.centre
+                           r.axis = ctx.toAnchor * .unitZ
+                           r.shape = .ball(radius: radius)
+                           r.direction = .radial(spread: 0.6)
+                           r.speed = 0...max(0, now.growth)
+                           r.sourceVelocity = ctx.toAnchor * velocity
+                           r.velocity = ctx.toAnchor * velocity
+                           r.radius = (0.8 * Self.cloudEddy * radius)...(1.2 * Self.cloudEddy * radius)
+                           return r
+                       })
+        }
+    }
+
+    // MARK: The F-1s' start
+
+    /// The F-1's start: from each engine's start command its gas generator
+    /// spins the turbopumps and its fuel-rich turbine exhaust, 2.9 % of the
+    /// engine's rated flow at 887 K (`ApolloExhaust.f1`'s film: R-3896-1),
+    /// leaves through the nozzle before the chamber lights: dark kerosene
+    /// smoke. Falling into the flame trench, it fills the trench and leaves
+    /// it as it comes, hot: half up through the ML's opening around the
+    /// vehicle, a chimney (rising at about √(g h ΔT/T) for the trench's
+    /// depth), half out of the trench's exits at the speed the trench's
+    /// section gives its volume flux (L, the split). Eddies of 1.5 m, as
+    /// many as fill its volume, until each engine's ignition.
+    public static let startSmokeEddy = 1.5
+
+    func startSmoke(_ c: inout Context, _ m: Materials) {
+        let spec = ApolloExhaust.f1.spec
+        guard let film = spec.film else { return }
+        let flow = film.massFraction * ApolloExhaust.f1.ratedFlow
+        let air = deckAir(c)
+        let density = air.rho * air.temperature / film.temperature   // at the air's pressure
+        let eddy = Self.startSmokeEddy
+        let volume = flow / density
+        let rate = volume / (4 / 3 * .pi * eddy * eddy * eddy)
+        let up = c.toAnchor * .unitZ
+        let depth = PadExhaust.exitHeightOnPad - PadExhaust.trenchExits[0].position.z
+        let chimney = (9.80665 * depth * (film.temperature - air.temperature) / film.temperature).squareRoot()
+        let exitArea = 2 * PadExhaust.trenchExits[0].radius * 12.8
+        for (i, _) in c.ignition.plan.starts.enumerated() {
+            guard let start = c.ignition.start(i), let a = anchor(&c) else { continue }
+            let ctx = c
+            for outlet in 0..<3 {
+                emitSlices("start smoke \(i) \(outlet)", &c, lifetime: ParticleLifetimes.startSmoke,
+                           from: max(c.from, start.command), to: start.ignition, longest: 0.25,
+                           expected: { s, e in (outlet == 0 ? 0.5 : 0.25) * rate * (e - s) },
+                           make: { _, _ in
+                               var r = EmitRequest(anchor: a, material: m.startSmoke, count: 0)
+                               if outlet == 0 {
+                                   r.origin = ctx.toAnchor * Vec3(0, 0, 1)
+                                   r.axis = up
+                                   r.shape = .ring(radius: 0.8 * PadExhaust.openingHalf, width: 4)
+                                   r.direction = .axis(spread: 0.4)
+                                   r.speed = (0.5 * chimney)...chimney
+                               } else {
+                                   let exit = PadExhaust.trenchExits[outlet - 1]
+                                   r.origin = ctx.toAnchor * exit.position
+                                   r.axis = (ctx.toAnchor * (exit.direction + Vec3(0, 0, 0.15))).normalized
+                                   r.shape = .disc(radius: exit.radius * 0.8)
+                                   r.direction = .axis(spread: 0.5)
+                                   let out = 0.25 * volume / exitArea
+                                   r.speed = out...(2 * out)
+                               }
+                               r.radius = (0.7 * eddy)...(1.3 * eddy)
+                               r.temperature = film.temperature
                                return r
                            })
             }
         }
-        // Onto the deck, once the envelope outgrows the opening, with the
-        // deck deluge's steam from first motion.
-        for steam in [false, true] {
-            let life = steam ? ParticleLifetimes.deluge : ParticleLifetimes.padExhaust
-            guard let a = anchor(&c) else { return }
-            emitSlices("deck \(steam)", &c, lifetime: life, to: c.firstMotion + Self.padWindow,
-                       maxSlices: c.rebuilt ? 48 : 24,
-                       expected: { s, e in
-                           Self.integral(s, e) { t in
-                               let water = steam ? PadExhaust.deckWater(sinceFirstMotion: t - ctx.firstMotion) / 50_000 : 1
-                               return (steam ? PadExhaust.deckSteamRate : PadExhaust.deckPuffRate) * water
-                                   * self.flow(ctx, t) * shares(t).deck
-                           }
-                       },
-                       make: { s, e in
-                           let t = s + 0.5 * (e - s)
-                           let z = PadExhaust.exitHeightOnPad + self.climb(ctx, t, previous: previousClimb)
-                           let r0 = max(PadExhaust.envelopeRadius(atDeckFrom: z, radius: ctx.vehicle.clusterRadius),
-                                        PadExhaust.openingHalf)
-                           // Under the vehicle on a frame after another; on the
-                           // pad's axis in a rebuilt history, where the
-                           // vehicle was while it was low enough to reach.
-                           let centre = ctx.rebuilt ? Vec3.zero
-                               : ctx.vehicle.exits.reduce(Vec3.zero) { $0 + $1.centre } * (1 / Double(ctx.vehicle.exits.count))
-                           var r = EmitRequest(anchor: a, material: steam ? m.deluge : m.padExhaust, count: 0)
-                           r.origin = ctx.toAnchor * Vec3(centre.x, centre.y, 2)
-                           r.axis = up
-                           r.shape = .ring(radius: r0, width: 2)
-                           r.direction = .radial(spread: 0.25)
-                           r.speed = steam ? 30...70 : 40...90
-                           r.velocity = up * 4
-                           r.radius = steam ? 4...7 : 5...8
-                           r.temperature = steam ? 380 : 800
-                           return r
-                       })
+    }
+
+    /// The F-1's ignition: the hypergolic igniter's TEA-TEB (triethyl-
+    /// aluminium and triethylborane) bursts into the chamber and lights the
+    /// LOX there, its boron burning green (BO₂'s bands about 545 nm), for
+    /// the fraction of a second before the RP-1 takes over: one flash at
+    /// each engine's ignition, from the count.
+    public static let flashCount = 16
+
+    func ignitionFlashes(_ c: inout Context, _ m: Materials) {
+        let down = c.toAnchor * -Vec3.unitZ
+        for (i, s) in c.ignition.plan.starts.enumerated() {
+            guard let start = c.ignition.start(i), let exit = c.vehicle.exitByEngine[s.engine] else { continue }
+            let t = start.ignition
+            guard t <= c.now, t > c.from || c.rebuilt, c.now - t < ParticleLifetimes.ignitionFlash.upperBound,
+                  let a = anchor(&c) else { continue }
+            var r = EmitRequest(anchor: a, material: m.ignitionFlash, count: Self.flashCount)
+            r.origin = c.toAnchor * (c.rebuilt ? Vec3(exit.centre.x, exit.centre.y, PadExhaust.exitHeightOnPad)
+                                               : exit.centre)
+            r.axis = down
+            r.shape = .disc(radius: exit.radius * 0.8)
+            r.direction = .axis(spread: 0.4)
+            r.speed = 30...80
+            r.radius = 0.6...1.4
+            r.lifetime = ParticleLifetimes.ignitionFlash
+            r.ages = 0...0.05
+            r.seed = nextSeed("ignition flash \(i)")
+            c.frame.burst(r, at: t)
         }
     }
 
@@ -587,7 +886,13 @@ public final class LaunchEffects: EffectProducer {
 
 /// P4's particle lifetimes, s (L).
 public enum ParticleLifetimes {
-    public static let padExhaust = 150.0...240.0
+    /// The trench's and the deck's jets: they feed the clouds, which carry
+    /// on as `groundCloud`'s eddies.
+    public static let padExhaust = 12.0...20.0
+    public static let groundCloud = 20.0...32.0
+    public static let startSmoke = 6.0...10.0
+    public static let ignitionFlash = 0.2...0.35
+    public static let stem = 8.0...14.0
     public static let deluge = 100.0...180.0
     public static let vapour = 6.0...12.0
     public static let flake = 25.0...45.0

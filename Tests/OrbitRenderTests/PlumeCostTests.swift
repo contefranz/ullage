@@ -157,7 +157,7 @@ final class PlumeCostTests: XCTestCase {
         }
         let device = try XCTUnwrap(RenderDevice.shared)
         let snapper = try SnapshotRenderer(device: device)
-        var shot = SnapshotSpec.Shot(name: "p2-staging-cpu", scenario: "as506-pad", advance: ["ev:S-IC/S-II separation"],
+        var shot = SnapshotSpec.Shot(name: "p2-staging-cpu", scenario: "as506-first-motion", advance: ["ev:S-IC/S-II separation"],
                                      camera: SnapshotSpec.CameraSpec(yaw: 69, pitch: 17, distance: 80, fov: 60))
         shot.width = 480
         shot.height = 300

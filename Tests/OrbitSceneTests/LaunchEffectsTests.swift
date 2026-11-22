@@ -13,8 +13,11 @@ final class LaunchEffectsTests: XCTestCase {
 
     // MARK: Helpers
 
-    func open(_ id: String = "as506-pad") throws -> (Simulation, OrbitCamera) {
+    /// Opens a scenario; a terminal count holding is resumed at once, so
+    /// that its T−0 falls on the launch's historic range zero.
+    func open(_ id: String = "as506-first-motion") throws -> (Simulation, OrbitCamera) {
         let sim = try XCTUnwrap(Scenario.named(id)).build(Self.system)
+        if let c = sim.terminalCount, c.isHolding { c.resume(at: sim.time, in: sim) }
         var camera = OrbitCamera()
         if let focus = sim.focus {
             camera.target = .vessel(focus.id)
@@ -75,6 +78,19 @@ final class LaunchEffectsTests: XCTestCase {
         func count(_ material: String) -> Int { requests(material).reduce(0) { $0 + $1.count } }
     }
 
+    /// The particles of `name` the frames emitted that are still alive now,
+    /// each weighted by the chance it outlives its age (lifetimes uniform
+    /// in `life`).
+    func alive(_ run: Run, _ name: String, life: ClosedRange<Double>) -> Double {
+        zip(run.outputs, run.epochs).reduce(0.0) { sum, o in
+            let since = run.sim.time - o.1
+            return sum + run.requests(name, in: o.0).reduce(0.0) { s, r in
+                let age = since + 0.5 * (r.ages.lowerBound + r.ages.upperBound)
+                return s + Double(r.count) * min(1, max(0, (life.upperBound - age) / (life.upperBound - life.lowerBound)))
+            }
+        }
+    }
+
     /// Runs frames every `step` s of simulation time to `until` s from now.
     func fly(_ run: Run, step: Double, for seconds: Double, test: LaunchEffectsTests) {
         var t = 0.0
@@ -89,36 +105,39 @@ final class LaunchEffectsTests: XCTestCase {
 
     // MARK: The ignition
 
-    /// The five F-1s' flow from the thrust buildup to first motion is FER
-    /// Table 20-9's 39,307 kg (H), at the flow AS-506's engines have at
-    /// first motion; the buildup starts at T−5.3 s and is complete before
-    /// T+0.3 s.
+    /// FER-506's start as the count plans it (`PadIgnition`, the core's
+    /// `TerminalCount.Plan.as506`): the five F-1s' flow from their start
+    /// commands to first motion is FER Table 20-9's 39,307 kg (H) at the
+    /// flow AS-506's engines have at first motion, 32,563 kg of it with
+    /// thrust; the first chamber lights at T−3.05 s, all are at full thrust
+    /// by T−1.4 s, 1-2-2.
     func testIgnitionBurnsTheFERsBuildup() throws {
         let v = VesselLibrary.saturnV()
         let engines = v.parts.flatMap(\.thrusters).filter { $0.name.hasPrefix("S-IC engine") }
         XCTAssertEqual(engines.count, 5)
-        let flows = engines.map(\.currentRating.massFlow)
+        let flow = engines[0].currentRating.massFlow
         let fm = LC39A.Countdown.apollo11.firstMotion
         XCTAssertEqual(fm, 0.30, accuracy: 1e-6)
-        var mass = 0.0
-        for (i, flow) in flows.enumerated() {
-            // Each engine's own integral, numerically.
-            var m = 0.0, t = PadIgnition.thrustBuildup - 1
+        let plan = PadIgnition.plan
+        var mass = 0.0, thrusting = 0.0
+        for i in plan.starts.indices {
+            var t = PadIgnition.firstCommand - 1
             let h = 1e-3
             while t < fm {
-                m += flow * PadIgnition.engineFraction(i, rangeTime: t + h / 2) * h
+                mass += flow * plan.flowFraction(i, rangeTime: t + h / 2) * h
+                thrusting += flow * plan.fraction(i, rangeTime: t + h / 2) * h
                 t += h
             }
-            mass += m
         }
-        XCTAssertEqual(mass, 39_307, accuracy: 39_307 * 0.01, "FER Table 20-9's thrust buildup")
-        let mean = flows.reduce(0, +) / 5
-        XCTAssertEqual(PadIgnition.integral(from: PadIgnition.thrustBuildup, to: fm) * 5 * mean, mass,
-                       accuracy: mass * 1e-3, "the analytic integral")
-        XCTAssertEqual(PadIgnition.thrustFraction(rangeTime: PadIgnition.thrustBuildup - 1e-6), 0)
-        XCTAssertEqual(PadIgnition.thrustFraction(rangeTime: fm), 1, "full flow by first motion")
-        XCTAssertEqual(PadIgnition.thrustFraction(rangeTime: PadIgnition.thrustBuildup + 0.2), 0.2 / PadIgnition.rampTime / 5,
-                       accuracy: 1e-12, "the centre engine first (1-2-2)")
+        XCTAssertEqual(mass, 39_307, accuracy: 3, "FER Table 20-9's thrust buildup")
+        XCTAssertEqual(thrusting, 32_563, accuracy: 3)
+        XCTAssertEqual(PadIgnition.firstCommand, -6.4, accuracy: 1e-12)
+        XCTAssertEqual(PadIgnition.thrustBuildup, -3.05, accuracy: 1e-12)
+        XCTAssertEqual(PadIgnition.thrustFraction(rangeTime: -3.05 - 1e-6), 0)
+        XCTAssertEqual(PadIgnition.thrustFraction(rangeTime: -1.4), 1, accuracy: 1e-12, "full thrust by T−1.4 s")
+        XCTAssertEqual(PadIgnition.thrustFraction(rangeTime: -2.85), 0.2 / PadIgnition.rampTime / 5, accuracy: 1e-12,
+                       "the centre engine first (1-2-2)")
+        XCTAssertEqual(PadIgnition.integral(from: PadIgnition.thrustBuildup, to: fm) * 5 * flow, thrusting, accuracy: 3)
     }
 
     /// Down the opening while the vehicle stands on the pad; onto the deck
@@ -144,26 +163,49 @@ final class LaunchEffectsTests: XCTestCase {
 
     // MARK: Pre-ageing and rebuilt histories
 
-    /// AS-506's pad opens paused at first motion with the exhaust and steam
-    /// of the thrust buildup already out of the trench, at their true ages
-    /// (up to 5.6 s), as many as the rates give; nothing more while paused.
+    /// The jets' eddies a second out of an exit at range time `t`, as the
+    /// producer emits them at full flow on the pad (`GroundCloud`).
+    static func jetRate(at t: Double) -> Double {
+        let s = GroundCloud.Sources(exhaust: LiftoffRise.flow * PadIgnition.thrustFraction(rangeTime: t),
+                                    thrust: LiftoffRise.thrust * PadIgnition.thrustFraction(rangeTime: t),
+                                    trench: 1, deck: 0, trenchWater: PadExhaust.trenchWater * GroundCloud.gallon / 60,
+                                    deckWater: 0)
+        let air = Self.deckAir
+        let f = GroundCloud.side(s, density: air.rho, ambient: air.temperature)
+        let x = GroundCloud.exitDistance, eddy = LaunchEffects.jetEddy * GroundCloud.jetSpread * x
+        return LaunchEffects.jetFill * GroundCloud.jetVolume * f.momentum.squareRoot() * x / (4 / 3 * .pi * pow(eddy, 3))
+    }
+
+    static let deckAir: (rho: Double, temperature: Double) = {
+        let sim = Simulation(system: system, time: VesselLibrary.apollo11RangeZero)
+        VesselLibrary.apollo11OnPad(in: sim)
+        let a = AirProfile(sim.atmosphere(of: sim.system.earth)!).sample(altitude: LC39A.placement().height)
+        return (a.density, a.temperature)
+    }()
+
+    /// AS-506's first-motion stand opens with what the count's start put
+    /// out: the trench's jets since the first chamber lit (3.35 s before
+    /// first motion), at their true ages, as many as the jets' volume flux
+    /// gives; the gas generators' dark smoke since the first start command;
+    /// the two clouds' eddies; the LOX tank's fog and the umbilicals'
+    /// trickle; ice shaken off. Nothing more while paused.
     func testPadOpensPreAged() throws {
         let (sim, camera) = try open()
         let run = Run(sim, camera)
         let out = run.frame()
         let exhaust = run.requests("p4 pad exhaust", in: out)
         XCTAssertFalse(exhaust.isEmpty)
-        // The oldest puff: from the buildup's first second (5.6 s before
-        // first motion), when the centre engine's rising flow gives the first.
+        let fm = LC39A.Countdown.apollo11.firstMotion
         let oldest = exhaust.map(\.ages.upperBound).max()!
-        let span = LC39A.Countdown.apollo11.firstMotion - PadIgnition.thrustBuildup
+        let span = fm - PadIgnition.thrustBuildup
         XCTAssertLessThanOrEqual(oldest, span + 1e-6)
-        XCTAssertGreaterThan(oldest, span - 1.2)
+        XCTAssertGreaterThan(oldest, span - 0.6)
         XCTAssertEqual(exhaust.map(\.ages.lowerBound).min()!, 0, accuracy: 1e-6)
-        let expected = 2 * PadExhaust.trenchPuffRate * PadIgnition.integral(from: PadIgnition.thrustBuildup,
-                                                                           to: LC39A.Countdown.apollo11.firstMotion)
-        XCTAssertEqual(Double(exhaust.reduce(0) { $0 + $1.count }), expected, accuracy: 2.5)
-        XCTAssertGreaterThan(run.count("p4 deluge steam"), 20)
+        var expected = 0.0, t = PadIgnition.thrustBuildup
+        while t < fm { expected += 2 * Self.jetRate(at: t + 5e-4) * 1e-3; t += 1e-3 }
+        XCTAssertEqual(Double(exhaust.reduce(0) { $0 + $1.count }), expected, accuracy: max(3, 0.02 * expected))
+        XCTAssertGreaterThan(run.count("p4 start smoke"), 50, "the gas generators' smoke")
+        XCTAssertGreaterThan(run.count("p4 ground cloud"), 20, "the jets' clouds")
         XCTAssertGreaterThan(run.count("p4 cold vapour"), 50, "the LOX tank's fog and the umbilicals' trickle")
         XCTAssertGreaterThan(run.count("p4 ice slab") + run.count("p4 ice flake"), 0, "ice shaken off at ignition")
         XCTAssertEqual(run.count("p4 trail low"), 0, "no trail on the pad")
@@ -179,7 +221,8 @@ final class LaunchEffectsTests: XCTestCase {
     }
 
     /// A snapshot's first frame at T+8 s rebuilds the pad's history: about
-    /// the puffs the frames to it emitted, at the same ages.
+    /// the jets' eddies the frames to it emitted, and the clouds'; the
+    /// umbilicals burst once in both.
     func testRebuiltHistoryMatchesTheFrames() throws {
         let (sim, camera) = try open()
         let run = Run(sim, camera)
@@ -187,22 +230,18 @@ final class LaunchEffectsTests: XCTestCase {
         fly(run, step: 1.0 / 30, for: 8, test: self)
         let fresh = Run(sim, camera)
         let rebuilt = fresh.frame()
-        let span = 8 + LC39A.Countdown.apollo11.firstMotion - PadIgnition.thrustBuildup - 0.3
-        for name in ["p4 pad exhaust", "p4 deluge steam"] {
-            let framed = run.count(name), again = fresh.count(name)
-            XCTAssertEqual(Double(again), Double(framed), accuracy: max(4, 0.06 * Double(framed)), name)
-            let oldest = fresh.requests(name, in: rebuilt).map(\.ages.upperBound).max()!
-            XCTAssertLessThanOrEqual(oldest, span + 0.3 + 1e-6, "back to the buildup")
-            XCTAssertGreaterThan(oldest, span + 0.3 - 1.5)
-            // The ignition's puffs (older than 8 s at the frame) are the same.
-            let ignition = Double(run.outputs[0].requests.filter { run.outputs[0].materials[$0.material].name == name }
-                .reduce(0) { $0 + $1.count })
-            let older = fresh.requests(name, in: rebuilt).reduce(0.0) { sum, r in
-                // The part of each slice older than first motion.
-                let lo = r.ages.lowerBound, hi = r.ages.upperBound
-                return sum + Double(r.count) * max(0, min(1, (hi - 8) / max(hi - lo, 1e-9)))
+        for name in ["p4 pad exhaust", "p4 ground cloud"] {
+            // The eddies alive now: the frames' that have not outlived their lives.
+            let life = name == "p4 pad exhaust" ? ParticleLifetimes.padExhaust : ParticleLifetimes.groundCloud
+            let framed = alive(run, name, life: life)
+            let again = fresh.requests(name, in: rebuilt).reduce(0.0) { s, r in
+                let age = 0.5 * (r.ages.lowerBound + r.ages.upperBound)
+                return s + Double(r.count) * min(1, max(0, (life.upperBound - age) / (life.upperBound - life.lowerBound)))
             }
-            XCTAssertEqual(older, ignition, accuracy: max(3, 0.05 * ignition), name)
+            XCTAssertEqual(again, framed, accuracy: max(6, 0.1 * framed), name)
+            XCTAssertGreaterThan(again, 20, name)
+            let oldest = fresh.requests(name, in: rebuilt).map(\.ages.upperBound).max()!
+            XCTAssertLessThanOrEqual(oldest, 8 + LC39A.Countdown.apollo11.firstMotion - PadIgnition.firstCommand + 1e-6)
         }
         // The umbilicals' bursts are in both, once each.
         XCTAssertEqual(run.requests("p4 cold vapour").filter { $0.count == LaunchEffects.umbilicalBurst }.count, 5)
@@ -210,12 +249,12 @@ final class LaunchEffectsTests: XCTestCase {
     }
 
     /// Each in-flight umbilical bursts once, in the frame whose interval
-    /// holds the liftoff switch (first motion + 0.16 s), at its true age.
+    /// holds the liftoff switch, at its true age: where the count found the
+    /// vehicle's 3/4 in of rise (`TerminalCount.liftoffSwitch`).
     func testUmbilicalBurstsAtTheLiftoffSwitch() throws {
         let (sim, camera) = try open()
         let run = Run(sim, camera)
         run.frame()
-        let switchEpoch = LaunchCountdown.epoch(LC39A.Countdown.apollo11.liftoffSwitch, in: .apollo11)
         var bursts: [(epoch: Epoch, request: EmitRequest)] = []
         for _ in 0..<30 {
             advance(sim, 0.1)
@@ -225,6 +264,9 @@ final class LaunchEffectsTests: XCTestCase {
                 bursts.append((sim.time, r))
             }
         }
+        let switchEpoch = try XCTUnwrap(sim.terminalCount?.liftoffSwitch)
+        XCTAssertEqual(switchEpoch - VesselLibrary.apollo11FirstMotion, 0.14, accuracy: 0.03,
+                       "3/4 in of rise at the model's 1.9 m/s²")
         XCTAssertEqual(bursts.count, LC39A.swingArms.filter(\.inFlight).count)
         for b in bursts {
             XCTAssertGreaterThanOrEqual(b.epoch - switchEpoch, 0)
@@ -365,13 +407,13 @@ final class LaunchEffectsTests: XCTestCase {
         fly(run, step: 0.5, for: 75, test: self)
         let at75 = Run(sim, camera)
         let rebuilt75 = at75.frame()
-        for name in ["p4 pad exhaust", "p4 deluge steam", "p4 ice slab"] {
+        for name in ["p4 pad exhaust", "p4 ice slab"] {
             for r in at75.requests(name, in: rebuilt75) where r.sourceVelocity == .zero {
                 let p = axes.transposed * r.origin
                 XCTAssertLessThan(Vec3(p.x, p.y, 0).length, 100, "\(name) at the pad, not under the vehicle")
             }
         }
-        XCTAssertGreaterThan(at75.count("p4 pad exhaust"), 100)
+        XCTAssertGreaterThan(at75.count("p4 ground cloud"), 100)
         // The frost's last second, at the vehicle's velocity.
         let materials = try XCTUnwrap(run.effects.materials)
         let framedFrost = try XCTUnwrap(run.outputs.last?.requests.last { $0.material == materials.iceFlake })
@@ -439,10 +481,15 @@ final class LaunchEffectsTests: XCTestCase {
         let at170 = Run(sim, camera)
         let rebuilt170 = at170.frame()
         XCTAssertEqual(at170.effects.cutoffs.count, 5, "delivered to the rebuild")
-        for name in ["p4 pad exhaust", "p4 deluge steam"] {
-            let framedCount = run.count(name), againCount = at170.count(name)
-            XCTAssertEqual(Double(againCount), Double(framedCount), accuracy: 0.06 * Double(framedCount), name)
+        // The clouds' eddies alive: the frames' still within their lives,
+        // and the rebuild's.
+        let life = ParticleLifetimes.groundCloud
+        let framedClouds = alive(run, "p4 ground cloud", life: life)
+        let rebuiltClouds = at170.requests("p4 ground cloud", in: rebuilt170).reduce(0.0) { s, r in
+            let age = 0.5 * (r.ages.lowerBound + r.ages.upperBound)
+            return s + Double(r.count) * min(1, max(0, (life.upperBound - age) / (life.upperBound - life.lowerBound)))
         }
+        XCTAssertEqual(rebuiltClouds, framedClouds, accuracy: 0.15 * framedClouds, "the clouds")
         let framedTrail = try trail(run.outputs, run, axes: axes)
         let trailFramed = framedTrail.reduce(0) { $0 + $1.request.count }
         let heights = Array(stride(from: 2_000.0, through: 38_000, by: 4_000))
@@ -509,7 +556,8 @@ final class LaunchEffectsTests: XCTestCase {
         let run = Run(sim, camera)
         run.frame()
         let axes = try siteAxes(try XCTUnwrap(run.scene))
-        fly(run, step: 0.5, for: 100, test: self)
+        // From the count's T−35 s to T+100 s.
+        fly(run, step: 0.5, for: 135, test: self)
         let at100 = Run(sim, camera)
         let rebuilt = at100.frame()
         let failure = try XCTUnwrap(at100.effects.cutoffs["S-IC engine 1"], "the journal's engine out")

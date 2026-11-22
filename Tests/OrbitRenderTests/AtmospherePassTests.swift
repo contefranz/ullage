@@ -266,7 +266,7 @@ final class AtmospherePassTests: XCTestCase {
         let r = try renderer()
         var checked = 0
         for (azimuth, elevation) in [(0.0, 30.0), (180, 30), (90, 15), (270, 50)] {
-            let scene = self.scene(.apollo8Pad) { s in
+            let scene = self.scene(.apollo8FirstMotion) { s in
                 let earth = s.bodies.first { $0.id == 399 }!
                 let up = (-earth.position).normalized
                 let toSun = (s.sun.direction - up * s.sun.direction.dot(up)).normalized
@@ -302,7 +302,7 @@ final class AtmospherePassTests: XCTestCase {
     func testWhatIsBehindTheAirIsTransmitted() throws {
         let background = BackgroundTestPass()
         let r = try renderer([background])
-        let scene = self.scene(.apollo8Pad, width: 64, height: 64, fovY: 8) { $0.sun.direction }
+        let scene = self.scene(.apollo8FirstMotion, width: 64, height: 64, fovY: 8) { $0.sun.direction }
         let frame = try XCTUnwrap(AtmosphereFrame(scene: scene, tables: lut))
         let without = try light(r, scene)
         let l: Float = 1e6
@@ -338,7 +338,7 @@ final class AtmospherePassTests: XCTestCase {
     /// away (a camera on the dawn pad's service structure height, 120 m).
     func testGroundFromThePadMatchesTheMarch() throws {
         let r = try renderer()
-        let scene = self.scene(.apollo8Pad, distance: 300, width: 96, height: 64, fovY: 30) { s in
+        let scene = self.scene(.apollo8FirstMotion, distance: 300, width: 96, height: 64, fovY: 30) { s in
             let earth = s.bodies.first { $0.id == 399 }!
             let up = (-earth.position).normalized
             let toSun = (s.sun.direction - up * s.sun.direction.dot(up)).normalized
@@ -385,7 +385,7 @@ final class AtmospherePassTests: XCTestCase {
     /// per channel, about A1's (0.37, 0.18, 0.052) at 7°.
     func testTheSunsDiscIsTransmitted() throws {
         let r = try renderer(ev100: 27)
-        let scene = self.scene(.apollo8Pad, width: 64, height: 64, fovY: 1.2) { $0.sun.direction }
+        let scene = self.scene(.apollo8FirstMotion, width: 64, height: 64, fovY: 1.2) { $0.sun.direction }
         let frame = try XCTUnwrap(AtmosphereFrame(scene: scene, tables: lut))
         let light = try self.light(r, scene)
         let d = direction(scene, x: 32, y: 32)
@@ -598,7 +598,7 @@ final class AtmospherePassTests: XCTestCase {
     func testUniformsOtherPassesRead() throws {
         let readback = AtmosphereProbeTestPass()
         let r = try renderer([readback])
-        let pad = scene(.apollo8Pad, look: { $0.sun.direction })
+        let pad = scene(.apollo8FirstMotion, look: { $0.sun.direction })
         _ = try light(r, pad)
         let a = try XCTUnwrap(readback.uniforms)
         let frame = try XCTUnwrap(AtmosphereFrame(scene: pad, tables: lut))
@@ -635,7 +635,7 @@ final class AtmospherePassTests: XCTestCase {
     func testFroxelsMatchTheMarch() throws {
         let readback = AtmosphereProbeTestPass()
         let r = try renderer([readback])
-        let scene = self.scene(.apollo8Pad, width: 64, height: 64) { s in
+        let scene = self.scene(.apollo8FirstMotion, width: 64, height: 64) { s in
             let earth = s.bodies.first { $0.id == 399 }!
             let up = (-earth.position).normalized
             let toSun = (s.sun.direction - up * s.sun.direction.dot(up)).normalized
@@ -669,7 +669,7 @@ final class AtmospherePassTests: XCTestCase {
     func testFroxelsTowardALowSunHoldTheirLight() throws {
         let readback = AtmosphereProbeTestPass()
         let r = try renderer([readback])
-        let scene = self.scene(.apollo8Pad, width: 64, height: 64) { $0.sun.direction }
+        let scene = self.scene(.apollo8FirstMotion, width: 64, height: 64) { $0.sun.direction }
         _ = try light(r, scene)
         let frame = try XCTUnwrap(AtmosphereFrame(scene: scene, tables: lut))
         let all = try XCTUnwrap(readback.allFroxels())
@@ -711,7 +711,7 @@ final class AtmospherePassTests: XCTestCase {
                                   plan: HDRTargetPlan(outputFormat: .bgra8Unorm_srgb, sampleCount: 4))
         r.settings = settings()
         XCTAssertEqual(r.failures, [:])
-        let scene = self.scene(.apollo8Pad, width: 48, height: 48, fovY: 60) { s in
+        let scene = self.scene(.apollo8FirstMotion, width: 48, height: 48, fovY: 60) { s in
             let earth = s.bodies.first { $0.id == 399 }!
             let up = (-earth.position).normalized
             return (s.sun.direction.cross(up) + up).normalized
@@ -742,7 +742,7 @@ final class AtmospherePassTests: XCTestCase {
     func testNoNaNAlongTheFlight() throws {
         let r = try renderer()
         var scenes: [(String, RenderScene)] = [
-            ("pad", scene(.apollo8Pad, look: nil)),
+            ("pad", scene(.apollo8FirstMotion, look: nil)),
             ("leo", scene(.lowEarthOrbit, look: nil)),
             ("entry", scene(.apollo7EntryInterface, distance: 30, look: nil)),
         ]

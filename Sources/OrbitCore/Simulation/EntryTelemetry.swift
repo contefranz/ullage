@@ -41,6 +41,10 @@ extension Simulation {
         } else {
             var force = v.thrustForceAndTorque(ambientPressure: v.atmosphere.pressure,
                                                seaLevelPressure: atm?.seaLevelPressure ?? 0).force
+            // The controlled release holds it back through its structure.
+            if let restraint = terminalCount?.restraint(v) {
+                force += v.attitude.inverseRotate(restraint(v.position, v.attitude, o))
+            }
             if v.atmosphere.density > 0 {
                 let bodyAir = v.attitude.inverseRotate(air)
                 if let model {

@@ -166,6 +166,61 @@ public final class SaturnIU: FlightProgram {
         public var guidance: Guidance?
         /// Engine-out sensing and reactions.
         public var engineOut = EngineOut.as506
+        /// The launch window's targeting; nil flies `flightAzimuth` and the
+        /// presettings' plane at any time of launch.
+        public var launchWindow: LaunchWindow?
+    }
+
+    /// The launch window's targeting, which the LVDC runs at guidance
+    /// reference release (GE504 §4.1.1 and Table 4-I): the flight azimuth
+    /// for the time of launch, and the IGM's target plane, inclination i and
+    /// descending node θ_N, as polynomials in that azimuth. `opening` is the
+    /// azimuth of a launch at the scenario's planned range zero (the window's
+    /// opening), from which it rises at `rate` to `limit` (range safety's).
+    /// The polynomials are anchored on the plan's own targets there: i(A) =
+    /// i_plan + P_i(A) − P_i(opening), and the same for θ_N, so a launch on
+    /// time flies the plan's targets exactly.
+    public struct LaunchWindow {
+        public var opening: Double
+        public var rate: Double
+        public var limit: Double
+        /// P(A) = Σ c_n ((A − zero) / scale)^n, degrees, A in degrees.
+        public var inclination: [Double]
+        public var descendingNode: [Double]
+        public var zero: Double
+        public var scale: Double
+
+        public init(opening: Double, rate: Double, limit: Double, inclination: [Double], descendingNode: [Double],
+                    zero: Double, scale: Double) {
+            self.opening = opening
+            self.rate = rate
+            self.limit = limit
+            self.inclination = inclination
+            self.descendingNode = descendingNode
+            self.zero = zero
+            self.scale = scale
+        }
+
+        /// The flight azimuth (rad) of a launch `delay` s after the planned
+        /// range zero: none earlier than the opening, none past the limit.
+        public func azimuth(launchDelay delay: Double) -> Double {
+            min(limit, opening + rate * max(0, delay))
+        }
+
+        /// A polynomial of the window's in azimuth `a` (rad), rad.
+        func polynomial(_ c: [Double], _ a: Double) -> Double {
+            let x = (a * 180 / .pi - zero) / scale
+            return c.reversed().reduce(0) { $0 * x + $1 } * .pi / 180
+        }
+    }
+
+    /// What the IU flies to: the flight azimuth (rad from north) and the
+    /// IGM's target plane (rad), the plan's until the launch window's
+    /// targeting moves them (`target(launchDelay:)`).
+    public struct Targeting: Equatable {
+        public var azimuth: Double
+        public var inclination: Double
+        public var descendingNode: Double
     }
 
     /// The IU's engine-out logic (datasheet §16): when it senses an engine
@@ -261,6 +316,11 @@ public final class SaturnIU: FlightProgram {
 
     public let plan: Plan
 
+    /// The launch's terminal count while the vehicle stands on its pad
+    /// (`Simulation.terminalCount` sets it): its events lead the pilot's
+    /// next-event line until first motion.
+    public weak var terminalCount: TerminalCount?
+
     // MARK: State
 
     /// When each time base started.
@@ -333,6 +393,30 @@ public final class SaturnIU: FlightProgram {
     public init(plan: Plan) {
         self.plan = plan
         tiltArrest = plan.tilt.arrest
+        targeting = Targeting(azimuth: plan.flightAzimuth,
+                              inclination: plan.guidance?.presettings.inclination ?? 0,
+                              descendingNode: plan.guidance?.presettings.descendingNode ?? 0)
+    }
+
+    /// The flight azimuth and target plane the IU flies to.
+    public private(set) var targeting: Targeting
+
+    /// The launch window's targeting at guidance reference release, for a
+    /// launch `delay` s after the planned range zero (the terminal count
+    /// calls it then): the flight azimuth for that time and the IGM's plane
+    /// for that azimuth (`Plan.launchWindow`). Without a window, or before
+    /// the window opens, the plan's own. Returns what it set.
+    @discardableResult
+    public func target(launchDelay delay: Double) -> Targeting {
+        guard timeBases[.t1] == nil, let w = plan.launchWindow, let g = plan.guidance else { return targeting }
+        let a = w.azimuth(launchDelay: delay)
+        let p = g.presettings
+        targeting = Targeting(
+            azimuth: a == w.opening ? plan.flightAzimuth : plan.flightAzimuth + (a - w.opening),
+            inclination: p.inclination + (w.polynomial(w.inclination, a) - w.polynomial(w.inclination, w.opening)),
+            descendingNode: p.descendingNode
+                + (w.polynomial(w.descendingNode, a) - w.polynomial(w.descendingNode, w.opening)))
+        return targeting
     }
 
     /// Fail the named engine at `time`: at the start of the step there, the
@@ -453,7 +537,8 @@ public final class SaturnIU: FlightProgram {
         return next
     }
 
-    /// The next event for the pilot: liftoff before T1, then the earliest of
+    /// The next event for the pilot: on the pad the terminal count's until
+    /// the release (`TerminalCount.nextEvent`); liftoff before T1, then the earliest of
     /// the sequence's events still to come on the time bases started (and
     /// any the IGM set off), the S-II cutoff the IGM expects (its T1 + T2)
     /// and its S-IVB cutoff (`predictedCutoff`). Not the IGM's cycles or
@@ -463,6 +548,7 @@ public final class SaturnIU: FlightProgram {
     /// before the IGM starts nothing is shown from the S-IC centre cutoff to
     /// T3.
     public func nextEvent(at now: Epoch) -> (name: String, at: Epoch)? {
+        if firstMotion == nil, let c = terminalCount, c.released == nil { return c.nextEvent(at: now) }
         var events: [(name: String, at: Epoch)] = []
         if timeBases[.t1] == nil, let m = firstMotion { events.append(("liftoff", m + plan.liftoffDelay)) }
         for (i, e) in plan.sequence.enumerated() where !done.contains(i) && Self.isShown(e.action) {
@@ -524,7 +610,7 @@ public final class SaturnIU: FlightProgram {
             - o.angularVelocity.cross(o.angularVelocity.cross(position))
         let up = -plumb.normalized
         let east = o.pole.cross(up).normalized, north = up.cross(east)
-        let downrange = north * cos(plan.flightAzimuth) + east * sin(plan.flightAzimuth)
+        let downrange = north * cos(targeting.azimuth) + east * sin(targeting.azimuth)
         let x = back.rotate(up), z = back.rotate(downrange)
         return Quat(matrix: Mat3(columns: x, z.cross(x), z))
     }
@@ -694,10 +780,12 @@ public final class SaturnIU: FlightProgram {
             guard let g = plan.guidance, let frame = spaceFixed, guidance == nil, !guidanceDone else { return false }
             var p = g.presettings
             p.mu = v.reference.gm
+            p.inclination = targeting.inclination
+            p.descendingNode = targeting.descendingNode
             // The latitude of the space-fixed X_S: it places the Earth's axis.
             let pole = sim.snapshot.orientation(v.reference).pole
             let latitude = asin(max(-1, min(1, frame.rotate(.unitX).dot(pole))))
-            guidance = IterativeGuidance(presettings: p, launchLatitude: latitude, azimuth: plan.flightAzimuth)
+            guidance = IterativeGuidance(presettings: p, launchLatitude: latitude, azimuth: targeting.azimuth)
             lastCycle = nil
         case .localHorizontal:
             localHorizontal = true

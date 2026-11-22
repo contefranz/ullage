@@ -466,7 +466,7 @@ public final class Vessel: Identifiable {
     func consumePropellant(dt: Double) -> Bool {
         let steps = thrusters.map { ($0, $0.output, $0.isCommanded) }
         var drew = false
-        for (t, output, commanded) in steps {
+        for (t, output, commanded) in steps where t.groundStart == nil {
             if let o = output, o.fraction * o.rating.massFlow > 0 {
                 t.draw(dt: dt, output: o, commanded: commanded)
                 drew = true

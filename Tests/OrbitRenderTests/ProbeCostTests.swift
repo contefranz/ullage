@@ -83,8 +83,8 @@ final class ProbeCostTests: XCTestCase {
         let rounds = Int(env["ORBITSIM_TIMINGS_ROUNDS"] ?? "") ?? 200
         let s = try SnapshotRenderer(device: try XCTUnwrap(RenderDevice.shared))
         let shots: [(String, String, SnapshotSpec.CameraSpec, [String])] = [
-            ("pad", "as506-pad", SnapshotSpec.CameraSpec(yaw: -60, pitch: 4, distance: 210, fov: 38), []),
-            ("ascent-60s", "as506-pad", SnapshotSpec.CameraSpec(yaw: 149, pitch: -25, distance: 400, fov: 60), ["met:60"]),
+            ("pad", "as506-first-motion", SnapshotSpec.CameraSpec(yaw: -60, pitch: 4, distance: 210, fov: 38), []),
+            ("ascent-60s", "as506-first-motion", SnapshotSpec.CameraSpec(yaw: 149, pitch: -25, distance: 400, fov: 60), ["met:60"]),
             ("leo", "as506-parking-orbit",
              SnapshotSpec.CameraSpec(target: "vessel:Apollo 11", frame: "vessel", yaw: 20, pitch: -12, distance: 14, fov: 40),
              ["stage", "wait:20"]),

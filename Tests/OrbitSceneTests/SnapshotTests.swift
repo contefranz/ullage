@@ -29,7 +29,7 @@ final class ScenarioScriptTests: XCTestCase {
 
     /// Liftoff, then the mission clock: AS-506's first motion is range 0.30 s.
     func testRunsTheSaturnToLiftoffAndAClockTime() throws {
-        let scenario = try XCTUnwrap(Scenario.named("as506-pad"))
+        let scenario = try XCTUnwrap(Scenario.named("as506-first-motion"))
         let sim = scenario.build(Self.system)
         var observed = 0
         try ScenarioScript(["liftoff", "t1", "met:5"]).run(on: sim, missionClockZero: scenario.missionClockZero) { _ in
@@ -45,7 +45,7 @@ final class ScenarioScriptTests: XCTestCase {
     /// stretch runs whole (0.02 s steps, 25,000 of them in one stretch at
     /// 1000×), and only the time the simulation covered counts.
     func testWarpInPoweredFlightReachesTheClockTime() throws {
-        let scenario = try XCTUnwrap(Scenario.named("as506-pad"))
+        let scenario = try XCTUnwrap(Scenario.named("as506-first-motion"))
         let sim = scenario.build(Self.system)
         try ScenarioScript(["warp:1000", "met:500"]).run(on: sim, missionClockZero: scenario.missionClockZero)
         XCTAssertEqual(sim.time - scenario.missionClockZero!, 500, accuracy: 1e-3)
@@ -56,7 +56,7 @@ final class ScenarioScriptTests: XCTestCase {
     /// at a time: at 0.001× liftoff comes in a few steps, and at 1e-7×,
     /// finer than the epoch can resolve, it still comes.
     func testWaitingAtATinyWarp() throws {
-        let scenario = try XCTUnwrap(Scenario.named("as506-pad"))
+        let scenario = try XCTUnwrap(Scenario.named("as506-first-motion"))
         for warp in ["0.001", "1e-7"] {
             let sim = scenario.build(Self.system)
             try ScenarioScript(["warp:\(warp)", "liftoff"]).run(on: sim, missionClockZero: scenario.missionClockZero)
@@ -111,7 +111,7 @@ final class SnapshotSpecTests: XCTestCase {
         let json = #"""
         {"shots": [
           {"name": "a", "scenario": "leo"},
-          {"name": "b", "scenario": "as506-pad", "advance": ["met:60"], "width": 320, "height": 200,
+          {"name": "b", "scenario": "as506-first-motion", "advance": ["met:60"], "width": 320, "height": 200,
            "camera": {"target": "body:399", "frame": "inertial", "yaw": 45, "lens": "hasselblad250"},
            "settings": {"debug": {"view": "depth"}}, "aovs": ["depth", "normals"], "reference": "AS08-14-2383"}
         ]}

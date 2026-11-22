@@ -402,7 +402,7 @@ final class ShadowPassTests: XCTestCase {
     /// vertical field of view `fovY` (rad, the external camera's 50° by
     /// default), at 3024×1964 unless `viewport` says otherwise.
     static func padScene(distance: Double = 170, yaw: Double? = nil, pitch: Double? = nil, fovY: Double? = nil,
-                  scenario name: String = "as506-pad", advance: [String] = [],
+                  scenario name: String = "as506-first-motion", advance: [String] = [],
                   viewport: RenderScene.Viewport = RenderScene.Viewport(width: 3024, height: 1964)) throws -> RenderScene {
         let scenario = try XCTUnwrap(Scenario.named(name))
         let sim = scenario.build(Self.system)

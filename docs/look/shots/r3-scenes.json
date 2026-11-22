@@ -1,11 +1,11 @@
 {
   "goldens": "scene",
   "shots": [
-    {"name": "r3-pad-stack", "scenario": "as506-pad", "showOrbit": false,
+    {"name": "r3-pad-stack", "scenario": "as506-first-motion", "showOrbit": false,
      "camera": {"yaw": -60, "pitch": 4, "distance": 210, "fov": 38},
      "settings": {"shading": {"waitForAmbientOcclusion": true}, "particle": {"quality": "off"}},
      "reference": "S69-39961"},
-    {"name": "r3-pad-base", "scenario": "as506-pad", "showOrbit": false,
+    {"name": "r3-pad-base", "scenario": "as506-first-motion", "showOrbit": false,
      "camera": {"yaw": -35, "pitch": -2, "distance": 62, "fov": 62},
      "settings": {"shading": {"waitForAmbientOcclusion": true}, "particle": {"quality": "off"}}},
     {"name": "r3-sivb-from-above", "scenario": "as506-parking-orbit", "showOrbit": false, "advance": ["stage", "wait:60"],

@@ -2702,3 +2702,73 @@ Pins changed, each "see §17" marker replaced (none remains):
 ### 17.11 Passages updated in place
 
 §8.4 (AS-506's command and its table), §8.5 item 2, §8.8; §9.1, §9.2 (the engines, rating ramps), §9.3, §9.4 (regenerated), §9.5 items 1 and 3–6, §9.6; §10.3, §10.4 (regenerated), §10.5 items 1, 3 and 5, §10.6, §10.7 item 4; §11.4 (a pointer), §11.5 items 1–2; §12.3 (regenerated); §14.4 (after the closure), §14.5; §15.4 item 5; §16.2 (the Apollo 13 deltas). The README, the ROADMAP and CLAUDE.md are left to the M1 close-out.
+
+## 18. The terminal count and the launch (M1.6 launch sequence)
+
+Compiled on 2026-11-22 for Franz's launch requests: the pad scenarios open in a hold of the terminal count, running, the F-1s off; Space resumes the count, which launches the vehicle on its own, the mission clock counting from its T−0. `Sources/OrbitCore/Guidance/TerminalCount.swift` holds the count, `Sources/OrbitCore/Vessel/AS506Launch.swift` its AS-506 values, `SaturnIU.LaunchWindow` the targeting; `TerminalCountTests` pins them.
+
+**Sources** (read directly by this track's research, page images where marked):
+
+- FER506 §2 Table 2-2 (range times), §3.6.1 (the hold-down release), §5.2 (the S-IC start), Figure 5-2 (each F-1's thrust in the start, read off: M), Table 5-2 (propellant at ignition command and at release), Table 9-1 region and Figure 9-1 (the controlled-release rods' force, read off: M), Table 11-1 (peak slow-release force per rod), Tables 20-1 and 20-9 (masses).
+- MAN506 p. 8-8 (hold-down arms and controlled release mechanisms), p. 7-19 and 7-20 (the platform's azimuth, guidance reference release at T−17 s).
+- MOR: Apollo 11 Mission Operation Report M-932-69-11 (24 June 1969), Table 2 (p. 16, the launch windows) and p. 17.
+- GE504 Table 4-I (p. 4-11, the targeting equations), Table 5-I (pp. 5-2, 5-3, presettings), Tables 5-II and 5-XVII (azimuth and time polynomials), Figure 1-1 and §4.1.1, §4.1.2.
+- A11PK p. 26 (azimuth range) and p. 167 (deluge), TIS AS-506 p. 6.
+
+### 18.1 The count
+
+| item | value | source | grade | model |
+|---|---|---|---|---|
+| hold | T−35 s, a scenario's choice: 5 s before arm 1's command, so a count resumed at once shows the arms, the ignition command and the start | — | — | `Scenario.padHold` |
+| S-IC intertank arm (arm 1) retract command | T−30.0 s | FER506 §3.6.2 (derived: 9.9 + 3.9 + 16.2 s) | H | `sICIntertankArmCommand` |
+| guidance reference release | T−16.97 s (FER Table 2-2: −17.0) | FER Tables 2-1, 2-2 | H | the count calls `SaturnIU.target(launchDelay:)` then |
+| S-IC forward arm (arm 2) retract command | T−16.2 s | FER506 §3.6 | H | `sICForwardArmCommand` |
+| ignition command (start sequence) | T−8.9 s | FER Table 2-2; MAN506 p. 7-20; TL | H | `ignitionCommand` |
+| start commands, 1-2-2 | engine 5 T−6.4 s; 1 and 3 −6.1 s; 4 −6.0 s; 2 −5.9 s ("A 1-2-2 start was planned and attained", order 5, 1-3, 4-2) | FER Table 2-2, §5.2 | H | `engineStarts` |
+| main chamber ignition | 3.35 s after each command (engine 5 rises from about −3.05 s, 1 and 3 from −2.75 s; §5.2: chamber pressure spikes 3.45 s after the solenoids) | FER Fig. 5-2 (read off), §5.2 | M | `f1IgnitionDelay` |
+| rise to full thrust | 1.15 s, linear (the figure: 1.1-1.2 s, faster at first) | FER Fig. 5-2 | M (time), L (shape) | `f1ThrustRise` |
+| all engines thrust OK | −1.6 s; the model's engine 2 reaches 90 % at −1.5 s | FER Table 2-2 | H | the count checks 90 % (`sICThrustOK`) at commit |
+| launch commit | T−0: every engine at its thrust OK level, else cutoff and scrub | — (the TCS's logic, simplified) | L | `launchCommit` |
+| hold-down release | 0.30 s, all four arms ("pneumatically at 0.3 second"), first motion | FER §3.6.1, Table 2-2 | H | `holdDownRelease` |
+| liftoff switches | 3/4 in of rise | MSFC-MAN-503 p. 8-8 | H | `liftoffSwitchRise`; the count finds when (0.20 s after release with the controlled release) |
+
+The F-1s deliver the count's thrust through `Thruster.groundStart`, at their first-motion rating, their burn clocks standing at zero, so the flight's schedule (`AS506.f1Schedule`, zero at first motion) starts at the release. The vehicle stays landed (`Simulation.stepLanded`): the accelerometers read the pad's 1 g throughout (`EntryTelemetry`), and the panel's TWR shows the buildup.
+
+### 18.2 The buildup's propellant
+
+FER Table 20-1 has the vehicle at 2,938,315 kg at ground ignition (6,477,875 lb, SP-4029's Ground Ignition Weights) and 2,899,008 kg at first motion; Table 20-9's "S-IC thrust buildup" is the difference, 39,307 kg (predicted 38,893). FER §5.2 gives 39,374 kg from ignition to release, and Table 5-2 LOX 1,499,479 → 1,468,594 kg and fuel 646,319 → 637,830 kg: 30,885 kg of LOX, 8,489 of RP-1, a LOX-rich start.
+
+The model burns Table 20-9's 39,307 kg in the core: the S-IC's tanks start that much fuller (the stack weighs Table 20-1's ground-ignition mass on the pad), and each holds its first-motion load plus its share of what the engines still have to burn by the release, a closed-form function of range time. At the release every tank is at its first-motion load exactly, whatever the steps: the release's step lands on the release's epoch exactly (the count's events bypass the 1 ms step floor, as a pilot's pulse does), and the tanks are not re-centred while the vehicle is held, so its frame is the first-motion builder's.
+
+- The thrust burns 12.4 engine-seconds at the first-motion flow, 32,563 kg. The rest, 6,744 kg, flows from each start command to its ignition (the LOX lead and the turbopumps' spin-up on the gas generator): 15 % of full flow (derived).
+- The split is the engines' mixture ratio throughout (LOX 0.694): Table 5-2's LOX-rich split is not reproduced. The tanks are Table 5-2's at the release.
+
+Pinned: `TerminalCountTests.testFirstMotionIsTheBuildersBitForBit` (resumed so that T−0 falls on Apollo 11's range zero, the stack at first motion equals `apollo11OnPad`'s: epoch, mass, every tank, each engine's thrust, flow and burn clock, position, velocity, attitude, centre of mass, bit for bit) and `testTheOneTwoTwoStartInTheHoldDown` (39,307 kg out of the tanks by the release).
+
+### 18.3 The controlled release
+
+| item | value | source | grade |
+|---|---|---|---|
+| rods | "Eight mechanisms will be used for the SA-506 launch" (provision for 16) | MAN506 p. 8-8 | H |
+| law | a tapered pin drawn through a die "as the vehicle rises through the first six inches", its force decreasing "linearly from maximum restraint at holddown release to zero" | MAN506 p. 8-8 | H |
+| force per rod at release | about 400,000 N in flight (predicted 415,000 N); HDA's generic 330 kN (75,000 lb) | FER Table 11-1; HDA pp. 342-343 | H |
+| rods' force gone | about 0.6 s after release (flights AS-502 to -506: 0.52-0.62 s) | FER Fig. 9-1 (read off) | M |
+
+The model pulls the stack down by 3.2 MN falling linearly to nothing over the first 6 in of the structure's rise, inside the integrator (`TerminalCount.restraint`, `Simulation.stepFlying`), and the accelerometers read it. Its stroke ends 0.55 s after the release at 0.7 m/s; the liftoff switches close 0.20 s after it; the sensed acceleration rises from 1.10 g to T/W, 1.21 (`testTheControlledRelease`). The live flight is a little slower off the pad than the first-motion builder's, which has no rods: the roll and pitch program starts 11.4 s after first motion (11.0 without; AS-506 12.6 s, §8), and the IGM takes the rest out: the on-time live count inserts in AS-506's plane within 0.005° and at its apsides within 1 km (`testOnTimeAndLateLaunchesReachTheirParkingOrbits`). The §17 residuals are the first-motion builder's, unchanged (§17's printout identical).
+
+### 18.4 The launch window and a late launch
+
+The mission clock counts from the count's T−0, not from the historic UTC: a count resumed at once puts T−0 on Apollo 11's range zero, 13:32:00 UTC; resumed later, the launch is late by as much.
+
+What the IU's targeting depends on (GE504 Fig. 1-1, §4.1.1, Table 4-I): the space-fixed frame is the launch vertical and the azimuth at guidance reference release, so it moves with the Earth to the time of launch; the IGM's target plane, i and the descending node θ_N, is measured from the launch meridian at that release; the time bases, the tower yaw and the pitch program run from first motion and T1. A launch at any time therefore flies the same Earth-fixed path to the same Earth-fixed orbit at a fixed azimuth. The LVDC flew a launch-window azimuth instead: GE504's A_Z is a polynomial in the time of launch from a reference time (Table 4-I; SA-504's coefficients in Tables 5-II, 5-VII, 5-XII), and i and θ_N polynomials in A_Z (Table 5-I).
+
+| item | value | source | grade | model |
+|---|---|---|---|---|
+| window, 16 July 1969 | 13:32 to 17:54 UTC, "Based on 108° launch azimuth upper limit"; azimuth "increases approximately 8° per hour", "between 72° and 106°" (the same document; TIS and FER: 72°-108°, A11PK: 72°-106°) | MOR Table 2 p. 16, p. 17 | H | 72.058° at the planned T−0 rising at 36° in 4 h 22 min (8.24°/h), held at 108° |
+| AS-506's azimuth polynomial and targeting polynomials | not found | — | — | linear in time (M) |
+| i(A_Z), θ_N(A_Z) | f0..f6 = 32.5597, −16.2615, 15.6919, −6.7370, 26.9593, −28.9526, 9.8794; g0..g6 = 123.2094, −56.5034, −21.6675, −14.5228, 47.5320, −22.5502, 1.8946; x = (A_Z − A_ZO)/A_ZS | GE504 Table 5-I (SA-504) | H (SA-504), M (as AS-506's proxy) | anchored on AS-506's nominal 32.531°, 123.100° at 72.058° |
+| A_ZO, A_ZS | 72°, 36°: give AS-506's plane at 72.058° within 0.003° and 0.018°, and i = 28.44° due east | GE504 defines them, prints no values | M (inferred) | `windowPolynomialZero`, `windowPolynomialScale` |
+
+What a late launch does (`testOnTimeAndLateLaunchesReachTheirParkingOrbits`, `testTheLaunchWindowsTargeting`): at guidance reference release the count gives the IU the launch's delay; the IU flies the window's azimuth for it and the plane SA-504's polynomials give for that azimuth, anchored so that an on-time launch flies AS-506's own targets bit for bit. Two hours late the IU rolls to 88.55° instead of 72.06°, and inserts into a 185 km circular orbit inclined 28.45° (the pad's latitude, near due east), its descending node 92.9° from the launch meridian; the S-IVB's cutoff and the orbit's size are the on-time launch's within a kilometre. Past the window's close (4 h 22 min late) the azimuth stays at 108°, range safety's limit: the vehicle still reaches its parking orbit, in a plane that would not serve translunar injection (not modelled). A launch before the window cannot happen: the count only holds.
+
+The look's side (the pad, the effects) runs on the same count: `RenderScene.Site.countdown` and `RenderScene.launch` (`docs/look/launch.md`).

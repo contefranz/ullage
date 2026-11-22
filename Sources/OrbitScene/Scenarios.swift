@@ -27,12 +27,27 @@ public struct Scenario: Identifiable {
         self.build = build
     }
 
-    /// The scenario with this `id`, nil if there is none.
-    public static func named(_ id: String) -> Scenario? { all.first { $0.id == id } }
+    /// The scenario with this `id`, nil if there is none: the app's
+    /// (`all`), or a look-development stand (`firstMotion`).
+    public static func named(_ id: String) -> Scenario? { (all + firstMotion).first { $0.id == id } }
 
     public static let all: [Scenario] = [pad39A, saturnVPad, apollo8Pad, earthOrbitReturn, apollo11ParkingOrbit, apollo13,
                                   sICEngine1Out,
                                   apollo7Deorbit, apollo7EntryInterface, lowEarthOrbit, lunarOrbit]
+
+    /// The Saturn V's pad scenarios as they opened before the live count:
+    /// the stack placed at first motion with the F-1s at full thrust, its
+    /// count released then (`VesselLibrary.releasedCount`), the start the
+    /// ascent tests fly. Not in the app's list: the renderer's and the
+    /// effects' tests and look-development shots that need the firing stack
+    /// on the pad, or its ascent, without the count before it.
+    public static let firstMotion: [Scenario] = [saturnVFirstMotion, apollo8FirstMotion]
+
+    /// The range time the pad scenarios' terminal count holds at: T−35 s,
+    /// 5 s before the S-IC intertank arm's retract command (T−30 s), so that
+    /// a count resumed at once shows the arms, the ignition command at
+    /// T−8.9 s and the 1-2-2 start.
+    public static let padHold = -35.0
 
     /// Launch Complex 39A, Kennedy Space Center, where Apollo 11 stood:
     /// geodetic, on the WGS-84 Earth, with the pad's elevation.
@@ -60,19 +75,32 @@ public struct Scenario: Identifiable {
             return sim
         })
 
-    /// Apollo 11's Saturn V at first motion (range time 0.30 s), standing as
-    /// it did on LC-39A: Position I east (the 90° pad azimuth), its base at
-    /// the pad's elevation above the WGS-84 ellipsoid and its axis along the
-    /// normal (datasheet §15), with the IU's flight program aboard. It opens
-    /// paused with the F-1s at full thrust, so the first step after P is
-    /// first motion and the IU's events fall on Apollo 11's UTC times. The
-    /// mission clock is Apollo 11's GET, zero at range zero, 13:32:00 UTC.
+    /// Apollo 11's Saturn V on LC-39A in its terminal count, held at T−35 s
+    /// (`padHold`), 16 July 1969, 13:31:25 UTC, standing as it did on the
+    /// pad: Position I east (the 90° pad azimuth), its base at the pad's
+    /// elevation above the WGS-84 ellipsoid and its axis along the normal
+    /// (datasheet §15), with the IU's flight program aboard and the F-1s
+    /// off. It opens running. Space resumes the count (`TerminalCount`):
+    /// the arms, guidance reference release, the ignition command, the
+    /// 1-2-2 start in the hold-down arms, launch commit and the release at
+    /// 0.30 s. Resumed at once, T−0 falls on Apollo 11's range zero and the
+    /// IU's events on its UTC times; later, the launch window's azimuth for
+    /// the time of launch. The mission clock counts from the count's T−0.
     public static let saturnVPad = Scenario(
         id: "as506-pad",
         name: "Saturn V (AS-506) on LC-39A",
-        summary: "Apollo 11 at first motion, 16 July 1969, 13:32:00.3 UTC, paused: P releases the hold-down arms. The IU flies the ascent: tower-clearance yaw, roll and pitch programs, staging, and iterative guidance (IGM) through the S-II and S-IVB burns to a 100 n mi parking orbit. MET is Apollo 11's GET.",
+        summary: "Apollo 11 on LC-39A, 16 July 1969, in the terminal count holding at T-35 s, the F-1s off. Space resumes the count: the S-IC intertank and forward arms retract, guidance reference release, ignition sequence start at T-8.9 s, the F-1s' 1-2-2 start in the hold-down arms, launch commit at T-0 and the release at T+0.3 s. Resumed at once, Apollo 11's own times; later, the launch window's azimuth. The IU flies the ascent: tower-clearance yaw, roll and pitch programs, staging, and iterative guidance (IGM) through the S-II and S-IVB burns to a 100 n mi parking orbit. MET counts from the count's T-0.",
         missionClockZero: VesselLibrary.apollo11RangeZero,
         build: { system in apollo11(system) })
+
+    /// The first-motion stand of `saturnVPad` (`firstMotion`): Apollo 11 at
+    /// range time 0.30 s, the F-1s at full thrust.
+    public static let saturnVFirstMotion = Scenario(
+        id: "as506-first-motion",
+        name: "Saturn V (AS-506) at first motion (look development)",
+        summary: "Apollo 11 at first motion, 16 July 1969, 13:32:00.3 UTC, the F-1s at full thrust: the ascent tests' start.",
+        missionClockZero: VesselLibrary.apollo11RangeZero,
+        build: { system in apollo11FirstMotion(system) })
 
     /// Apollo 8's range zero, 1968-12-21 12:51:00 UTC (AS-503's liftoff,
     /// TM X-64796 Table 1).
@@ -88,20 +116,43 @@ public struct Scenario: Identifiable {
     public static let apollo8Pad = Scenario(
         id: "apollo8-pad",
         name: "Apollo 8's day, AS-506 stand-in (look development)",
-        summary: "Look-development stand-in until M2 builds AS-503: AS-506's flight-calibrated Saturn V (physics and IU unchanged), dressed as AS-503 with CSM-103 and LTA-B, on LC-39A at Apollo 8's range zero, 21 December 1968, 12:51:00 UTC, paused at first motion: P releases the hold-down arms. Apollo 8's sky (the Sun 7° up, 4/10 cirrus), but Apollo 11's ascent. MET is from Apollo 8's range zero.",
+        summary: "Look-development stand-in until M2 builds AS-503: AS-506's flight-calibrated Saturn V (physics and IU unchanged), dressed as AS-503 with CSM-103 and LTA-B, on LC-39A on Apollo 8's day, 21 December 1968, in the terminal count holding at T-35 s: Space resumes it. Resumed at once, T-0 falls on Apollo 8's range zero, 12:51:00 UTC. Apollo 8's sky (the Sun 7° up, 4/10 cirrus), but Apollo 11's ascent. MET counts from the count's T-0.",
         missionClockZero: apollo8RangeZero,
         build: { system in apollo8OnPad(system) })
 
-    /// `apollo11`'s stack at Apollo 8's first motion, dressed as Apollo 8.
+    /// The first-motion stand of `apollo8Pad` (`firstMotion`): at Apollo 8's
+    /// range zero plus AS-506's 0.30 s, the F-1s at full thrust.
+    public static let apollo8FirstMotion = Scenario(
+        id: "apollo8-first-motion",
+        name: "Apollo 8's day at first motion (look development)",
+        summary: "AS-506 dressed as AS-503 at first motion on Apollo 8's day, 21 December 1968, 12:51:00.3 UTC, the F-1s at full thrust.",
+        missionClockZero: apollo8RangeZero,
+        build: { system in apollo8AtFirstMotion(system) })
+
+    /// `apollo11`'s stack on Apollo 8's day, dressed as Apollo 8, in its
+    /// count held at `padHold` before Apollo 8's range zero.
     public static func apollo8OnPad(_ system: SolarSystem) -> Simulation {
+        let sim = Simulation(system: system, time: apollo8RangeZero + padHold)
+        let count = VesselLibrary.apollo11InTerminalCount(in: sim, hold: padHold)
+        if let v = count.vehicle { dressAsApollo8(v) }
+        return sim
+    }
+
+    /// `apollo11FirstMotion`'s stack at Apollo 8's first motion, dressed as
+    /// Apollo 8, its count released then.
+    public static func apollo8AtFirstMotion(_ system: SolarSystem) -> Simulation {
         let firstMotion = VesselLibrary.apollo11FirstMotion - VesselLibrary.apollo11RangeZero
         let sim = Simulation(system: system, time: apollo8RangeZero + firstMotion)
         let v = VesselLibrary.apollo11OnPad(in: sim, program: SaturnIU.as506())
+        dressAsApollo8(v)
+        v.mainThrottle = 1
+        VesselLibrary.releasedCount(of: v, in: sim, rangeZero: apollo8RangeZero)
+        return sim
+    }
+
+    static func dressAsApollo8(_ v: Vessel) {
         for p in v.parts { p.appearance = .apollo8 }
         VesselLibrary.dressApollo(v)
-        v.mainThrottle = 1
-        sim.paused = true
-        return sim
     }
 
     /// Apollo 11 from the pad back to the ground without leaving Earth
@@ -115,7 +166,7 @@ public struct Scenario: Identifiable {
     public static let earthOrbitReturn = Scenario(
         id: "as506-earth-orbit-return",
         name: "Apollo 11: pad to splashdown (TLI no-go)",
-        summary: "Apollo 11 from the pad, returning from Earth orbit as if TLI were no-go. Paused at first motion: P releases the hold-down arms and the IU flies to the parking orbit. Then Space separates the CSM (the SLA panels, and the S-IVB with the IU and LM, leave); 2 turns it retrograde on the SM RCS; the DEORBIT MFD gives the burn's Δv and TIG, and its SET loads the ΔV counter; Z at TIG lights the SPS and the counter cuts it off; Space twice separates the SM. The CM's entry program holds lift up (9: manual, bank hold, rolling) and the earth landing system brings it down to splashdown.",
+        summary: "Apollo 11 from the pad, returning from Earth orbit as if TLI were no-go. In the terminal count holding at T-35 s: Space resumes it, the count launches and the IU flies to the parking orbit. Then Space separates the CSM (the SLA panels, and the S-IVB with the IU and LM, leave); 2 turns it retrograde on the SM RCS; the DEORBIT MFD gives the burn's Δv and TIG, and its SET loads the ΔV counter; Z at TIG lights the SPS and the counter cuts it off; Space twice separates the SM. The CM's entry program holds lift up (9: manual, bank hold, rolling) and the earth landing system brings it down to splashdown.",
         missionClockZero: VesselLibrary.apollo11RangeZero,
         recoveryTarget: apollo7Target,
         build: { system in apollo11(system) })
@@ -139,17 +190,16 @@ public struct Scenario: Identifiable {
     /// Apollo 7 (CSM-101) before its deorbit burn, SPS-8, at GET 259:38:00
     /// (track C's builder): in the burn's attitude, held, the EMS ΔV counter
     /// loaded. The crew's steps are the Mission Report's (Table 2-I); it
-    /// opens paused so that the pilot can read them.
+    /// opens running, 61 s before the first of them (P pauses to read them).
     public static let apollo7Deorbit = Scenario(
         id: "apollo7-deorbit",
         name: "Apollo 7: deorbit and entry",
-        summary: "Apollo 7 (CSM-101) on 22 October 1968 at GET 259:38:00, before its deorbit burn (SPS-8): in the burn's attitude, held, with the EMS ΔV counter loaded. Paused: P starts. As the crew flew it: U (+X ullage) for 15 s from 259:39:01; Z at 259:39:16 lights the SPS and the counter cuts it off; Space twice at 259:43:34 separates the SM. The CM's entry program holds lift up (9: manual, bank hold, rolling); entry interface near 259:53:27, splashdown near 27.64° N 64.15° W.",
+        summary: "Apollo 7 (CSM-101) on 22 October 1968 at GET 259:38:00, before its deorbit burn (SPS-8): in the burn's attitude, held, with the EMS ΔV counter loaded. As the crew flew it: U (+X ullage) for 15 s from 259:39:01; Z at 259:39:16 lights the SPS and the counter cuts it off; Space twice at 259:43:34 separates the SM. The CM's entry program holds lift up (9: manual, bank hold, rolling); entry interface near 259:53:27, splashdown near 27.64° N 64.15° W.",
         missionClockZero: VesselLibrary.apollo7RangeZero,
         recoveryTarget: apollo7Target,
         build: { system in
             let sim = Simulation(system: system, time: VesselLibrary.apollo7RangeZero)
             VesselLibrary.apollo7BeforeDeorbit(in: sim)
-            sim.paused = true
             return sim
         })
 
@@ -200,7 +250,7 @@ public struct Scenario: Identifiable {
     public static let apollo13 = Scenario(
         id: "as506-apollo13",
         name: "Apollo 13: S-II centre engine out",
-        summary: "Apollo 11's Saturn V with Apollo 13's failure: the S-II centre engine (engine 5) shuts down at T3 + 167.0 s, range about 328.6 s, as on AS-508. The IGM flies the four outboard J-2s about 33 s longer (AS-508: 34.5 s) and the S-IVB to the parking orbit. Opens paused at first motion: P releases the hold-down arms.",
+        summary: "Apollo 11's Saturn V with Apollo 13's failure: the S-II centre engine (engine 5) shuts down at T3 + 167.0 s, range about 328.6 s, as on AS-508. The IGM flies the four outboard J-2s about 33 s longer (AS-508: 34.5 s) and the S-IVB to the parking orbit. Opens in the terminal count holding at T-35 s: Space resumes it.",
         missionClockZero: VesselLibrary.apollo11RangeZero,
         build: { system in
             apollo11(system, failing: SaturnIU.EngineFailure(engine: "S-II engine 5", time: .timeBase(.t3, 167.0)))
@@ -213,21 +263,34 @@ public struct Scenario: Identifiable {
     public static let sICEngine1Out = Scenario(
         id: "as506-sic-engine1-out",
         name: "S-IC engine 1 out at 60 s",
-        summary: "Apollo 11's Saturn V losing outboard F-1 engine 1 at range 60 s. The IU senses it and freezes the pitch program for about 8 s (GE504's chi freeze), the four F-1s burn on to a later staging, and the IGM still flies the S-II and S-IVB to orbit. Opens paused at first motion: P releases the hold-down arms.",
+        summary: "Apollo 11's Saturn V losing outboard F-1 engine 1 at range 60 s. The IU senses it and freezes the pitch program for about 8 s (GE504's chi freeze), the four F-1s burn on to a later staging, and the IGM still flies the S-II and S-IVB to orbit. Opens in the terminal count holding at T-35 s: Space resumes it.",
         missionClockZero: VesselLibrary.apollo11RangeZero,
         build: { system in
             apollo11(system, failing: SaturnIU.EngineFailure(engine: "S-IC engine 1", time: .range(60)))
         })
 
-    /// Apollo 11 at first motion, paused, with the F-1s at full thrust and
-    /// an engine failure, if any, scheduled on the IU.
+    /// Apollo 11 in its terminal count, held at `padHold` before Apollo 11's
+    /// range zero with the F-1s off, and an engine failure, if any,
+    /// scheduled on the IU.
     public static func apollo11(_ system: SolarSystem, failing failure: SaturnIU.EngineFailure? = nil) -> Simulation {
+        let sim = Simulation(system: system, time: VesselLibrary.apollo11RangeZero + padHold)
+        let iu = SaturnIU.as506()
+        if let failure { iu.scheduleFailure(of: failure.engine, at: failure.time) }
+        VesselLibrary.apollo11InTerminalCount(in: sim, program: iu, hold: padHold)
+        return sim
+    }
+
+    /// Apollo 11 at first motion with the F-1s at full thrust (the ascent
+    /// tests' start, §17) and an engine failure, if any, scheduled on the
+    /// IU; its count released then.
+    public static func apollo11FirstMotion(_ system: SolarSystem,
+                                           failing failure: SaturnIU.EngineFailure? = nil) -> Simulation {
         let sim = Simulation(system: system, time: VesselLibrary.apollo11FirstMotion)
         let iu = SaturnIU.as506()
         if let failure { iu.scheduleFailure(of: failure.engine, at: failure.time) }
         let v = VesselLibrary.apollo11OnPad(in: sim, program: iu)
         v.mainThrottle = 1
-        sim.paused = true
+        VesselLibrary.releasedCount(of: v, in: sim)
         return sim
     }
 

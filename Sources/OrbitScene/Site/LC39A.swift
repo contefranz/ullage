@@ -590,15 +590,24 @@ extension LC39A {
         /// Arm 2's retract command.
         public var sICForwardCommand: Double
 
+        /// Range time at which the liftoff switches closed, when a count
+        /// that ran says (`init(_:at:)`); nil takes `liftoffSwitch`'s estimate.
+        public var liftoffSwitchTime: Double?
+        /// The count holds: range time stands still (`rangeTime(at:)` reads
+        /// the hold at any epoch near it).
+        public var holding = false
+
         /// Range time (s) at `epoch`.
         public func rangeTime(at epoch: Epoch) -> Double { epoch - rangeZero }
 
-        /// The primary liftoff switches on the hold-down arms close at about
-        /// an inch of rise (M503 p. 8-8: 3/4 in; FER-503 §3.6: "1-inch
-        /// liftoff"), 0.16 s after first motion: about 1 m of rise in the
-        /// first second (FER-503 Fig. 11-1), so 2 m/s² (derived, M). The
-        /// in-flight arms and the tail service masts start then.
-        public var liftoffSwitch: Double { firstMotion + 0.16 }
+        /// The primary liftoff switches on the hold-down arms close at 3/4
+        /// in of rise (M503 p. 8-8; FER-503 §3.6: "1-inch liftoff"). As a
+        /// count that ran found them (`liftoffSwitchTime`: the controlled
+        /// release's rise, `TerminalCount`, 0.2 s after the release); for
+        /// the historic launches, 0.16 s after first motion: about 1 m of
+        /// rise in the first second (FER-503 Fig. 11-1), so 2 m/s² (derived,
+        /// M). The in-flight arms and the tail service masts start then.
+        public var liftoffSwitch: Double { liftoffSwitchTime ?? firstMotion + 0.16 }
 
         /// Apollo 8: range zero 1968-12-21 12:51:00 UTC (FER-503 Table 2-2:
         /// 7:51:00 EST); hold-down release 0.27 s, first motion 0.33 s; arm 1
@@ -687,6 +696,32 @@ extension LC39A {
             return [Swing(start: start, end: start + arm.retractTime, from: 0, to: out)]
         }
     }
+}
+
+extension LC39A.Countdown {
+    /// The countdown of the simulation's terminal count at `now`: the
+    /// arms' timings of the historic launch nearest its planned range
+    /// zero (Apollo 8's or Apollo 11's), with the count's own range zero
+    /// (while it holds, where it would fall if it ran on now, so range
+    /// time stands at the hold), release, first motion and liftoff
+    /// switches; those still to come at their planned range times.
+    public init(_ count: TerminalCount.Record, at now: Epoch) {
+        self = LaunchCountdown.nearest(count.plannedRangeZero)
+        name = "\(name) (count)"
+        let zero = count.rangeZero(at: now)
+        rangeZero = zero
+        holding = count.rangeZero == nil
+        holdDownRelease = count.released.map { $0 - zero } ?? count.plan.release
+        firstMotion = count.firstMotion.map { $0 - zero } ?? count.plan.release
+        liftoffSwitchTime = count.liftoffSwitch.map { $0 - zero }
+        // A scrubbed launch: nothing more moves.
+        if count.scrubbed != nil && count.released == nil {
+            holdDownRelease = .infinity
+            firstMotion = .infinity
+            liftoffSwitchTime = .infinity
+        }
+    }
+
 }
 
 // MARK: - Elements

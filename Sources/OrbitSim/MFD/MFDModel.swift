@@ -118,9 +118,10 @@ final class MFDModel: ObservableObject {
         if new != pages { pages = new }
     }
 
-    /// The HUD's MET zero: the scenario's, else liftoff, else the time the
-    /// scenario was loaded.
+    /// The HUD's MET zero: the terminal count's range zero, else the
+    /// scenario's, else liftoff, else the time the scenario was loaded.
     private func missionClockZero(_ sim: Simulation) -> Epoch? {
+        if let count = sim.terminalCount { return count.rangeZero(at: sim.time) }
         if let zero = app?.scenario?.missionClockZero { return zero }
         if let f = sim.focus, let liftoff = sim.events.last(where: { $0.message == "\(f.name): liftoff" }) {
             return liftoff.time

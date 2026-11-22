@@ -90,7 +90,7 @@ final class PlumeRenderTests: XCTestCase {
     /// `PlumeLights` gives them: one for the five F-1s at first motion.
     func testPlumeLightsReachTheVesselPass() throws {
         let s = try snapper()
-        var shot = SnapshotSpec.Shot(name: "p2-lights", scenario: "as506-pad", advance: ["met:2"],
+        var shot = SnapshotSpec.Shot(name: "p2-lights", scenario: "as506-first-motion", advance: ["met:2"],
                                      camera: SnapshotSpec.CameraSpec(yaw: 149, pitch: -2, distance: 62, fov: 62))
         shot.width = 160
         shot.height = 100
