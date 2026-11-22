@@ -336,6 +336,13 @@ public final class Simulation {
             effect = .impact(surface: surface, speed: speed)
         }
         setLandedKinematics(v, landed, snapshot: s)
+        if v.status == .crashed {
+            // The simulation steps a wreck no more, so its telemetry is read
+            // once more here and holds from then on: at rest where it lies,
+            // as a landed vessel's reads, with its engines stopped.
+            v.thrustAcceleration = 0
+            updateTelemetry(v, snapshot: s)
+        }
         recordEffect(effect, v)
     }
 

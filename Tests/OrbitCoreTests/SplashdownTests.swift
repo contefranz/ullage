@@ -113,14 +113,25 @@ final class SplashdownTests: XCTestCase {
         XCTAssertEqual(atlantic.events.last?.message, "Apollo 7: water impact at 20 m/s")
     }
 
-    // An impact stops every engine where it stands. The simulation steps a
-    // wreck no more, so nothing else would end a running F-1's shutdown
-    // ramp, put out a lit solid or close an SM jet's firing sequence: each
-    // would keep the impact step's output for the plumes, the navball's
-    // thrust marker and the panels. Here a Saturn V comes down on the Sahara
-    // under S-IC thrust, with its S-II ullage motors lit and its SM's -X
-    // jets firing (as they do from CM/SM separation).
-    func testImpactStopsTheEngines() throws {
+    /// The readouts the vehicle panel and the MFDs show from a vessel's
+    /// telemetry: thrust acceleration (m/s^2), load factor (g), airspeed,
+    /// dynamic pressure, Mach number and altitude.
+    struct Readouts: Equatable {
+        var thrust, load, airspeed, q, mach, altitude: Double
+        init(_ v: Vessel) {
+            (thrust, load, airspeed, q, mach) = (v.thrustAcceleration, v.loadFactor, v.airspeed, v.dynamicPressure, v.mach)
+            altitude = v.altitude
+        }
+    }
+
+    /// A Saturn V (no flight program) coming down on the Sahara at 30 m/s
+    /// through still air, under S-IC thrust, with its S-II ullage motors lit
+    /// and its SM's -X jets firing (as they do from CM/SM separation),
+    /// stepped through the impact. Returns the simulation, the stack, those
+    /// thirteen engines, the engines delivering into the impact step and the
+    /// readouts then.
+    func crashUnderThrust() throws -> (sim: Simulation, stack: Vessel, lit: [Thruster], running: [Thruster],
+                                       before: Readouts) {
         let sim = try Simulation.forTests(perturbations: false)
         let stack = VesselLibrary.saturnV()
         stack.flightProgram = nil
@@ -140,23 +151,61 @@ final class SplashdownTests: XCTestCase {
         for m in solids { XCTAssertTrue(m.ignite(), m.name) }
         for j in jets { XCTAssertTrue(j.startSequence(), j.name) }
         stack.mainThrottle = 1
-        var running: [Thruster] = []
+        var running: [Thruster] = [], before = Readouts(stack)
         let start = sim.time
         while stack.status == .flying, sim.time - start < 10 {
-            running = stack.thrusters.filter(\.isDelivering)
-            for v in sim.vessels { sim.prepareControls(v) }
-            sim.step(0.02)
+            (running, before) = (stack.thrusters.filter(\.isDelivering), Readouts(stack))
+            step(sim)
         }
         XCTAssertEqual(stack.status, .crashed)
+        return (sim, stack, f1s + solids + jets, running, before)
+    }
+
+    func step(_ sim: Simulation) {
+        for v in sim.vessels { sim.prepareControls(v) }
+        sim.step(0.02)
+    }
+
+    // An impact stops every engine where it stands. The simulation steps a
+    // wreck no more, so nothing else would end a running F-1's shutdown
+    // ramp, put out a lit solid or close an SM jet's firing sequence: each
+    // would keep the impact step's output for the plumes, the navball's
+    // thrust marker and the panels.
+    func testImpactStopsTheEngines() throws {
+        let (sim, stack, lit, running, _) = try crashUnderThrust()
         // All three kinds were delivering into the impact step.
-        for t in f1s + solids + jets { XCTAssertTrue(running.contains { $0 === t }, t.name) }
+        for t in lit { XCTAssertTrue(running.contains { $0 === t }, t.name) }
         for _ in 0..<3 {
             for t in stack.thrusters {
                 XCTAssertFalse(t.isDelivering, t.name)
                 XCTAssertFalse(t.isCommanded, t.name)
             }
-            for v in sim.vessels { sim.prepareControls(v) }
-            sim.step(0.02)
+            step(sim)
+        }
+    }
+
+    // A wreck's telemetry reads it at rest where it lies, its engines
+    // stopped, as a landed vessel's does, and holds. The simulation steps a
+    // wreck no more, so it would otherwise keep the impact step's thrust,
+    // load factor and air data for the vehicle panel's TWR and the MFDs
+    // (SURFACE's THR, ACC, TAS, q and M; ENTRY's G). At rest the load factor
+    // is the support against normal gravity, 9.7882 m/s^2 at 23° N (WGS-84,
+    // Somigliana's formula), in still air.
+    func testWreckTelemetryAtRest() throws {
+        let (sim, stack, _, _, before) = try crashUnderThrust()
+        XCTAssertGreaterThan(before.thrust / standardGravity, 1)
+        XCTAssertGreaterThan(before.load, 1)
+        XCTAssertGreaterThan(before.airspeed, 20)
+        let atRest = Readouts(stack)
+        XCTAssertEqual(atRest.thrust, 0)
+        XCTAssertEqual(atRest.load, 9.7882 / standardGravity, accuracy: 0.001)
+        XCTAssertEqual(atRest.airspeed, 0, accuracy: 1e-6)
+        XCTAssertEqual(atRest.q, 0, accuracy: 1e-6)
+        XCTAssertEqual(atRest.mach, 0, accuracy: 1e-6)
+        XCTAssertEqual(atRest.altitude, min(stack.baseHeight, stack.boundingRadius), accuracy: 1e-3)
+        for _ in 0..<3 {
+            step(sim)
+            XCTAssertEqual(Readouts(stack), atRest)
         }
     }
 
