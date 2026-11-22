@@ -56,6 +56,11 @@ final class HUDReadoutsTests: XCTestCase {
         XCTAssertEqual(HUDFormat.heatLoad(12_649 * 11_356.53), "144 MJ/m²")
         XCTAssertEqual(HUDFormat.loadFactor(3.417), "3.42 g")
         XCTAssertEqual(HUDFormat.loadFactor(12.34), "12.3 g")
+        XCTAssertEqual(HUDFormat.axialLoad(3.937), "+3.94 g")
+        XCTAssertEqual(HUDFormat.axialLoad(-0.021), "-0.02 g")
+        XCTAssertEqual(HUDFormat.axialLoad(-0.001), "0.00 g")
+        XCTAssertEqual(HUDFormat.axialLoad(0.004), "0.00 g")
+        XCTAssertEqual(HUDFormat.axialLoad(12.34), "+12.3 g")
     }
 
     // DEORBIT's SET loads the counter and the burn for the navball's

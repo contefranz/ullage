@@ -78,6 +78,13 @@ public enum HUDFormat {
         return abs(g) < 9.995 ? String(format: "%.2f g", g) : String(format: "%.1f g", g)
     }
 
+    /// A signed load factor, as the G-meter's axial reading: "+3.94 g",
+    /// "-0.02 g", "+12.3 g", and "0.00 g" for one that rounds to zero.
+    public static func axialLoad(_ g: Double) -> String {
+        guard g.isFinite else { return "---" }
+        return signless(abs(g) < 9.995 ? String(format: "%+.2f g", g) : String(format: "%+.1f g", g))
+    }
+
     /// "+0.00" as "0.00": a value that rounds to zero has no sign.
     static func signless(_ s: String) -> String {
         s.contains(where: { $0.isNumber && $0 != "0" }) ? s : String(s.drop { $0 == "+" || $0 == "-" })

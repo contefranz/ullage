@@ -162,16 +162,21 @@ liftoff.
   the autopilot flies them, or relative to a target in target mode), the
   green command marker (the IU's attitude command, or the autopilot's target),
   the thrust marker, the target and anti-target markers, and the manoeuvre
-  marker of the burn DEORBIT's SET has loaded; around it the throttle, the
+  marker of the burn DEORBIT's SET has loaded; around it the G-meter (the
+  CM's ACCEL G: the sensed acceleration along the axis on its −1 to +15 g
+  dial, 1 g on the pad, 0 coasting, and the total), the LV engine lights (the
+  CM's five Saturn engine status lights, 4 1 / 5 / 3 2: lit while an engine
+  is below its thrust-OK level, 90 % on an F-1 and 65 % on a J-2, so before
+  ignition, at a cutoff or an engine out and through staging; the S-IVB on
+  light 1), the throttle, the
   speed tape (orbit, surface or target, Mach and q), heading, pitch and roll,
   body rates, α/β in the air, the altitude tape with the apsides, the
   vertical speed and the autopilot column (HOLD IU, HOLD SCS or HOLD CM when
   a program flies the hold). Under it, an annunciator strip: the next event
   (the IU's sequence and its predicted IGM cutoffs, the SCS's burn and
   counter cutoff, the ELS) and the target's range and range rate; in an
-  entry the throttle becomes a 0–10 g meter with the peak, and the strip
-  shows the 0.05 G light, peak g, bank, heat flux and load and the ELS
-  state.
+  entry the strip shows the 0.05 G light, peak g, bank, heat flux and load
+  and the ELS state.
 - **Two MFDs** (bottom corners; one in narrow windows), after Orbiter:
   - ORBIT: the elements, apsides and their times, and the orbit drawn from the
     equator or the vessel's plane;
@@ -250,7 +255,7 @@ the S-IVB about 45 s late, into the same parking orbit.
    attitude lift up (the crew heads down).
 6. **Entry.** At 0.05 g the program flies the entry mode: lift up by
    default, or (key 9) manual, where Q and E roll the lift about the air
-   velocity, bank hold, or rolling. The cluster's g meter and strip and the
+   velocity, bank hold, or rolling. The cluster's G-meter and strip and the
    ENTRY MFD show the load, bank and heating, the ENTRY MFD the g–V scroll
    and the predicted landing point; the heat shield glows near peak heating.
 7. **Landing.** At 24,000 ft the upper baroswitch jettisons the apex cover
