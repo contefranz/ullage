@@ -540,6 +540,13 @@ plumes on and off on alternate frames, the difference of the medians, at
 High (32 steps); the plan's budget is 1.5 ms on the pad and 0.5 ms in
 LEO, for the default physical look.
 
+- **After the second fix-check** (2026-11-22: the shadow's mean over each
+  step, the ice's steps bounded by its onset surface, the chamber seen
+  through the exit), against the first fix-check's head measured back to
+  back twice (before / now, ms): pad plume 2.68-2.71 / 2.62-2.77; ascent
+  3.84-3.85 / 3.77-3.87; max-Q 3.67-3.74 / 3.79-3.80; staging 4.70-4.74 /
+  5.11-5.22; the S-II in LEO 4.48-4.53 / 4.70-4.78. Staging's rise is the
+  shadow's mean taken over the retros' and ullage motors' dense steps.
 - **After the upper stages' fix-check** (2026-11-22: R4's shadow over the
   vessel's shadow on the ray, unjittered; ice stepped about its source only
   seen across; the chamber glow through the throat), against the review's
