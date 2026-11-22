@@ -207,6 +207,34 @@ final class CloudCoverageTests: XCTestCase {
         }
     }
 
+    /// The march's cloudy columns hold a fraction of C1's optical depth (β ×
+    /// the layer's depth), as CloudCoverageTables bakes it: the mid layer's
+    /// lenses about a twelfth at low cover, more as they merge; the low layer
+    /// a quarter to a third. The far mid layer takes it (an independent
+    /// sample of columns).
+    func testColumnDepthOfTheMarchsClouds() {
+        let st = CloudCoverage.standardStatistics
+        XCTAssertEqual(st.columnDepth.count, 2)
+        for layer in 0..<2 {
+            for c in [0.2, 0.5, 0.8] {
+                let theta = CloudCoverage.threshold(c), scale = CloudCoverage.lookup(c, st.densityScale[layer])
+                var depths: [Double] = []
+                for column in Self.columns {
+                    let d = column.enumerated().map { j, t in
+                        CloudCoverage.density(Double(CloudCoverage.shapeValue(t)), layer: layer, height: Double(j) / 11,
+                                              threshold: theta)
+                    }
+                    if d.contains(where: { $0 > 0 }) { depths.append(d.reduce(0, +) / 12 * scale) }
+                }
+                let sample = depths.reduce(0, +) / Double(depths.count)
+                XCTAssertEqual(CloudCoverage.lookup(c, st.columnDepth[layer]), sample, accuracy: 0.25 * sample,
+                               "layer \(layer), cover \(c)")
+            }
+        }
+        XCTAssertLessThan(CloudCoverage.lookup(0.3, st.columnDepth[1]), 0.15, "the mid layer's lenses are thin")
+        XCTAssertGreaterThan(CloudCoverage.lookup(0.3, st.columnDepth[0]), 0.2)
+    }
+
     /// The march's density, scaled, averages C1's in-cloud extinction where
     /// there is cloud, at any cover (unscaled it averaged 0.1-0.2 of it).
     func testMarchDensityAveragesTheLayerModel() {

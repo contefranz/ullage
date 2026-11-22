@@ -230,7 +230,8 @@ final class ProceduralWeatherTests: XCTestCase {
     /// The geography's boundary currents belong to the continents: land to
     /// the east of the sea off Peru, Namibia and California, none west of
     /// Hawaii, New Caledonia or Jamaica (islands); the ice sheets on
-    /// Antarctica and Greenland, not on the tundra beside them.
+    /// Antarctica (its shelves' islands too) and Greenland, not on the tundra
+    /// beside them.
     func testGeographyKnowsContinentsAndIceSheets() {
         let g = WeatherGeography.earth
         func at(_ lat: Double, _ lon: Double) -> WeatherGeography.Texel {
@@ -246,6 +247,12 @@ final class ProceduralWeatherTests: XCTestCase {
         for (name, lat, lon) in [("Greenland", 72.5, -38.5), ("Greenland", 65.0, -45.0), ("Antarctica", -80.0, 30.0),
                                  ("the South Pole", -90.0, 0.0)] {
             XCTAssertEqual(at(lat, lon).iceSheet, 1, accuracy: 0.01, name)
+        }
+        // The ice-covered islands in Antarctica's shelves (sea in Natural
+        // Earth's land), each its own piece: ice as far as the smoothing
+        // over ±1° of latitude leaves them.
+        for (name, lat, lon) in [("Berkner Island", -79.5, -48.0), ("Alexander Island", -71.0, -70.5)] {
+            XCTAssertGreaterThan(at(lat, lon).iceSheet, 0.5, name)
         }
         for (name, lat, lon) in [("Siberia", 68.0, 100.0), ("Canada", 62.0, -100.0), ("Baffin Island", 70.0, -72.0),
                                  ("Alaska", 66.0, -152.0), ("Iceland", 64.8, -18.5)] {

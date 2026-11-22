@@ -101,9 +101,10 @@ zonal means stay the climatology's.
   smoothed over ±2° (the climatology is 5° means). Only what varies along a
   parallel survives: a term of latitude alone is absorbed by the offset.
 - **Geography** (`WeatherGeography`, from `landmask.bin`, once): land, the
-  continents (500 km), the distance inland, the ice sheets (Antarctica's and
-  Greenland's land; Greenland's takes in northern Ellesmere Island, joined
-  to it across the Nares Strait on this grid and largely ice-capped too),
+  continents (500 km), the distance inland, the ice sheets (all the land
+  south of 60° S, the ice-covered islands in the shelves included, and
+  Greenland's; Greenland's takes in Ellesmere and Axel Heiberg, joined to it
+  across the Nares Strait on this grid and largely ice-capped too),
   and along each parallel a continent or the sea close to the east and
   west, from which come the eastern-boundary stratocumulus decks (cold
   upwelling under the trades; not in enclosed seas, and not in an island's
@@ -119,9 +120,11 @@ zonal means stay the climatology's.
     thinning by day), giving way westward to trade cumulus (600-750 m to
     2,400 m);
   - over land, cumulus with the surface's heating (the Sun's elevation
-    three hours earlier, so a 15 h peak, none at night, and no daily cycle
-    where the Sun circles in polar day), its base higher where dry; polar
-    stratus over the sea, little low cloud and no cumulus on the ice sheets;
+    three hours earlier, so a 15 h peak and none at night; single-valued at
+    the poles, and in polar day a daily cycle that follows the Sun's
+    elevation, weaker the nearer the pole), its base higher where dry; polar
+    stratus over the sea; on the ice sheets no heating and little low cloud,
+    mostly stratiform (a cumulus fraction of 0.2);
   - between the systems, weather noise (six octaves of gradient noise on the
     sphere, cells of 3,200 to 100 km) carried by the steering wind
     (850-500 hPa zonal mean), made afresh every 18 h with a new offset and
@@ -191,8 +194,9 @@ zonal means stay the climatology's.
   `densityScale` (5-11 by cover): in cloud its extinction averages C1's β,
   peaks at 3-4 times that.
 - **Far** is a surface layer: per pixel, each layer's cover times the slab
-  LUT at C1's in-cloud optical depth (`farDensity` 1), with the same phase,
-  Sun and sky. Seen from below it takes the cover along the ray instead,
+  LUT at C1's in-cloud optical depth (`farDensity` 1; the mid layer's
+  lenses at the march's own column depth, `CloudCoverage.columnDepth`), with
+  the same phase, Sun and sky. Seen from below it takes the cover along the ray instead,
   1 − (1 − c)^(1 + span / cell): a slant ray sees through only where the
   gaps of every cell on the way line up (the span the low layer's depth, or
   the mid layer's lens band's effective 350 m, times tan θ; the cells a
@@ -331,6 +335,12 @@ scene at the break), so the clouds' own share is the difference:
   0.3 ms, the P0 pass alone by up to 0.7 ms, and LEO's addition by up to
   0.9 ms (2.0-2.9 ms over five runs since the split).
 - LEO is within its budget, at the top of its range only just.
+- **After the look survey (2026-11-22)**, the P0 pass alone, steady, three
+  runs each of #90's build and the look follow-up's, interleaved, with other
+  sessions on the GPU (the empty frames alone swung 0.6-4.8 ms): pad
+  0.6-2.8 ms before, 2.0-2.8 after (budget 3.0); ascent 60 s 1.8-2.6
+  before, 2.0-3.2 after; LEO 1.6 before, 0.7 after (budget 2.0), fresh
+  1.6 and 1.5. No regression stands out of the noise.
 - **The march has a GPU pass of its own.** Apple's driver merges
   consecutive compute encoders into one GPU pass, and an encoder that
   depends on any part of it waits for all of it. A Metal System Trace
@@ -355,10 +365,40 @@ scene at the break), so the clouds' own share is the difference:
 
 ## For other tracks
 
-- **The cloud shadow** (E2's ground, R2/R4's vessels, P2's plumes): add
-  `.cloudShadow` to a module's headers and call
+- **The cloud shadow** (the planet's ground, R2/R4's vessels, P2's plumes):
+  add `.cloudShadow` to a module's headers and call
   `orbit_cloudSunTransmittance(p, atmosphere, texture 24, sampler 14)` at a
-  camera-relative point. It reads `AtmosphereUniforms.cloudShadowMatrix`
+  camera-relative point: the direct beam, e^−τ, for what is lit by the Sun
+  as a light (the vessels and LC-39A since the look follow-up, the plumes).
+  The Earth's ground (the planet and tiled-planet modules) takes
+  `orbit_cloudGroundTransmittance(p, μ0, ..., texture 31, ...)` instead,
+  two factors:
+  - the Sun's light through the clouds on its line: a conservative slab of
+    vertical optical depth τ, direct and diffuse, 2 / (2 + (1 − g)τ) with g
+    0.85 (Bohren 1987; `CloudOptics.slabTransmittance`): 0.4 of the light
+    under τ 20, 0.97 under thin cirrus. τ is the map's depth along the
+    Sun's curved ray times the ray's slope at the clouds (2 km),
+    √(μ0² + 2h/R);
+  - the sky's light (most of it scattered in the air above the clouds)
+    through the cover overhead, from the sky map (slot 31, rg), which
+    `cloud_shadow` writes beside the shadow map: at each map line's two
+    ground points, where it rises toward the Sun (x, the ground with the
+    Sun up) and where it falls (y, the Sun under the ground's horizon),
+    `cloud_skyColumn` of the weather there. Each layer passes the sky's
+    diffuse light whole through its gaps and through its cloudy columns as
+    the same slab of their mean optical depth (C1's extinction × the
+    layer's depth × `CloudCoverage.columnDepth`; g 0.75 for the cirrus), the
+    layers overlapping at random; C2's own streams pass the sky's light
+    down so. The weather's 25 km cells are about the sky a point sees
+    through a deck 1-2 km up, so under broken cloud the sky's light does
+    not follow the cast shadows (which lie kilometres toward the Sun at a
+    low Sun and hundreds at the terminator), and a local overcast in
+    twilight darkens the ground. Within a cell the cumulus' own gaps are
+    not resolved: the sky's light there is the cell's mean.
+  R3's probe draws its ground and LC-39A with the map shifted to the
+  probe's centre, as R4's maps are (`VesselPass.probeShift`,
+  `EnvironmentProbePass` and `VesselPass.probeAtmosphere`), so the vessels'
+  light from below is the screen's ground's. It reads `AtmosphereUniforms.cloudShadowMatrix`
   (camera-relative world to the map's u, v and the height above the ground)
   and `cloudLayer` (w is 1 when the clouds draw). Off the map it is 1; from
   orbit the far layer's own cover darkens the ground beyond it.
@@ -384,6 +424,73 @@ scene at the break), so the clouds' own share is the difference:
   above the air's top. A2's tests and look-dev goldens draw the air
   alone (clouds off); C2's slab tests and goldens draw the clouds alone
   (atmosphere off), whose pixels the adoption left unchanged.
+
+## The look survey (2026-11-22)
+
+Franz: "Clouds still look terrible... the effects are sloppy." The clouds
+were flown through the app's own path (`CloudSurveyTests`,
+`ORBITSIM_CLOUD_SURVEY=<dir>`: Simulation, SceneExtractor, the default
+passes, auto exposure, reprojection; the pad, the ascent at 10, 30 and
+60 km, LEO by day, looking down, at the terminator, by night, at 100× and
+1000×, and the Earth from 8,000 km) in the historic and the random weather,
+with the march's resolved layer, its depths and R6's half-resolution clouds
+written beside each frame. Against the physics, worst first:
+
+1. **Rings of dashes over LEO views.** Three causes, in the slot copy and
+   the resolve: the cirrus was put in front of or behind the other clouds by
+   comparing entry distances, which the reprojection's depths nudged across
+   one another along the checkerboard's rows (it now goes by height,
+   `cloud_cirrusFirst`: in front of what the ray enters on the shell's far
+   side from the camera, and of what a ray from above enters above the shell
+   on its way up again, behind what it enters on the camera's side, so a
+   cumulonimbus top above 10 km stands over the cirrus from orbit, and from
+   below 10 km the cirrus lies behind the clouds; the decks lie kilometres
+   from the shell and do not flip. The march's part and the far layers'
+   each take their own order, then blend by the far weight, so the order
+   does not step at the hand-over's end over towers above the shell); the
+   depths were half floats,
+   1 % steps (2 km at LEO), which put a deck's back and the ground behind it
+   within a step or two of each other (now 32-bit); and the cut against the
+   scene took the ground under a low deck for something inside it (the
+   ground, within the depth spread of a half-resolution texel, now never
+   cuts; the cirrus, like the far layers, is drawn only where the ray meets
+   it before the ground, or the shell's far side beyond the Earth showed
+   through the clouds below the horizon from under 10 km). The resolve's front and entry for unmarched texels are now the
+   nearest of this frame's marched neighbours: min'd with the history's
+   they only ever came nearer. A texel with no cloud keeps the low layer's
+   reference shell as its depth, so the resolve reprojects it from there,
+   not from infinity.
+2. **A bright veil around a dark disc from orbit.** The far mid layer had
+   C1's optical depth over the whole 3 km (28), the march's altocumulus
+   lenses a twelfth of that layer (2-4). The march's mean column depth per
+   cover is now baked (`CloudCoverage.columnDepth`, CloudCoverageTables) and
+   the far mid layer and the march's own column lighting of the mid layer
+   both take it: altocumulus are thin, translucent and lit as such, and the
+   march and the far layer agree.
+3. **No cloud shadows on the ground or the vessels.** Only the plumes and
+   the probe read the shadow map. The vessels' Sun now passes through it
+   (e^−τ, R4's patch), the ground's Sun through a slab, direct and diffuse,
+   and its sky light through the cover overhead (above, For other tracks).
+
+Still open from the survey, worst first:
+- **From orbit, cumulus as 4-8 pixel blocks** (the steady state's march
+  texels are 1.1 km from LEO; 1-2 km cumulus come out binary per texel).
+  Averaging the density over a texel's footprint (the hinge at the cover's
+  threshold smoothed over the shape's spread there) was tried and dropped:
+  the clouds' in-cloud extinction is 0.06 /m, so even a faint smeared
+  density is opaque over a kilometre, and a spread of 0.06 in the shape
+  tripled a broken deck's opacity against the far layer (Jensen on the
+  transmittance, not the density). What would work: the march carrying the
+  covered fraction of each step apart from its in-cloud optical depth, a
+  sub-texel jitter accumulated by the resolve (the steady state only), or
+  the march at R6's half resolution from orbit (about 4 times its 1.5 ms).
+- The cumulus are all of one size (the 16 km
+shape period's 1-4 km cells) whatever the cloud type the weather now gives
+(the map's B.y, how cumuliform: stratocumulus, trade and continental cumulus,
+fronts' nimbostratus), which wants a scale or octave mix per type with its
+own coverage tables; the shadow map's 256 texels over 100-800 km are too
+coarse for cumulus shadows from orbit; the cirrus is a 2D layer at 10 km
+with no 22° halo.
 
 ## Open
 

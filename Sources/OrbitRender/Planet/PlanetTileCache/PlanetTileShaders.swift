@@ -208,7 +208,7 @@ let planetTiledShaderSource: String = {
 extension ShaderModule {
     /// E2 replaces: the planet shader with E1's albedo tiles, for the tiled Earth.
     public static let planetTiled = ShaderModule(name: "PlanetTiled",
-                                                 headers: [.shadowCommon, .atmosphereCommon, .planetTileCommon],
+                                                 headers: [.shadowCommon, .atmosphereCommon, .cloudShadow, .planetTileCommon],
                                                  source: planetTiledShaderSource)
 
     /// The tile lookup's probe kernel (the GPU tests, `PlanetTileCache.probe`).

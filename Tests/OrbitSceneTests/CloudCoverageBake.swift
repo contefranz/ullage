@@ -19,6 +19,8 @@ final class CloudCoverageBake: XCTestCase {
         print("densityScale mid\n\(row(st.densityScale[1]))")
         print("cirrusThreshold\n\(row(st.cirrusThreshold))")
         print("cirrusScale\n\(row(st.cirrusScale))")
+        print("columnDepth low\n\(row(st.columnDepth[0]))")
+        print("columnDepth mid\n\(row(st.columnDepth[1]))")
         print("BAKE-END \(Date().timeIntervalSince(start)) s")
     }
 }

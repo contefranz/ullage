@@ -16,7 +16,8 @@ struct PlanetUniforms {
     float4 sunDir;            // xyz: unit vector planet -> Sun (world), w: 1 if this body is the Sun
     float4 baseColor;         // rgb: base albedo (linear), w: 1 if a texture is bound
     float4 atmosphere;        // x: 1 when lit through the atmosphere (AtmosphereUniforms: A2), y: march steps from
-                              // space, z: 1 with A2's haze from space bound (textures 3, 4)
+                              // space, z: 1 with A2's haze from space bound (textures 3, 4), w: 1 shaded by the
+                              // clouds (C2's shadow map, slot 24: the camera's view of the Earth)
     float4 options;           // x: draw lat/lon grid, y: night floor (relative to the exposure)
     float4 origin;            // xyz: camera relative to the centre in figure coordinates, w: |xyz|^2 - a^2 (CPU, double)
     float4 figure;            // x: s = a/b
@@ -75,6 +76,8 @@ fragment DepthColorOut planet_fragment(FullscreenOut in [[stage_in]],
                                        texture2d<float> transmittance [[texture(ORBIT_TEXTURE_TRANSMITTANCE_LUT)]],
                                        texture2d<float> multiple [[texture(ORBIT_TEXTURE_MULTI_SCATTERING_LUT)]],
                                        texture2d<float> skyView [[texture(ORBIT_TEXTURE_SKY_VIEW_LUT)]],
+                                       texture2d<float> cloudShadow [[texture(ORBIT_TEXTURE_CLOUD_SHADOW)]],
+                                       texture2d<float> cloudSky [[texture(ORBIT_TEXTURE_CLOUD_SKY)]],
                                        sampler linear [[sampler(ORBIT_SAMPLER_LINEAR_CLAMP)]]) {
     float3 dView = normalize(float3(in.ndc.x * u.params.y, in.ndc.y * u.params.z, -1.0));
     float3 d = (u.viewToWorld * float4(dView, 0.0)).xyz;
@@ -123,10 +126,14 @@ fragment DepthColorOut planet_fragment(FullscreenOut in [[stage_in]],
         float3 sunF = normalize((u.worldToBody * float4(sun, 0.0)).xyz * float3(1.0, 1.0, s));
         float3 up = p / max(length(p), 1.0);
         float muS = dot(up, sunF);
-        // Per unit solar irradiance: the Sun through the air on the ground,
-        // and the sky's light on a horizontal surface.
-        float3 e = atmo_transmittanceToSun(transmittance, linear, rb, muS, rb, rt, frame.sunDirection.w) * diffuse
-                 + atmo_sunTable(irradiance, linear, rb, muS, rb, rt);
+        // Per unit solar irradiance: the Sun through the air on the ground
+        // and the sky's light on a horizontal surface, each through the
+        // clouds above it (C2: the Sun's through those on its line, the
+        // sky's through the cover overhead).
+        float2 clouds = u.atmosphere.w > 0.5
+            ? orbit_cloudGroundTransmittance(d * t, muS, air, cloudShadow, cloudSky, linear) : float2(1.0);
+        float3 e = atmo_transmittanceToSun(transmittance, linear, rb, muS, rb, rt, frame.sunDirection.w) * diffuse * clouds.x
+                 + atmo_sunTable(irradiance, linear, rb, muS, rb, rt) * clouds.y;
         float3 solar = frame.sunIlluminance.rgb;
         light = albedo / M_PI_F * e * solar;
         float topAltitude = rt - rb;
@@ -171,6 +178,6 @@ fragment DepthColorOut planet_fragment(FullscreenOut in [[stage_in]],
 """#
 
 extension ShaderModule {
-    public static let planet = ShaderModule(name: "Planet", headers: [.shadowCommon, .atmosphereCommon],
+    public static let planet = ShaderModule(name: "Planet", headers: [.shadowCommon, .atmosphereCommon, .cloudShadow],
                                             source: planetShaderSource)
 }

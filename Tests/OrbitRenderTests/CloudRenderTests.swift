@@ -26,7 +26,7 @@ final class CloudRenderTests: XCTestCase {
         let name = "Cloud capture"
         let stage = PassStage.post
         let order = 2_000
-        var ids: [ResourceID] = [.cloudLayer, .cloudDepth, .cloudShadow, .halfResClouds, .halfResFronts]
+        var ids: [ResourceID] = [.cloudLayer, .cloudDepth, .cloudShadow, .cloudSky, .halfResClouds, .halfResFronts]
         var images: [ResourceID: (width: Int, height: Int, format: MTLPixelFormat, buffer: MTLBuffer)] = [:]
 
         func encode(_ f: FrameContext, _ e: PassEncoding) {
@@ -261,6 +261,176 @@ final class CloudRenderTests: XCTestCase {
         print("low layer under the horizon from 2.9 km: alone \(alone), with the mid layer \(withMid)")
         XCTAssertGreaterThan(alone, 1, "the low layer draws below the horizon")
         XCTAssertEqual(withMid / alone, 1, accuracy: 0.03, "the mid layer beyond the ground leaves it as it is")
+    }
+
+    /// The cirrus lies in front of the ground or not at all. From 2.9 km up
+    /// the ascent, rays to the ground met the 10 km shell only beyond the
+    /// Earth, and with the ground under the low clouds never cut (C2's slot)
+    /// that cirrus showed behind them; on a day launch it is the night's, a
+    /// dark veil over the clouds below the horizon.
+    func testCirrusStopsAtTheGround() throws {
+        var alpha: [Double: Double] = [:]
+        for high in [0.0, 0.6] {
+            let frame = try render(Self.padHorizonShot(regime: "far", advance: ["met:44"]),
+                                   weather: try Self.uniformWeather(low: 0.3, high: high))
+            let c = try XCTUnwrap(frame.capture.values(.halfResClouds))
+            let angles = try Self.rayAngles(frame, width: c.width, height: c.height)
+            var sum = 0.0
+            for (k, texel) in c.texels.enumerated() where angles[k].elevation < -1.9 * .pi / 180 { sum += texel[3] }
+            alpha[high] = sum
+        }
+        let alone = try XCTUnwrap(alpha[0]), withCirrus = try XCTUnwrap(alpha[0.6])
+        print("low layer under the horizon from 2.9 km: alone \(alone), with cirrus \(withCirrus)")
+        XCTAssertGreaterThan(alone, 1, "the low layer draws below the horizon")
+        XCTAssertEqual(withCirrus / alone, 1, accuracy: 0.03, "the cirrus beyond the ground leaves it as it is")
+    }
+
+    /// The cirrus goes behind cloud tops above its 10 km shell. From orbit
+    /// over a cumulonimbus deck (tops at 12 km, overcast), a cirrostratus at
+    /// 10 km lies inside the towers, hidden: the towers' light is what it was
+    /// without it. Ordered by the camera's height alone, it was laid over
+    /// the tops, dimming them by about its opacity.
+    func testCirrusGoesBehindTopsAboveIt() throws {
+        let epoch = VesselLibrary.apollo11Insertion
+        func towers(high: Double) throws -> Double {
+            var storm = CloudOverride(latitude: 0, longitude: 0, time: epoch,
+                                      observation: CloudObservation(low: 1, mid: 0, high: high, convective: true))
+            storm.radius = 4e7
+            let weather = try Self.uniformWeather(low: 1, high: high, overrides: [storm])
+            let c = try XCTUnwrap(render(Self.deckShot(regime: "march"), weather: weather).capture.values(.halfResClouds))
+            var sum = 0.0, n = 0
+            for texel in c.texels where texel[3] > 0.9 {
+                sum += 0.2126 * texel[0] + 0.7152 * texel[1] + 0.0722 * texel[2]
+                n += 1
+            }
+            XCTAssertGreaterThan(n, c.texels.count / 2, "the towers fill the view")
+            return sum / Double(max(n, 1))
+        }
+        let bare = try towers(high: 0), under = try towers(high: 1)
+        print("cumulonimbus tops from orbit, with cirrostratus at 10 km / without: \(under / bare)")
+        XCTAssertEqual(under / bare, 1, accuracy: 0.03)
+    }
+
+    /// The cirrus keeps its order through the far hand-over. Over the same
+    /// cumulonimbus deck from orbit, the far layers draw the towers as their
+    /// 2 km shell with the cirrus over it (regime "far", wf 1); just inside
+    /// the hand-over (wf 0.998 everywhere: a far footprint ramp from −10⁹ to
+    /// 2.66 × 10⁷ m) the towers under the cirrus are as bright. With one
+    /// order for the blend, from the nearer entry, the march's tops above
+    /// 10 km put the cirrus behind a colour 99.8 % the far deck's: a step at
+    /// wf 1 of the cirrus's whole dimming (about half the light). (The bare
+    /// deck's light differs by 3 % between the two renders by itself, so
+    /// the test compares the light with the cirrus, not the ratio.)
+    func testCirrusOrderHoldsThroughTheHandOver() throws {
+        let epoch = VesselLibrary.apollo11Insertion
+        func dimming(regime: String, farFootprint: [Double]? = nil) throws -> (with: Double, ratio: Double) {
+            func towers(high: Double) throws -> Double {
+                var storm = CloudOverride(latitude: 0, longitude: 0, time: epoch,
+                                          observation: CloudObservation(low: 1, mid: 0, high: high, convective: true))
+                storm.radius = 4e7
+                var shot = Self.deckShot(regime: regime)
+                if let farFootprint { shot.settings.cloud.farFootprint = farFootprint }
+                let weather = try Self.uniformWeather(low: 1, high: high, overrides: [storm])
+                let c = try XCTUnwrap(render(shot, weather: weather).capture.values(.halfResClouds))
+                var sum = 0.0, n = 0
+                for texel in c.texels where texel[3] > 0.9 {
+                    sum += 0.2126 * texel[0] + 0.7152 * texel[1] + 0.0722 * texel[2]
+                    n += 1
+                }
+                XCTAssertGreaterThan(n, c.texels.count / 2, "the towers fill the view")
+                return sum / Double(max(n, 1))
+            }
+            let a = try towers(high: 1)
+            return (a, a / (try towers(high: 0)))
+        }
+        let far = try dimming(regime: "far"), inside = try dimming(regime: "auto", farFootprint: [-1e9, 2.66e7])
+        print("towers under cirrus (and / without), at wf 1: \(far), at wf 0.998: \(inside)")
+        XCTAssertLessThan(far.ratio, 0.8, "the far deck under its cirrus")
+        XCTAssertEqual(inside.with / far.with, 1, accuracy: 0.03)
+    }
+
+    /// C2's sky map holds the cover over each map line's two ground points.
+    /// At Apollo 8's dawn launch (the Sun 8° up) with a clear sky 150 km
+    /// round the pad (fading out to 300 km) in an overcast: lines that rise through the ground
+    /// within 100 km of the pad have a clear sky there (x 1), and fall
+    /// through it about 1,800 km west, in the night's overcast (y the
+    /// overcast's slab transmittance for the sky's diffuse light,
+    /// cloud_skyColumn's, here in Swift); lines that rise more than 380 km
+    /// off have the overcast's in x. (The weather map's 27 km cells cannot
+    /// hold a clear patch smaller than the clouds' offset along a low Sun,
+    /// 10 km here, so this checks where the map reads the cover; that it is
+    /// the cover overhead and not the Sun's line is the form of
+    /// cloud_skyColumn, and testCloudShadowTakesTheSkysLightToo's twilight.)
+    func testSkyMapHoldsTheCoverOverhead() throws {
+        let pad = try XCTUnwrap(CloudOverride.launches["apollo8"])
+        var clear = CloudOverride(latitude: pad.latitude, longitude: pad.longitude, time: pad.time,
+                                  observation: CloudObservation(low: 0, mid: 0, high: 0))
+        clear.radius = 300_000
+        let weather = try Self.uniformWeather(low: 1, epoch: pad.time, overrides: [clear])
+        var shot = SnapshotSpec.Shot(name: "a8-sky", scenario: "apollo8-pad",
+                                     camera: SnapshotSpec.CameraSpec(yaw: -100, pitch: 8, distance: 300, fov: 60))
+        shot.width = 64
+        shot.height = 40
+        shot.showOrbit = false
+        shot.settings.cloud.coverageModulation = 0
+        let f = try render(shot, weather: weather)
+        let frame = try XCTUnwrap(f.clouds?.lastFrame.frame)
+        let sky = try XCTUnwrap(f.capture.values(.cloudSky))
+        let map = frame.shadowMap(texels: sky.width)
+        let ground = frame.cameraBody.normalized * frame.radius
+        let overcast = Self.skyTransmittance(low: 1)
+        var near: [[Double]] = [], far: [Double] = []
+        for y in 0..<sky.height {
+            for x in 0..<sky.width {
+                // Where the texel's line along the Sun rises through the ground.
+                let mu = (Double(x) + 0.5) / Double(sky.width), mv = (Double(y) + 0.5) / Double(sky.height)
+                let p0: Vec3 = map.point(u: mu, v: mv, along: 0)
+                var lo = -2e6, hi = 2e6
+                for _ in 0..<60 {
+                    let m = 0.5 * (lo + hi)
+                    if (p0 + map.sun * m).length - frame.radius > 0 { hi = m } else { lo = m }
+                }
+                // (Lines that pass over the ground hold 1; lines that graze it
+                // at under 3° are left out, where the kernel's curved ray,
+                // a parabola, and this sphere part.)
+                let root = p0 + map.sun * lo
+                guard abs(root.length - frame.radius) < 100, root.normalized.dot(map.sun) > 0.05 else { continue }
+                let d = (p0 + map.sun * lo - ground).length, k = y * sky.width + x
+                if d < 100_000 { near.append(sky.texels[k]) }
+                if d > 380_000 { far.append(sky.texels[k][0]) }
+            }
+        }
+        print("sky map: the overcast's \(overcast); within 100 km of the pad x \(near.map { $0[0] }.min() ?? -1)-"
+              + "\(near.map { $0[0] }.max() ?? -1), y \(near.map { $0[1] }.min() ?? -1)-\(near.map { $0[1] }.max() ?? -1); "
+              + "beyond 380 km x \(far.min() ?? -1)-\(far.max() ?? -1) (\(near.count), \(far.count) texels)")
+        XCTAssertLessThan(overcast, 0.3)
+        XCTAssertGreaterThan(near.count, sky.width * sky.height / 20)
+        XCTAssertGreaterThan(far.count, 20)
+        for t in near {
+            XCTAssertGreaterThan(t[0], 0.98, "clear over the pad")
+            XCTAssertEqual(t[1], overcast, accuracy: 0.02, "the overcast where the line falls")
+        }
+        for v in far { XCTAssertEqual(v, overcast, accuracy: 0.02) }
+    }
+
+    /// cloud_skyColumn in Swift: each layer's gaps whole and its cloudy
+    /// columns a conservative slab of their mean optical depth (C1's
+    /// extinction × the layer's depth × CloudCoverage.columnDepth), 2 / (2 +
+    /// (1 − g) τ), g 0.85 for water and 0.75 for ice; at random overlap.
+    static func skyTransmittance(low: Double, mid: Double = 0, high: Double = 0,
+                                 lowDepth: Double = CloudLayerModel.lowDepth, densityScale: Double = 1) -> Double {
+        let layers = CloudLayerModel.layers(CloudSample(low: 1, mid: 1, high: 1))
+        let st = CloudCoverage.standardStatistics
+        func table(_ t: [Double], _ c: Double) -> Double {
+            let x = min(max(c, 0), 1) * 32, i = min(Int(x), 31)
+            return t[i] + (x - Double(i)) * (t[i + 1] - t[i])
+        }
+        func slab(_ c: Double, _ tau: Double, _ b: Double) -> Double { 1 - c + c * 2 / (2 + b * tau) }
+        let tauLow = layers[0].extinction * densityScale * lowDepth * table(st.columnDepth[0], low)
+        let tauMid = layers[1].extinction * densityScale * (CloudLayerModel.midTop - CloudLayerModel.midBase)
+            * table(st.columnDepth[1], mid)
+        let tauHigh = layers[2].extinction * densityScale * CloudPass.cirrusThickness
+        return slab(low, tauLow, 0.15) * slab(mid, tauMid, 0.15) * slab(high, tauHigh, 0.25)
     }
 
     /// Under a cloud base above the low layer's 2 km reference shell, the far
@@ -1379,6 +1549,80 @@ final class CloudMapTests: XCTestCase {
     }
 
     /// The cloud uniforms' Swift mirrors have MSL's sizes.
+    /// cloud_cirrusFirst: the cirrus in front of a part by the height of its
+    /// entry from the camera's side of the shell, and in front of what a
+    /// ray from above enters above the shell on its way up again (beyond its
+    /// lowest point, past the shell's far crossing).
+    func testCirrusOrderByHeight() throws {
+        let device = try XCTUnwrap(RenderDevice.shared)
+        let module = ShaderModule(name: "CloudCirrusFirst", headers: [.effectSlots, .atmosphereCommon],
+                                  source: cloudShaderSource + """
+            kernel void cloud_test_cirrusFirst(constant CloudUniforms &u [[buffer(0)]],
+                                               constant float4 *rays [[buffer(1)]],
+                                               device uint *out [[buffer(2)]],
+                                               uint i [[thread_position_in_grid]]) {
+                out[i] = cloud_cirrusFirst(rays[2 * i].w, rays[2 * i].xyz, rays[2 * i + 1].xyz, u) ? 1u : 0u;
+            }
+            """)
+        let library = try ShaderLibrary(device: device).library(module)
+        let pipeline = try device.makeComputePipelineState(
+            function: try XCTUnwrap(library.makeFunction(name: "cloud_test_cirrusFirst")))
+        let a = 6_378_137.0, shell = 10_000.0
+        // A camera at height h, the ray's direction at `dip` below its
+        // horizontal, and the distance along it where it is at height `at`,
+        // on its way down or up again.
+        func ray(height h: Double, dip: Double, at: Double, climbing: Bool) -> (of: Vec3, df: Vec3, entry: Double) {
+            let of = Vec3(a + h, 0, 0), df = Vec3(-sin(dip), cos(dip), 0)
+            let b = of.dot(df), c = of.dot(of) - (a + at) * (a + at), disc = b * b - c
+            let t = climbing ? -b + disc.squareRoot() : -b - disc.squareRoot()
+            return (of, df, t)
+        }
+        var cases: [(String, (of: Vec3, df: Vec3, entry: Double), Bool, Bool)] = [
+            ("from orbit, a deck at 2 km", ray(height: 190_000, dip: 1.2, at: 2_000, climbing: false), true, true),
+            ("from orbit, a top at 12 km", ray(height: 190_000, dip: 1.2, at: 12_000, climbing: false), true, false),
+        ]
+        // A ray from 15 km whose lowest point is 8 km up: a top at 11 km on
+        // its way down (before the cirrus) and on its way up (beyond it).
+        let dip = acos((a + 8_000) / (a + 15_000))
+        cases.append(("grazing, a top at 11 km before the dip", ray(height: 15_000, dip: dip, at: 11_000, climbing: false), true, false))
+        cases.append(("grazing, a top at 11 km beyond the dip", ray(height: 15_000, dip: dip, at: 11_000, climbing: true), true, true))
+        // From 5 km looking up: the cirrus where the ray leaves the shell.
+        cases.append(("from below, a cloud at 7 km", ray(height: 5_000, dip: -0.3, at: 7_000, climbing: true), false, false))
+        cases.append(("from below, an anvil at 12 km", ray(height: 5_000, dip: -0.3, at: 12_000, climbing: true), false, true))
+        cases.append(("no cloud", (Vec3(a + 190_000, 0, 0), Vec3(-1, 0, 0), 1e30), true, true))
+        var rays: [SIMD4<Float>] = []
+        for c in cases {
+            // Figure coordinates relative to the camera's position, as the
+            // slot's: origin at the camera's figure point.
+            rays.append(SIMD4(Float(c.1.of.x), Float(c.1.of.y), Float(c.1.of.z), Float(c.1.entry)))
+            rays.append(SIMD4(Float(c.1.df.x), Float(c.1.df.y), Float(c.1.df.z), 0))
+        }
+        var results: [Bool] = []
+        for (k, c) in cases.enumerated() {
+            var u = CloudUniforms()
+            u.radii = SIMD4(Float(a), Float(c.1.of.length - a), 0, 0)
+            let r = Float(a + shell), o = Float(c.1.of.length)
+            u.shell = SIMD4(0, 0, (o - r) * (o + r), 0)
+            u.shellMid = SIMD4(0, Float(shell), 0, 0)
+            let input = try XCTUnwrap(device.makeBuffer(bytes: [rays[2 * k], rays[2 * k + 1]], length: 32,
+                                                        options: .storageModeShared))
+            let out = try XCTUnwrap(device.makeBuffer(length: 4, options: .storageModeShared))
+            let queue = try XCTUnwrap(device.makeCommandQueue())
+            let cb = try XCTUnwrap(queue.makeCommandBuffer()), enc = try XCTUnwrap(cb.makeComputeCommandEncoder())
+            enc.setComputePipelineState(pipeline)
+            enc.setBytes(&u, length: MemoryLayout<CloudUniforms>.stride, index: 0)
+            enc.setBuffer(input, offset: 0, index: 1)
+            enc.setBuffer(out, offset: 0, index: 2)
+            enc.dispatchThreads(MTLSize(width: 1, height: 1, depth: 1), threadsPerThreadgroup: MTLSize(width: 1, height: 1, depth: 1))
+            enc.endEncoding()
+            cb.commit()
+            cb.waitUntilCompleted()
+            results.append(out.contents().load(as: UInt32.self) == 1)
+            XCTAssertEqual(c.2, u.shell.z > 0, "\(c.0): the camera's side")
+        }
+        for (c, first) in zip(cases, results) { XCTAssertEqual(first, c.3, c.0) }
+    }
+
     func testStructLayoutsMatchMSL() throws {
         let device = try XCTUnwrap(RenderDevice.shared)
         let module = ShaderModule(name: "CloudSizes", headers: [.effectSlots, .atmosphereCommon], source: cloudShaderSource + """

@@ -579,9 +579,11 @@ public struct ProceduralWeather: Equatable {
         let land = g.land, sea = 1 - land
         // Local time: the hour angle from noon. The surface's heating: the
         // Sun's elevation (the cosine of its zenith angle) three hours
-        // before, as cumulus over land peaks about 15 h; none at night, and
-        // the same all day where the Sun circles (polar day, the poles). The
-        // ice sheets raise no afternoon cumulus.
+        // before, as cumulus over land peaks about 15 h; none at night;
+        // single-valued at the poles, and in polar day a daily cycle that
+        // follows the Sun's elevation, weaker the nearer the pole. None on
+        // the ice sheets, whose low cloud is mostly stratiform (a cumulus
+        // fraction of 0.2).
         let hour = λ - sky.subsolarLongitude
         let sunUp = sin(φ) * sin(sky.declination) + cos(φ) * cos(sky.declination) * cos(hour - 0.785)
         let heat = max(sunUp, 0) * (1 - g.iceSheet)

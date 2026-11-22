@@ -26,7 +26,7 @@ public final class CloudPass: RenderPass, HalfResEffect {
     public let name = "Clouds"
     public let stage = PassStage.prepare
     public let order = 10
-    public var writes: Set<ResourceID> { [.cloudLayer, .cloudDepth, .cloudShadow] }
+    public var writes: Set<ResourceID> { [.cloudLayer, .cloudDepth, .cloudShadow, .cloudSky] }
 
     /// The march target's history (persistent).
     static let historyColor = ResourceID("cloudHistoryColor", persistent: true)
@@ -115,6 +115,9 @@ public final class CloudPass: RenderPass, HalfResEffect {
     private var weathers: [String: CloudWeather] = [:]
     private var lastWeather: WeatherKey?
     private(set) var shadowTexture: MTLTexture?
+    /// The sky's light on the ground through the clouds, at each shadow map
+    /// texel's ground points (cloud_shadow's second target, rg).
+    private(set) var skyTexture: MTLTexture?
     /// The weather to draw instead of the settings' (the tests' fields).
     var weatherOverride: CloudWeather?
     /// The override's name, as the mission's (another name: another field).
@@ -435,7 +438,9 @@ public final class CloudPass: RenderPass, HalfResEffect {
            encodeShadow(enc, f, frame: frame, u: &u, texels: shadowN, pipeline: p.shadow, noise: noise, map: weatherMap,
                         samplers: samplers) {
             f.slotTextures[Binding.cloudShadow] = shadowTexture
+            f.slotTextures[Binding.cloudSky] = skyTexture
             if let t = shadowTexture { f.textures[.cloudShadow] = t }
+            if let t = skyTexture { f.textures[.cloudSky] = t }
         }
         enc.endEncoding()
 
@@ -444,8 +449,12 @@ public final class CloudPass: RenderPass, HalfResEffect {
                                                               height: marchSize.height, mipmapped: false)
         colorD.usage = [.shaderRead, .shaderWrite]
         colorD.storageMode = .private
-        // Depths as log2 of the linear depth, half floats (cloud_encodeDepth).
-        let depthD = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba16Float, width: marchSize.width,
+        // Depths as log2 of the linear depth (cloud_encodeDepth), in 32-bit
+        // floats: half floats' steps of 1 % (2 km at LEO's 190 km) put a
+        // deck's back and the ground behind it within a step or two, so the
+        // slot's cut against the scene flickered along their contours (rings
+        // of dashes from orbit).
+        let depthD = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba32Float, width: marchSize.width,
                                                               height: marchSize.height, mipmapped: false)
         depthD.usage = [.shaderRead, .shaderWrite]
         depthD.storageMode = .private
@@ -835,8 +844,11 @@ public final class CloudPass: RenderPass, HalfResEffect {
             d.storageMode = .private
             shadowTexture = f.device.makeTexture(descriptor: d)
             shadowTexture?.label = "Cloud shadow"
+            d.pixelFormat = .rg16Float
+            skyTexture = f.device.makeTexture(descriptor: d)
+            skyTexture?.label = "Cloud sky"
         }
-        guard let shadowTexture, frame.sunBody.dot(frame.cameraBody.normalized) > -0.2 else { return false }
+        guard let shadowTexture, let skyTexture, frame.sunBody.dot(frame.cameraBody.normalized) > -0.2 else { return false }
         // The lattice runs through an anchor near the camera, moved by whole
         // texels (CloudFrame.shadowAnchor), so it holds still as the camera
         // and the Sun move.
@@ -851,6 +863,7 @@ public final class CloudPass: RenderPass, HalfResEffect {
         u.shadowV = SIMD4(shadowMap.v, 0)
         enc.setComputePipelineState(pipeline)
         enc.setTexture(shadowTexture, index: 0)
+        enc.setTexture(skyTexture, index: 1)
         enc.setTexture(noise.shape, index: 2)
         enc.setTexture(noise.detail, index: 3)
         enc.setTexture(noise.curl, index: 4)
@@ -953,6 +966,8 @@ public final class CloudPass: RenderPass, HalfResEffect {
         u.densityMid = Self.table(st.densityScale[1])
         u.cirrusTheta = Self.table(st.cirrusThreshold)
         u.cirrusScale = Self.table(st.cirrusScale)
+        u.columnMid = Self.table(st.columnDepth[1])
+        u.columnLow = Self.table(st.columnDepth[0])
         return u
     }
 
@@ -1122,6 +1137,8 @@ struct CloudUniforms {
     var densityMid = CloudUniforms.emptyTable
     var cirrusTheta = CloudUniforms.emptyTable
     var cirrusScale = CloudUniforms.emptyTable
+    var columnMid = CloudUniforms.emptyTable
+    var columnLow = CloudUniforms.emptyTable
 
     static let emptyTable: CloudTable9 = (.zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero)
 }

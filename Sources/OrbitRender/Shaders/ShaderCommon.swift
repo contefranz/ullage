@@ -32,6 +32,7 @@ using namespace metal;
 #define ORBIT_TEXTURE_MULTI_SCATTERING_LUT 28 // texture2d<float> (A2)
 #define ORBIT_TEXTURE_SKY_VIEW_LUT 29         // texture2d<float> (A2)
 #define ORBIT_TEXTURE_AERIAL_PERSPECTIVE 30   // texture3d<float>: froxels (A2)
+#define ORBIT_TEXTURE_CLOUD_SKY 31            // texture2d<float>: the sky's light on the ground through the clouds (C2)
 #define ORBIT_SAMPLER_LINEAR_CLAMP 14
 #define ORBIT_SAMPLER_SHADOW_COMPARE 15       // compare greaterEqual (reversed-Z)
 #define ORBIT_MAX_LOCAL_LIGHTS 8

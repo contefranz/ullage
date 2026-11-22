@@ -439,6 +439,9 @@ public final class EnvironmentProbePass: RenderPass {
         var frame = f.frame
         frame.exposure.x = 1
         var atmosphere = f.atmosphere
+        // C2's cloud shadow map takes camera-relative points; the faces' are
+        // relative to the centre (LC-39A's draw shifts its own the same way).
+        atmosphere.cloudShadowMatrix = f.atmosphere.cloudShadowMatrix * VesselPass.probeShift(center: center)
         // Where A2's sky is marched from the centre, the planet's haze is
         // too: its in-air path reads the camera's sky-view LUT, which the
         // camera's altitude in `radii.z` selects.
@@ -463,7 +466,7 @@ public final class EnvironmentProbePass: RenderPass {
             enc.setFragmentBytes(&atmosphere, length: MemoryLayout<AtmosphereUniforms>.stride,
                                  index: Binding.atmosphereBuffer)
             for slot in [Binding.transmittanceLUT, Binding.multipleScatteringLUT, Binding.skyViewLUT,
-                         Binding.cloudShadow] {
+                         Binding.cloudShadow, Binding.cloudSky] {
                 enc.setFragmentTexture(f.slotTextures[slot] ?? fallback2D, index: slot)
             }
             enc.setFragmentSamplerState(f.states.linearClamp, index: Binding.linearClampSampler)
