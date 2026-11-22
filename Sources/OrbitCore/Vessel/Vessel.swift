@@ -173,6 +173,10 @@ public final class Vessel: Identifiable {
     public internal(set) var altitude = 0.0
     public internal(set) var atmosphere = AtmosphereState.vacuum
     public internal(set) var airspeed = 0.0
+    /// The velocity relative to the air, ICRF, m/s: its rotating atmosphere
+    /// and the wind (the surface velocity outside the air), of which
+    /// `airspeed` is the length. Telemetry: the plumes bend in it.
+    public internal(set) var airVelocity = Vec3.zero
     public internal(set) var dynamicPressure = 0.0
     public internal(set) var mach = 0.0
     /// Total angle of attack: between +x and the velocity relative to the

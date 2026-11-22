@@ -43,6 +43,8 @@ public struct PlumeCluster {
     /// all of them, the march's far field at the cost of one.
     public var merged: PlumeMember?
     public var mergeX = 0.0
+    /// Where a kerosene cluster's exhaust is handed over to P4's trail.
+    public var handover: PlumeAirflow.Handover?
     public var family: PlumeFamily
     public var isJet: Bool
     public var vesselID: UUID?
@@ -106,9 +108,9 @@ public enum PlumeClusters {
             && (a.exit - b.exit).length < spacing * (a.exitRadius + b.exitRadius)
     }
 
-    /// One cluster of `members`: its frame (the exits' mean, weighted by
-    /// their areas, and the mean axis) and its proxy.
-    public static func cluster(_ members: [PlumeMember]) -> PlumeCluster {
+    /// A cluster's frame: the exits' mean, weighted by their areas, moved
+    /// onto the most upstream exit's plane, and the mean axis so weighted.
+    public static func frame(_ members: [PlumeMember]) -> (origin: Vec3, axis: Vec3) {
         var origin = Vec3.zero, axis = Vec3.zero, weight = 0.0
         for m in members {
             let w = m.exitRadius * m.exitRadius
@@ -118,10 +120,43 @@ public enum PlumeClusters {
         }
         origin = origin / max(weight, 1e-12)
         axis = axis.length > 0 ? axis.normalized : (members.first?.axis ?? .unitX)
-        // The origin onto the most upstream exit's plane.
         let lowest = members.map { ($0.exit - origin).dot(axis) }.min() ?? 0
-        origin = origin + axis * lowest
+        return (origin + axis * lowest, axis)
+    }
+
+    /// One cluster of `members`: its frame and its proxy.
+    public static func cluster(_ members: [PlumeMember]) -> PlumeCluster {
+        let (origin, axis) = frame(members)
         let u = PlumeLook.perpendicular(axis), v = axis.cross(u).normalized
+        // The far field in the stream (`PlumeAirflow.airflow`): the
+        // cluster's path bends every member's centreline into it; past where
+        // it turns back (a retro's into the oncoming air) the plumes end;
+        // and where a kerosene cluster's exhaust has slowed to the air they
+        // fade out, handed over to P4's trail: over the window about the
+        // joint, the same whatever a member's length (as the trail's head
+        // is), ending at the window's end. A member the exposure's trim (or
+        // its own shorter plume) cuts short of that end keeps its cut, its
+        // own soft end narrowing to none as the cut reaches the window's
+        // end: continuous in the cut, and nothing marched beyond what can
+        // show (the S-IC's ballooned plume at staging).
+        var members = members
+        var handover: PlumeAirflow.Handover?
+        let reach = members.map(\.length).max() ?? 0
+        if reach > 0, let air = PlumeAirflow.airflow(members, axis: axis, reach: reach) {
+            handover = air.handover
+            for i in members.indices {
+                members[i].bend = air.bend
+                if let end = air.end { members[i].length = min(members[i].length, max(end, members[i].exitDiameter)) }
+                if let h = air.handover {
+                    let start = max(h.x - h.window, 0), end = h.x + h.window
+                    let length = members[i].length
+                    let soft = min(0.3 * length, max(end - length, 0))
+                    members[i].length = min(length, end)
+                    members[i].fadeStart = members[i].length - soft
+                    members[i].handoverFade = start...end
+                }
+            }
+        }
         let merge = merged(members, origin: origin, axis: axis)
         var c = PlumeCluster(members: members, origin: origin, axis: axis, u: u, v: v,
                              rings: proxy(members + (merge.map { [$0.member] } ?? []), origin: origin, axis: axis),
@@ -129,6 +164,7 @@ public enum PlumeClusters {
                              vesselID: members.first?.vesselID)
         c.merged = merge?.member
         c.mergeX = merge?.x ?? 0
+        c.handover = handover
         return c
     }
 
@@ -186,7 +222,8 @@ public enum PlumeClusters {
                 xs.append(m.length * t * t)
             }
             for xm in xs {
-                let c = m.exit + m.axis * xm - origin
+                // On the bent centreline.
+                let c = m.centre(atX: xm) - origin
                 let xc = c.dot(axis)
                 let rho = (c - axis * xc).length
                 let e = m.extent(atX: xm)

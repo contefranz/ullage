@@ -142,6 +142,12 @@ public final class LaunchEffects: EffectProducer {
         /// The five F-1s' flow over their full flow, from the scene's emitters.
         let flow: Double
         let clusterRadius: Double
+        /// Where P2's plume hands the exhaust over to the trail, slowed to
+        /// the air (`PlumeAirflow.trailHandover`): its distance along the
+        /// nozzles' axis and its point from their exits, world axes.
+        let trailHead: PlumeAirflow.Handover?
+        /// Its speed through the air, m/s (the F-1s' relative wind).
+        let airspeed: Double
     }
 
     public func update(_ f: EffectFrame) {
@@ -195,9 +201,12 @@ public final class LaunchEffects: EffectProducer {
         let height = exits.reduce(0) { $0 + $1.centre.z } / Double(exits.count)
         let kerosene = scene.emitters.filter { $0.vesselID == v.id && $0.style == .kerosene && !$0.isJet && !$0.isSolid }
         let flow = kerosene.reduce(0) { $0 + min(1, $1.thrustFraction / seaLevelThrustFraction) } / Double(exits.count)
+        let own = scene.emitters.filter { $0.vesselID == v.id }
         return Vehicle(vessel: v, exits: exits, exitHeight: height,
                        climb: max(0, height - PadExhaust.exitHeightOnPad), flow: flow,
-                       clusterRadius: PadExhaust.clusterRadius(exits: exits))
+                       clusterRadius: PadExhaust.clusterRadius(exits: exits),
+                       trailHead: PlumeAirflow.trailHandover(own),
+                       airspeed: own.first { $0.name.hasPrefix("S-IC engine") }?.relativeWind.length ?? 0)
     }
 
     // MARK: Time

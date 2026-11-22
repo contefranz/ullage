@@ -169,9 +169,96 @@ and at 40 km it is gone, leaving the inert jet; nowhere is a several
 hundred metre flame at full brightness where the films show grey.
 
 The correlation is for a jet into still air. The vehicle's airspeed is a
-coflow (u∞/uj near 0.2 at max-Q) that cuts the entrainment and lengthens a
-jet flame; it is left out here, with the plume turning into the relative
-wind, for the airflow follow-up.
+coflow that cuts the entrainment and lengthens the flame, an angle of
+attack or a wind is a crossflow that shortens it, and a stream against the
+jet (a retro's) shortens it to the jet's penetration: P1 lengthens the still
+air's flame by `JetPath.flameLengthening` (next section). At max-Q (480
+m/s against a 3,060 m/s jet at 13 km) the F-1's 104 m flame becomes 184 m.
+Above 30 km, where the airspeed nears half the jet's, the flame would run
+for kilometres, but the afterburning has faded by then.
+
+## The plume in the airflow
+
+The far field turns into the relative wind and slows to it; the near
+field stays on the nozzle, gimbal and all.
+
+- **The model** (`OrbitCore/Effects/JetPath.swift`, Linux-tested): a round
+  turbulent jet in a moving stream as an integral top-hat entrainment
+  model (Morton, Taylor and Turner 1956's hypothesis, as Hoult, Fay and
+  Forney 1969 and Lee and Cheung 1990 apply it to jets in a current).
+  - Shear entrainment: α1 = 0.0757 (the Gaussian jet's 0.0535, Fischer
+    et al. 1979, times √2) on the difference between the jet's speed and
+    the stream's along it, either way (Lee and Cheung's |u − U cos θ|): a
+    jet turned back, or slower than the stream's component along it,
+    still shears against it.
+  - Forced entrainment: α2 = 0.6 on the stream across it.
+  - The fluid taken in brings the stream's momentum, so the jet turns into
+    the stream, slows to it and dilutes.
+  - The source is the jet's momentum-equivalent one, Thring and Newby's
+    Dj √(ρj/ρa) at the fully expanded jet's speed; a cluster's jets are
+    one of their summed momentum.
+- **Checks** (`JetPathTests`):
+  - the transverse jet follows Pratte and Baines's (1967) z/(rd) = 2.05
+    (x/(rd))^0.28 within 25 % for r 5 to 20 (experiments spread A over
+    1.2-2.6 and B over 0.28-0.34; Margason 1993);
+  - the coflowing jet's excess speed falls as s^(-2/3) and its width grows
+    as s^(1/3) far out, the weak jet's (Tennekes and Lumley 1972);
+  - a still jet runs straight, its speed falling as 1/s;
+  - straight into an opposing stream it penetrates about 2 r d for r 5 to
+    20, linear in the velocity ratio as measured (Lam and Chan 1997; the
+    measured coefficient not checked), then turns back.
+- **Validity.** A rocket's jet in flight runs nearly with the stream (an
+  angle of attack of a few degrees) at velocity ratios of 2 to 10: at the
+  edge of the transverse data and outside them. The coflow's lengthening
+  of the flame follows from the same model, where the jet has diluted as
+  much as the still-air flame at its tip, or where the stream has turned
+  it back, if sooner (what is swept back lies behind the flame's front);
+  no published turbulent coflowing-flame correlation was found to test it
+  against. So a counterflow shortens the flame, to the jet's penetration,
+  and so does a weak crossflow for every Apollo exhaust (`JetPathTests`);
+  the factor moves continuously with the stream. For a stoichiometric
+  mixture fraction under about 0.3 (none of Apollo's) a jet no faster
+  than a crossflow would be lengthened slightly: the top-hat model's
+  bent-over jet nearly stops entraining.
+- **The bend** (`PlumeAirflow`, `PlumeBend`): each cluster's path, as the
+  offsets of its centreline from the nozzles' axis towards the stream at
+  eight stations. The field, its turbulence and the proxies are sheared
+  onto the bent centreline: x stays along the axis, r is from the bent
+  line. That is exact while the bend is moderate (an angle of attack, a
+  wind). Where the path turns more than 70° from the axis (a retro firing
+  into the oncoming air, straight into it too) the plume ends.
+- **The hand-over to P4's trail.** A kerosene cluster's exhaust counts as
+  at rest in the air where its speed relative to the air is down to 2 % of
+  what it left the nozzle with (about 160 momentum diameters out in still
+  air), at most 85 % of its built length. The jet's speed, stream and kind
+  are the member's of the most flow, so an engine shutting down does not
+  lead the cluster.
+  - The plume fades out over 15 % of that distance on either side of it
+    and ends at the window's end: every member and the merged far field
+    (`PlumeMember.handoverFade`, its own pair of numbers in the shader), so
+    the fade does not move with the exposure or a member's length. Where
+    the exposure's trim (or an engine's own shorter plume) cuts a member
+    short of the window's end, the cut stays, with its own soft end
+    narrowing to none as the cut reaches the window's end: continuous in
+    the cut, and nothing marched beyond what can show (the S-IC's
+    ballooned plume at staging). The F-1's smoke holds 2 % opacity to its
+    built length in every state checked from 0.1 to 38 km (faintest light
+    10^-4 to 10^7 cd/m², in sunlight and the dark), so no exposure cuts it
+    short of the trail, which ends at 40 km. The visible extents, which size the proxy, are found on the
+    field unfaded, so they hold it under any fade.
+  - P4's trail lays its newest puff on the bent path there
+    (`PlumeAirflow.trailHandover`: the firing F-1s' members through
+    `PlumeAirflow.airflow`, the function the cluster uses, so the two
+    agree through an engine's shutdown), and its puffs fade in over the
+    window's half past the joint at the airspeed they recede at
+    (`ExhaustTrail.fadeIn`, at most a second): in where the plume has gone
+    at any speed, no gap, no double (`p2-trail-joint`).
+- **Continuity** (`PlumeAirflowTests`): sweeps through the angle of attack
+  (-10° to 10° every quarter degree), the airspeed to beyond max-Q (every
+  5 m/s) and AS-506's ascent (every half second). Each step moves the far
+  end, the length and the hand-over by under 5 %, and through the
+  afterburning's end (37 km) by under 25 % a half second, under 1 % a
+  frame.
 
 ## The photographs as checks
 
@@ -202,9 +289,10 @@ it, they do not set it.
 - **The flame brush's spread** (0.035) and **the far field's** (0.06):
   P1 has no mixing layer's growth. A compressible shear layer's
   (Papamoschou and Roshko 1988, normalised by the convective Mach
-  number) and a round jet's spreading rate would replace them; that, and
-  the plume turning into the relative wind, is the follow-up after this
-  PR (Franz's B).
+  number) and a round jet's spreading rate would replace them.
+- **The airflow's choices:** at rest in the air at 2 % of the exit speed,
+  the hand-over at most at 85 % of the built length, its window 15 %, the
+  steepest turn drawn 70°; α2 fitted to Pratte and Baines.
 - **The soot left burnt** (25 %), **the kerosene condensate** (depth 3,
   albedo 0.8), **the clear exhausts' condensate and gas depths**, **their
   near-exit light**: no measured column densities.
@@ -221,31 +309,42 @@ it, they do not set it.
 
 `PlumeCostTests` (`docs/look/shots/p2-cost.json`; `ORBITSIM_TIMINGS=1`):
 plumes on and off on alternate frames, the difference of the medians, at
-3024×1964 on the M3 Pro. Measured on 5a0f84f at High (32 steps); the
-plan's budget is 1.5 ms on the pad and 0.5 ms in LEO, for the default
-physical look.
+3024×1964 on the M3 Pro. Measured with the airflow after its review at
+High (32 steps); the plan's budget is 1.5 ms on the pad and 0.5 ms in
+LEO, for the default physical look.
 
-- Pad 0.84-1.11 ms; ascent (T+30 s) 1.66 ms; max-Q 2.24 ms. The ascent
+- Pad 1.02-1.42 ms; ascent (T+30 s) 2.24 ms; max-Q 2.42 ms. The ascent
   and max-Q overrun is accepted: there the plume fills much of the frame,
-  and P1's flame is long (105 m at 13 km). Medium (16 steps) is the lever
-  R7's tiers have.
+  and P1's flame is long, the more so in the airstream (184 m at max-Q).
+  Medium (16 steps) is the lever R7's tiers have.
 - Staging (0.3 s after S-IC/S-II separation: the eight S-IC retros in
-  four pairs and the four S-II ullage motors, eight clusters): 2.68 ms.
-  It was 38 ms with each proxy as wide as P1's jet boundary; the proxies
-  now hold what can show, and solid motors' clusters march at half the
-  steps. The retros burn 0.64 s. The first frame of the burn builds the
-  looks (3 ms of CPU), kept after.
-- LEO, physical: 0.01-0.03 ms by day (the J-2s and the SPS culled by the
+  four pairs and the four S-II ullage motors, eight clusters): 3.94 ms at
+  EV 15, 3.90 ms under the app's auto exposure. It was 38 ms with each
+  proxy as wide as P1's jet boundary; the proxies now hold what can show,
+  and solid motors' clusters march at half the steps. The 3.9 ms is the
+  retro pairs' accurate 70° end, 39 m: where their jets turn back into
+  the oncoming air, found on the path's finer steps near the turn and
+  between them. The 35 m before the review (2.94 ms then) was a stepping
+  artefact, jumping from one station to the next. Kept for the physics:
+  the retros burn 0.64 s, and R7's tiers can trim it.
+- LEO, physical: about 0.02 ms by day (the J-2s and the SPS culled by the
   exposure, the SPS bell's glow drawn), the same in forward scatter; the
-  SPS at night in eclipse 0.42 ms (glow-only, marched at a quarter of the
+  SPS at night in eclipse 0.45 ms (glow-only, marched at a quarter of the
   steps, its proxy held to the glow).
 - Readable plumes at High: 1.2-1.7 ms in LEO when large (opt-in). They
   are marched, so that they lie in R6's volumes layer with C2's clouds and
   keep their form seen end on; R7's tiers may bring back impostors at Low,
   where every cluster is drawn as one (0.05-0.10 ms in LEO).
-- CPU: P2's planning and lighting take 0.02-0.10 ms a frame with its
-  caches warm; 1.5 ms on the first frame at the pad and 3 ms at staging
-  (every look and its visible extents built).
+- CPU: P2's planning and lighting take 0.02-0.10 ms a frame in a still
+  scene with its caches warm, and 1.5 ms on the first frame at the pad.
+  In flight the looks change every frame (the air thins, the airspeed
+  rises, the flow ramps), and the caches only keep what does not move
+  visibly. Through staging, stepped a frame at a time (`PlumeCostTests
+  .testStagingCPUInFlight`), the frames' median is 0.47 ms, the 90th
+  percentile 1.1 ms and the largest 2.4 ms. The visible extents (a 5 %
+  key) and the light profiles (1-2 %) are kept across frames; the
+  templates and trims (0.25 % in the air, flow and stream) are rebuilt as
+  they move.
 
 ## Known limits
 
@@ -262,8 +361,11 @@ physical look.
 - The tower jettison motor's plume is one member on its thrust axis, not
   two at its canted scarfed nozzles: the drawn nozzles are a placeholder
   not linked to the thruster (VG3's open item, exhaust datasheet §7.5).
-- The plume does not yet turn into the relative wind (angle of attack,
-  crosswinds, the pitch program) or hand over to P4's trail at rest in
-  the air: the follow-up PR after this one.
+- A jet firing into the oncoming air (the S-IC retros, an abort's motors)
+  ends where its path turns back past 70°: the part swept back along the
+  vehicle is not drawn. The bend is a shear of the straight field, so the
+  far field's cross-sections are not tilted with it.
+- The far field's slowing to the air shows in its path and its hand-over,
+  not as motion: the eddies drift at a visual speed.
 - Small impostors still draw before R6's composite (C2's clouds lie over
   them); the large ones are marched.

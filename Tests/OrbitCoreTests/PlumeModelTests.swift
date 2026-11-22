@@ -355,6 +355,34 @@ final class PlumeModelTests: XCTestCase {
         XCTAssertLessThan(PlumeModel.luminanceRatio(900, 1_000), 0.06)
     }
 
+    // The stream the jet issues into (JetPath): the vehicle's airspeed, a
+    // coflow, lengthens the F-1's flame; a crossflow (an angle of attack, a
+    // wind) shortens it; none leaves Delichatsios's still-air length. From
+    // the pad to beyond max-Q (0 to 600 m/s at 13 km's air) the length rises
+    // continuously, under 2 % per 5 m/s.
+    func testFlameInTheAirstream() {
+        let spec = ApolloExhaust.f1.spec
+        let air = USStandardAtmosphere1976().state(altitude: 13_000)
+        let still = PlumeModel.state(spec, flowFraction: 1, ambient: air)
+        XCTAssertEqual(still.flameLength, still.stillFlameLength)
+        XCTAssertGreaterThan(still.jetVelocity, 2_000)
+        XCTAssertGreaterThan(still.momentumDiameter, 0)
+        let maxQ = PlumeModel.state(spec, flowFraction: 1, ambient: air, streamAlong: 480)
+        print(String(format: "PlumeModelTests: the F-1's flame at 13 km, %.0f m still, %.0f m at 480 m/s (jet %.0f m/s)",
+                     still.flameLength, maxQ.flameLength, still.jetVelocity))
+        XCTAssertGreaterThan(maxQ.flameLength / still.flameLength, 1.1)
+        XCTAssertLessThan(maxQ.flameLength / still.flameLength, 2.5)
+        XCTAssertLessThan(PlumeModel.state(spec, flowFraction: 1, ambient: air, streamAlong: 480, streamAcross: 40).flameLength,
+                          maxQ.flameLength)
+        var last = still.flameLength
+        for u in stride(from: 5.0, through: 600, by: 5) {
+            let l = PlumeModel.state(spec, flowFraction: 1, ambient: air, streamAlong: u).flameLength
+            XCTAssertGreaterThan(l, last, "\(u) m/s")
+            XCTAssertLessThan(l / last - 1, 0.02, "\(u) m/s")
+            last = l
+        }
+    }
+
     // The regimes along the flight: the J-2 at S-II ignition (67 km) is a
     // continuum jet whose Mach disk, about 300 m downstream, is too faint to
     // see; at S-IVB ignition (185 km) and the SPS in orbit the flow is free

@@ -14,6 +14,26 @@
                   "transparency": {"testBackdrop": true},
                   "plume": {"testEngines": [
                     {"engine": "F-1", "position": [0, 0, 80], "altitude": 13000, "ring": 4, "ringRadius": 4.9}]}}},
+    {"name": "p2-f1-max-q-still", "scenario": "leo", "showOrbit": false,
+     "camera": {"yaw": 0, "pitch": 0, "distance": 650, "fov": 45},
+     "settings": {"post": {"exposure": {"mode": "manual", "ev100": 17}}, "cloud": {"enabled": false}, "probe": {"enabled": false},
+                  "transparency": {"testBackdrop": true},
+                  "plume": {"testEngines": [
+                    {"engine": "F-1", "position": [0, 0, 230], "altitude": 13000, "ring": 4, "ringRadius": 4.9}]}}},
+    {"name": "p2-f1-max-q-aoa", "scenario": "leo", "showOrbit": false,
+     "camera": {"yaw": 0, "pitch": 0, "distance": 650, "fov": 45},
+     "settings": {"post": {"exposure": {"mode": "manual", "ev100": 17}}, "cloud": {"enabled": false}, "probe": {"enabled": false},
+                  "transparency": {"testBackdrop": true},
+                  "plume": {"testEngines": [
+                    {"engine": "F-1", "position": [0, 0, 230], "altitude": 13000, "ring": 4, "ringRadius": 4.9,
+                     "stream": [41.8, 0, -478.2]}]}}},
+    {"name": "p2-f1-crosswind", "scenario": "leo", "showOrbit": false,
+     "camera": {"yaw": 0, "pitch": 0, "distance": 450, "fov": 45},
+     "settings": {"post": {"exposure": {"mode": "manual", "ev100": 17}}, "cloud": {"enabled": false}, "probe": {"enabled": false},
+                  "transparency": {"testBackdrop": true},
+                  "plume": {"testEngines": [
+                    {"engine": "F-1", "position": [0, 0, 160], "altitude": 1000, "ring": 4, "ringRadius": 4.9,
+                     "stream": [25, 0, -100]}]}}},
     {"name": "p2-f1-30km", "scenario": "leo", "showOrbit": false,
      "camera": {"yaw": 0, "pitch": 0, "distance": 700, "fov": 45},
      "settings": {"post": {"exposure": {"mode": "manual", "ev100": 16}}, "cloud": {"enabled": false}, "probe": {"enabled": false},

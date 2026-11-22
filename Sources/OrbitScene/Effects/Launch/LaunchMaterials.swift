@@ -86,9 +86,10 @@ public enum LaunchMaterials {
         m.albedo = [ParticleColor(0.6, 0.56, 0.52), ParticleColor(0.8, 0.78, 0.76), ParticleColor(gray: 0.88)][band]
         m.opticalDepth = [1.4, 0.9, 0.4][band]
         m.phaseG = [0.5, 0.6, 0.7][band]
-        // Of a life of minutes: a puff appears within half a second, as the
-        // plume's flame ends.
-        m.fadeIn = 0.001
+        // Of a life of minutes: a puff appears within a tenth of a second,
+        // or in flight over P2's plume's fade past the joint at the airspeed
+        // (`ExhaustTrail.fadeIn`, set each frame).
+        m.fadeIn = 0.0002
         m.fadeOut = 0.5
         m.dragCoefficient = 0.5
         m.spreadRate = 0.25

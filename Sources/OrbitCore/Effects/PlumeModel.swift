@@ -109,17 +109,28 @@ public struct PlumeState: Equatable {
     /// CO2, H2O and N2 diluting it through the mixture's molar mass); 0 for
     /// an exhaust without them.
     public var stoichiometricMixtureFraction: Double
-    /// The afterburning flame's length in air, m: Delichatsios's (1993)
-    /// turbulent jet diffusion flame, L_f = L* Dj √(ρj/ρa) / f_s, on the
-    /// fully expanded jet's diameter and density (Thring and Newby's, as the
-    /// core's), L* about 23 where momentum dominates, as it does for every
-    /// Apollo jet (`jetFlameLength`). The correlation is for a jet issuing
-    /// into still air: the vehicle's airspeed, a coflow that cuts the
-    /// entrainment and lengthens the flame (u∞/uj near 0.2 at max-Q), is
-    /// left out (P2's airflow work). The length the flame has wherever the
-    /// jet mixes with air (0 in vacuum and free-molecular flow, and for an
-    /// exhaust with nothing to burn); how strongly it burns is
-    /// `afterburning`, which fades from 28 to 40 km as the length grows.
+    /// The fully expanded jet's speed (m/s) and its momentum-equivalent
+    /// diameter in the air's density, Thring and Newby's Dj √(ρj/ρa) (m):
+    /// the source of its path in the stream (`JetPath`); 0 where it does not
+    /// mix with air.
+    public var jetVelocity: Double
+    public var momentumDiameter: Double
+    /// The afterburning flame's length in still air, m: Delichatsios's
+    /// (1993) turbulent jet diffusion flame, L_f = L* Dj √(ρj/ρa) / f_s, on
+    /// the fully expanded jet's diameter and density (Thring and Newby's, as
+    /// the core's), L* about 23 where momentum dominates, as it does for
+    /// every Apollo jet (`jetFlameLength`); for a jet issuing into still air.
+    public var stillFlameLength: Double
+    /// The flame's length in the stream the jet issues into, m: the still
+    /// air's times `JetPath.flameLengthening`, where the jet has diluted as
+    /// much as the still-air flame at its tip. The vehicle's airspeed is a
+    /// coflow that cuts the entrainment and lengthens it (the velocity
+    /// ratio near 0.2 at max-Q); a crossflow (an angle of attack, a wind)
+    /// shortens it, and a counterflow (a retro's into the oncoming air) to
+    /// the jet's penetration into it. The length the flame has wherever the
+    /// jet mixes with air (0 in vacuum and free-molecular flow, and for an exhaust with
+    /// nothing to burn); how strongly it burns is `afterburning`, which
+    /// fades from 28 to 40 km as the length grows.
     public var flameLength: Double
     /// How far the plume glows, for the visual calibration: the longer of
     /// the free expansion's, to where Simons' axial density has cooled the
@@ -167,8 +178,11 @@ public enum PlumeModel {
     /// Knudsen numbers bounding the transitional regime.
     static let continuumKnudsen = 0.01, freeMolecularKnudsen = 1.0
 
-    /// The plume of `spec` at `flowFraction` of its rated flow in `ambient`.
-    public static func state(_ spec: ExhaustSpec, flowFraction: Double, ambient: AtmosphereState) -> PlumeState {
+    /// The plume of `spec` at `flowFraction` of its rated flow in `ambient`,
+    /// issuing into a stream of `streamAlong` m/s along the jet (the
+    /// vehicle's airspeed, a coflow) and `streamAcross` across it.
+    public static func state(_ spec: ExhaustSpec, flowFraction: Double, ambient: AtmosphereState,
+                             streamAlong: Double = 0, streamAcross: Double = 0) -> PlumeState {
         let g = spec.exitGamma, f = max(0, flowFraction)
         let molar = spec.molarMass, R = gasConstant
         let me = NozzleFlow.supersonicMach(areaRatio: spec.areaRatio, gamma: g)
@@ -222,7 +236,7 @@ public enum PlumeModel {
 
         let ab = f > 0 ? spec.fuelRichFraction * afterburningFade(pressure: pa) : 0
         let fs = stoichiometricMixtureFraction(spec)
-        var core = 0.0, flame = 0.0, lumAir = 0.0
+        var core = 0.0, flame = 0.0, stillFlame = 0.0, lumAir = 0.0, jetSpeed = 0.0, dStar = 0.0
         if w > 0 && regime != .off && dj.isFinite && ambient.density > 0 {
             // Thring and Newby's effective diameter scales the jet by the
             // square root of its density over the air's.
@@ -231,11 +245,14 @@ public enum PlumeModel {
             let lau = 4.2 + 1.1 * mj * mj
             core = lau * dj * (rhoJ / ambient.density).squareRoot()
             let ta = ambient.temperature
+            jetSpeed = mj * (g * R * tj / molar).squareRoot()
+            dStar = dj * (rhoJ / ambient.density).squareRoot()
             if fs > 0 {
-                let uj = mj * (g * R * tj / molar).squareRoot()
-                flame = jetFlameLength(diameter: dj, densityRatio: rhoJ / ambient.density,
-                                       stoichiometricMixtureFraction: fs, velocity: uj,
-                                       flameTemperature: flameTemperature, ambientTemperature: ta)
+                stillFlame = jetFlameLength(diameter: dj, densityRatio: rhoJ / ambient.density,
+                                            stoichiometricMixtureFraction: fs, velocity: jetSpeed,
+                                            flameTemperature: flameTemperature, ambientTemperature: ta)
+                flame = stillFlame * JetPath.flameLengthening(stillLength: stillFlame, diameter: dStar, speed: jetSpeed,
+                                                              streamAlong: streamAlong, streamAcross: streamAcross)
             }
             // Beyond the core (inert) or the flame's tip (burning) the
             // centreline's excess temperature falls as 1/x, as the mixture
@@ -284,7 +301,8 @@ public enum PlumeModel {
             shockCellCount: cells, machDisk: disk, simonsCoefficient: ap, limitingVelocity: uLim,
             throatRadius: rStar, throatDensity: rhoStar, afterburning: ab,
             flameFrontDistance: spec.film != nil && ab > 0 && continuum ? 0.75 * de : nil,
-            potentialCoreLength: core, stoichiometricMixtureFraction: fs, flameLength: flame,
+            potentialCoreLength: core, stoichiometricMixtureFraction: fs, jetVelocity: jetSpeed,
+            momentumDiameter: dStar, stillFlameLength: stillFlame, flameLength: flame,
             luminousLength: luminous, gamma: g)
     }
 

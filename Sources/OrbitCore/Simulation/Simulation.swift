@@ -288,6 +288,7 @@ public final class Simulation {
                               snapshot: s)
         }
         v.airspeed = air.length
+        v.airVelocity = air
         v.dynamicPressure = 0.5 * env.atm.density * v.airspeed * v.airspeed
         v.mach = env.atm.speedOfSound > 0 && env.atm.density > 0 ? v.airspeed / env.atm.speedOfSound : 0
         v.angleOfAttack = v.airspeed > 1e-6 ? angleBetween(v.attitude.rotate(.unitX), air) : 0

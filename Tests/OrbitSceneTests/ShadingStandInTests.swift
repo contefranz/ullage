@@ -62,7 +62,9 @@ final class ShadingStandInTests: XCTestCase {
         XCTAssertLessThan(total / (30 * 30), 3e6)
         let lights = PlumeLights.lights(s)
         XCTAssertEqual(lights.count, 1, "the five F-1s as one cluster")
-        XCTAssertEqual(lights[0].luminousIntensity, total, accuracy: 1e-6 * total)
+        // Within 1 %: a single F-1 slows to rest in the air sooner than the
+        // five's jet, so it is handed over to the trail a little earlier.
+        XCTAssertEqual(lights[0].luminousIntensity, total, accuracy: 1e-2 * total)
         for e in s.emitters {
             let d = e.exit - lights[0].centre
             let across = (d - lights[0].axis * d.dot(lights[0].axis)).length

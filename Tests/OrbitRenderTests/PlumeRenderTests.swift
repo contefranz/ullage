@@ -101,10 +101,14 @@ final class PlumeRenderTests: XCTestCase {
         XCTAssertEqual(system.frame.lights.count, 1, "the five F-1s as one light")
         let scene = shot.scene(try shot.prepare(system: s.system))
         let expected = try XCTUnwrap(PlumeLights.lights(scene).first)
+        print(String(format: "PlumeRenderTests: P2's light over the untrimmed reference %.4f",
+                     system.frame.lights[0].luminousIntensity / expected.luminousIntensity))
         // P2's members are trimmed to the exposure (their light marched
-        // across what can show) and kept on quantised keys: within 1 %.
+        // across what can show) and kept on quantised keys, while the
+        // hand-over's fade does not move with the trim: within 2 % (0.4 %
+        // at the airflow's review).
         XCTAssertEqual(system.frame.lights[0].luminousIntensity, expected.luminousIntensity,
-                       accuracy: 1e-2 * expected.luminousIntensity)
+                       accuracy: 2e-2 * expected.luminousIntensity)
         XCTAssertTrue(system.lastClusters.contains { $0.detail == .march })
     }
 

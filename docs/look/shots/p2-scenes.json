@@ -17,6 +17,9 @@
      "camera": {"yaw": 160, "pitch": -5, "distance": 18, "fov": 50}},
     {"name": "p2-sps-burn-day", "scenario": "as506-parking-orbit", "showOrbit": false,
      "advance": ["stage", "wait:6", "throttle:1", "wait:40"],
-     "camera": {"yaw": 150, "pitch": -10, "distance": 30, "fov": 50}}
+     "camera": {"yaw": 150, "pitch": -10, "distance": 30, "fov": 50}},
+    {"name": "p2-trail-joint", "scenario": "as506-pad", "showOrbit": false, "advance": ["met:60"],
+     "camera": {"yaw": 100, "pitch": -3, "distance": 2200, "fov": 50},
+     "settings": {"post": {"exposure": {"mode": "manual", "ev100": 15}}, "cloud": {"enabled": false}}}
   ]
 }
