@@ -204,7 +204,7 @@ final class CloudRenderTests: XCTestCase {
     static func padHorizonShot(regime: String, advance: [String] = []) -> SnapshotSpec.Shot {
         var shot = deckShot(regime: regime, width: 320, height: 200)
         shot.name = "c2-pad-horizon"
-        shot.scenario = "as506-pad"
+        shot.scenario = "as506-first-motion"
         shot.advance = advance
         shot.camera = SnapshotSpec.CameraSpec(yaw: -60, pitch: -3, distance: 300, fov: 30)
         return shot
@@ -369,7 +369,7 @@ final class CloudRenderTests: XCTestCase {
                                   observation: CloudObservation(low: 0, mid: 0, high: 0))
         clear.radius = 300_000
         let weather = try Self.uniformWeather(low: 1, epoch: pad.time, overrides: [clear])
-        var shot = SnapshotSpec.Shot(name: "a8-sky", scenario: "apollo8-pad",
+        var shot = SnapshotSpec.Shot(name: "a8-sky", scenario: "apollo8-first-motion",
                                      camera: SnapshotSpec.CameraSpec(yaw: -100, pitch: 8, distance: 300, fov: 60))
         shot.width = 64
         shot.height = 40
@@ -727,7 +727,7 @@ final class CloudRenderTests: XCTestCase {
         let clear = CloudOverride(latitude: pad.latitude, longitude: pad.longitude, time: pad.time,
                                   observation: CloudObservation(low: 0, mid: 0, high: 0))
         let weather = try Self.uniformWeather(low: 1, epoch: pad.time, overrides: [clear])
-        var shot = SnapshotSpec.Shot(name: "a8-shadow", scenario: "apollo8-pad",
+        var shot = SnapshotSpec.Shot(name: "a8-shadow", scenario: "apollo8-first-motion",
                                      camera: SnapshotSpec.CameraSpec(yaw: -100, pitch: 8, distance: 300, fov: 60))
         shot.width = 64
         shot.height = 40
@@ -935,7 +935,7 @@ final class CloudRenderTests: XCTestCase {
     /// AS-506's ascent at `met` s, looking down across the deck.
     static func climbShot(met: Double) -> SnapshotSpec.Shot {
         var shot = deckShot(width: 160, height: 160)
-        shot.scenario = "as506-pad"
+        shot.scenario = "as506-first-motion"
         shot.advance = [String(format: "met:%.2f", met)]
         shot.settings.atmosphere.enabled = true
         return shot
@@ -1027,8 +1027,8 @@ final class CloudCostTests: XCTestCase {
         defer { _ = lock }
         let s = try SnapshotRenderer(device: try XCTUnwrap(RenderDevice.shared))
         let shots: [(String, String, SnapshotSpec.CameraSpec, [String])] = [
-            ("pad", "as506-pad", SnapshotSpec.CameraSpec(yaw: -60, pitch: 12, distance: 300, fov: 60), []),
-            ("ascent-60s", "as506-pad", SnapshotSpec.CameraSpec(yaw: 149, pitch: -25, distance: 400, fov: 60), ["met:60"]),
+            ("pad", "as506-first-motion", SnapshotSpec.CameraSpec(yaw: -60, pitch: 12, distance: 300, fov: 60), []),
+            ("ascent-60s", "as506-first-motion", SnapshotSpec.CameraSpec(yaw: 149, pitch: -25, distance: 400, fov: 60), ["met:60"]),
             ("leo", "as506-parking-orbit", SnapshotSpec.CameraSpec(yaw: -34.4, pitch: 30, distance: 70, fov: 60), []),
             // The clouds off screen (the camera above the stack looking up):
             // R3's probe's state alone, with the shadow and sky maps.
@@ -1631,7 +1631,7 @@ final class CloudMapTests: XCTestCase {
     /// above 6 km none.
     func testShadowMapUnderTheSlab() throws {
         var shot = CloudRenderTests.slabShot(regime: "march")
-        shot.scenario = "as506-pad"
+        shot.scenario = "as506-first-motion"
         shot.camera = SnapshotSpec.CameraSpec(yaw: -60, pitch: 12, distance: 300, fov: 60)
         let (clouds, s) = try render(shot)
         let frame = try XCTUnwrap(clouds.lastFrame.frame)

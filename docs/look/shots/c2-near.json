@@ -1,16 +1,16 @@
 {
   "shots": [
-    {"name": "c2-deck-below", "scenario": "as506-pad", "advance": ["met:20"], "showOrbit": false, "width": 960, "height": 600,
+    {"name": "c2-deck-below", "scenario": "as506-first-motion", "advance": ["met:20"], "showOrbit": false, "width": 960, "height": 600,
      "reference": "a homogeneous deck (τ 10, 1-2.5 km) from below, the ascent climbing into it",
      "camera": {"yaw": 149, "pitch": -12, "distance": 150, "fov": 60},
      "settings": {"cloud": {"lookDev": {"cover": 1, "opticalDepth": 10, "base": 1000, "thickness": 1500}}}},
-    {"name": "c2-deck-inside", "scenario": "as506-pad", "advance": ["met:30"], "showOrbit": false, "width": 960, "height": 600,
+    {"name": "c2-deck-inside", "scenario": "as506-first-motion", "advance": ["met:30"], "showOrbit": false, "width": 960, "height": 600,
      "camera": {"yaw": 149, "pitch": -12, "distance": 150, "fov": 60},
      "settings": {"cloud": {"lookDev": {"cover": 1, "opticalDepth": 10, "base": 1000, "thickness": 1500}}}},
-    {"name": "c2-deck-top", "scenario": "as506-pad", "advance": ["met:43"], "showOrbit": false, "width": 960, "height": 600,
+    {"name": "c2-deck-top", "scenario": "as506-first-motion", "advance": ["met:43"], "showOrbit": false, "width": 960, "height": 600,
      "camera": {"yaw": 149, "pitch": 10, "distance": 150, "fov": 60},
      "settings": {"cloud": {"lookDev": {"cover": 1, "opticalDepth": 10, "base": 1000, "thickness": 1500}}}},
-    {"name": "c2-deck-above", "scenario": "as506-pad", "advance": ["met:55"], "showOrbit": false, "width": 960, "height": 600,
+    {"name": "c2-deck-above", "scenario": "as506-first-motion", "advance": ["met:55"], "showOrbit": false, "width": 960, "height": 600,
      "camera": {"yaw": 149, "pitch": 25, "distance": 300, "fov": 60},
      "settings": {"cloud": {"lookDev": {"cover": 1, "opticalDepth": 10, "base": 1000, "thickness": 1500}}}}
   ]

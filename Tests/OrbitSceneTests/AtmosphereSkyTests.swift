@@ -221,7 +221,7 @@ final class AtmosphereSkyTests: XCTestCase {
     /// vessel pass multiplies by the lux is that times R1's sunlight
     /// colour; the sky lights a horizontal surface with about 5 klx.
     func testSunAndSkyAtTheDawnPad() throws {
-        let s = scene(.apollo8Pad)
+        let s = scene(.apollo8FirstMotion)
         let frame = try XCTUnwrap(AtmosphereFrame(scene: s, tables: lut))
         XCTAssertTrue(frame.isInside)
         XCTAssertEqual(asin(frame.cosSunZenith) * 180 / .pi, 7, accuracy: 1.5, "the Sun about 7° up")
@@ -276,12 +276,12 @@ final class AtmosphereSkyTests: XCTestCase {
     /// Figure coordinates: the camera on the pad is a few metres above the
     /// sphere of radius a, though the ellipsoid there is 4.9 km inside it.
     func testFigureCoordinates() throws {
-        let frame = try XCTUnwrap(AtmosphereFrame(scene: scene(.apollo8Pad), tables: lut))
+        let frame = try XCTUnwrap(AtmosphereFrame(scene: scene(.apollo8FirstMotion), tables: lut))
         XCTAssertEqual(frame.cameraAltitude, 0, accuracy: 300, "the camera near the pad's elevation")
         XCTAssertEqual(frame.up.length, 1, accuracy: 1e-12)
         XCTAssertEqual(frame.sunAzimuth.dot(frame.up), 0, accuracy: 1e-12)
         // A view straight at the Sun is at its zenith angle and azimuth 0.
-        let toSun = frame.skyViewAngles(scene(.apollo8Pad).sun.direction)
+        let toSun = frame.skyViewAngles(scene(.apollo8FirstMotion).sun.direction)
         XCTAssertEqual(toSun.cosZenith, frame.cosSunZenith, accuracy: 1e-9)
         XCTAssertEqual(toSun.cosAzimuth, 1, accuracy: 1e-9)
     }

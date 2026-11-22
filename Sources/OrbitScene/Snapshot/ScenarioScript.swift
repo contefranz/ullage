@@ -6,13 +6,18 @@ import OrbitCore
 /// the app's keys use (`Simulation.advance`, `stage`, the ELS backup, the
 /// throttle, the autopilot, warp). Deterministic: no wall-clock step budget.
 ///
-/// - `met:<s>`: run until the mission clock (the scenario's zero, else its
-///   start) reads s seconds.
+/// - `met:<s>`: run until the mission clock (a terminal count's range zero,
+///   else the scenario's zero, else its start) reads s seconds; a count
+///   holding short of s is resumed first, as Space would.
+/// - `count`: resume a terminal count that holds (Space on the pad).
 /// - `wait:<s>`: run s seconds of simulation time.
 /// - `ev:<text>`: run until an event the simulation logs, or the IU logs,
-///   contains `text` (case-insensitive), e.g. `ev:S-IC OECO`, `ev:mains deployed`.
+///   contains `text` (case-insensitive), e.g. `ev:S-IC outboard engine
+///   cutoff`, `ev:mains deployed`.
 /// - `liftoff`: run until the focus vessel leaves the ground.
 /// - `t<n>`: run until the IU starts time base n (`t3`).
+/// - A holding count is resumed first by `ev:`, `liftoff` and `t<n>` too:
+///   nothing they wait for comes while it holds. `wait:` leaves it holding.
 /// - `stage`: Space: the next staging event, or the ELS backup's next step
 ///   once the CM's entry program is awake.
 /// - `throttle:<0...1>`, `warp:<x>`, `autopilot:<mode|off>` (a mode's name,
@@ -21,6 +26,7 @@ import OrbitCore
 public struct ScenarioScript: Equatable {
     public enum Command: Equatable {
         case met(Double)
+        case count
         case wait(Double)
         case event(String)
         case liftoff
@@ -68,6 +74,7 @@ public struct ScenarioScript: Equatable {
         }
         switch word {
         case "met": return .met(try number())
+        case "count": return .count
         case "wait": return .wait(try number())
         case "ev": guard !arg.isEmpty else { throw Failure.badValue(text) }; return .event(arg)
         case "liftoff": return .liftoff
@@ -113,11 +120,15 @@ public struct ScenarioScript: Equatable {
             let label = "command \(index + 1)"
             switch command {
             case .met(let s):
-                let remaining = s - (sim.time - zero)
+                if let c = sim.terminalCount, c.isHolding, s > c.hold { c.resume(at: sim.time, in: sim) }
+                let remaining = s - (sim.time - (sim.terminalCount?.rangeZero(at: sim.time) ?? zero))
                 if remaining > 0 { Self.advance(sim, remaining, observe: observe) }
+            case .count:
+                sim.terminalCount?.resume(at: sim.time, in: sim)
             case .wait(let s):
                 Self.advance(sim, s, observe: observe)
             case .event(let text):
+                sim.terminalCount?.resume(at: sim.time, in: sim)
                 let needle = text.lowercased()
                 let simEvents = sim.events.count
                 // What each IU had logged when the command began; an IU seen
@@ -133,9 +144,11 @@ public struct ScenarioScript: Equatable {
                     }
                 }
             case .liftoff:
+                sim.terminalCount?.resume(at: sim.time, in: sim)
                 try runUntil(sim, "\(label), liftoff", observe: observe) { $0.focus?.landed == nil }
             case .timeBase(let n):
                 guard let base = SaturnIU.TimeBase(rawValue: n) else { throw Failure.badValue("t\(n)") }
+                sim.terminalCount?.resume(at: sim.time, in: sim)
                 try runUntil(sim, "\(label), t\(n)", observe: observe) { sim in
                     sim.vessels.contains { ($0.flightProgram as? SaturnIU)?.timeBases[base] != nil }
                 }

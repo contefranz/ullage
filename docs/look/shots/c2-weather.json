@@ -136,7 +136,7 @@
   },
   {
    "name": "c2w-pad",
-   "scenario": "as506-pad",
+   "scenario": "as506-first-motion",
    "showOrbit": false,
    "width": 1280,
    "height": 800,
@@ -155,7 +155,7 @@
   },
   {
    "name": "c2w-pad-up",
-   "scenario": "as506-pad",
+   "scenario": "as506-first-motion",
    "showOrbit": false,
    "width": 1280,
    "height": 800,

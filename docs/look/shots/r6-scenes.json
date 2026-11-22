@@ -1,12 +1,12 @@
 {
   "shots": [
-    {"name": "r6-pad-deck", "scenario": "as506-pad", "showOrbit": false, "reference": "the slots around a real vehicle",
+    {"name": "r6-pad-deck", "scenario": "as506-first-motion", "showOrbit": false, "reference": "the slots around a real vehicle",
      "camera": {"yaw": -60, "pitch": 8, "distance": 230, "fov": 45},
      "settings": {"transparency": {"testEmitters": [
        {"kind": "slab", "position": [0, 0, 10], "size": 140},
        {"kind": "sprites", "position": [30, -10, -40], "size": 25, "count": 16}]}},
      "aovs": ["effectDepth", "effectLayers", "effectFront"]},
-    {"name": "r6-liftoff", "scenario": "as506-pad", "showOrbit": false, "advance": ["liftoff", "wait:6"],
+    {"name": "r6-liftoff", "scenario": "as506-first-motion", "showOrbit": false, "advance": ["liftoff", "wait:6"],
      "camera": {"yaw": -60, "pitch": 5, "distance": 260, "fov": 45},
      "settings": {"transparency": {"testEmitters": [
        {"kind": "slab", "position": [0, 0, 70], "size": 160},

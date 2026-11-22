@@ -306,7 +306,7 @@ extension FrameGraphTests {
             }
             var bytes: [UInt8] { buffer.map { Array(UnsafeRawBufferPointer(start: $0.contents(), count: $0.length)) } ?? [] }
         }
-        let scenario = try XCTUnwrap(Scenario.named("as506-pad"))
+        let scenario = try XCTUnwrap(Scenario.named("as506-first-motion"))
         let sim = scenario.build(SceneRendererTests.system)
         var camera = OrbitCamera()
         let v = try XCTUnwrap(sim.focus)
@@ -528,7 +528,7 @@ extension FrameGraphTests {
             }
             func encode(_ f: FrameContext, _ e: PassEncoding) {}
         }
-        let scenario = try XCTUnwrap(Scenario.named("as506-pad"))
+        let scenario = try XCTUnwrap(Scenario.named("as506-first-motion"))
         let sim = scenario.build(SceneRendererTests.system)
         var camera = OrbitCamera()
         let v = try XCTUnwrap(sim.focus)

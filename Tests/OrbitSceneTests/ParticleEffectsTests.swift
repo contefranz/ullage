@@ -271,7 +271,7 @@ final class ParticleEffectsTests: XCTestCase {
     /// free-fall anchor at the vehicle's state then, wherever the frame
     /// lands; a frame drawn again spawns nothing; a new simulation resets.
     func testSessionBurstsAtTrueAge() throws {
-        let (sim, camera) = try open("as506-pad")
+        let (sim, camera) = try open("as506-first-motion")
         let x = SceneExtractor(), recorder = Recorder(), session = EffectSession(producers: [recorder])
         _ = session.frame(x.extract(sim: sim, camera: camera, viewport: Self.viewport, realTime: 0),
                           settings: ParticleSettings())
@@ -311,7 +311,7 @@ final class ParticleEffectsTests: XCTestCase {
         XCTAssertEqual(recorder.events.filter { $0.kind == .liftoff }.count, 1)
         XCTAssertTrue(on.requests.isEmpty)
         // A new simulation resets everything.
-        let (sim2, camera2) = try open("as506-pad")
+        let (sim2, camera2) = try open("as506-first-motion")
         let fresh = session.frame(SceneExtractor().extract(sim: sim2, camera: camera2, viewport: Self.viewport, realTime: 0),
                                   settings: ParticleSettings())
         XCTAssertTrue(fresh.resets)
@@ -388,7 +388,7 @@ final class ParticleEffectsTests: XCTestCase {
     /// AS-506's pad, the launch day's sounding and its winds (sim.atmosphere(of:)),
     /// not the bare US76 of the body.
     func testAirIsTheSimulationsAtmosphere() throws {
-        let (sim, camera) = try open("as506-pad")
+        let (sim, camera) = try open("as506-first-motion")
         let scene = SceneExtractor().extract(sim: sim, camera: camera, viewport: Self.viewport, realTime: 0)
         let earth = try XCTUnwrap(sim.system.bodies.first { $0.id == 399 })
         let sounding = try XCTUnwrap(sim.atmosphere(of: earth))
@@ -559,7 +559,7 @@ final class ParticleEffectsTests: XCTestCase {
     /// particles feel through the turning air there (g less its
     /// airAcceleration), so the two frames agree.
     func testBodyFixedGravityIsTheEffectiveGravity() throws {
-        let (sim, camera) = try open("as506-pad")
+        let (sim, camera) = try open("as506-first-motion")
         let scene = SceneExtractor().extract(sim: sim, camera: camera, viewport: Self.viewport, realTime: 0)
         let earth = try XCTUnwrap(scene.bodies.first { $0.id == 399 })
         func somigliana(_ phi: Double) -> Double {

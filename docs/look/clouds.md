@@ -36,7 +36,8 @@ docs/m16/design-earth-moon.md, clouds; plan: docs/m16/plan.md, C2.
   (`ORBITSIM_WEATHER_SEED` forces one).
 - **Specs**: `docs/look/shots/c2.json` (the cloud slab, look-dev goldens),
   `c2-scenes.json` (the contact sheet: Apollo 8's pad and ascent on
-  `apollo8-pad`, AS-506's pad, ascent, orbit and terminator, the climb),
+  `apollo8-first-motion`, AS-506's pad, ascent, orbit and terminator, the
+  climb),
   `c2-near.json` (the ascent under, inside, on top of and over a uniform
   deck).
 
@@ -547,7 +548,8 @@ with no 22° halo.
   is the layer model's. ERA5's total column liquid and ice water would vary
   the brightness of thin and thick decks; adding them is two OSCLOUD1
   planes, a change to C1's tool and a 3-6 minute re-fetch per mission (the fetches took 2:42-5:44).
-- **Apollo 8:** `apollo8-pad` is a look-development stand-in: AS-506's
+- **Apollo 8:** `apollo8-pad` (and `apollo8-first-motion`, its stack at
+  first motion, which the shots use) is a look-development stand-in: AS-506's
   stack, physics unchanged, dressed as AS-503 on Apollo 8's day. The
   parking orbit on that day is M2's, so the test harness
   (`CloudApollo8Shots`) only draws a daylit orbit.

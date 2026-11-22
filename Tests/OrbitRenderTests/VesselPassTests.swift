@@ -311,7 +311,7 @@ final class VesselPassTests: XCTestCase {
     /// above the horizon away from the Sun, with the stack and the pad left
     /// out; its light for a test vessel, and the view's forward, up and
     /// right (world).
-    func dawnPad(width: Int, height: Int, fovY: Double, pitch: Double = 10, scenario: Scenario = .apollo8Pad) throws
+    func dawnPad(width: Int, height: Int, fovY: Double, pitch: Double = 10, scenario: Scenario = .apollo8FirstMotion) throws
         -> (scene: RenderScene, light: LegacyLight, forward: Vec3, up: Vec3, right: Vec3) {
         let sim = scenario.build(Self.system)
         var camera = OrbitCamera()
@@ -503,7 +503,7 @@ final class VesselPassTests: XCTestCase {
     ///   pixels it touches (0.000).
     /// Deleting the discard, or moving the threshold past either, fails it.
     func testWireDepthStartsAtHalfCoverage() throws {
-        let t = try PadTube(pad: dawnPad(width: PadTube.w, height: PadTube.h, fovY: PadTube.fovY, scenario: .saturnVPad))
+        let t = try PadTube(pad: dawnPad(width: PadTube.w, height: PadTube.h, fovY: PadTube.fovY, scenario: .saturnVFirstMotion))
         let r = try airRenderer(clouds: true)
         let clear = try airRenderer(clouds: false)
         let cloudy = try tubeLight(t, r, radius: nil), sky = try tubeLight(t, clear, radius: nil)
@@ -842,7 +842,7 @@ final class VesselPassTests: XCTestCase {
     /// the deck show beside the vehicle; nothing fails. (ORBITSIM_LOOKDEV_DIR
     /// keeps the frame, r2-pad-site.png.)
     func testDrawsThePad() throws {
-        let scenario = try XCTUnwrap(Scenario.named("as506-pad"))
+        let scenario = try XCTUnwrap(Scenario.named("as506-first-motion"))
         let sim = scenario.build(Self.system)
         var camera = OrbitCamera()
         let v = try XCTUnwrap(sim.focus)
@@ -878,13 +878,13 @@ final class VesselPassTests: XCTestCase {
             if db + dg > 30 { changed += 1 }
         }
         XCTAssertGreaterThan(changed, w * h / 50, "the tower, deck and pad cover a good part of the view")
-        XCTAssertEqual(VesselPass.countdown(at: sim.time).name, LC39A.Countdown.apollo11.name)
+        XCTAssertEqual(LaunchCountdown.nearest(sim.time).name, LC39A.Countdown.apollo11.name)
     }
 
     /// The F-1s light the vehicle's base at liftoff: with plume lights the
     /// lower stack is brighter than without, and the upper stack is not.
     func testPlumesLightTheBase() throws {
-        let scenario = try XCTUnwrap(Scenario.named("as506-pad"))
+        let scenario = try XCTUnwrap(Scenario.named("as506-first-motion"))
         let sim = scenario.build(Self.system)
         sim.paused = false
         sim.stepBudget = nil
@@ -928,9 +928,9 @@ final class VesselPassTests: XCTestCase {
         let quarter = ProcessInfo.processInfo.environment["ORBITSIM_PERF_QUARTER"] == "1"
         let (w, h) = quarter ? (1512, 982) : (3024, 1964)
         let cases: [(String, String, [String], (Double, Double, Double, Double))] = [
-            ("pad, stack and LC-39A", "as506-pad", [], (-1.2, 0.12, 190, 50)),
-            ("pad, the base close", "as506-pad", [], (-0.6, -0.03, 62, 62)),
-            ("liftoff, plume lights", "as506-pad", ["met:3"], (2.6, -0.03, 62, 62)),
+            ("pad, stack and LC-39A", "as506-first-motion", [], (-1.2, 0.12, 190, 50)),
+            ("pad, the base close", "as506-first-motion", [], (-0.6, -0.03, 62, 62)),
+            ("liftoff, plume lights", "as506-first-motion", ["met:3"], (2.6, -0.03, 62, 62)),
             ("LEO, the stack", "as506-parking-orbit", [], (-0.6, 0.35, 70, 50)),
             ("LEO, CSM close", "as506-parking-orbit", ["stage", "wait:20"], (3.5, 0.3, 16, 40)),
         ]

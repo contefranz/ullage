@@ -55,6 +55,18 @@ public final class Simulation {
     /// solar system is shared between simulations, so the weather lives here.
     public var atmospheres: [Int: Atmosphere] = [:]
 
+    /// The terminal count of the launch vehicle on its pad, if the scenario
+    /// has one (`TerminalCount`): run at the start of each of its vehicle's
+    /// steps, before the flight program, holding the vehicle down until its
+    /// release. It stays after the launch: the mission clock and the pad
+    /// count from its range zero. A Saturn's IU shows its events
+    /// (`SaturnIU.terminalCount`).
+    public var terminalCount: TerminalCount? {
+        didSet {
+            if let v = terminalCount?.vehicle, let iu = v.flightProgram as? SaturnIU { iu.terminalCount = terminalCount }
+        }
+    }
+
     public init(system: SolarSystem, time: Epoch) {
         self.system = system
         self.time = time
@@ -131,7 +143,9 @@ public final class Simulation {
             for t in v.thrusters { t.level = 0 }
             return
         }
+        if let c = terminalCount, c.vehicle === v { c.update(v, in: self) }
         v.flightProgram?.update(v, in: self)
+        if let c = terminalCount, c.vehicle === v { c.programmed(v, in: self) }
         v.applyThrottles()
         v.groupSwitch = .infinity   // the phase-plane law sets it again if it runs
         var cmd = v.rotationInput
@@ -171,6 +185,8 @@ public final class Simulation {
                 checkReferenceBody(v, snapshot: snap)
             }
         }
+        // The count's first motion and liftoff switches, as of the step's end.
+        if let c = terminalCount, let v = c.vehicle, v.status != .crashed { c.stepped(v, in: self) }
     }
 
     /// Geodetic altitude at `r` and the air there.
@@ -197,11 +213,14 @@ public final class Simulation {
         let cpX = aero.map(v.centerOfPressureX) ?? { _ in 0 }
         let planform = v.planform
         let chutes = v.parachutes.contains(where: \.isDeployed)
+        // The controlled release's pull, right after a hold-down release.
+        let restraint = terminalCount?.restraint(v)
 
         func deriv(_ t: Epoch, _ s: RigidState) -> RigidState {
             let snap = system.snapshot(at: t)
             var a = system.acceleration(relativeTo: ref, at: s.r, snapshot: snap)
             a += s.q.rotate(thrustBody) / mass
+            if let restraint { a += restraint(s.r, s.q, snap.orientation(ref)) / mass }
             var torque = torqueBody
             if let atm = atmosphere {
                 let alt = ref.geodetic(s.r, orientation: snap.orientation(ref)).height
@@ -254,7 +273,15 @@ public final class Simulation {
         let thrust = v.attitude.rotate(v.thrustForceAndTorque(ambientPressure: env.atm.pressure, seaLevelPressure: p0).force)
         let g = system.acceleration(relativeTo: v.reference, at: v.position, snapshot: s0)
         let up = v.reference.vertical(at: v.position, orientation: s0.orientation(v.reference))
-        if (thrust + g * v.mass).dot(up) > 0 {
+        // What its engines push with, held or not (the hold-down's thrust
+        // buildup reads on the panel).
+        v.thrustAcceleration = thrust.length / v.mass
+        // The hold-down arms hold it whatever its thrust, until released;
+        // then the controlled release's rods, until its thrust exceeds its
+        // weight and their force.
+        let held = terminalCount?.holdsDown(v) ?? false
+        let rods = terminalCount?.restraintOnThePad(v) ?? 0
+        if !held, (thrust + g * v.mass).dot(up) > rods {
             v.landed = nil
             v.status = .flying
             log("\(v.name): liftoff")

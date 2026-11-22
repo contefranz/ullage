@@ -3,10 +3,10 @@ import Foundation
 /// What `orbitsnap` renders: shots, each a scenario advanced by a script and
 /// seen by a camera. A JSON file of these (`docs/look/shots/<track>.json`)
 /// is a track's look-dev set; every member but `name` and `scenario` may be
-/// left out.
+/// left out. For example (`SnapshotSpecTests` runs it):
 ///
 ///     {"shots": [{"name": "staging", "scenario": "as506-pad",
-///                 "advance": ["ev:S-IC OECO", "wait:0.8"],
+///                 "advance": ["ev:S-IC outboard engine cutoff", "wait:0.8"],
 ///                 "camera": {"yaw": 70, "pitch": 15, "distance": 140}}]}
 public struct SnapshotSpec: Codable, Equatable {
     public var shots: [Shot]

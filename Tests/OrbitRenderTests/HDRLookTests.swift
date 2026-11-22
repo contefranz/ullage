@@ -356,7 +356,7 @@ extension HDRLookTests {
                 broke = f.breaksScene
             }
         }
-        let scenario = try XCTUnwrap(Scenario.named("as506-pad"))
+        let scenario = try XCTUnwrap(Scenario.named("as506-first-motion"))
         let sim = scenario.build(SceneRendererTests.system)
         var camera = OrbitCamera()
         let v = try XCTUnwrap(sim.focus)
@@ -442,7 +442,7 @@ extension HDRLookTests {
                                   plan: HDRTargetPlan(outputFormat: .bgra8Unorm_srgb, sampleCount: 4))
         XCTAssertEqual(r.failures, [:])
         r.settings = settings(ev100: -4)
-        var shot = SnapshotSpec.Shot(name: "pad", scenario: "as506-pad")
+        var shot = SnapshotSpec.Shot(name: "pad", scenario: "as506-first-motion")
         shot.width = 160
         shot.height = 100
         let prepared = try shot.prepare(system: SceneRendererTests.system)
@@ -497,7 +497,7 @@ extension HDRLookTests {
     /// From the pad, the sky does not hide the Sun: A2's composite writes no
     /// depth, so the probe sees all of its disc through the air.
     func testSunSeenThroughTheSky() throws {
-        var shot = SnapshotSpec.Shot(name: "pad", scenario: "as506-pad")
+        var shot = SnapshotSpec.Shot(name: "pad", scenario: "as506-first-motion")
         shot.width = 160
         shot.height = 100
         let prepared = try shot.prepare(system: SceneRendererTests.system)

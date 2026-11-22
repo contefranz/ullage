@@ -114,9 +114,9 @@ public final class ShadowPass: RenderPass {
             partCasters = partCasters.filter { $0.value.part != nil }
         }
         if let sites {
-            let countdown = SiteMeshes.countdown(at: scene.clock.simTime)
-            let rangeTime = countdown.rangeTime(at: scene.clock.simTime)
             for site in scene.sites where site.name == SiteMeshes.name && Self.isLit(site, sun: scene.sun) {
+                let countdown = site.countdown(at: scene.clock.simTime)
+                let rangeTime = countdown.rangeTime(at: scene.clock.simTime)
                 casters.append(ShadowCaster(kind: .site(site.name), centre: site.origin + site.orientation * sites.centre,
                                             radius: sites.radius))
                 draws.append(.site(site, sites, rangeTime, countdown))
@@ -568,12 +568,6 @@ final class SiteMeshes {
         return m
     }
 
-    /// The countdown the site stands in at `epoch`: the launch nearest it,
-    /// Apollo 8's or Apollo 11's. Until the scene carries the site's state,
-    /// the swing arms follow it.
-    static func countdown(at epoch: Epoch) -> LC39A.Countdown {
-        [LC39A.Countdown.apollo8, .apollo11].min { abs($0.rangeTime(at: epoch)) < abs($1.rangeTime(at: epoch)) }!
-    }
 
     private init?(device: MTLDevice) {
         var elements: [Element] = [], spheres: [(centre: Vec3, radius: Double)] = []
