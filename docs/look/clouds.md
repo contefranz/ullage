@@ -191,8 +191,9 @@ zonal means stay the climatology's.
   `densityScale` (5-11 by cover): in cloud its extinction averages C1's β,
   peaks at 3-4 times that.
 - **Far** is a surface layer: per pixel, each layer's cover times the slab
-  LUT at C1's in-cloud optical depth (`farDensity` 1), with the same phase,
-  Sun and sky. Seen from below it takes the cover along the ray instead,
+  LUT at C1's in-cloud optical depth (`farDensity` 1; the mid layer's
+  lenses at the march's own column depth, `CloudCoverage.columnDepth`), with
+  the same phase, Sun and sky. Seen from below it takes the cover along the ray instead,
   1 − (1 − c)^(1 + span / cell): a slant ray sees through only where the
   gaps of every cell on the way line up (the span the low layer's depth, or
   the mid layer's lens band's effective 350 m, times tan θ; the cells a
@@ -355,10 +356,18 @@ scene at the break), so the clouds' own share is the difference:
 
 ## For other tracks
 
-- **The cloud shadow** (E2's ground, R2/R4's vessels, P2's plumes): add
-  `.cloudShadow` to a module's headers and call
+- **The cloud shadow** (the planet's ground, R2/R4's vessels, P2's plumes):
+  add `.cloudShadow` to a module's headers and call
   `orbit_cloudSunTransmittance(p, atmosphere, texture 24, sampler 14)` at a
-  camera-relative point. It reads `AtmosphereUniforms.cloudShadowMatrix`
+  camera-relative point: the direct beam, e^−τ, for what is lit by the Sun
+  as a light (the vessels and LC-39A since the look follow-up, the plumes).
+  The Earth's ground (the planet and tiled-planet modules) takes
+  `orbit_cloudGroundTransmittance(p, μ0, ...)` instead: the Sun's flux
+  through a conservative slab of normal optical depth τμ0, direct and
+  diffuse, 2 / (2 + (1 − g)τμ0) with g 0.85 (Bohren 1987;
+  `CloudOptics.slabTransmittance`): 0.4 of the flux under τ 20, 0.97 under
+  thin cirrus. R3's probe faces leave it out (their rays start at the probe,
+  not the camera). It reads `AtmosphereUniforms.cloudShadowMatrix`
   (camera-relative world to the map's u, v and the height above the ground)
   and `cloudLayer` (w is 1 when the clouds draw). Off the map it is 1; from
   orbit the far layer's own cover darkens the ground beyond it.
@@ -384,6 +393,63 @@ scene at the break), so the clouds' own share is the difference:
   above the air's top. A2's tests and look-dev goldens draw the air
   alone (clouds off); C2's slab tests and goldens draw the clouds alone
   (atmosphere off), whose pixels the adoption left unchanged.
+
+## The look survey (2026-11-22)
+
+Franz: "Clouds still look terrible... the effects are sloppy." The clouds
+were flown through the app's own path (`CloudSurveyTests`,
+`ORBITSIM_CLOUD_SURVEY=<dir>`: Simulation, SceneExtractor, the default
+passes, auto exposure, reprojection; the pad, the ascent at 10, 30 and
+60 km, LEO by day, looking down, at the terminator, by night, at 100× and
+1000×, and the Earth from 8,000 km) in the historic and the random weather,
+with the march's resolved layer, its depths and R6's half-resolution clouds
+written beside each frame. Against the physics, worst first:
+
+1. **Rings of dashes over LEO views.** Three causes, in the slot copy and
+   the resolve: the cirrus was put in front of or behind the other clouds by
+   comparing entry distances, which the reprojection's depths nudged across
+   one another along the checkerboard's rows (it now goes by the camera's
+   height: in front above 10 km, behind below); the depths were half floats,
+   1 % steps (2 km at LEO), which put a deck's back and the ground behind it
+   within a step or two of each other (now 32-bit); and the cut against the
+   scene took the ground under a low deck for something inside it (the
+   ground, within the depth spread of a half-resolution texel, now never
+   cuts). The resolve's front and entry for unmarched texels are now the
+   nearest of this frame's marched neighbours: min'd with the history's
+   they only ever came nearer. A texel with no cloud keeps the low layer's
+   reference shell as its depth, so the resolve reprojects it from there,
+   not from infinity.
+2. **A bright veil around a dark disc from orbit.** The far mid layer had
+   C1's optical depth over the whole 3 km (28), the march's altocumulus
+   lenses a twelfth of that layer (2-4). The march's mean column depth per
+   cover is now baked (`CloudCoverage.columnDepth`, CloudCoverageTables) and
+   the far mid layer and the march's own column lighting of the mid layer
+   both take it: altocumulus are thin, translucent and lit as such, and the
+   march and the far layer agree.
+3. **No cloud shadows on the ground or the vessels.** Only the plumes and
+   the probe read the shadow map. The vessels' Sun now passes through it
+   (e^−τ, R4's patch), and the ground's through a slab, direct and diffuse
+   (above, For other tracks).
+
+Still open from the survey, worst first:
+- **From orbit, cumulus as 4-8 pixel blocks** (the steady state's march
+  texels are 1.1 km from LEO; 1-2 km cumulus come out binary per texel).
+  Averaging the density over a texel's footprint (the hinge at the cover's
+  threshold smoothed over the shape's spread there) was tried and dropped:
+  the clouds' in-cloud extinction is 0.06 /m, so even a faint smeared
+  density is opaque over a kilometre, and a spread of 0.06 in the shape
+  tripled a broken deck's opacity against the far layer (Jensen on the
+  transmittance, not the density). What would work: the march carrying the
+  covered fraction of each step apart from its in-cloud optical depth, a
+  sub-texel jitter accumulated by the resolve (the steady state only), or
+  the march at R6's half resolution from orbit (about 4 times its 1.5 ms).
+- The cumulus are all of one size (the 16 km
+shape period's 1-4 km cells) whatever the cloud type the weather now gives
+(the map's B.y, how cumuliform: stratocumulus, trade and continental cumulus,
+fronts' nimbostratus), which wants a scale or octave mix per type with its
+own coverage tables; the shadow map's 256 texels over 100-800 km are too
+coarse for cumulus shadows from orbit; the cirrus is a 2D layer at 10 km
+with no 22° halo.
 
 ## Open
 

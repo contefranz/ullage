@@ -90,6 +90,13 @@ public enum CloudCoverage {
         public var densityScale: [[Double]]
         public var cirrusThreshold: [Double]
         public var cirrusScale: [Double]
+        /// `columnDepth[layer]`: the march's optical depth down a cloudy
+        /// column (one with any cloud) as a fraction of C1's in-cloud one,
+        /// β × the layer's depth: about 0.5-0.9 for the low layer, and for
+        /// the mid layer's lenses 0.1-0.2 at low cover, rising to 0.6 as
+        /// they merge into altostratus. The far mid layer takes its optical
+        /// depth from it.
+        public var columnDepth: [[Double]] = []
     }
 
     /// The statistics over columns of the shape volume (what
@@ -111,18 +118,24 @@ public enum CloudCoverage {
                 }
             }
         }
-        var densityScale: [[Double]] = [[], []]
+        var densityScale: [[Double]] = [[], []], columnDepth: [[Double]] = [[], []]
         for layer in 0..<2 {
             for k in 0...32 {
                 let theta = thresholds[k]
                 var sum = 0.0, count = 0
+                var depths: [Double] = []
                 for column in columns {
+                    var down = 0.0, cloudy = false
                     for (j, v) in column.enumerated() {
                         let d = density(v.shape, layer: layer, height: Double(j) / Double(levels - 1), threshold: theta)
-                        if d > 0 { sum += d; count += 1 }
+                        if d > 0 { sum += d; count += 1; cloudy = true }
+                        down += d
                     }
+                    if cloudy { depths.append(down / Double(levels)) }
                 }
-                densityScale[layer].append(count > 0 ? Double(count) / sum : .nan)
+                let scale = count > 0 ? Double(count) / sum : Double.nan
+                densityScale[layer].append(scale)
+                columnDepth[layer].append(depths.isEmpty ? .nan : depths.reduce(0, +) / Double(depths.count) * scale)
             }
         }
         // The cirrus.
@@ -147,7 +160,7 @@ public enum CloudCoverage {
             return t.map { $0.isNaN ? first : $0 }
         }
         return Statistics(densityScale: densityScale.map(fill), cirrusThreshold: cirrusThreshold,
-                          cirrusScale: fill(cirrusScale))
+                          cirrusScale: fill(cirrusScale), columnDepth: columnDepth.map(fill))
     }
 
     // The renderer's are baked: `standardStatistics`, CloudCoverageTables.swift.

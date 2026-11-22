@@ -444,8 +444,12 @@ public final class CloudPass: RenderPass, HalfResEffect {
                                                               height: marchSize.height, mipmapped: false)
         colorD.usage = [.shaderRead, .shaderWrite]
         colorD.storageMode = .private
-        // Depths as log2 of the linear depth, half floats (cloud_encodeDepth).
-        let depthD = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba16Float, width: marchSize.width,
+        // Depths as log2 of the linear depth (cloud_encodeDepth), in 32-bit
+        // floats: half floats' steps of 1 % (2 km at LEO's 190 km) put a
+        // deck's back and the ground behind it within a step or two, so the
+        // slot's cut against the scene flickered along their contours (rings
+        // of dashes from orbit).
+        let depthD = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba32Float, width: marchSize.width,
                                                               height: marchSize.height, mipmapped: false)
         depthD.usage = [.shaderRead, .shaderWrite]
         depthD.storageMode = .private
@@ -953,6 +957,7 @@ public final class CloudPass: RenderPass, HalfResEffect {
         u.densityMid = Self.table(st.densityScale[1])
         u.cirrusTheta = Self.table(st.cirrusThreshold)
         u.cirrusScale = Self.table(st.cirrusScale)
+        u.columnMid = Self.table(st.columnDepth[1])
         return u
     }
 
@@ -1122,6 +1127,7 @@ struct CloudUniforms {
     var densityMid = CloudUniforms.emptyTable
     var cirrusTheta = CloudUniforms.emptyTable
     var cirrusScale = CloudUniforms.emptyTable
+    var columnMid = CloudUniforms.emptyTable
 
     static let emptyTable: CloudTable9 = (.zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero)
 }

@@ -137,7 +137,8 @@ public final class PlanetPass: RenderPass {
                 params: SIMD4(Float(altitude), Float(tanY) * aspect, Float(tanY), near),
                 sunDir: SIMD4(body.toSun, body.isSun ? 1 : 0),
                 baseColor: SIMD4(style.color.x, style.color.y, style.color.z, texture == nil ? 0 : 1),
-                atmosphere: SIMD4(air && body.id == AtmosphereFrame.planetID ? 1 : 0, groundSteps, haze == nil ? 0 : 1, 0),
+                atmosphere: SIMD4(air && body.id == AtmosphereFrame.planetID ? 1 : 0, groundSteps, haze == nil ? 0 : 1,
+                                  body.id == AtmosphereFrame.planetID ? 1 : 0),
                 options: SIMD4(texture == nil && tiled == nil ? 1 : 0, 0.015, 0, 0),
                 origin: SIMD4(origin, Float(c)),
                 figure: SIMD4(Float(stretch), 0, 0, 0))

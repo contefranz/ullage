@@ -18,11 +18,13 @@ final class ShadowReceiverTests: XCTestCase {
     static let degree = Double.pi / 180
 
     /// The default renderer at a fixed exposure (EV 15), so the two frames
-    /// compare pixel for pixel.
+    /// compare pixel for pixel; the clouds off, so their shadow (C2's, on the
+    /// same Sun term: CloudShadowReceiverTests) leaves the maps' share alone.
     func renderer() throws -> SceneRenderer {
         let r = try SceneRenderer(device: try XCTUnwrap(RenderDevice.shared), loadsUserTextures: false)
         XCTAssertEqual(r.failures, [:])
         r.settings = VesselPassTests.manual(RenderSettings())
+        r.settings.cloud.enabled = false
         return r
     }
 

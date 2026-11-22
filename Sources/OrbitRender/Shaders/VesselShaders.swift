@@ -178,6 +178,7 @@ fragment float4 vessel_fragment(VesselOut in [[stage_in]], bool front [[front_fa
                                 texture2d<float> dfgLUT [[texture(ORBIT_TEXTURE_DFG_LUT)]],
                                 depth2d_array<float> shadowAtlas [[texture(ORBIT_TEXTURE_SHADOW_ATLAS)]],
                                 texture3d<float> froxels [[texture(ORBIT_TEXTURE_AERIAL_PERSPECTIVE)]],
+                                texture2d<float> cloudShadow [[texture(ORBIT_TEXTURE_CLOUD_SHADOW)]],
                                 sampler linear [[sampler(ORBIT_SAMPLER_LINEAR_CLAMP)]],
                                 sampler shadowCompare [[sampler(ORBIT_SAMPLER_SHADOW_COMPARE)]]) {
     VesselSurface s;
@@ -215,7 +216,11 @@ fragment float4 vessel_fragment(VesselOut in [[stage_in]], bool front [[front_fa
     // their product.
     bool withAir = air.radii.w > 0.5 && air.sunTransmitted.w > 0.0;
     float3 sunLux = withAir ? air.sunTransmitted.rgb * air.sunTransmitted.w : f.sunIlluminance.rgb;
-    float shadow = orbit_sunShadow(in.world, s.normal, lighting, shadowAtlas, shadowCompare);
+    // The Sun's share past the casters (R4's maps) and through the clouds
+    // (C2's map: the direct beam; the clouds' own light comes through R3's
+    // probe).
+    float shadow = orbit_sunShadow(in.world, s.normal, lighting, shadowAtlas, shadowCompare)
+                 * orbit_cloudSunTransmittance(in.world, air, cloudShadow, linear);
     float3 c = orbit_sunLight(p, object.sun.xyz, object.sunDisc.x, object.sunDisc.y, object.sunDisc.z > 0.5,
                               sunLux * (object.sun.w * shadow));
     int count = int(object.shading.y);
@@ -267,7 +272,7 @@ extension ShaderHeader {
 
 extension ShaderModule {
     public static let vessel = ShaderModule(name: "Vessel",
-                                            headers: [.shadowCommon, .atmosphereCommon, .lightingCommon,
+                                            headers: [.shadowCommon, .atmosphereCommon, .cloudShadow, .lightingCommon,
                                                       .vesselSurface, .vesselPaint, .vesselMaterial],
                                             source: vesselShaderSource)
 }
