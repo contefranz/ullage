@@ -310,7 +310,7 @@ final class PlumeTurbulenceRenderTests: XCTestCase {
     /// stack's.
     func testVesselCapsule() throws {
         let snapper = try SnapshotRenderer(device: try XCTUnwrap(RenderDevice.shared))
-        let shot = SnapshotSpec.Shot(name: "capsule", scenario: "as506-pad", camera: SnapshotSpec.CameraSpec())
+        let shot = SnapshotSpec.Shot(name: "capsule", scenario: "as506-first-motion", camera: SnapshotSpec.CameraSpec())
         let scene = shot.scene(try shot.prepare(system: snapper.system))
         let v = try XCTUnwrap(scene.vessels.first { $0.isFocus })
         let c = try XCTUnwrap(Plumes.capsule(v))
@@ -532,7 +532,7 @@ final class ChamberGlowRenderTests: XCTestCase {
                 camera: SnapshotSpec.CameraSpec = .init(frame: "vessel", yaw: 180, pitch: 8, distance: 40, fov: 40))
         throws -> Frame {
         let s = try SnapshotRenderer(device: try XCTUnwrap(RenderDevice.shared))
-        var shot = SnapshotSpec.Shot(name: "chambers", scenario: "as506-pad", advance: advance, camera: camera)
+        var shot = SnapshotSpec.Shot(name: "chambers", scenario: "as506-first-motion", advance: advance, camera: camera)
         shot.showOrbit = false
         shot.settings.cloud.enabled = false
         shot.settings.plume.nozzleGlow = glow
