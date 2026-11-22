@@ -534,6 +534,15 @@ plumes on and off on alternate frames, the difference of the medians, at
 High (32 steps); the plan's budget is 1.5 ms on the pad and 0.5 ms in
 LEO, for the default physical look.
 
+- **After the upper stages' fix-check** (2026-11-22: R4's shadow over the
+  vessel's shadow on the ray, unjittered; ice stepped about its source only
+  seen across; the chamber glow through the throat), against the review's
+  head measured back to back under another session's load (both higher
+  than alone; before / now, ms): pad 1.78 / 1.91 and 3.57 / 3.69; ascent
+  4.43 / 4.88; max-Q 4.61 / 4.32; staging 6.22 / 5.86 (auto 7.38 / 6.63);
+  the S-II in LEO 6.13 / 5.74. The shadow's lookups now run only where a
+  ray crosses the vessel's shadow: cheaper at max-Q, staging and in LEO;
+  the ascent's chase view crosses it along much of the plume.
 - **After the upper stages' review** (2026-11-22: the shadow's points
   jittered, the ice's steps equiangular about its source, the merged
   far field's wall jet, the chamber glow on the gas side; on top of the
