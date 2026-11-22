@@ -84,6 +84,15 @@ final class AppModel: ObservableObject {
     /// each pass's GPU time, B toggles readable plumes (P2: M1.5's floor on
     /// engines nearly invisible in vacuum; not F11, macOS's Show Desktop).
     private(set) var renderSettings = RenderSettings()
+    /// The weather (the Weather menu): the missions' ERA5 skies on their days
+    /// and the procedural weather elsewhere ("historic"), or the procedural
+    /// weather everywhere ("random"); remembered between launches.
+    @Published private(set) var weatherMode = UserDefaults.standard.string(forKey: AppModel.weatherKey) ?? "historic"
+    /// The procedural weather's seed: new at each scenario start (or
+    /// ORBITSIM_WEATHER_SEED), shown in the Weather menu, logged, and kept in
+    /// F12's snapshot specs, so a sky can be had again.
+    @Published private(set) var weatherSeed = 1
+    static let weatherKey = "OrbitSim.weather"
     /// F12 asked for a snapshot of the next frame.
     private var snapshotRequested = false
     /// The latest frame's GPU times, shown by F10.
@@ -147,6 +156,7 @@ final class AppModel: ObservableObject {
         missionStart = s.missionClockZero ?? sim.time
         failureCapture = nil
         rcsKeys = RCSKeyControl()
+        newWeather()
         extractor.reset()
         instruments.reset()
         if let focus = sim.focus {
@@ -156,6 +166,28 @@ final class AppModel: ObservableObject {
         camera.update(sim: sim)
         instruments.update(sim: sim)
         refreshHUD()
+    }
+
+    // MARK: Weather
+
+    /// "historic" or "random" (CloudSettings.weather "auto" or "random").
+    func setWeather(_ mode: String) {
+        weatherMode = mode == "random" ? "random" : "historic"
+        UserDefaults.standard.set(weatherMode, forKey: Self.weatherKey)
+        applyWeather()
+    }
+
+    /// A new seed for the procedural weather: another sky.
+    func newWeather() {
+        let forced = ProcessInfo.processInfo.environment["ORBITSIM_WEATHER_SEED"].flatMap { Int($0) }
+        weatherSeed = forced ?? Int.random(in: 1...999_999)
+        applyWeather()
+    }
+
+    private func applyWeather() {
+        renderSettings.cloud.weather = weatherMode == "random" ? "random" : "auto"
+        renderSettings.cloud.seed = weatherSeed
+        print("OrbitSim: weather \(weatherMode), seed \(weatherSeed)")
     }
 
     // MARK: Frame update

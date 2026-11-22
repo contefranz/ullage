@@ -5,11 +5,20 @@ import Foundation
 public struct CloudSettings: Codable, Equatable {
     /// Draw the clouds.
     public var enabled = true
-    /// Where the weather comes from: "auto" (the mission whose launch is
-    /// nearest the scene's epoch: its ERA5 field if fetched, else the
-    /// climatology, with the pad's observed sky at launch), "climatology",
-    /// "clear", or a mission ("apollo7", "apollo8", "apollo11").
+    /// Where the weather comes from:
+    /// - "auto" or "historic": the mission whose launch is nearest the
+    ///   scene's epoch, its ERA5 field when fetched (for its days, fading into
+    ///   the procedural weather beyond them), the pad's observed sky at
+    ///   launch, and the procedural weather everywhere else;
+    /// - "random": the procedural weather alone, everywhere;
+    /// - a mission ("apollo7", "apollo8", "apollo11"), as "auto" for it;
+    /// - "climatology": the zonal climatology alone (the old fallback);
+    /// - "clear".
     public var weather = "auto"
+    /// The procedural weather's seed (`ProceduralWeather`). The app draws a
+    /// new one at each scenario start; shots and tests keep theirs, so a
+    /// recorded seed gives the same sky.
+    public var seed = 1
     /// Look-dev: one uniform, homogeneous low layer of this cover and
     /// optical depth everywhere instead of the weather (the cloud slab).
     public var lookDev: LookDevSlab?
@@ -71,7 +80,7 @@ public struct CloudSettings: Codable, Equatable {
     public init() {}
 
     private enum CodingKeys: String, CodingKey {
-        case enabled, weather, lookDev, regime, steps, lightDistance, nearReach, detail, reprojection
+        case enabled, weather, seed, lookDev, regime, steps, lightDistance, nearReach, detail, reprojection
         case shadowTexels, densityScale, farDensity, coverageModulation, farFootprint, skip
     }
 
@@ -80,6 +89,7 @@ public struct CloudSettings: Codable, Equatable {
         let d = CloudSettings()
         enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? d.enabled
         weather = try c.decodeIfPresent(String.self, forKey: .weather) ?? d.weather
+        seed = try c.decodeIfPresent(Int.self, forKey: .seed) ?? d.seed
         lookDev = try c.decodeIfPresent(LookDevSlab.self, forKey: .lookDev)
         regime = try c.decodeIfPresent(String.self, forKey: .regime) ?? d.regime
         steps = try c.decodeIfPresent(Int.self, forKey: .steps) ?? d.steps

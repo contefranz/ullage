@@ -20,13 +20,20 @@ docs/m16/design-earth-moon.md, clouds; plan: docs/m16/plan.md, C2.
     shells, noise origin, reprojection, the shadow map's frame, regimes,
     wind advection, the cirrus's streak frame, the reprojection rule);
   - `CloudWeatherMap`: what the GPU assembles C1's weather from, and its
-    mirror.
+    mirror;
+  - `ProceduralWeather` and `WeatherGeography`: the seeded global weather
+    beyond the ERA5 fields (below, The weather).
 - **OrbitRender**: `Passes/CloudPass.swift` (P0, and R6's first
   half-resolution effect), `Shaders/CloudShaders.swift` (module `Cloud`, and
   the `.cloudShadow` header for other tracks), `Clouds/CloudNoise.swift` (the
   volumes and the slab LUT on the GPU, and `CloudAir`: A1's tables as A2
   shares them).
-- **Settings**: `CloudSettings` (`RenderSettings.cloud`).
+- **Settings**: `CloudSettings` (`RenderSettings.cloud`): `weather`
+  ("auto" or "historic", "random", a mission, "climatology", "clear") and
+  `seed`. The app's Weather menu chooses historic or random and draws a new
+  seed (New Weather); every scenario start draws one too, logged as
+  `OrbitSim: weather <mode>, seed <n>` and kept in F12's snapshot specs
+  (`ORBITSIM_WEATHER_SEED` forces one).
 - **Specs**: `docs/look/shots/c2.json` (the cloud slab, look-dev goldens),
   `c2-scenes.json` (the contact sheet: Apollo 8's pad and ascent on
   `apollo8-pad`, AS-506's pad, ascent, orbit and terminator, the climb),
@@ -39,10 +46,11 @@ In P0, on the command buffer:
 1. **Noise volumes**, once: 128³ shape (Perlin-Worley, three Worley fBm
    octaves), 32³ detail (Worley fBm), 128² curl, mipmapped.
 2. **The weather map**, 1440 × 721 like ERA5: the two snapshots around the
-   time, the climatology beyond the field's span, the pad's observed sky
-   (TM X-64796), then the layer model's heights (C1's `CloudWeather` and
-   `CloudLayerModel`, line for line). Assembled again only when a weight
-   moves by 1/500.
+   time, the procedural weather beyond the field's span (fading over 3 h),
+   the pad's observed sky (TM X-64796), then the low layer's heights and
+   how cumuliform it is (C1's `CloudWeather` and `CloudWeatherMap.texel`,
+   line for line). Assembled again when a weight moves by 1/500, and band by
+   band as the procedural weather's nodes are made again (below).
 3. **The cloud shadow map**, 256² along the Sun around the camera's ground
    point (100 km on the ground, growing to 1,000 km from orbit on a ladder
    of 100, 200, 400 and 800 km, so its texel changes at four heights only),
@@ -73,6 +81,90 @@ the part, e^(−h / 8 km). The two blend over the 40 km above the air's top,
 where the froxels still hold the whole air, so a climb or an entry does
 not step there. The froxels reach 2,000 km along the ray, not in
 altitude, so from orbit they would leave the disc's outer part unhazed.
+
+## The weather
+
+Franz on the first version (2026-11-22): the Earth was "covered by the same
+weather globally". Beyond a mission's ERA5 days, and everywhere without the
+fields (a fresh checkout), the map had been the zonal climatology: one
+cover per latitude row, the same at every longitude. It is now a seeded
+generator with the general circulation's structure (`ProceduralWeather`,
+mirrored on the GPU by `cloud_procedural`), calibrated row by row so its
+zonal means stay the climatology's.
+
+- **Nodes**: 720 × 361 (0.5°), each a latent low, mid and high cover, the
+  low layer's base and top, and how cumuliform it is. The map's grid points
+  are bilinear between them; a grid point's cover is the logistic of its
+  latent value plus its row's offset.
+- **Calibration** (`cloud_calibrate`): each row's offsets, by bisection,
+  make its mean cover the climatology's for the month (each layer's), then
+  smoothed over ±2° (the climatology is 5° means). Only what varies along a
+  parallel survives: a term of latitude alone is absorbed by the offset.
+- **Geography** (`WeatherGeography`, from `landmask.bin`, once): land, the
+  continents (500 km), the distance inland, and along each parallel land or
+  sea close to the east and west, from which come the eastern-boundary
+  stratocumulus decks (cold upwelling under the trades; not in enclosed
+  seas), the dry west coasts and humid east coasts, the deserts.
+- **The terms** (latent units, about ±3 for a system's core):
+  - the ITCZ at 6 ± 4° N over the sea, 2 ± 10° over the continents (the
+    monsoons), a month behind the Sun;
+  - the subtropical highs' subsidence; the deserts (Sahara, Arabia,
+    Australia, the Atacama and Namib, the mid-latitude interiors) clear in
+    every layer; the decks (base 480 m, top 1,350 m, thickest at dawn,
+    thinning by day), giving way westward to trade cumulus (600-750 m to
+    2,400 m);
+  - over land, cumulus growing to a 15 h peak and gone at night, its base
+    higher where dry; polar stratus over the sea, little low cloud on the
+    ice sheets;
+  - between the systems, weather noise (six octaves of gradient noise on the
+    sphere, cells of 3,200 to 100 km) carried by the steering wind
+    (850-500 hPa zonal mean), made afresh every 18 h with a new offset and
+    cross-faded over 36 h, so features grow and decay and the jets' shear
+    does not stretch them for ever.
+- **Systems**, each born at a time hashed from the seed and integrated from
+  its birth (so warp, jumps and snapshots give the same sky):
+  - 11 northern and 13 southern extratropical cyclones (4-6.5 days), born in
+    the storm tracks' genesis regions (Hoskins and Hodges 2002: off Japan and
+    the United States, the lee of the Rockies, the North Pacific and
+    Atlantic, the Mediterranean; the Southern Ocean all round), moving east
+    at 7-17 m/s and poleward at 1.5-3.5 m/s, slowing as they occlude. Their
+    template (`ProceduralWeather.cycloneTemplate`, `testWriteTemplates`
+    draws it): the warm front's shield (cirrus furthest ahead), the cold
+    front's band with its convective line (to 8 km), the warm sector's
+    stratus, the comma head spiralling in as it occludes, the dry slot, open
+    cells in the cold air behind;
+  - 52 ITCZ convective clusters (0.6-2.2 days, cores of 180-400 km) where
+    the tropics convect (Africa, the Amazon, the Maritime Continent, the
+    warm pool...), drifting west, strongest late in the afternoon over land,
+    their anvils spreading downstream and outliving them; tops 11-15 km;
+  - tropical cyclones in their basins' seasons (Gray 1968), an eye, a
+    central dense overcast and two spiral bands, west then recurving
+    poleward, weakening over land; tops 14 km.
+- **Statistics** (`ProceduralWeatherTests`): the zonal means within 0.03 of
+  the climatology in every 5° band (July, January); the cover's standard
+  deviation along a parallel 0.12 or more in every row from 60° S to 60° N
+  (the climatology's is 0); the shares of clear, broken and overcast sky per
+  layer within 0.1 of ERA5's (Apollo 11's field: 0.31/0.53/0.16 low,
+  0.50/0.40/0.10 mid, 0.55/0.24/0.21 high, which set the logistic's gains
+  2.5, 3 and 5); one sky per seed; six hours on another sky, a minute on the
+  same; no jumps over half a day in minutes; the decks off Peru, Namibia and
+  California and the clear Sahara; the ITCZ over Africa further north in
+  July than in January; cyclonic winds.
+- **ERA5** still draws a mission's days in the historic setting
+  ("auto"): the field's weight falls from 1 to 0 over 3 h beyond its span,
+  into the procedural weather instead of the climatology. "random" draws the
+  procedural weather everywhere, without the pad's observed sky.
+- **Winds at the camera** (the noise's drift, the cirrus's streaks): the
+  procedural weather's zonal means at 850, 500 and 250 hPa (the jets, the
+  trades) and its cyclones' circulations, beyond the field.
+- **Cost** (M3 Pro, `CloudCostTests.testProceduralKernelCost`, 20 dispatches
+  back to back): 0.61 ms for all the nodes, 0.12 ms for the rows'
+  calibration. They are made again when the time has moved 30 s, a band of
+  a quarter of the rows a frame with one state (about 0.2 ms a frame for
+  four frames, the map's rows over the band and the 12 before it), and at
+  once only after a jump of an hour, a new seed or a new start.
+  `testProceduralSweepEndsWithAFreshMap` checks that a sweep ends with the
+  map a fresh pass makes.
 
 ## The regimes
 

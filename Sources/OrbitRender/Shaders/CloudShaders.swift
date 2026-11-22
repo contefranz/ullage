@@ -215,7 +215,7 @@ struct CloudWeatherParams {
     float4 overridePlace[2];   // x: latitude, y: longitude (rad), z: radius (m), w: weight in time
     float4 overrideSky[2];     // x: low, y: mid, z: high, w: 1 convective
     float4 layerModel;    // x: default low base, y: mid base, z: low depth, w: cumulonimbus top (m)
-    float4 structure;     // unused (the large-scale structure is per sample: cloud_structure)
+    float4 structure;     // x: 1 with the procedural weather as the weather elsewhere, y: the first row
 };
 
 inline float cloud_smoothstep(float a, float b, float x) {
@@ -230,22 +230,384 @@ inline float cloud_distance(float lat1, float lon1, float lat2, float lon2) {
     return 2.0 * 6371000.0 * asin(min(sqrt(h), 1.0));
 }
 
+// ------------------------------- the procedural weather (ProceduralWeather) ---
+// Its nodes (720 x 361, `cloud_procedural`), line for line in Float, and
+// each row's calibration against the climatology (`cloud_calibrate`).
+
+struct ProceduralUniforms {
+    float4 phase0;      // xyz: the noise phase's offset, w: its weight
+    float4 phase1;
+    float4 ages;        // x, y: the phases' ages (s), z: 1/sqrt(w0^2 + w1^2), w: the systems' count
+    float4 sky;         // x: subsolar longitude, y: declination, z: the ITCZ over the sea, w: over the continents (rad)
+    float4 rows;        // x: the first node row this dispatch makes (a band of a sweep)
+};
+
+struct ProceduralSystem {
+    float4 centre;      // xyz: unit, body-fixed; w: kind (0 cyclone, 1 cluster, 2 tropical cyclone)
+    float4 east;        // xyz; w: reach (rad)
+    float4 poleward;    // xyz; w: size (m)
+    float4 params;      // x: intensity, y: stage, z: top (m), w: tilt (rad)
+    float4 turn;        // x: cos of the reach, y, z: cos and sin of the tilt
+};
+
+struct ProceduralBand {
+    float4 a;           // steering (rad/s), subtropics, stratocumulus, desert
+    float4 b;           // mid-latitude desert, trades, polar sea, ice
+    float4 c;           // the climatology's low, mid and high cover
+};
+
+#define PW_EARTH_RADIUS 6371000.0
+// ProceduralWeather.noiseScale.
+#define PW_NOISE_SCALE 3.1
+// ProceduralWeather.gains: low, mid, high.
+#define PW_GAINS float3(2.5, 3.0, 5.0)
+#define PW_COLUMNS 720u
+#define PW_ROWS 361u
+
+// Perlin's twelve edge gradients (cloud_gradientDot's, as a table: no branches).
+constant float3 pw_gradients[12] = {
+    float3(1, 1, 0), float3(-1, 1, 0), float3(1, -1, 0), float3(-1, -1, 0),
+    float3(1, 0, 1), float3(-1, 0, 1), float3(1, 0, -1), float3(-1, 0, -1),
+    float3(0, 1, 1), float3(0, -1, 1), float3(0, 1, -1), float3(0, -1, -1)
+};
+
+inline float3 pw_noise3(float3 p) {
+    float3 f = floor(p);
+    int3 i = int3(f);
+    float3 w = p - f;
+    float3 c[8];
+    for (int k = 0; k < 8; k++) {
+        int3 o = int3(k & 1, (k >> 1) & 1, (k >> 2) & 1);
+        uint3 h = cloud_pcg3d(as_type<uint3>(i + o)) % 12u;
+        float3 d = w - float3(o);
+        c[k] = float3(dot(pw_gradients[h.x], d), dot(pw_gradients[h.y], d), dot(pw_gradients[h.z], d));
+    }
+    float3 s = float3(cloud_fade(w.x), cloud_fade(w.y), cloud_fade(w.z));
+    float3 x00 = mix(c[0], c[1], s.x), x10 = mix(c[2], c[3], s.x);
+    float3 x01 = mix(c[4], c[5], s.x), x11 = mix(c[6], c[7], s.x);
+    return mix(mix(x00, x10, s.y), mix(x01, x11, s.y), s.z);
+}
+
+// ProceduralWeather.fbm: six octaves from cells of about 3,200 km.
+inline float3 pw_fbm(float3 p, float3 offset) {
+    float3 sum = float3(0.0);
+    float amplitude = 1.0, f = 2.0;
+    for (int o = 0; o < 6; o++) {
+        float shift = float(o) * 17.31;
+        sum += amplitude * pw_noise3(p * f + offset + shift);
+        amplitude *= 0.6;
+        f *= 2.03;
+    }
+    return sum * PW_NOISE_SCALE;
+}
+
+inline float3 pw_weatherNoise(float lat, float lon, float steer, constant ProceduralUniforms &p) {
+    float cl = cos(lat), sl = sin(lat);
+    float l0 = lon - steer * p.ages.x, l1 = lon - steer * p.ages.y;
+    float3 n = p.phase0.w * pw_fbm(float3(cl * cos(l0), cl * sin(l0), sl), p.phase0.xyz)
+             + p.phase1.w * pw_fbm(float3(cl * cos(l1), cl * sin(l1), sl), p.phase1.xyz);
+    return n * p.ages.z;
+}
+
+struct PWContribution {
+    float low;
+    float mid;
+    float high;
+    float frontal;
+    float cells;
+    float deep;
+};
+
+inline float pw_wrap(float x) { return x - floor(x / (2.0 * CLOUD_PI)) * 2.0 * CLOUD_PI; }
+inline float pw_wrapSigned(float x) { return x - rint(x / (2.0 * CLOUD_PI)) * 2.0 * CLOUD_PI; }
+
+// ProceduralWeather.cycloneTemplate.
+inline PWContribution pw_cyclone(float u, float v, constant ProceduralSystem &s, float sea) {
+    float w = s.params.y, i = s.params.x;
+    float r = sqrt(u * u + v * v), theta = atan2(v, u);
+    float tu = 0.30 * w + 0.05, tv = -0.08 * w;
+    float along = u - tu, dw = (v - tv) + 0.27 * along;
+    float bow = 0.35 * exp(-(along - 0.8) * (along - 0.8));
+    #define PW_SHIELD(reach, depth) (cloud_smoothstep(-0.5, 0.0, along) * (1.0 - cloud_smoothstep((reach) - 0.6, (reach), along)) \
+        * cloud_smoothstep(-0.25, 0.02, dw) * (1.0 - cloud_smoothstep((depth) - 0.4, (depth) + bow, dw)))
+    float shieldHigh = PW_SHIELD(2.2, 1.3), shieldMid = PW_SHIELD(1.7, 1.0), shieldLow = PW_SHIELD(1.1, 0.55);
+    #undef PW_SHIELD
+    float sc = max(tv - v, 0.0);
+    float dc = u - (tu - 0.25 * sc - 0.14 * sc * sc);
+    float fade = cloud_smoothstep(-0.15, 0.1, tv - v) * (1.0 - cloud_smoothstep(1.3, 2.7, sc));
+    #define PW_BAND(width) (cloud_smoothstep(-0.16, -0.04, dc) * (1.0 - cloud_smoothstep((width) - 0.18, (width), dc)) * fade)
+    float frontHigh = PW_BAND(0.70), frontMid = PW_BAND(0.48), frontLow = PW_BAND(0.36);
+    #undef PW_BAND
+    float line = (1.0 - cloud_smoothstep(0.03, 0.10, abs(dc))) * fade * (1.0 - cloud_smoothstep(1.0, 2.0, sc));
+    float warmSector = cloud_smoothstep(0.36, 0.55, dc) * cloud_smoothstep(0.0, 0.2, -dw) * (1.0 - cloud_smoothstep(1.4, 2.2, r));
+    float cold = (1.0 - cloud_smoothstep(-0.4, -0.15, dc)) * (1.0 - cloud_smoothstep(2.0, 2.9, r))
+               * (1.0 - cloud_smoothstep(0.1, 0.7, v - tv));
+    float span = (0.7 + 1.3 * w) * CLOUD_PI;
+    float start = pw_wrap(theta - 0.05 * CLOUD_PI);
+    float arm = 0.0;
+    for (int k = 0; k < 2; k++) {
+        float a = start + 2.0 * CLOUD_PI * float(k);
+        if (a > span) { break; }
+        float x = (r - 0.95 * exp(-0.22 * a)) / (0.34 * exp(-0.1 * a));
+        arm = max(arm, exp(-0.5 * x * x) * cloud_smoothstep(0.0, 0.6, a) * (1.0 - cloud_smoothstep(span - 0.8, span, a)));
+    }
+    float off = pw_wrapSigned(theta + 0.6 * CLOUD_PI - 0.35 * CLOUD_PI * w);
+    float dry = (1.0 - cloud_smoothstep(0.8, 1.3, r)) * cloud_smoothstep(0.05, 0.2, r) * (1.0 - cloud_smoothstep(-0.1, 0.0, dc))
+              * (1.0 - cloud_smoothstep(0.35 * CLOUD_PI, 0.6 * CLOUD_PI, abs(off))) * (1.0 - arm);
+    float head = (1.0 - cloud_smoothstep(0.6, 1.05, r)) * cloud_smoothstep(-0.05, 0.25, v) * (1.0 - dry);
+    arm = max(arm, 0.8 * head);
+    float outside = cold * (1.0 - arm) * (1.0 - dry);
+    PWContribution c;
+    c.high = i * (3.2 * max(shieldHigh, frontHigh) + 3.0 * arm - 3.0 * dry - 1.2 * outside);
+    c.mid = i * (3.4 * max(shieldMid, frontMid) + 3.2 * arm - 3.0 * dry - 1.5 * outside);
+    c.low = i * (2.8 * max(shieldLow, frontLow) + 2.2 * arm + 1.0 * warmSector - 1.2 * dry + (1.0 * sea - 0.5) * outside);
+    c.frontal = i * max(max(shieldLow, frontLow), 0.8 * arm);
+    c.cells = i * outside * sea;
+    c.deep = 0.8 * i * line;
+    return c;
+}
+
+inline float pw_lumps(float theta, float phase) {
+    return 1.0 + 0.22 * sin(3.0 * theta + phase) + 0.12 * sin(5.0 * theta + 2.3 * phase);
+}
+
+// ProceduralWeather.clusterTemplate.
+inline PWContribution pw_cluster(float u, float v, constant ProceduralSystem &s, float land, float hour, float rough) {
+    float phase = s.params.z * 0.0037;
+    float theta = atan2(v, u);
+    float r = sqrt(u * u + 1.56 * v * v) / pw_lumps(theta, phase) + 0.15 * rough;
+    float ua = u + 0.5;
+    float ra = sqrt(0.6 * ua * ua + 1.69 * v * v) / pw_lumps(atan2(v, ua), phase + 1.7) + 0.15 * rough;
+    float core = 1.0 - cloud_smoothstep(0.4, 1.0, r);
+    float anvil = 1.0 - cloud_smoothstep(1.0, 2.6, ra);
+    float diurnal = 1.0 - land + land * (0.3 + 0.7 * (0.5 + 0.5 * cos(hour - 1.3)));
+    float ic = s.params.x * diurnal, ia = s.params.y;
+    PWContribution c;
+    c.low = 2.6 * core * ic;
+    c.mid = 2.0 * core * ic + 0.8 * anvil * ia;
+    c.high = 3.6 * anvil * ia;
+    c.frontal = 0.0;
+    c.cells = 0.0;
+    c.deep = core * ic;
+    return c;
+}
+
+// ProceduralWeather.tropicalTemplate.
+inline PWContribution pw_tropical(float u, float v, constant ProceduralSystem &s, float rough) {
+    float r = sqrt(u * u + v * v), theta = atan2(v, u);
+    float eye = 1.0 - cloud_smoothstep(0.08, 0.14, r);
+    float cdo = 1.0 - cloud_smoothstep(0.85, 1.25, r * (1.0 + 0.1 * sin(4.0 * theta + s.params.w)) + 0.1 * rough);
+    float bands = 0.0;
+    if (r > 0.3) {
+        for (int k = 0; k < 2; k++) {
+            float d = pw_wrapSigned(theta - (float(k) * CLOUD_PI - 1.2 * log(r)));
+            bands = max(bands, exp(-0.5 * d * d / (0.38 * 0.38)) * (1.0 - cloud_smoothstep(2.6, 4.0, r))
+                               * cloud_smoothstep(0.6, 1.0, r));
+        }
+    }
+    float outflow = 1.0 - cloud_smoothstep(1.4, 3.8, r * pw_lumps(theta, s.params.w));
+    float i = s.params.x;
+    PWContribution c;
+    c.high = i * (4.0 * cdo + 1.8 * bands + 1.2 * outflow - 7.0 * eye);
+    c.mid = i * (3.0 * cdo + 1.6 * bands - 7.0 * eye);
+    c.low = i * (3.0 * cdo + 2.4 * bands - 7.0 * eye);
+    c.frontal = 0.0;
+    c.cells = 0.0;
+    c.deep = i * max(0.9 * cdo, 0.6 * bands) * (1.0 - eye);
+    return c;
+}
+
+// ProceduralWeather.node at node gid: the latent low, mid and high cover
+// and the low layer's base (latent), its top and how cumuliform (layer).
+kernel void cloud_procedural(texture2d<float, access::write> outLatent [[texture(0)]],
+                             texture2d<float, access::write> outLayer [[texture(1)]],
+                             texture2d<float, access::read> geoA [[texture(2)]],
+                             texture2d<float, access::read> geoB [[texture(3)]],
+                             constant ProceduralUniforms &p [[buffer(0)]],
+                             constant ProceduralBand *bands [[buffer(1)]],
+                             constant ProceduralSystem *systems [[buffer(2)]],
+                             uint2 tid [[thread_position_in_grid]]) {
+    uint2 gid = uint2(tid.x, tid.y + uint(p.rows.x));
+    if (gid.x >= PW_COLUMNS || gid.y >= PW_ROWS) { return; }
+    float phi = (90.0 - 0.5 * float(gid.y)) * (CLOUD_PI / 180.0);
+    float lambda = 0.5 * float(gid.x) * (CLOUD_PI / 180.0);
+    ProceduralBand b = bands[gid.y];
+    float4 ga = geoA.read(gid), gb = geoB.read(gid);
+    float land = ga.x, continental = ga.y, inland = ga.z;
+    float seaEastLand = gb.x, landEastSea = gb.z, landWestSea = gb.w;
+    float3 n = pw_weatherNoise(phi, lambda, b.a.x, p);
+    float nl = n.x, nm = n.y, nh = n.z;
+    float sea = 1.0 - land;
+    float hour = lambda - p.sky.x;
+    float noon = max(cos(phi - p.sky.y), 0.0);
+    float heat = noon * (0.5 + 0.5 * cos(hour - 0.785));
+    float itczLat = p.sky.z + continental * (p.sky.w - p.sky.z);
+    float itczWidth = (4.0 + 1.0 * continental) * (CLOUD_PI / 180.0);
+    float x = (phi - itczLat) / itczWidth;
+    float itcz = exp(-0.5 * x * x);
+    float desert = land * b.a.w * (0.35 + 0.65 * max(inland, landWestSea)) * (1.0 - landEastSea) * (1.0 - 0.7 * itcz)
+                 + 0.6 * land * b.b.x * inland;
+    float sc = sea * seaEastLand * (1.0 - gb.y) * b.a.z * (1.0 - itcz);
+    float deck = min(1.5 * sc, 1.0);
+    float trades = sea * b.b.y * (1.0 - deck);
+    float polar = sea * b.b.z;
+    float ice = land * b.b.w * (0.4 + 0.6 * inland);
+    float tropics = 1.0 - cloud_smoothstep(20.0, 35.0, abs(phi) * (180.0 / CLOUD_PI));
+    float low = 3.0 * sc - 2.8 * desert + 0.8 * polar - 1.4 * ice + land * (1.3 * heat - 0.55) * (1.0 - desert)
+              + 0.4 * sc * cos(hour + 1.83) + 0.5 * itcz + (0.8 - 0.5 * deck - 0.35 * trades - 0.35 * desert) * nl;
+    float mid = -1.8 * desert - 1.0 * sc - 0.6 * b.a.y * sea + 1.1 * itcz + 0.3 * land * heat * (1.0 - desert)
+              + (0.85 - 0.3 * b.a.y) * nm;
+    float high = -1.8 * desert - 0.9 * sc - 0.6 * b.a.y + 1.7 * itcz + 0.5 * land * heat * tropics * (1.0 - desert)
+               + 0.7 * nh;
+    float seaBase = 600.0 + 150.0 * trades - 120.0 * deck - 250.0 * polar;
+    float landBase = 900.0 + 900.0 * max(desert, 0.5 * inland) + 450.0 * heat - 500.0 * ice;
+    float seaTop = 2100.0 + 300.0 * trades - 750.0 * deck - 600.0 * polar;
+    float landTop = landBase + 1100.0 + 1400.0 * heat;
+    float base = sea * seaBase + land * landBase;
+    float top = sea * seaTop + land * landTop;
+    float cumuliform = sea * (1.0 - 0.85 * deck - 0.6 * polar) + land * (0.5 + 0.5 * heat);
+
+    float3 pos = float3(cos(phi) * cos(lambda), cos(phi) * sin(lambda), sin(phi));
+    float frontal = 0.0, deep = 0.0, deepTop = 0.0, cells = 0.0;
+    int count = int(p.ages.w);
+    for (int k = 0; k < count; k++) {
+        constant ProceduralSystem &s = systems[k];
+        float d = dot(pos, s.centre.xyz);
+        // Outside its reach's cone: nothing.
+        if (d <= s.turn.x) { continue; }
+        float e = dot(pos, s.east.xyz), q = dot(pos, s.poleward.xyz);
+        float lateral = sqrt(e * e + q * q);
+        float angle = atan2(lateral, d);
+        if (angle >= s.east.w) { continue; }
+        float kk = lateral > 0.0 ? angle * PW_EARTH_RADIUS / (s.poleward.w * lateral) : 0.0;
+        float u0 = e * kk, v0 = q * kk;
+        float ct = s.turn.y, st = s.turn.z;
+        float u = u0 * ct + v0 * st, v = -u0 * st + v0 * ct;
+        PWContribution c;
+        int kind = int(s.centre.w + 0.5);
+        if (kind == 0) { c = pw_cyclone(u + 0.18 * nm, v + 0.18 * nh, s, sea); }
+        else if (kind == 1) { c = pw_cluster(u, v, s, land, hour, nh); }
+        else { c = pw_tropical(u, v, s, nh); }
+        low += c.low;
+        mid += c.mid;
+        high += c.high;
+        frontal = max(frontal, c.frontal);
+        cells = max(cells, c.cells);
+        if (c.deep > deep) {
+            deep = c.deep;
+            deepTop = s.params.z;
+        }
+    }
+    base += frontal * (450.0 - base);
+    top += frontal * (max(top, 2900.0) - top);
+    cumuliform += frontal * (0.15 - cumuliform);
+    top += cells * (max(top, 2800.0) - top);
+    cumuliform += cells * (1.0 - cumuliform);
+    base += deep * (900.0 - base);
+    top += deep * (max(deepTop, top) - top);
+    cumuliform += deep * (1.0 - cumuliform);
+    top = max(top, base + 300.0);
+    outLatent.write(float4(low, mid, high, base), gid);
+    outLayer.write(float4(top, cumuliform, 0.0, 0.0), gid);
+}
+
+// ProceduralWeather.offset for each row (one threadgroup a row): the
+// offsets of the latent low, mid and high cover that make the row's mean
+// cover the climatology's, by bisection.
+kernel void cloud_calibrate(texture2d<float, access::read> latent [[texture(0)]],
+                            constant ProceduralUniforms &p [[buffer(0)]],
+                            constant ProceduralBand *bands [[buffer(1)]],
+                            device float4 *offsets [[buffer(3)]],
+                            uint group [[threadgroup_position_in_grid]],
+                            uint tid [[thread_index_in_threadgroup]],
+                            uint threads [[threads_per_threadgroup]],
+                            uint lane [[thread_index_in_simdgroup]],
+                            uint simd [[simdgroup_index_in_threadgroup]]) {
+    uint row = group + uint(p.rows.x);
+    if (row >= PW_ROWS) { return; }
+    threadgroup float3 partial[32];
+    float3 z[4];
+    int count = 0;
+    for (uint c = tid; c < PW_COLUMNS && count < 4; c += threads) {
+        z[count] = latent.read(uint2(c, row)).xyz;
+        count++;
+    }
+    float3 target = clamp(bands[row].c.xyz, 0.003, 0.997);
+    float3 lo = float3(-10.0), hi = float3(10.0);
+    uint groups = (threads + 31u) / 32u;
+    for (int it = 0; it < 16; it++) {
+        float3 m = 0.5 * (lo + hi);
+        float3 sum = float3(0.0);
+        for (int k = 0; k < count; k++) { sum += 1.0 / (1.0 + exp(-PW_GAINS * (z[k] + m))); }
+        sum = simd_sum(sum);
+        if (lane == 0) { partial[simd] = sum; }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        float3 total = float3(0.0);
+        for (uint g = 0; g < groups; g++) { total += partial[g]; }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        bool3 below = total / float(PW_COLUMNS) < target;
+        lo = select(lo, m, below);
+        hi = select(m, hi, below);
+    }
+    if (tid == 0) { offsets[row] = float4(0.5 * (lo + hi), 0.0); }
+}
+
+// ProceduralWeather.smoothed: row j's offsets, a triangle over ±4 rows.
+inline float3 pw_offset(constant float4 *offsets, int j) {
+    float3 sum = float3(0.0);
+    for (int i = -4; i <= 4; i++) {
+        int jj = clamp(j + i, 0, int(PW_ROWS) - 1);
+        sum += float(5 - abs(i)) * offsets[jj].xyz;
+    }
+    return sum / 25.0;
+}
+
 // CloudWeatherMap.texel at grid point gid: the three covers and the low
-// layer's base (A), its top (B.x).
+// layer's base (A), its top and how cumuliform it is (B). The weather
+// elsewhere is the procedural weather's nodes (bilinear: every other grid
+// point is one) with its rows' smoothed offsets when p.structure.x is 1,
+// else the climatology's rows.
 kernel void cloud_weather(texture2d<uint, access::read> first [[texture(0)]],
                           texture2d<uint, access::read> second [[texture(1)]],
                           texture2d<float, access::write> outA [[texture(2)]],
                           texture2d<float, access::write> outB [[texture(3)]],
                           texture3d<float> shape [[texture(4)]],
+                          texture2d<float, access::read> procLatent [[texture(5)]],
+                          texture2d<float, access::read> procLayer [[texture(6)]],
                           sampler wrap [[sampler(0)]],
                           constant float4 *climate [[buffer(0)]],
                           constant CloudWeatherParams &p [[buffer(1)]],
-                          uint2 gid [[thread_position_in_grid]]) {
+                          constant float4 *procOffsets [[buffer(2)]],
+                          uint2 tid [[thread_position_in_grid]]) {
+    // A band of rows from structure.y (a sweep's), or all of them.
+    uint2 gid = uint2(tid.x, tid.y + uint(p.structure.y));
     uint w = outA.get_width(), hgt = outA.get_height();
     if (gid.x >= w || gid.y >= hgt) { return; }
     float4 c = climate[gid.y];
     float low = c.x, mid = c.y, high = c.z;
-    float base = -1.0;
+    bool procOn = p.structure.x > 0.5;
+    float procBase = 0.0, procTop = 0.0, procCum = 0.5;
+    if (procOn) {
+        uint j0 = gid.y / 2u, c0 = gid.x / 2u;
+        uint j1 = min(j0 + 1u, PW_ROWS - 1u), c1 = (c0 + 1u) % PW_COLUMNS;
+        float fy = (gid.y & 1u) != 0u ? 0.5 : 0.0, fx = (gid.x & 1u) != 0u ? 0.5 : 0.0;
+        float4 l00 = procLatent.read(uint2(c0, j0)), l01 = procLatent.read(uint2(c1, j0));
+        float4 l10 = procLatent.read(uint2(c0, j1)), l11 = procLatent.read(uint2(c1, j1));
+        float4 h00 = procLayer.read(uint2(c0, j0)), h01 = procLayer.read(uint2(c1, j0));
+        float4 h10 = procLayer.read(uint2(c0, j1)), h11 = procLayer.read(uint2(c1, j1));
+        float4 l = mix(mix(l00, l01, fx), mix(l10, l11, fx), fy);
+        float4 h = mix(mix(h00, h01, fx), mix(h10, h11, fx), fy);
+        float3 off = mix(pw_offset(procOffsets, int(j0)), pw_offset(procOffsets, int(j1)), fy);
+        float3 cover = 1.0 / (1.0 + exp(-PW_GAINS * (l.xyz + off)));
+        low = cover.x;
+        mid = cover.y;
+        high = cover.z;
+        procBase = l.w;
+        procTop = h.x;
+        procCum = h.y;
+    }
+    float x = 1.0;
+    float fieldBase = -1.0;
     if (p.snapshots.y > 0.5) {
         uint4 a = first.read(gid), b = second.read(gid);
         float sw = p.snapshots.x;
@@ -260,12 +622,12 @@ kernel void cloud_weather(texture2d<uint, access::read> first [[texture(0)]],
             else { known[k] = sw < 0.5 ? ka : kb; v[k] = sw < 0.5 ? va : vb; }
         }
         if (known.x && known.y && known.z) {
-            float x = 1.0 - p.snapshots.z;
+            x = 1.0 - p.snapshots.z;
             float3 f = clamp(v.xyz, 0.0, 1.0);
-            low = f.x + x * (c.x - f.x);
-            mid = f.y + x * (c.y - f.y);
-            high = f.z + x * (c.z - f.z);
-            if (x < 0.5 && known.w) { base = v.w; }
+            low = f.x + x * (low - f.x);
+            mid = f.y + x * (mid - f.y);
+            high = f.z + x * (high - f.z);
+            if (known.w) { fieldBase = v.w; }
         }
     }
     float lat = (90.0 - 180.0 * float(gid.y) / float(hgt - 1)) * (CLOUD_PI / 180.0);
@@ -281,11 +643,20 @@ kernel void cloud_weather(texture2d<uint, access::read> first [[texture(0)]],
         high += wo * (s.z - high);
         if (wo >= 0.5) { convective = s.w > 0.5; }
     }
-    float lowBase = p.layerModel.x;
-    if (base >= 0.0 && base < p.layerModel.y) { lowBase = max(base, 0.0); }
-    float lowTop = convective ? p.layerModel.w : lowBase + p.layerModel.z;
+    float lowBase = p.layerModel.x, lowTop, cumuliform = 0.5;
+    if (procOn) {
+        if (fieldBase >= 0.0 && fieldBase < p.layerModel.y) { lowBase = max(fieldBase, 0.0); }
+        float fieldTop = lowBase + p.layerModel.z;
+        lowTop = fieldTop + x * (procTop - fieldTop);
+        lowBase += x * (procBase - lowBase);
+        cumuliform += x * (procCum - cumuliform);
+    } else {
+        if (x < 0.5 && fieldBase >= 0.0 && fieldBase < p.layerModel.y) { lowBase = max(fieldBase, 0.0); }
+        lowTop = lowBase + p.layerModel.z;
+    }
+    if (convective) { lowTop = p.layerModel.w; }
     outA.write(float4(low, mid, high, lowBase), gid);
-    outB.write(float4(lowTop, 0.0, 0.0, 0.0), gid);
+    outB.write(float4(lowTop, cumuliform, 0.0, 0.0), gid);
 }
 
 // ------------------------------------------------- the cloud field ---

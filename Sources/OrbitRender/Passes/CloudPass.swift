@@ -7,7 +7,9 @@ import OrbitScene
 /// Volumetric clouds (track C2), in P0 on the command buffer:
 /// 1. the noise volumes, once;
 /// 2. the weather map: C1's weather assembled at ERA5's grid points
-///    (`cloud_weather`, CloudWeatherMap's mirror);
+///    (`cloud_weather`, CloudWeatherMap's mirror), the weather elsewhere the
+///    procedural weather's nodes (`cloud_procedural`, ProceduralWeather's
+///    mirror) calibrated row by row to the climatology (`cloud_calibrate`);
 /// 3. the cloud shadow map along the Sun around the camera (slot 24, with
 ///    `AtmosphereUniforms.cloudShadowMatrix` and `cloudLayer`);
 /// 4. the march at R6's half resolution, one texel in four a frame with
@@ -61,7 +63,41 @@ public final class CloudPass: RenderPass, HalfResEffect {
     private var pipelines: (march: MTLComputePipelineState, resolve: MTLComputePipelineState,
                             weather: MTLComputePipelineState, shadow: MTLComputePipelineState,
                             shape: MTLComputePipelineState, detail: MTLComputePipelineState,
-                            curl: MTLComputePipelineState)?
+                            curl: MTLComputePipelineState, procedural: MTLComputePipelineState,
+                            calibrate: MTLComputePipelineState)?
+    /// The procedural weather's nodes (latent covers and base; top and how
+    /// cumuliform), the rows' offsets, and the geography it reads.
+    private(set) var procedural: (latent: MTLTexture, layer: MTLTexture, offsets: MTLBuffer,
+                                  geography: (a: MTLTexture, b: MTLTexture))?
+    /// The procedural weather's state the map was last made with, for the
+    /// camera's sample in between.
+    private(set) var proceduralState: ProceduralWeather.State?
+    /// The procedural weather's time step: its nodes are made again when the
+    /// time has moved this far (s; a front at 15 m/s moves 450 m), band by
+    /// band over `sweepBands` frames with one state (0.6 ms for all its
+    /// nodes, 0.2 ms for the rows' calibration, M3 Pro), and at once after a
+    /// jump of an hour or more, a new seed or a new start.
+    public nonisolated static let proceduralStep = 30.0
+    public nonisolated static let sweepBands = 4
+    /// The nodes' sweep under way: its inputs and the next band.
+    private var sweep: (frame: CloudWeatherMap.ProceduralFrame, band: Int)?
+    /// The seed and time the nodes were last made (or are being made) for.
+    private var nodesKey: (seed: Int, epoch: Epoch)?
+
+    /// A band of the procedural nodes' rows.
+    static func nodeRows(band b: Int) -> Range<Int> {
+        let n = ProceduralWeather.rows
+        return (n * b / sweepBands)..<(n * (b + 1) / sweepBands)
+    }
+
+    /// The map's rows made again with a band of nodes' rows: those over the
+    /// band (every other one is a node's), and the 12 before it whose
+    /// inputs reach into it (a row reads the nodes' rows on either side and
+    /// their offsets smoothed over ±4 rows). The bands go in order, so after a
+    /// sweep every row has its new inputs: the map a fresh one would make.
+    static func mapRows(nodes r: Range<Int>) -> Range<Int> {
+        max(2 * r.lowerBound - 12, 0)..<min(2 * r.upperBound, CloudWeatherMap.rows)
+    }
     private var slotPipeline: MTLRenderPipelineState?
     private(set) var noise: CloudNoiseVolumes?
     private var tables: CloudTables?
@@ -142,7 +178,7 @@ public final class CloudPass: RenderPass, HalfResEffect {
         }
         pipelines = (try compute("cloud_march_kernel"), try compute("cloud_resolve"), try compute("cloud_weather"),
                      try compute("cloud_shadow"), try compute("cloud_noise_shape"), try compute("cloud_noise_detail"),
-                     try compute("cloud_noise_curl"))
+                     try compute("cloud_noise_curl"), try compute("cloud_procedural"), try compute("cloud_calibrate"))
         noise = CloudNoiseVolumes(device: s.device)
         tables = CloudTables(device: s.device)
         air = CloudAir(device: s.device)
@@ -172,14 +208,44 @@ public final class CloudPass: RenderPass, HalfResEffect {
             return t
         }
         if let a = map(.rgba16Float, "Cloud weather A"), let b = map(.rg16Float, "Cloud weather B") { weatherMap = (a, b) }
+        procedural = Self.makeProcedural(s.device)
         let pd = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Uint, width: 1, height: 1, mipmapped: false)
         pd.usage = .shaderRead
         placeholder = s.device.makeTexture(descriptor: pd)
         mergeBreak = s.device.makeBuffer(length: 16, options: .storageModePrivate)
         mergeBreak?.label = "Cloud encoder break"
-        guard noise != nil, tables != nil, weatherMap != nil, placeholder != nil else {
+        guard noise != nil, tables != nil, weatherMap != nil, placeholder != nil, procedural != nil else {
             throw ShaderLibrary.Failure.missingFunction("cloud textures")
         }
+    }
+
+    /// The procedural weather's textures and buffer, and its geography
+    /// uploaded once (WeatherGeography: two rgba8 planes).
+    static func makeProcedural(_ device: MTLDevice) -> (latent: MTLTexture, layer: MTLTexture, offsets: MTLBuffer,
+                                                        geography: (a: MTLTexture, b: MTLTexture))? {
+        func texture(_ format: MTLPixelFormat, _ label: String, gpuOnly: Bool) -> MTLTexture? {
+            let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: format, width: ProceduralWeather.columns,
+                                                             height: ProceduralWeather.rows, mipmapped: false)
+            d.usage = gpuOnly ? [.shaderRead, .shaderWrite] : .shaderRead
+            d.storageMode = gpuOnly ? .private : .shared
+            let t = device.makeTexture(descriptor: d)
+            t?.label = label
+            return t
+        }
+        guard let latent = texture(.rgba32Float, "Procedural weather latent", gpuOnly: true),
+              let layer = texture(.rgba32Float, "Procedural weather layer", gpuOnly: true),
+              let a = texture(.rgba8Unorm, "Weather geography A", gpuOnly: false),
+              let b = texture(.rgba8Unorm, "Weather geography B", gpuOnly: false),
+              let offsets = device.makeBuffer(length: 16 * ProceduralWeather.rows, options: .storageModePrivate)
+        else { return nil }
+        offsets.label = "Procedural weather offsets"
+        let g = WeatherGeography.earth
+        let region = MTLRegionMake2D(0, 0, ProceduralWeather.columns, ProceduralWeather.rows)
+        g.a.withUnsafeBytes { a.replace(region: region, mipmapLevel: 0, withBytes: $0.baseAddress!,
+                                         bytesPerRow: 4 * ProceduralWeather.columns) }
+        g.b.withUnsafeBytes { b.replace(region: region, mipmapLevel: 0, withBytes: $0.baseAddress!,
+                                         bytesPerRow: 4 * ProceduralWeather.columns) }
+        return (latent, layer, offsets, (a, b))
     }
 
     public func setUpHalfRes(_ s: HalfResSetup) throws {
@@ -243,6 +309,9 @@ public final class CloudPass: RenderPass, HalfResEffect {
         lastEpoch = nil
         previous = nil
         lastWeather = nil
+        proceduralState = nil
+        sweep = nil
+        nodesKey = nil
     }
 
     // MARK: P0
@@ -276,14 +345,6 @@ public final class CloudPass: RenderPass, HalfResEffect {
         // The weather.
         let (weather, mission) = weatherFor(settings, epoch: f.scene.clock.simTime)
         let params = CloudWeatherMap.parameters(weather, at: f.scene.clock.simTime)
-        let sample = weather.sample(latitude: frame.latitude, longitude: frame.longitude, at: f.scene.clock.simTime)
-        let dt = f.scene.clock.paused ? 0 : f.scene.clock.simDt
-        advection.advance(frame, winds: [sample.lowWind ?? sample.surfaceWind, sample.midWind, sample.highWind], dt: dt)
-        cirrus.update(frame, streak: Self.streak(frame, wind: sample.highWind), wind: sample.highWind, dt: dt,
-                      realDt: f.scene.clock.realDt, period: Self.shapePeriod)
-        let lowWind = sample.lowWind ?? sample.surfaceWind
-        detailFrames.update(frame, streak: Self.streak(frame, wind: lowWind), wind: lowWind, dt: dt,
-                            realDt: f.scene.clock.realDt, period: Self.shapePeriod)
         // Two encoders: the weather map and the shadow map, which P1 reads
         // (slot 24, bound on every render encoder); then the march and the
         // resolve, which only P3 reads (`breakComputeMerge`).
@@ -291,13 +352,62 @@ public final class CloudPass: RenderPass, HalfResEffect {
         // P0: the frame uniforms alone (the shared ones are uploaded after it).
         f.bindFrameUniforms(enc)
         enc.setSamplerState(f.states.linearClamp, index: Binding.linearClampSampler)
-        // The weather map again only when it has changed: another mission
-        // or snapshots, or a weight moved by 1/500.
-        let key = WeatherKey(mission: mission, params: params)
-        if !settings.skip.contains("weather"), lastWeather.map({ !$0.close(to: key) }) ?? true {
-            lastWeather = key
-            encodeWeather(enc, f, weather: weather, mission: mission, params: params, map: weatherMap, pipeline: p.weather)
+        // The procedural weather's nodes, when it shows: all at once after a
+        // jump, a new seed or a new start, else a band a frame once the time
+        // has moved by `proceduralStep`. Then the weather map: whole when
+        // another mission, seed or snapshots or a weight moved by 1/500, else
+        // the rows of the nodes made this frame.
+        var mapRows: Range<Int>?
+        if !settings.skip.contains("weather") {
+            let epoch = f.scene.clock.simTime
+            if let w = params.procedural {
+                if nodesKey.map({ $0.seed != w.seed || abs(epoch - $0.epoch) > 3_600 }) ?? true {
+                    let frame = CloudWeatherMap.proceduralFrame(w, at: epoch)
+                    encodeNodes(enc, f, frame, rows: 0..<ProceduralWeather.rows, pipelines: p)
+                    nodesKey = (w.seed, epoch)
+                    proceduralState = frame.state
+                    sweep = nil
+                    mapRows = 0..<CloudWeatherMap.rows
+                } else if let s = sweep {
+                    let rows = Self.nodeRows(band: s.band)
+                    encodeNodes(enc, f, s.frame, rows: rows, pipelines: p)
+                    mapRows = Self.mapRows(nodes: rows)
+                    sweep = s.band + 1 < Self.sweepBands ? (s.frame, s.band + 1) : nil
+                } else if let k = nodesKey, abs(epoch - k.epoch) >= Self.proceduralStep {
+                    let frame = CloudWeatherMap.proceduralFrame(w, at: epoch)
+                    let rows = Self.nodeRows(band: 0)
+                    encodeNodes(enc, f, frame, rows: rows, pipelines: p)
+                    nodesKey = (w.seed, epoch)
+                    proceduralState = frame.state
+                    mapRows = Self.mapRows(nodes: rows)
+                    sweep = (frame, 1)
+                }
+            } else {
+                nodesKey = nil
+                sweep = nil
+                proceduralState = nil
+            }
+            let key = WeatherKey(mission: mission, params: params)
+            if lastWeather.map({ !$0.close(to: key) }) ?? true {
+                lastWeather = key
+                mapRows = 0..<CloudWeatherMap.rows
+            }
+            if let mapRows {
+                encodeWeather(enc, f, weather: weather, mission: mission, params: params, map: weatherMap, rows: mapRows,
+                              pipelines: p)
+            }
         }
+        // The weather where the camera is: the winds and the low layer's
+        // heights (the procedural weather's as the map was last made).
+        let sample = weather.sample(latitude: frame.latitude, longitude: frame.longitude, at: f.scene.clock.simTime,
+                                    state: proceduralState, calibrated: false)
+        let dt = f.scene.clock.paused ? 0 : f.scene.clock.simDt
+        advection.advance(frame, winds: [sample.lowWind ?? sample.surfaceWind, sample.midWind, sample.highWind], dt: dt)
+        cirrus.update(frame, streak: Self.streak(frame, wind: sample.highWind), wind: sample.highWind, dt: dt,
+                      realDt: f.scene.clock.realDt, period: Self.shapePeriod)
+        let lowWind = sample.lowWind ?? sample.surfaceWind
+        detailFrames.update(frame, streak: Self.streak(frame, wind: lowWind), wind: lowWind, dt: dt,
+                            realDt: f.scene.clock.realDt, period: Self.shapePeriod)
 
         // The uniforms.
         // The march target: R6's half resolution in the near field, half
@@ -552,24 +662,36 @@ public final class CloudPass: RenderPass, HalfResEffect {
     // MARK: Parts
 
     /// The weather for the settings and the epoch, and the mission it is.
+    /// The settings' weather (CloudSettings.weather): "auto" or "historic"
+    /// the mission's field and pad sky with the procedural weather
+    /// elsewhere, "random" the procedural weather alone, "climatology" the
+    /// zonal climatology alone; the procedural weather of the settings' seed.
     private func weatherFor(_ s: CloudSettings, epoch: Epoch) -> (CloudWeather, String?) {
         if let weatherOverride { return (weatherOverride, weatherOverrideName) }
+        let procedural = ProceduralWeather(seed: s.seed)
         let name: String?
         switch s.weather {
-        case "auto": name = CloudWeatherMap.mission(at: epoch)
-        case "climatology", "clear": name = nil
+        case "auto", "historic": name = CloudWeatherMap.mission(at: epoch)
+        case "random": return (CloudWeather(procedural: procedural), "random")
+        case "climatology", "clear": return (CloudWeather(), nil)
         default: name = s.weather
         }
-        guard let name else { return (CloudWeather(), nil) }
-        if let w = weathers[name] { return (w, name) }
-        let w = CloudWeather.mission(name)
+        guard let name else { return (CloudWeather(procedural: procedural), nil) }
+        var w = weathers[name] ?? CloudWeather.mission(name)
         weathers[name] = w
+        w.procedural = procedural
         return (w, name)
     }
 
     private func encodeWeather(_ enc: MTLComputeCommandEncoder, _ f: FrameContext, weather: CloudWeather, mission: String?,
-                               params: CloudWeatherMap.Parameters, map: (a: MTLTexture, b: MTLTexture),
-                               pipeline: MTLComputePipelineState) {
+                               params: CloudWeatherMap.Parameters, map: (a: MTLTexture, b: MTLTexture), rows: Range<Int>,
+                               pipelines pl: (march: MTLComputePipelineState, resolve: MTLComputePipelineState,
+                                              weather: MTLComputePipelineState, shadow: MTLComputePipelineState,
+                                              shape: MTLComputePipelineState, detail: MTLComputePipelineState,
+                                              curl: MTLComputePipelineState, procedural: MTLComputePipelineState,
+                                              calibrate: MTLComputePipelineState)) {
+        guard let proc = procedural else { return }
+        let procOn = params.procedural != nil && nodesKey != nil
         var textures: (MTLTexture, MTLTexture)?
         // Snapshot i of another mission is another sky: its textures are
         // refilled, never read as this mission's.
@@ -609,19 +731,62 @@ public final class CloudPass: RenderPass, HalfResEffect {
         }
         p.layerModel = SIMD4(Float(CloudLayerModel.defaultLowBase), Float(CloudLayerModel.midBase),
                              Float(CloudLayerModel.lowDepth), Float(CloudLayerModel.cumulonimbusTop))
+        p.structure = SIMD4(procOn ? 1 : 0, Float(rows.lowerBound), 0, 0)
         let climate = params.climatology.map { SIMD4<Float>(Float($0.low), Float($0.mid), Float($0.high), 0) }
-        enc.setComputePipelineState(pipeline)
+        enc.setComputePipelineState(pl.weather)
         enc.setTexture(textures?.0 ?? placeholder, index: 0)
         enc.setTexture(textures?.1 ?? placeholder, index: 1)
         enc.setTexture(map.a, index: 2)
         enc.setTexture(map.b, index: 3)
+        enc.setTexture(proc.latent, index: 5)
+        enc.setTexture(proc.layer, index: 6)
+        enc.setBuffer(proc.offsets, offset: 0, index: 2)
         // 721 rows, 11.5 KB: through the frame's arena (setBytes takes 4 KB at
         // most; Metal's API validation stops on more).
-        guard let rows = f.arena.push(climate) else { return }
-        enc.setBuffer(rows.buffer, offset: rows.offset, index: 0)
+        guard let climateRows = f.arena.push(climate) else { return }
+        enc.setBuffer(climateRows.buffer, offset: climateRows.offset, index: 0)
         enc.setBytes(&p, length: MemoryLayout<CloudWeatherParams>.stride, index: 1)
-        enc.dispatchThreads(MTLSize(width: map.a.width, height: map.a.height, depth: 1),
+        enc.dispatchThreads(MTLSize(width: map.a.width, height: rows.count, depth: 1),
                             threadsPerThreadgroup: MTLSize(width: 16, height: 16, depth: 1))
+    }
+
+    /// The procedural weather's nodes (`cloud_procedural`) and the rows'
+    /// offsets (`cloud_calibrate`) for a band of rows, from `frame`'s inputs.
+    private func encodeNodes(_ enc: MTLComputeCommandEncoder, _ f: FrameContext, _ frame: CloudWeatherMap.ProceduralFrame,
+                             rows: Range<Int>,
+                             pipelines pl: (march: MTLComputePipelineState, resolve: MTLComputePipelineState,
+                                            weather: MTLComputePipelineState, shadow: MTLComputePipelineState,
+                                            shape: MTLComputePipelineState, detail: MTLComputePipelineState,
+                                            curl: MTLComputePipelineState, procedural: MTLComputePipelineState,
+                                            calibrate: MTLComputePipelineState)) {
+        guard let proc = procedural, !rows.isEmpty else { return }
+        var u = ProceduralUniforms(frame.state)
+        u.rows = SIMD4(Float(rows.lowerBound), Float(rows.count), 0, 0)
+        let bands = zip(frame.bands, frame.climatology).map { b, c in
+            ProceduralBand(a: SIMD4(Float(b.steer), Float(b.subtropics), Float(b.stratocumulus), Float(b.desert)),
+                           b: SIMD4(Float(b.midDesert), Float(b.trades), Float(b.polar), Float(b.ice)),
+                           c: SIMD4(Float(c.low), Float(c.mid), Float(c.high), 0))
+        }
+        var systems = frame.state.systems.map(ProceduralSystemGPU.init)
+        if systems.isEmpty { systems = [ProceduralSystemGPU()] }
+        guard let b = f.arena.push(bands), let s = f.arena.push(systems) else { return }
+        enc.setComputePipelineState(pl.procedural)
+        enc.setTexture(proc.latent, index: 0)
+        enc.setTexture(proc.layer, index: 1)
+        enc.setTexture(proc.geography.a, index: 2)
+        enc.setTexture(proc.geography.b, index: 3)
+        enc.setBytes(&u, length: MemoryLayout<ProceduralUniforms>.stride, index: 0)
+        enc.setBuffer(b.buffer, offset: b.offset, index: 1)
+        enc.setBuffer(s.buffer, offset: s.offset, index: 2)
+        enc.dispatchThreads(MTLSize(width: ProceduralWeather.columns, height: rows.count, depth: 1),
+                            threadsPerThreadgroup: MTLSize(width: 16, height: 8, depth: 1))
+        enc.setComputePipelineState(pl.calibrate)
+        enc.setTexture(proc.latent, index: 0)
+        enc.setBytes(&u, length: MemoryLayout<ProceduralUniforms>.stride, index: 0)
+        enc.setBuffer(b.buffer, offset: b.offset, index: 1)
+        enc.setBuffer(proc.offsets, offset: 0, index: 3)
+        enc.dispatchThreadgroups(MTLSize(width: rows.count, height: 1, depth: 1),
+                                 threadsPerThreadgroup: MTLSize(width: 256, height: 1, depth: 1))
     }
 
     /// A texture for one snapshot's planes.
@@ -830,24 +995,77 @@ public final class CloudPass: RenderPass, HalfResEffect {
     }
 }
 
-/// What the weather map was last assembled from.
+/// What the weather map was last assembled from, the procedural weather's
+/// time apart (its nodes are made again by their own sweep).
 struct WeatherKey {
     var mission: String?
     var snapshots: (Int, Int)?
     var weights: [Double]
+    /// The procedural weather's seed, when it shows.
+    var seed: Int?
 
     init(mission: String?, params: CloudWeatherMap.Parameters) {
         self.mission = mission
         snapshots = params.snapshots.map { ($0.first, $0.second) }
         weights = [params.snapshots?.weight ?? 0, params.fieldWeight] + params.overrides.map(\.timeWeight)
             + [params.climatology.first?.low ?? 0, params.climatology.last?.high ?? 0]
+        seed = params.procedural?.seed
     }
 
     /// The same map within 1/500 of every weight.
     func close(to k: WeatherKey) -> Bool {
-        mission == k.mission && snapshots?.0 == k.snapshots?.0 && snapshots?.1 == k.snapshots?.1
+        mission == k.mission && snapshots?.0 == k.snapshots?.0 && snapshots?.1 == k.snapshots?.1 && seed == k.seed
             && weights.count == k.weights.count
             && zip(weights, k.weights).allSatisfy { abs($0 - $1) < 0.002 }
+    }
+}
+
+/// Swift mirror of CloudShaders' ProceduralUniforms.
+struct ProceduralUniforms {
+    var phase0 = SIMD4<Float>.zero
+    var phase1 = SIMD4<Float>.zero
+    var ages = SIMD4<Float>.zero
+    var sky = SIMD4<Float>.zero
+    var rows = SIMD4<Float>.zero
+
+    init(_ s: ProceduralWeather.State) {
+        let p = s.phases
+        func phase(_ k: Int) -> SIMD4<Float> {
+            SIMD4(Float(p[k].offset.x), Float(p[k].offset.y), Float(p[k].offset.z), Float(p[k].weight))
+        }
+        phase0 = phase(0)
+        phase1 = phase(1)
+        let w2 = p.reduce(0) { $0 + $1.weight * $1.weight }
+        ages = SIMD4(Float(p[0].age), Float(p[1].age), Float(1 / max(w2, 1e-6).squareRoot()), Float(s.systems.count))
+        sky = SIMD4(Float(s.sky.subsolarLongitude), Float(s.sky.declination), Float(s.sky.itczSea), Float(s.sky.itczLand))
+    }
+}
+
+/// Swift mirror of CloudShaders' ProceduralBand.
+struct ProceduralBand {
+    var a: SIMD4<Float>
+    var b: SIMD4<Float>
+    var c: SIMD4<Float>
+}
+
+/// Swift mirror of CloudShaders' ProceduralSystem.
+struct ProceduralSystemGPU {
+    var centre = SIMD4<Float>.zero
+    var east = SIMD4<Float>.zero
+    var poleward = SIMD4<Float>.zero
+    var params = SIMD4<Float>.zero
+    var turn = SIMD4<Float>(2, 1, 0, 0)
+
+    init() {}
+
+    init(_ s: ProceduralWeather.System) {
+        centre = SIMD4(Float(s.centre.x), Float(s.centre.y), Float(s.centre.z), Float(s.kind.rawValue))
+        east = SIMD4(Float(s.east.x), Float(s.east.y), Float(s.east.z), Float(s.reach))
+        poleward = SIMD4(Float(s.poleward.x), Float(s.poleward.y), Float(s.poleward.z), Float(s.size))
+        params = SIMD4(Float(s.intensity), Float(s.stage), Float(s.top), Float(s.tilt))
+        // The cone a little wider than the reach, so Float's cosine never
+        // cuts a node the reach keeps.
+        turn = SIMD4(Float(cos(min(s.reach * 1.01 + 1e-4, .pi))), Float(cos(s.tilt)), Float(sin(s.tilt)), 0)
     }
 }
 
