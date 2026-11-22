@@ -156,6 +156,7 @@ public final class ApolloSCS: FlightProgram, DeltaVCounting, GuidanceComputerHos
         guard gnAuto else { return }
         gnAuto = false
         v.attitudeCommand = nil
+        v.resetAttitudeReference()   // the hold captures afresh, not where it was before G&N AUTO
         sim.log("\(v.name): G&N AUTO off, \(reason)")
     }
 

@@ -170,6 +170,33 @@ final class CMCLiteTests: XCTestCase {
         XCTAssertTrue(f.logged("CMC: SPS ignition, 3.0 s late"))
     }
 
+    // 8 hands the attitude back to the SCS where the vessel is: after the
+    // computer has slewed it 20° (an SPS-8 load turned 20° in pitch), the
+    // hold keeps it there and does not swing back to where it held before.
+    func testEightHandsTheAttitudeBackWhereItIs() throws {
+        let f = try CMCFlight()
+        var load = f.sps8AsFlown()
+        let axis = f.v.position.cross(f.v.velocity).normalized
+        load.deltaV = Quat(axis: axis, angle: 20 * CMCFlight.deg).rotate(load.deltaV)
+        XCTAssertEqual(f.cmc.uplink(load, at: f.sim.time), .accepted)
+        f.press(.returnKey, .returnKey, .next, .returnKey)
+        let start = f.v.attitude
+        f.fly(to: f.get + 20)
+        XCTAssertTrue(f.scs.gnAuto)
+        let turned = rotationVector(start.conjugate * f.v.attitude).length / CMCFlight.deg
+        XCTAssertGreaterThan(turned, 8)   // under way at 0.5°/s
+        f.scs.clearGNAuto(f.v, in: f.sim)   // 8
+        f.v.autopilot = .attitudeHold
+        XCTAssertFalse(f.scs.gnAuto)
+        let handed = f.v.attitude
+        f.fly(to: f.get + 20)
+        XCTAssertLessThan(rotationVector(handed.conjugate * f.v.attitude).length / CMCFlight.deg, 1.5)
+        XCTAssertTrue(f.logged("G&N AUTO off, SCS hold"))
+        // G gives it back to the computer, from where it is.
+        XCTAssertTrue(f.scs.selectGNAuto(f.v, in: f.sim))
+        XCTAssertTrue(f.scs.gnAuto)
+    }
+
     // Z in P40 before TIG makes the burn an SCS burn: the SPS lights at
     // once, the EMS counter (the scenario's load) cuts it off, and the
     // computer only monitors, then shows N85.
