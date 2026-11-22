@@ -355,7 +355,7 @@ final class FallbackTextures {
               let shadow = depth(.type2DArray), let sceneDepth = depth(.type2D) else { return nil }
         depthTextures = [shadow, sceneDepth]
         bySlot = [Binding.sceneDepth: sceneDepth, Binding.environmentSpecular: cube, Binding.environmentIrradiance: cube,
-                  Binding.dfgLUT: flat, Binding.shadowAtlas: shadow, Binding.cloudShadow: flat,
+                  Binding.dfgLUT: flat, Binding.shadowAtlas: shadow, Binding.cloudShadow: flat, Binding.cloudSky: flat,
                   Binding.transmittanceLUT: flat, Binding.blueNoise: flat, Binding.toneLUT: volume,
                   Binding.multipleScatteringLUT: flat, Binding.skyViewLUT: flat, Binding.aerialPerspective: volume]
     }

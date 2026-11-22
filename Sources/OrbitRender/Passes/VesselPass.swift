@@ -404,18 +404,6 @@ public final class VesselPass: RenderPass {
     }
     private var probe: ProbeDrawing?
 
-    /// R3's probe entry point: LC-39A, when it is within 2 km of `center`,
-    /// drawn into one face of a radiance cube on `enc` (attachments of
-    /// `formats`, depth tested and written), so the stack on the pad sees
-    /// the concrete and steel below it. Not the vessels: the probe sits at
-    /// the camera target, which would see itself. `viewProjection` takes
-    /// world relative to `center` (camera-relative, m) to the face's clip
-    /// space (a reflection: the winding flips). In cd/m² (pre-exposure 1):
-    /// the Sun with R4's shadows, R2's stand-in environment for the light
-    /// around it (the probe's own is the one being drawn) without its night
-    /// floor (the receivers add theirs), no aerial perspective, no plume
-    /// lights, no thin wires. What `encode` draws
-    /// does not depend on it.
     /// From the probe's points (relative to its centre) to the camera-relative
     /// points R4's shadow maps and C2's cloud shadow map take.
     nonisolated static func probeShift(center: Vec3) -> simd_float4x4 {
@@ -434,6 +422,18 @@ public final class VesselPass: RenderPass {
         return air
     }
 
+    /// R3's probe entry point: LC-39A, when it is within 2 km of `center`,
+    /// drawn into one face of a radiance cube on `enc` (attachments of
+    /// `formats`, depth tested and written), so the stack on the pad sees
+    /// the concrete and steel below it. Not the vessels: the probe sits at
+    /// the camera target, which would see itself. `viewProjection` takes
+    /// world relative to `center` (camera-relative, m) to the face's clip
+    /// space (a reflection: the winding flips). In cd/m² (pre-exposure 1):
+    /// the Sun with R4's shadows, R2's stand-in environment for the light
+    /// around it (the probe's own is the one being drawn) without its night
+    /// floor (the receivers add theirs), no aerial perspective, no plume
+    /// lights, no thin wires. What `encode` draws
+    /// does not depend on it.
     public func encodeProbe(_ f: FrameContext, on enc: MTLRenderCommandEncoder, formats: SceneFormats,
                             viewProjection: simd_float4x4, center: Vec3, faceSize: Int) {
         let sites = f.scene.sites.filter { $0.name == "LC-39A" && ($0.origin - center).length < Self.probeSiteRange }

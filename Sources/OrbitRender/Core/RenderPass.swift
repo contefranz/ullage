@@ -79,6 +79,7 @@ public struct ResourceID: Hashable, ExpressibleByStringLiteral, CustomStringConv
     public static let aerialPerspective = ResourceID("aerialPerspective")             // A2
     public static let cloudLayer = ResourceID("cloudLayer")                           // C2
     public static let cloudDepth = ResourceID("cloudDepth")                           // C2
+    public static let cloudSky = ResourceID("cloudSky")                               // C2
     public static let cloudShadow = ResourceID("cloudShadow")                         // C2
     public static let plumeLights = ResourceID("plumeLights")                         // P2
     public static let particles = ResourceID("particles", persistent: true)           // P3

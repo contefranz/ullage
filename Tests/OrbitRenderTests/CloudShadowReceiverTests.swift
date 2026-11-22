@@ -111,15 +111,16 @@ final class CloudShadowReceiverTests: XCTestCase {
 }
 
 extension CloudShadowReceiverTests {
-    /// The sky's light on the ground passes the clouds as the Sun's does:
-    /// most of it is scattered in the air above them, and the slab passes it
-    /// down alike. Over the pad (the stack and the site taken away, 260 m of
-    /// air to the ground) with the Sun put 1.5° under the horizon, the ground
-    /// has the sky's light alone, and an opaque deck takes it (measured 18 %
-    /// of the pixel: the rest is the air's light in front of the ground and
-    /// PlanetPass's night floor, 1.5 % of the albedo). With the Sun's term
-    /// alone shadowed the deck left twilight ground exactly as it was, and
-    /// took 66 % of the light by day, not 86 %.
+    /// The ground's sky light passes the cover overhead (C2's sky map), not
+    /// the clouds on the Sun's line. Over the pad (the stack and the site
+    /// taken away, 260 m of air to the ground):
+    /// - with the Sun put 1.5° under the horizon the ground has the sky's
+    ///   light alone: the sky map's zero takes it (18 % of the pixel; the rest
+    ///   is the air's light in front of the ground and PlanetPass's night
+    ///   floor, 1.5 % of the albedo), while an opaque deck on the Sun's line
+    ///   (hundreds of km off at the terminator) leaves it as it was;
+    /// - by day (Sun at 30°) the Sun's line takes the Sun's share and the
+    ///   sky map the sky's: the two together more than 80 % of the pixel.
     func testCloudShadowTakesTheSkysLightToo() throws {
         var shot = SnapshotSpec.Shot(name: "pad-ground", scenario: "as506-pad",
                                      camera: SnapshotSpec.CameraSpec(yaw: -60, pitch: 60, distance: 300, fov: 40))
@@ -141,22 +142,31 @@ extension CloudShadowReceiverTests {
         r.settings = shot.settings
         let earth = try XCTUnwrap(scene.bodies.first { $0.id == AtmosphereFrame.planetID })
         let up = (-earth.position).normalized, east = Vec3(0, 0, 1).cross(up).normalized
-        func dimmed(sunElevation e: Double) throws -> Double {
+        // The ground's light under (the Sun's line's optical depth, the sky
+        // map's transmittance) against the clear ground's: the share taken.
+        func dimmed(sunElevation e: Double, _ deck: (tau: Float, sky: Float)) throws -> Double {
             let toSun = (east * cos(e) + up * sin(e)).normalized
             scene.sun.direction = toSun
             scene.sun.position = toSun * scene.sun.distance
             for i in scene.bodies.indices { scene.bodies[i].toSun = toSun }
             clouds.opticalDepth = 0
+            clouds.skyTransmittance = 1
             let clear = try luminance(scene, renderer: r)[50 * 160 + 80]
-            clouds.opticalDepth = 1e6
-            let opaque = try luminance(scene, renderer: r)[50 * 160 + 80]
+            clouds.opticalDepth = deck.tau
+            clouds.skyTransmittance = deck.sky
+            let under = try luminance(scene, renderer: r)[50 * 160 + 80]
             XCTAssertGreaterThan(clear, 0)
-            return 1 - opaque / clear
+            return 1 - under / clear
         }
-        let twilight = try dimmed(sunElevation: -1.5 * .pi / 180), day = try dimmed(sunElevation: 30 * .pi / 180)
-        print("the pad's ground dimmed by an opaque deck: in twilight \(twilight), by day \(day)")
-        XCTAssertGreaterThan(twilight, 0.1, "the deck takes the sky's light")
-        XCTAssertGreaterThan(day, 0.8)
+        let twilight = -1.5 * Double.pi / 180, day = 30 * Double.pi / 180
+        let twilightSky = try dimmed(sunElevation: twilight, (0, 0)), twilightLine = try dimmed(sunElevation: twilight, (1e6, 1))
+        let daySun = try dimmed(sunElevation: day, (1e6, 1)), dayBoth = try dimmed(sunElevation: day, (1e6, 0))
+        print("the pad's ground dimmed: in twilight by the sky map \(twilightSky), by the Sun's line \(twilightLine); "
+              + "by day by the Sun's line \(daySun), by both \(dayBoth)")
+        XCTAssertGreaterThan(twilightSky, 0.1, "the cover overhead takes the sky's light")
+        XCTAssertEqual(twilightLine, 0, accuracy: 1e-3, "the clouds on the Sun's line do not")
+        XCTAssertGreaterThan(dayBoth, 0.8)
+        XCTAssertGreaterThan(dayBoth - daySun, 0.1, "the sky's share")
     }
 }
 
@@ -180,21 +190,26 @@ final class ProbeCloudShadowTests: XCTestCase {
 }
 
 /// C2's cloud shadow as CloudPass leaves it at the end of P0, for a test:
-/// the layer on, every point mapped to the map's centre at the ground, and
-/// the map's optical depth `opticalDepth` at every height.
+/// the layer on, every point mapped to the map's centre at the ground, the
+/// map's optical depth `opticalDepth` at every height, and the sky map's
+/// transmittance `skyTransmittance`.
 @MainActor
 final class CloudShadowInjection: RenderPass {
     let name = "Test cloud shadow"
     let stage = PassStage.prepare
     let order = 1_000
     var opticalDepth: Float = 0
+    /// The sky map's transmittance (both ground points).
+    var skyTransmittance: Float = 1
     private let map: MTLTexture
+    private let sky: MTLTexture
 
     init(device: MTLDevice) throws {
         let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba32Float, width: 4, height: 4, mipmapped: false)
         d.usage = .shaderRead
         d.storageMode = .shared
         map = try XCTUnwrap(device.makeTexture(descriptor: d))
+        sky = try XCTUnwrap(device.makeTexture(descriptor: d))
     }
 
     func encode(_ f: FrameContext, _ e: PassEncoding) {
@@ -205,5 +220,10 @@ final class CloudShadowInjection: RenderPass {
         f.atmosphere.cloudLayer = SIMD4(0, 2_000, 1, 1)
         f.atmosphere.cloudShadowMatrix = simd_float4x4(columns: (.zero, .zero, .zero, SIMD4(0.5, 0.5, 0, 1)))
         f.slotTextures[Binding.cloudShadow] = map
+        let skies = [SIMD4<Float>](repeating: SIMD4(skyTransmittance, skyTransmittance, 0, 0), count: 16)
+        skies.withUnsafeBytes {
+            sky.replace(region: MTLRegionMake2D(0, 0, 4, 4), mipmapLevel: 0, withBytes: $0.baseAddress!, bytesPerRow: 64)
+        }
+        f.slotTextures[Binding.cloudSky] = sky
     }
 }

@@ -76,6 +76,8 @@ struct CloudUniforms {
     // The march's optical depth down a cloudy column of the mid layer over
     // C1's (CloudCoverage.columnDepth): its lenses fill a twelfth of the layer.
     float4 columnMid[9];
+    // The same for the low layer (a quarter to a third of its depth).
+    float4 columnLow[9];
 };
 
 inline float cloud_remap(float x, float a, float b, float c, float d) {
@@ -1596,9 +1598,36 @@ kernel void cloud_resolve(texture2d<float, access::read> fresh [[texture(10)]],
 
 // ------------------------------------------------ the cloud shadow map ---
 
+// The sky's light reaching the ground at figure point pf through the clouds
+// overhead, per unit of the clear sky's. Diffuse light comes through the
+// cover over the whole sky, not along one line: each layer passes it where
+// it has gaps whole and through its cloudy columns as a conservative slab
+// of their mean optical depth (CloudCoverage.columnDepth), 2 / (2 + (1 - g)
+// tau) (Bohren 1987; C2's own streams pass the sky's light down so), g 0.85
+// for water and 0.75 for ice; the layers overlap at random. The weather's
+// covers are 25 km cells, about the scale of the sky a point sees through
+// a deck 1-2 km up, so the sky's light does not follow the clouds' cast
+// shadows as the Sun's does.
+inline float cloud_skyColumn(float3 pf, thread const CloudTextures &t, sampler wrap, sampler weather,
+                             constant CloudUniforms &u) {
+    CloudWeatherSample w = cloud_weatherAt(pf, t, wrap, weather, u);
+    float low = w.a.x > 0.002 ? w.a.x : 0.0, mid = w.a.y > 0.002 ? w.a.y : 0.0;
+    float tauLow = u.lookDev.x > 0.5 ? u.lookDev.z
+        : u.extinction.x * u.extinction.w * max(w.lowTop - w.a.w, 0.0) * cloud_table(u.columnLow, low);
+    float tauMid = u.extinction.y * u.extinction.w * (u.layers.y - u.layers.x) * cloud_table(u.columnMid, mid);
+    float high = u.lookDev.x > 0.5 ? 0.0 : t.weatherA.sample(weather, cloud_weatherUV(pf, u), level(0.0)).z;
+    return (1.0 - low + low * 2.0 / (2.0 + 0.15 * tauLow)) * (1.0 - mid + mid * 2.0 / (2.0 + 0.15 * tauMid))
+         * (1.0 - high + high * 2.0 / (2.0 + 0.25 * cloud_cirrusMeanDepth(u)));
+}
+
 // Texel gid's Sun ray through the shell: the optical depth above each of
-// the four altitudes in u.shadowLevels.
+// the four altitudes in u.shadowLevels; and in `sky` the sky's light on the
+// ground (cloud_skyColumn) where the texel's line meets it: x where it
+// rises toward the Sun (a ground point with the Sun up), y where it falls
+// (with the Sun under its horizon, the line rising again beyond the Earth's
+// limb); 1 where it misses the ground.
 kernel void cloud_shadow(texture2d<float, access::write> out [[texture(0)]],
+                         texture2d<float, access::write> sky [[texture(1)]],
                          texture3d<float> shape [[texture(2)]],
                          texture3d<float> detail [[texture(3)]],
                          texture2d<float> curl [[texture(4)]],
@@ -1679,6 +1708,15 @@ kernel void cloud_shadow(texture2d<float, access::write> out [[texture(0)]],
     }
     #undef CLOUD_RAY_AT
     out.write(tauAbove, gid);
+    // The line's ground points: h(t) = 0.
+    float disc = mu0 * mu0 - 2.0 * hBase / R;
+    float2 skyT = float2(1.0);
+    if (disc >= 0.0) {
+        float sq = sqrt(disc);
+        skyT = float2(cloud_skyColumn(cloud_figure(base + s * (R * (-mu0 + sq)), u), t, wrap, weather, u),
+                      cloud_skyColumn(cloud_figure(base + s * (R * (-mu0 - sq)), u), t, wrap, weather, u));
+    }
+    sky.write(float4(skyT, 0.0, 0.0), gid);
 }
 
 // ------------------------------------------- into R6's clouds layer ---
@@ -1737,21 +1775,40 @@ inline void cloud_hazeFromSpace(thread CloudResult &r, float2 uv, float h, float
     r.color.rgb = r.color.rgb * t + r.color.a * scatter.sample(s, uv, level(0)).rgb * share * exposure;
 }
 
+// Whether the cirrus lies in front of a part whose cloud the ray enters at
+// `entry` (none: in front): by height, which the reprojection's nudges to a
+// texel's entry cannot flip (by entry distance, the cirrus flipped behind a
+// deck or in front of it, bright and dark lines along the checkerboard's
+// rows from orbit). With the camera outside the shell (above 10 km) the
+// cirrus is drawn where the ray first crosses it going down: in front of
+// what it enters below the shell, and of what it enters above it on the way
+// up again (beyond the ray's lowest point, past the shell's far crossing);
+// behind a top above the shell on the way down. With the camera inside, the
+// cirrus is where the ray leaves the shell going up: behind what it enters
+// below the shell, in front of what it enters above. (The ray's origin and
+// direction in figure coordinates, of and df.)
+inline bool cloud_cirrusFirst(float entry, float3 of, float3 df, constant CloudUniforms &u) {
+    if (entry >= 1e29) { return true; }
+    float3 pe = of + df * entry;
+    bool outside = u.shell.z > 0.0;
+    bool below = cloud_height(pe, u) < u.shellMid.y;
+    return below == outside || (outside && dot(pe, df) > 0.0);
+}
+
 // The parts in order of distance: the march's and the far layers' by the
-// far weight wf, then the cirrus by height: in front of what the ray enters
-// on the shell's other side from the camera (below its height with the
-// camera outside the shell, above it with the camera inside), behind what it
-// enters on the camera's side (a convective top above the shell from orbit,
-// a deck from below). By entry distance, a texel's entry nudged by the
-// reprojection flipped the cirrus behind a deck or in front of it, bright
-// and dark lines along the checkerboard's rows from orbit; the decks lie
-// kilometres from the shell, so their heights do not flip. (The ray's
-// origin and direction in figure coordinates, of and df.)
+// far weight wf, each with the cirrus in front of it or behind it by its own
+// entry (cloud_cirrusFirst), then blended by wf. One order for the blend
+// stepped where the parts disagreed: over towers above 10 km from orbit the
+// march's tops are nearer than the far layers' 2 and 4.5 km shells, so the
+// cirrus went behind a colour that was nearly all the far deck's until wf
+// reached 1, then jumped in front of it. Where the parts agree this is the
+// cirrus over (or under) the blend, cloud_over being linear in the farther
+// part; it is continuous at wf 0 and 1.
 inline CloudResult cloud_compose(CloudResult m, CloudResult farMid, CloudResult farLow, CloudResult cirrus, float wf,
                                  float3 of, float3 df, constant CloudUniforms &u) {
     CloudResult result = m;
+    CloudResult far = farLow.front < farMid.front ? cloud_over(farLow, farMid) : cloud_over(farMid, farLow);
     if (wf > 0.0) {
-        CloudResult far = farLow.front < farMid.front ? cloud_over(farLow, farMid) : cloud_over(farMid, farLow);
         result.color = mix(m.color, far.color, wf);
         result.front = wf >= 1.0 ? far.front : min(m.front, far.front);
         // The mean of the two by their shares of the opacity (a texel the
@@ -1762,9 +1819,15 @@ inline CloudResult cloud_compose(CloudResult m, CloudResult farMid, CloudResult 
         result.entry = wf >= 1.0 ? far.entry : min(m.entry, far.entry);
     }
     if (cirrus.color.a > 0.0) {
-        bool outside = u.shell.z > 0.0;
-        bool first = result.entry >= 1e29 || ((cloud_height(of + df * result.entry, u) < u.shellMid.y) == outside);
-        result = first ? cloud_over(cirrus, result) : cloud_over(result, cirrus);
+        CloudResult withM = cloud_cirrusFirst(m.entry, of, df, u) ? cloud_over(cirrus, m) : cloud_over(m, cirrus);
+        if (wf <= 0.0) { return withM; }
+        CloudResult withF = cloud_cirrusFirst(far.entry, of, df, u) ? cloud_over(cirrus, far) : cloud_over(far, cirrus);
+        if (wf >= 1.0) { return withF; }
+        result.color = mix(withM.color, withF.color, wf);
+        result.front = min(withM.front, withF.front);
+        float am = withM.color.a * (1.0 - wf), af = withF.color.a * wf;
+        result.mean = am + af > 0.0 ? (am * min(withM.mean, 1e12) + af * min(withF.mean, 1e12)) / (am + af) : 1e30;
+        result.entry = min(withM.entry, withF.entry);
     }
     return result;
 }
@@ -2007,23 +2070,25 @@ inline float orbit_cloudSunTransmittance(float3 p, constant AtmosphereUniforms &
 
 // The light reaching a Lambertian ground through the clouds at p, per unit
 // of the clear sky's, the Sun at cosine mu0 there (signed, the ellipsoid's
-// up): the Sun's direct beam and what the clouds pass on diffusely, and the
-// sky's light alike (most of it is scattered in the air above the clouds),
-// a conservative slab's two-stream transmittance, 2 / (2 + (1 - g) tau) for
-// its vertical optical depth tau, g 0.85 (Bohren 1987;
-// CloudOptics.slabTransmittance, CloudLayerModel.waterAsymmetry; C2's own
-// streams, CloudLighting.streams, pass the sky's light down so). The map
-// holds the depth along the Sun's ray, curved over the Earth: its vertical
-// depth is that times the ray's slope at the clouds (2 km), sqrt(mu0² +
-// 2 h / R), which stays above 0.025 at the terminator and with the Sun just
-// under the horizon, where the ray still climbs through the layer. Under
-// thick cloud (tau 20) 0.4 of the light, not e^-20; thin cirrus (tau 0.4)
-// dims the ground by 3 %.
-inline float orbit_cloudGroundTransmittance(float3 p, float mu0, constant AtmosphereUniforms &a, texture2d<float> map,
-                                            sampler s) {
+// up): x the Sun's, y the sky's. The Sun's: its direct beam and what the
+// clouds on its line pass on diffusely, a conservative slab's two-stream
+// transmittance, 2 / (2 + (1 - g) tau) for its vertical optical depth tau,
+// g 0.85 (Bohren 1987; CloudOptics.slabTransmittance,
+// CloudLayerModel.waterAsymmetry). The map holds the depth along the Sun's
+// ray, curved over the Earth: its vertical depth is that times the ray's
+// slope at the clouds (2 km), sqrt(mu0² + 2 h / R). Under thick cloud
+// (tau 20) 0.4 of the Sun, not e^-20; thin cirrus (tau 0.4) dims it by 3 %.
+// The sky's: the cover overhead (cloud_skyColumn, `skyMap` at p's texel:
+// its line's rising ground point with the Sun up, its falling one with the
+// Sun under the horizon), not the clouds on the Sun's line, which lie
+// kilometres off at a low Sun and hundreds at the terminator.
+inline float2 orbit_cloudGroundTransmittance(float3 p, float mu0, constant AtmosphereUniforms &a, texture2d<float> map,
+                                             texture2d<float> skyMap, sampler s) {
     float2 d = orbit_cloudShadowDepth(p, a, map, s);
+    if (d.y <= 0.0) { return float2(1.0); }
     float slope = sqrt(mu0 * mu0 + 2.0 * 2000.0 / 6.371e6);
-    return mix(1.0, 2.0 / (2.0 + 0.15 * d.x * slope), d.y);
+    float2 sky = skyMap.sample(s, (a.cloudShadowMatrix * float4(p, 1.0)).xy, level(0.0)).xy;
+    return mix(float2(1.0), float2(2.0 / (2.0 + 0.15 * d.x * slope), mu0 >= 0.0 ? sky.x : sky.y), d.y);
 }
 """#
 

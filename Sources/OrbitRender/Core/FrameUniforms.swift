@@ -44,6 +44,9 @@ public enum Binding {
     public static let skyViewLUT = 29
     /// Aerial-perspective froxels (texture3d<float>; A2).
     public static let aerialPerspective = 30
+    /// The sky's light on the ground through the clouds (texture2d<float>,
+    /// rg; C2's cloud shadow map's companion).
+    public static let cloudSky = 31
 
     // Samplers.
     /// Linear filtering, clamped to the edge.
