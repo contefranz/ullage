@@ -120,10 +120,30 @@ final class ExhaustSpecTests: XCTestCase {
             XCTAssertEqual(s.chamberTemperature, row.number("tc_k")!, accuracy: 0.005, name)
             XCTAssertEqual(s.exitTemperature, row.number("te_k")!, accuracy: 0.005, name)
             XCTAssertEqual(s.fuelRichFraction, row.number("fuel_rich")!, accuracy: 5e-6, name)
+            XCTAssertEqual(s.waterFraction, row.number("x_h2o")!, accuracy: 5e-6, name)
             XCTAssertEqual(s.aluminaFraction, row.number("y_al2o3")!, accuracy: 5e-6, name)
             let exit = try XCTUnwrap(row.number("exit_diameter_in"), name)
             XCTAssertEqual(2 * s.exitRadius / AS506.inch, exit, accuracy: 5e-4, name)
         }
+    }
+
+    // The J-2's chamber as the plumes see it through the throat is the one
+    // the dresser draws: its profile's narrowest inner point is the throat
+    // (AS506's 14.7 in) at the chamber's throat depth, and its injector
+    // face spans the 18.3 in chamber at the injector depth.
+    func testJ2ChamberIsTheDrawnOne() throws {
+        let c = try XCTUnwrap(ApolloExhaust.j2.chamber)
+        let profile = ApolloDresser.j2Profile(exitRadius: ApolloExhaust.j2.spec.exitRadius, length: 3.0)
+        XCTAssertEqual(c.throatRadius, 14.7 / 2 * AS506.inch, accuracy: 1e-12)
+        XCTAssertEqual(c.radius, 18.3 / 2 * AS506.inch, accuracy: 1e-12)
+        XCTAssertTrue(profile.contains { abs($0.x - c.throatDepth) < 1e-9 && abs($0.r - c.throatRadius) < 1e-9 },
+                      "the throat")
+        XCTAssertTrue(profile.contains { abs($0.x - c.injectorDepth) < 1e-9 && abs($0.r - c.radius) < 1e-9 },
+                      "the injector face's rim")
+        let inner = profile.filter { $0.x < c.throatDepth + 1e-9 && $0.r < c.radius }
+        XCTAssertEqual(inner.map(\.r).min() ?? 0, c.throatRadius, accuracy: 1e-9)
+        XCTAssertLessThan(c.throatDepth, c.injectorDepth)
+        XCTAssertNil(ApolloExhaust.f1.chamber)
     }
 
     // Each engine's rated flow is the vehicle's: full output at the rated

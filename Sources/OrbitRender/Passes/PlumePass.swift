@@ -90,8 +90,9 @@ public final class PlumeMarchEffect: HalfResEffect {
 }
 
 /// The plumes at full resolution in the scene (P3, before R6's composite):
-/// the impostors of small plumes, premultiplied, and the SPS extension's
-/// glow added on its drawn bell.
+/// the impostors of small plumes, premultiplied, the SPS extension's glow
+/// added on its drawn bell, and the J-2s' chambers glowing through their
+/// throats.
 @MainActor
 public final class PlumePass: RenderPass {
     public let name = "Plumes"
@@ -129,7 +130,7 @@ public final class PlumePass: RenderPass {
             enc.setFragmentBytes(&u, length: MemoryLayout<PlumeFrameGPU>.stride, index: 0)
             enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: data.impostors.count)
         }
-        if let glow, !data.glows.isEmpty { drawGlows(f, enc, glow, data, &u) }
+        if let glow, !data.glows.isEmpty || !data.chambers.isEmpty { drawGlows(f, enc, glow, data, &u) }
     }
 
     /// Each glowing nozzle's draws again, emissive and added: the same
@@ -143,21 +144,42 @@ public final class PlumePass: RenderPass {
         enc.setDepthStencilState(f.states.depthReadOnly)
         enc.setDepthBias(2, slopeScale: 2, clamp: 0)
         enc.setFragmentBytes(&u, length: MemoryLayout<PlumeFrameGPU>.stride, index: 0)
-        for g in data.glows {
-            guard let v = f.scene.vessels.first(where: { $0.id == g.vessel }), let mesh = f.mesh(of: v),
-                  let pose = v.thrusters[g.thruster] else { continue }
+        // The SPS extension's heat, and the chambers seen through their
+        // throats (the J-2s'): each the thruster's own draws again.
+        var items: [(vessel: UUID, thruster: RenderScene.ThrusterKey, heat: Double,
+                     chamber: (exit: SIMD4<Float>, axis: SIMD4<Float>, light: SIMD4<Float>)?)] =
+            data.glows.map { ($0.vessel, $0.thruster, $0.heat, nil) }
+        items += data.chambers.map { c in
+            (c.vessel, c.thruster, 1, (Plumes.f4(c.exit, c.chamber.throatDepth), Plumes.f4(c.axis, c.chamber.injectorDepth),
+                                     Plumes.f4(c.light, c.chamber.radius)))
+        }
+        for g in items {
+            guard let v = f.scene.vessels.first(where: { $0.id == g.vessel }), let mesh = f.mesh(of: v) else { continue }
+            let pose = v.thrusters[g.thruster]
+            guard pose != nil || g.chamber != nil else { continue }
             let attitude = v.attitude.matrix
             let translation = v.position + v.attitude.rotate(v.structureOrigin)
-            let r = Mat3.rotation(from: pose.direction, to: pose.thrustDirection)
             for (entry, offset) in zip(mesh.parts, mesh.offsets) {
+                // A fixed engine (the S-II's centre J-2) is in its part's
+                // static draws: those again, its chamber picked out by the
+                // fragment's test in the world.
+                let fixed = g.chamber != nil && entry.part.thrusters.contains { $0.key == g.thruster && !$0.isGimballed }
                 enc.setVertexBuffer(entry.mesh.vertices, offset: 0, index: 0)
-                for d in entry.mesh.draws where d.thruster == g.thruster {
+                for d in entry.mesh.draws where d.thruster == g.thruster || (fixed && d.thruster == nil) {
+                    let r = d.thruster == nil ? Mat3.identity
+                        : pose.map { Mat3.rotation(from: $0.direction, to: $0.thrustDirection) } ?? Mat3.identity
                     var draw = PlumeGlowGPU(
                         model: simd_float4x4(rotation: attitude * r,
                                              translation: translation + attitude * (offset + d.pivot - r * d.pivot)),
-                        pivot: Plumes.f4(d.pivot, top), direction: Plumes.f4(pose.direction, g.heat))
+                        pivot: Plumes.f4(d.pivot, top), direction: Plumes.f4(pose?.direction ?? .unitX, g.heat))
+                    if let c = g.chamber {
+                        draw.chamberExit = c.exit
+                        draw.chamberAxis = c.axis
+                        draw.chamberLight = c.light
+                    }
                     enc.setCullMode(.none)
                     enc.setVertexBytes(&draw, length: MemoryLayout<PlumeGlowGPU>.stride, index: 1)
+                    enc.setFragmentBytes(&draw, length: MemoryLayout<PlumeGlowGPU>.stride, index: 1)
                     enc.drawIndexedPrimitives(type: .triangle, indexCount: d.indices.count, indexType: .uint32,
                                               indexBuffer: entry.mesh.indices,
                                               indexBufferOffset: d.indices.lowerBound * 4)

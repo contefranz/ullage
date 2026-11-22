@@ -231,6 +231,19 @@ public enum PlumeClusters {
                 points.append(.init(x: xc - e * sinTilt, r: r))
                 points.append(.init(x: xc + e * sinTilt, r: r))
             }
+            // The wall jet along the ground it meets: a disc on the deck out
+            // to its reach, as thick at each radius as its layer is.
+            if let i = m.impingement, let h = i.distance(m) {
+                let c = m.exit + m.axis * h - origin
+                let xc = c.dot(axis), rho = (c - axis * xc).length
+                for k in 0...8 {
+                    let s = max(Double(k) / 8 * i.reach, m.radius(atX: h))
+                    let x = h + s, big = m.radius(atX: x)
+                    let z = m.extent(atX: x) * i.thickness(m, h: h, rho: s) / big
+                    points.append(.init(x: xc - z, r: (rho + s + big) * margin))
+                    points.append(.init(x: xc, r: (rho + s + big) * margin))
+                }
+            }
         }
         let hull = upperConcaveHull(points)
         return reduce(hull, to: maximumRings)

@@ -17,8 +17,8 @@ struct PlumeFrame {
     float4 flow;        // the turbulence: x the shutter (s), y where the far field is self-similar (core lengths),
                         // z the noise's amplitude, w eddies per tile
     float4 flowRates;   // x: u'/ΔU in the shear layer, y: self-similar, z: the decay's rate, w: the fade's integral
-    float4 flowRates2;  // x: the noise's integral length over its cell, zw: the Lagrangian times' first station
-                        // and spacing (core lengths)
+    float4 flowRates2;  // x: the noise's integral length over its cell, y: the ice's ramp, zw: the Lagrangian
+                        // times' first station and spacing (core lengths)
     float4 lagrangian;  // the Lagrangian integral time over L/u' at the four stations
     float4 layers[40];  // its bands' layers, two a band: x the phase in its life, yzw its offset (tiles)
 };
@@ -59,7 +59,44 @@ struct PlumeMember {
     float4 bendNear;    // the centreline's offsets at x = span (k/7)², k 0-3
     float4 bendFar;     // k 4-7
     float4 flow;        // x: the exhaust's speed (m/s), y: the stream along it (m/s), zw: the seed offset's xy
+    float4 condensate;  // rgb: the ice's scattering per channel over green's, w: the gas's density over the
+                        // exit's where it begins (0: no ice)
+    float4 deckCentre;  // the ground it meets: xyz the opening's centre, w the deck's share of the flow
+    float4 deckNormal;  // xyz the deck's normal, w the wall jet's reach (0: none)
+    float4 deckAxis;    // xyz the opening's axis, w its half side
+    float4 deckHeat;    // x the recovered core temperature (K), y the wall jet's thickness at the impact, z its growth
 };
+
+// The jet's radius at x (PlumeMember.radius).
+inline float plume_jetRadius(const device PlumeMember &m, float x) {
+    float re = m.exit.w, xp = max(x, 0.0);
+    return max(re + m.sheathLight.w + m.shape.x * (1.0 - exp(-xp / max(m.shape.y, 1e-6)))
+               + m.shape.z * max(0.0, xp - m.shape.w) + m.extent.w * max(0.0, xp - m.flame.y), 0.2 * re);
+}
+
+// The wall jet along the ground the member meets (PlumeImpingement.wallJet):
+// p's equivalent free-jet x and r, and the deck's share; false where the
+// free jet takes the sample.
+inline bool plume_wallJet(const device PlumeMember &m, float3 p, float xFree, float rFree, thread float &x,
+                          thread float &r, thread float &dilution) {
+    if (m.deckNormal.w <= 0.0) { return false; }
+    float3 n = m.deckNormal.xyz, dc = p - m.deckCentre.xyz;
+    float z = dot(dc, n);
+    float3 v = cross(n, m.deckAxis.xyz);
+    if (z < 0.0 || max(abs(dot(dc, m.deckAxis.xyz)), abs(dot(dc, v))) <= m.deckAxis.w) { return false; }
+    float h = dot(m.deckCentre.xyz - m.exit.xyz, n) / dot(m.axis.xyz, n);
+    float3 d = p - (m.exit.xyz + m.axis.xyz * h);
+    d -= n * dot(d, n);
+    float rho = length(d);
+    if (rho > m.deckNormal.w) { return false; }
+    float xw = h + rho, big = plume_jetRadius(m, xw), delta = m.deckHeat.y + m.deckHeat.z * rho;
+    float rw = z * big / delta;
+    if (xFree < h && rw / big >= rFree / plume_jetRadius(m, xFree)) { return false; }
+    x = xw;
+    r = rw;
+    dilution = min(1.0, big * big / (2.0 * max(rho, 1e-6) * delta));
+    return true;
+}
 
 // The centreline's offset into the stream at x along the axis
 // (PlumeBend.offset): between the stations linearly in √(x/span).
@@ -226,14 +263,17 @@ struct PlumeSample {
     float scattering;
     float3 emission;
     float g;            // scattering-weighted asymmetry
+    float3 tinted;      // the scattering per channel (ice scatters blue more; the rest grey)
 };
 
-inline void plume_add(thread PlumeSample &s, float sigma0, float albedo, float3 light, float scale) {
+inline void plume_add(thread PlumeSample &s, float sigma0, float albedo, float3 light, float scale,
+                      float3 tint = float3(1.0)) {
     float sigma = sigma0 * scale;
     if (sigma <= 0.0) { return; }
     float a = sigma * (1.0 - albedo);
     s.absorption += a;
     s.scattering += sigma * albedo;
+    s.tinted += sigma * albedo * tint;
     s.emission += a * light;
 }
 
@@ -506,14 +546,24 @@ inline void plume_member(thread PlumeSample &s, const device PlumeMember &m, int
     float3 d = p - m.exit.xyz;
     float x = dot(d, m.axis.xyz);
     float upstream = m.structure.w, length_ = m.axis.w;
-    if (x < -upstream || x > length_) { return; }
+    // In the wall jet along the ground it meets, the equivalent free jet's
+    // x and r, scaled by the deck's share of the flow.
+    float xw = 0.0, rw = 0.0, wallDilution = 1.0;
+    bool wall = m.deckNormal.w > 0.0
+        && plume_wallJet(m, p, x, length(d - m.axis.xyz * x), xw, rw, wallDilution);
+    if (!wall && (x < -upstream || x > length_)) { return; }
     // r from the centreline bent into the stream.
     float3 radial = d - m.axis.xyz * x - m.bendDirection.xyz * plume_bendOffset(m, x);
     float r = length(radial);
+    if (wall) {
+        x = xw;
+        r = rw;
+        radial = m.deckNormal.xyz * rw;
+    }
     float re = m.exit.w, de = 2.0 * re;
     float xp = max(x, 0.0);
     float R = plume_radius(m, xp);
-    float k = m.diskLight.w;
+    float k = m.diskLight.w * (wall ? m.deckCentre.w * wallDilution : 1.0);
     // The early reject: PlumeMember.extent.
     if (r > plume_reach(m, x, R)) { return; }
 
@@ -565,7 +615,8 @@ inline void plume_member(thread PlumeSample &s, const device PlumeMember &m, int
         // The gas: the core, and the afterburning flame in the mixing layer.
         if (m.gas.x > 0.0) {
             float ta = m.flame.z;
-            float tCore = ta + (m.gas.z - ta) * mixing * pow(max(dilution, 1e-12), m.gas.w);
+            // A wall jet's core recovers most of its total temperature.
+            float tCore = ta + ((wall ? m.deckHeat.x : m.gas.z) - ta) * mixing * pow(max(dilution, 1e-12), m.gas.w);
             float t = tCore * cells;
             if (m.flame.x > 0.0 && m.flame.w > 0.0) {
                 float fx = plume_smoothstep(m.flame.y - 0.25 * de, m.flame.y + 0.25 * de, x);
@@ -586,8 +637,14 @@ inline void plume_member(thread PlumeSample &s, const device PlumeMember &m, int
             float along = 1.0 - plume_smoothstep(m.sheath.z - 0.3 * de, m.sheath.z + 0.3 * de, x);
             plume_add(s, m.sheath.x * band * along * min(1.0, dilution) * fade * turb, m.gas.y, m.sheathLight.rgb, k);
         }
-        // Particles: alumina, or condensate.
-        if (m.particles.x > 0.0 && x > 0.5 * m.particles2.z) {
+        // Ice frozen from the exhaust's water: as dense as the gas, where it
+        // has expanded past saturation (PlumeLook.Ice).
+        if (m.particles.x > 0.0 && m.condensate.w > 0.0) {
+            float local = profile * dilution;
+            float on = 1.0 - plume_smoothstep(m.condensate.w / pf.flowRates2.y, m.condensate.w, local);
+            plume_add(s, m.particles.x * local * on * fade * turb, m.particles.y, float3(0.0), k, m.condensate.rgb);
+        } else if (m.particles.x > 0.0 && x > 0.5 * m.particles2.z) {
+            // Particles: alumina, or condensate.
             float pp = pc, dil = (re / R) * (re / R);
             if (v > 0.0) {
                 float tp = atan2(r, x + m.particles2.y);
@@ -762,13 +819,15 @@ fragment EffectVolumeOut plume_march_fragment(PlumeProxyOut in [[stage_in]],
     float jitter = plume_jitter(in.position.xy, pf.params.x);
     float3 sunDir = pf.sun.xyz;
     float3 sunLux = pf.sunLight.rgb * c.v.w;
-    // R4's shadow at four points along the march, and C2's at its middle;
-    // none of it for a cluster in the Earth's shadow.
-    float shadows[4] = {1.0, 1.0, 1.0, 1.0};
+    // R4's shadow at eight points along the march, interpolated between
+    // them (a sunlit cloud of ice shows its vessel's shadow as one column,
+    // not as copies at a few points), and C2's at its middle; none of it
+    // for a cluster in the Earth's shadow.
+    float shadows[8] = {1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
     bool sunlit = c.v.w > 0.0 && max(sunLux.r, max(sunLux.g, sunLux.b)) > 0.0;
     if (sunlit && pf.sunLight.w > 0.5) {
-        for (int i = 0; i < 4; i++) {
-            float3 p = dir * (enter + (float(i) + 0.5) * 0.25 * (exit - enter));
+        for (int i = 0; i < 8; i++) {
+            float3 p = dir * (enter + (float(i) + 0.5) * 0.125 * (exit - enter));
             shadows[i] = orbit_sunShadow(p, sunDir, lighting, shadowAtlas, shadowCompare);
         }
     }
@@ -828,7 +887,7 @@ fragment EffectVolumeOut plume_march_fragment(PlumeProxyOut in [[stage_in]],
             s = seg.x + (float(second ? i - n0 : i) + jitter) * ds;
         }
         float3 p = dir * s;
-        PlumeSample x = {0.0, 0.0, float3(0.0), 0.0};
+        PlumeSample x = {0.0, 0.0, float3(0.0), 0.0, float3(0.0)};
         float sunDepth = 0.0;
         // The members, and beyond mergeX the merged far field in their
         // place, blended over 15 % of that distance.
@@ -840,13 +899,14 @@ fragment EffectVolumeOut plume_march_fragment(PlumeProxyOut in [[stage_in]],
             }
         }
         if (wm > 0.0) {
-            PlumeSample y = {0.0, 0.0, float3(0.0), 0.0};
+            PlumeSample y = {0.0, 0.0, float3(0.0), 0.0, float3(0.0)};
             float sunY = 0.0;
             plume_member(y, members[first_ + count], count, p, pf, na, noise, ns, sunY, sunDir);
             x.absorption = mix(x.absorption, y.absorption, wm);
             x.scattering = mix(x.scattering, y.scattering, wm);
             x.emission = mix(x.emission, y.emission, wm);
             x.g = mix(x.g, y.g, wm);
+            x.tinted = mix(x.tinted, y.tinted, wm);
             sunDepth = mix(sunDepth, sunY, wm);
         }
         float sigma = x.absorption + x.scattering;
@@ -855,8 +915,10 @@ fragment EffectVolumeOut plume_march_fragment(PlumeProxyOut in [[stage_in]],
         if (x.scattering > 0.0) {
             float g = x.g / x.scattering;
             float3 ambient = plume_sh9InScatter(lighting, view, g, pf);
-            float shadow = shadows[clamp(int(4.0 * (s - enter) / max(exit - enter, 1e-6)), 0, 3)];
-            source += x.scattering * sunLux * (shadow * plume_phase(dot(view, sunDir), g) * exp(-sunDepth));
+            float u = clamp(8.0 * (s - enter) / max(exit - enter, 1e-6) - 0.5, 0.0, 7.0);
+            int i0 = min(int(u), 6);
+            float shadow = mix(shadows[i0], shadows[i0 + 1], u - float(i0));
+            source += x.tinted * sunLux * (shadow * plume_phase(dot(view, sunDir), g) * exp(-sunDepth));
             // The cluster's own light on its smoke outside its luminous
             // column, isotropic: a line source's falloff, I / (d² + d L / 2
             // + R²), as 2I/(dL) near a long one and I/d² far off.
@@ -865,7 +927,7 @@ fragment EffectVolumeOut plume_march_fragment(PlumeProxyOut in [[stage_in]],
             float d = length(rel - lightAxis * along);
             float irradiance = plume_smoothstep(lightRadius, 2.0 * lightRadius, d)
                 / (d * d + 0.5 * d * lightLength + lightRadius * lightRadius);
-            source += x.scattering * (ambient + lightColor * (irradiance / (4.0 * M_PI_F)));
+            source += x.tinted * ambient + x.scattering * lightColor * (irradiance / (4.0 * M_PI_F));
         }
         float dtau = sigma * ds * len;
         float stepT = exp(-dtau);
@@ -967,12 +1029,16 @@ fragment float4 plume_impostor_fragment(PlumeImpostorOut in [[stage_in]],
 // The SPS extension's draws again, emitting as a grey body at the wall's
 // temperature (NozzleGlow): highest at the extension's top, falling as
 // r^-0.45 along it, lagged in simulation time; added over the vessel pass's
-// shading.
+// shading. And a J-2's draws again, its chamber's surfaces behind the
+// throat showing the hot gas in front of them (ChamberGlow).
 
 struct PlumeGlowDraw {
     float4x4 model;
     float4 pivot;       // xyz: the nozzle's pivot (part frame), w: the extension's top radius (m)
     float4 direction;   // xyz: its axis (part frame), w: heat fraction
+    float4 chamberExit; // a chamber's glow: xyz the exit's centre (world), w the throat's depth (m)
+    float4 chamberAxis; // xyz the exhaust's axis (world), w the injector face's depth (m; 0: the SPS's glow)
+    float4 chamberLight;// rgb the gas's light per metre (cd/m² per m), w the chamber's radius (m)
 };
 
 struct PlumeGlowOut {
@@ -1004,14 +1070,31 @@ fragment float4 plume_glow_fragment(PlumeGlowOut in [[stage_in]],
                                     constant FrameUniforms &frame [[buffer(ORBIT_BUFFER_FRAME)]],
                                     constant AtmosphereUniforms &air [[buffer(ORBIT_BUFFER_ATMOSPHERE)]],
                                     constant PlumeFrame &pf [[buffer(0)]],
+                                    constant PlumeGlowDraw &d [[buffer(1)]],
                                     texture3d<float> froxels [[texture(ORBIT_TEXTURE_AERIAL_PERSPECTIVE)]],
                                     sampler linear [[sampler(ORBIT_SAMPLER_LINEAR_CLAMP)]]) {
-    // NozzleGlow.temperature: 1,480 K at the top, r^-0.45 down the bell, a
-    // radiating wall's T^4 moving with the heat.
-    float steady = 1480.0 * pow(max(in.radius, in.top) / max(in.top, 1e-4), -0.45);
-    float a4 = 300.0 * 300.0 * 300.0 * 300.0;
-    float t = pow(a4 + max(in.heat, 0.0) * (steady * steady * steady * steady - a4), 0.25);
-    float3 c = 0.8 * plume_blackbody(t, pf);
+    float3 c;
+    if (d.chamberAxis.w > 0.0) {
+        // ChamberGlow: the chamber's surfaces behind the throat show the
+        // hot gas between the throat and them (the convergent section, the
+        // chamber wall, the injector face; nothing outside rc).
+        float3 ax = d.chamberAxis.xyz;
+        float3 rel = in.world - d.chamberExit.xyz;
+        float depth = -dot(rel, ax);
+        float r = length(rel + ax * depth);
+        float throat = d.chamberExit.w, injector = d.chamberAxis.w, rc = d.chamberLight.w;
+        if (depth < throat - 0.005 || depth > injector + 0.01 || r > rc + 0.004) { return float4(0.0); }
+        float cosine = max(abs(dot(normalize(in.world), ax)), 0.2);
+        float path = min(max(depth - throat, 0.0) / cosine, 2.0 * (injector - throat) + 2.0 * rc);
+        c = d.chamberLight.rgb * path;
+    } else {
+        // NozzleGlow.temperature: 1,480 K at the top, r^-0.45 down the
+        // bell, a radiating wall's T^4 moving with the heat.
+        float steady = 1480.0 * pow(max(in.radius, in.top) / max(in.top, 1e-4), -0.45);
+        float a4 = 300.0 * 300.0 * 300.0 * 300.0;
+        float t = pow(a4 + max(in.heat, 0.0) * (steady * steady * steady * steady - a4), 0.25);
+        c = 0.8 * plume_blackbody(t, pf);
+    }
     if (pf.params.y > 0.5) {
         float4 haze = atmo_aerialPerspective(froxels, linear, in.position.xy * frame.viewport.zw, length(in.world), air);
         c *= haze.a;

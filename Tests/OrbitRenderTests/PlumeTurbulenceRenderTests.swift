@@ -245,3 +245,39 @@ final class PlumeTurbulenceRenderTests: XCTestCase {
         XCTAssertEqual(Int(v[2]), MemoryLayout<PlumeClusterGPU>.stride)
     }
 }
+
+/// The J-2s' chambers glowing through their throats (`ChamberGlow`) in the
+/// real ascent: all five S-II engines mid-burn, the fixed centre one among
+/// them (drawn from its part's static draws), four after the centre
+/// engine's cutoff; seen from behind, the brightest pixels are the
+/// chambers' orange.
+@MainActor
+final class ChamberGlowRenderTests: XCTestCase {
+    func render(_ advance: [String]) throws -> (chambers: Int, brightest: (r: Double, g: Double, b: Double)) {
+        let s = try SnapshotRenderer(device: try XCTUnwrap(RenderDevice.shared))
+        var shot = SnapshotSpec.Shot(name: "chambers", scenario: "as506-pad", advance: advance,
+                                     camera: SnapshotSpec.CameraSpec(yaw: 180, pitch: 8, distance: 40, fov: 40))
+        shot.camera.frame = "vessel"
+        shot.showOrbit = false
+        shot.settings.cloud.enabled = false
+        let out = try s.render(shot)
+        let light = try XCTUnwrap(out.light)
+        var best = (r: 0.0, g: 0.0, b: 0.0, y: 0.0)
+        for i in stride(from: 0, to: light.count, by: 4) {
+            let r = Double(light[i]), g = Double(light[i + 1]), b = Double(light[i + 2])
+            let y = 0.2126 * r + 0.7152 * g + 0.0722 * b
+            if y > best.y { best = (r, g, b, y) }
+        }
+        let r = try s.renderer(userTextures: false)
+        let system = try XCTUnwrap(r.graph.passes.compactMap { ($0 as? PlumePreparePass)?.system }.first)
+        return (system.frame.chambers.count, (best.r, best.g, best.b))
+    }
+
+    func testChambersGlowThroughTheThroats() throws {
+        let mid = try render(["met:350"])
+        XCTAssertEqual(mid.chambers, 5)
+        XCTAssertGreaterThan(mid.brightest.r, mid.brightest.b, "orange")
+        let ceco = try render(["ev:S-II centre engine cutoff", "wait:3"])
+        XCTAssertEqual(ceco.chambers, 4)
+    }
+}

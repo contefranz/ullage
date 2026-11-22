@@ -123,15 +123,15 @@ medium, L low (visual, calibrated or assumed).
 | Soot albedo | 0.25 | L, soot aggregates |
 | Afterburning flame | 2,300 K, from P1's flame front (0.75 De) to P1's flame length, beyond it Ta + (Tf − Ta) L_f/x (the mixture fraction's 1/x); fading 28-40 km | P1 (D5-15796-1 §4.1.1) |
 | Flame length | P1's: Delichatsios's jet flame into still air, L_f = L* Dj √(ρj/ρa)/f_s on the fully expanded jet, L* about 23 (momentum-dominated: Fr 96 at the pad, 28 at 40 km), f_s the stoichiometric mixture fraction of CEA's exhaust (its CO and H2, diluted by its CO2, H2O and N2: 0.426 for the F-1): 51.5 m at the pad, 105 m at 13 km, 381 m at 30 km | M (Delichatsios 1993, as Turns and arXiv:2008.12209 Table 6 quote it; docs/exhaust-datasheet.md §3) |
-| Flame brush spread | 0.035 dR/dx from the front | L: the five flames one column within 15-20 m |
-| Far-field spread | 0.06 dR/dx beyond the core (or 3 boundary lengths) | L, turbulent jets; S69-39957's billowing plume |
+| Flame brush spread | half the compressible mixing layer's growth (`PlumeTurbulence.shearGrowth`: Brown and Roshko's 0.181 in Brown's form, Dimotakis's Langley fit) from the front, times the afterburning: 0.038 at the pad, 0.022 at max-Q | M (it was 0.035, L, fitted to the five flames merging within 15-20 m; 0.038 keeps that) |
+| Far-field spread | 0.094 dR/dx beyond the core (or 3 boundary lengths), the half-value radius's | H: a round jet's half-velocity radius, Hussein, Capp and George 1994 (Panchapakesan and Lumley 0.096); it was 0.06 (L) |
 | The film (turbine exhaust) | optical depth 1.5 through 0.15 R, 887 K, to the flame front | P1's film (R-3896-1, M); band L |
 | Soot burnt by the flame | to 25 % by the flame's tip, from 2/3 of its length, as much as the flame burns | the tip: Delichatsios's length is the visible flame's; 25 % L: the white-grey column below the flame (S68-56050) |
 | Kerosene condensate | depth 3 across the exit, albedo 0.8; from 3 De in the free expansion, beyond the flame's tip (the core as the afterburning fades) in dense air | L: the white cloud at staging (S69-39957), the white column at liftoff; the onset P1's |
 | Base recirculation at high n | depth 1.5 over an exit diameter, 1,750-2,000 K, from n ≈ 3 | L: the base glow at altitude |
-| Hydrogen and hypergolic gas | depth 0.002 / 0.004 | L: nearly invisible (S69-39958) |
-| Their condensate | depth 0.01 / 0.005, albedo 0.95, g 0.6, from 4 / 2 De | L |
-| Their near-exit light | (2, 2.4, 4.4) / (6, 3.4, 2.6) cd/m² over 1.5 De | L: invisible in daylight, under the SPS glow at night |
+| Hydrogen and hypergolic gas | water's visible absorption, 9×10⁻⁶ per atm·m (luminance-weighted) times its partial pressure: dark past the exit | L-M: HITRAN 2020's line sum with the hot bands (next section) |
+| Their ice | 10 % of the exhaust's water (CEA's x_h2o) frozen where the free expansion saturates it over ice; 0.1 µm spheres, Mie: 1,063 m²/kg at 549 nm, (0.70, 1, 1.65) by channel, g 0.24 | the share M (Kung et al. 1975), the onset H (Murphy and Koop 2005), the radius L (SP-201's photometry) |
+| The J-2's chamber through its throat | the chamber gas's water emission, κ x_w p_c B(T_c) per metre of path, drawn on the drawn chamber behind the throat: about 1.2×10⁴ cd/m² through 0.5 m at the rated flow, orange | L-M (HITRAN 2020 line sum; the blue continuum not counted) |
 | Mach disk | P1's distance and radius; 0.85 Tc; emissivity 0.5 soot/alumina, 0.02 hydrogen, 0.05 hypergols; diluted as the free expansion there; faded in from n 2 to 3 | L |
 | Shock cells | P1's length and count; ±30 % of temperature and density, times P1's structure visibility; faded in from n 0.30 to 0.36 and out from 4 to 5 (P1's bounds) | L |
 | Alumina | extinction 3 Q Y ρe/(2 ρp d): Q 2 (particles much larger than the light's wavelength), Y the alumina's mass fraction, ρe P1's exit density, ρp 3,950 kg/m³, d 3 µm (3.0 across the S-IC retro's exit, 1.5 across the TJM's); leaves at Te + (Tc − Te)/2; cools by radiation (ε 0.3); cone lip + 5°; albedo 0.5 hot, 0.9 cold | H the optics and density, P1 the exit; L the diameter, the lag, ε, the albedos |
@@ -357,6 +357,101 @@ tile over that speed (1.28 s for the F-1).
   SPS's glow follows its heat in simulation time; the march's jitter turns
   every frame by design. None repeats.
 
+## The upper stages
+
+The J-2's plume in vacuum is dark: its water emits next to nothing in the
+visible at the exit's 13 kPa and 1,200 K (HITRAN 2020's lines put it near
+10⁻³ cd/m²), and its Mach disk at the S-II's ignition, 67 km up, stands
+some 290 m behind each engine and is faint (P1's √(pa/p0)). Two things
+show that it fires, both from its physics:
+
+- **The chamber through the throat** (`ChamberGlow`, drawn by the
+  nozzle-glow pass on the J-2's own drawn chamber, the convergent section,
+  chamber wall and injector face behind the throat): each fragment gives
+  the light of the hot gas between the throat and it, κ x_w p_c B(T_c) per
+  metre, optically thin. κ is water's visible absorption weighted by the
+  eye, 9×10⁻⁶ per atm·m: HITRAN 2020's bands summed at the J-2's chamber
+  (3,373 K, 34 atm of water) give 3×10³ cd/m² through 0.5 m, about four
+  times that with the hot bands HITRAN lacks; 1.2×10⁴ cd/m² is used. Its
+  colour is the bands' (70 % near 590 nm, 15 % near 650, 15 % in 500-560:
+  orange). It follows the flow at once (a choked throat's pressure), so the
+  S-II's low mixture ratio dims it, the centre engine's cutoff and
+  Apollo 13's engine 5 put it out, and it shows from any view into the
+  nozzles, in sunlight and in the Earth's shadow. The S-II's centre J-2 is
+  fixed, so its draws are its part's static ones, drawn again with the
+  chamber picked out in the fragment. The water's blue continuum
+  (chemiluminescent, growing as the pressure squared, the SSME's and
+  Vulcain's bluish glow) is not counted: no absolute measure was found.
+- **Ice in sunlight** (`PlumeLook.Ice`). The free expansion cools the gas
+  isentropically, T = Te (ρ/ρe)^(γ-1); where its water saturates over ice
+  (Murphy and Koop 2005, checked against Marti and Mauersberger's
+  measurements within 3 %) it starts to condense, and by a fourth of that
+  density 10 % of it has (Kung, Cianciolo and Myer 1975 for Apollo 8's
+  S-IVB, 5-10 %; Wu 1975 10.5 %; Bernhardt 12.2 %). The ice follows the
+  gas, so it lies where the expansion has thinned it: first in the plume's
+  thin outer layer, a conical shell near the nozzle, then through the core
+  further out (the J-2's from about 72 m on the axis; Wu put the onset
+  41-55 m from the S-IVB's nozzle). It scatters sunlight as 0.1 µm spheres
+  (Mie, `Mie`, checked against Bohren and Huffman's example): bluish,
+  almost isotropic (g 0.24), its absorption nil. Side-on 100 m out a J-2's
+  ice gives about 500 cd/m² in full sunlight, bluish; five overlap on the
+  S-II. Seen against black space at a chase camera's daylight exposure it
+  is a large pale fan with brighter limbs, the S-II's and S-IVB's "jellyfish"
+  of ground photographs, and S69-39958's "faint lines at the plume's edges"
+  at separation (an exposure set for the S-IC's bright plume).
+  - **The owner's choice: the ice's size.** SP-201 (the Apollo 8 TLI cloud
+    seen from Hawaii: as bright as the full Moon, scattering isotropically)
+    bounds the particles at 0.1 µm and needs particles near that bound for
+    the brightness it reports; Kung et al.'s 7-10 nm would scatter a
+    thousand times less per kilogram and leave the ice invisible near the
+    vehicle in daylight. 0.1 µm is used (L, observation-constrained).
+- **The hypergols** (the SPS, the RCS, the S-IVB's APS) take the same water
+  physics. The SPS's ice forms 25 m out and gives a faint haze in sunlight
+  (30-150 cd/m² side-on); the RCS and APS jets are too small to show; the
+  SPS extension's glow (`NozzleGlow`) stays its cue. The M1.6 near-exit
+  glows of the clear exhausts (2-6 cd/m², L) are gone: physically their
+  exits are dark.
+- **Vacuum plumes are still**: a free expansion has no mixing layer, so no
+  eddies (the turbulence's depth goes to 0 in vacuum; it was 0.15, L). Ice
+  clusters march at a quarter of the steps (their density falls as 1/r² off
+  a virtual source).
+- **Staging and transients** need nothing new: the S-II ullage motors and
+  the S-IC retros are P1's solids as before; an engine's start and
+  shutdown follow its flow, the ice and the chamber's glow with it.
+
+## Liftoff: the deck
+
+The F-1s' exits sit 3.24 m below the Mobile Launcher's deck at rest, inside
+its 45 ft opening (`LC39A`), so at first motion their plumes are mostly in
+the opening and the trench, hidden. As the vehicle climbs and the jets
+widen, what the opening no longer takes meets the deck and spreads across
+it (`PlumeImpingement`):
+
+- **The wall jet** is the free jet continued along the deck. At ρ from
+  where a jet's axis meets the deck its flow has travelled h + ρ from the
+  exit and keeps the free jet's state there (its flame to the flame's
+  length, its mixing), its layer thickening as a radial wall jet entrains,
+  δ = R(h)/2 + 0.087 ρ (Poreh, Tsuei and Cermak 1967), the exhaust diluted
+  over it. Where the deck stops the jet its kinetic energy comes back as
+  heat: the core recovers 0.89 (Pr^(1/3)) of its total temperature, the
+  chamber's, so the deck holds a blinding, sooty fire.
+- **Its share** is each jet's cross-section at the deck outside the
+  opening's square: none while an outboard F-1's jet fits the opening
+  (about 20 m of climb), 13 % at 30 m, 25 % at 45 m. Its reach is one and
+  a half flame lengths less the climb: it dies away as the vehicle rises.
+- **The seam with the launch track:** this reads the scene's LC-39A site
+  and `LC39A`'s opening; P4's `PadExhaust` sends the smoke across the deck
+  and out of the trench by the same shares. Nothing of
+  `Effects/Launch/*` is touched.
+- **Larger plumes.** The far field now spreads as a round jet's half-value
+  radius does, 0.094 (Hussein, Capp and George 1994; it was 0.06, L), and
+  the flame brush as half the compressible mixing layer's growth: the
+  column after liftoff, at max-Q and up to staging is about half again as
+  wide far out. The flame's length is P1's Delichatsios flame with the
+  coflow's lengthening, unchanged: it does not under-size the visible
+  plume, whose bright part is the flame (51.5 m at the pad) and whose
+  column beyond it is smoke and condensate.
+
 ## The photographs as checks
 
 The look comes from P1's physics where P1 has it; the photographs check
@@ -374,8 +469,10 @@ it, they do not set it.
   boundary; the photograph's cone near 13 km is still wider than ours.
 - **The white column below the flame** (S68-56050) and **the cloud at
   staging** (S69-39957): the condensate's depth and albedo (L).
-- **The J-2 nearly invisible** (S69-39958): P1's clear exhaust and the
-  exposure's trim.
+- **The J-2's plume at separation** (S69-39958: nearly invisible, faint
+  lines at the plume's edges): its ice's shell, limb-brightened, at an
+  exposure set for the S-IC's plume; at a chase camera's daylight exposure
+  the ice is a large pale fan.
 
 ## Constants still L, and why
 
@@ -383,16 +480,16 @@ it, they do not set it.
   (depth 1.5 through 0.15 R): P1 gives the film's share of the flow and
   its temperature, not the soot yield or the band's optical depth; no
   source in hand measures the F-1's soot.
-- **The flame brush's spread** (0.035) and **the far field's** (0.06):
-  P1 has no mixing layer's growth. A compressible shear layer's
-  (Papamoschou and Roshko 1988, normalised by the convective Mach
-  number) and a round jet's spreading rate would replace them.
 - **The airflow's choices:** at rest in the air at 2 % of the exit speed,
   the hand-over at most at 85 % of the built length, its window 15 %, the
   steepest turn drawn 70°; α2 fitted to Pratte and Baines.
 - **The soot left burnt** (25 %), **the kerosene condensate** (depth 3,
-  albedo 0.8), **the clear exhausts' condensate and gas depths**, **their
-  near-exit light**: no measured column densities.
+  albedo 0.8): no measured column densities.
+- **The ice's radius** (0.1 µm, from SP-201's photometry; the owner's
+  choice above), **its ramp** (frozen by a fourth of the saturation
+  density), **water's visible absorption** (a line sum, no measured
+  luminance), **the wall jet's** recovery and growth as a free jet's
+  continuation.
 - **The base glow** (depth 1.5, 1,750-2,000 K), **the shock cells'
   strength** (±30 %), **the Mach disk's emissivity**, **the turbulence's
   depths** and **its lip eddies and shutter**:
@@ -474,8 +571,12 @@ LEO, for the default physical look.
   grows with overlapping members (the five F-1s at altitude).
 - The S-IC's plume-induced flow separation (the bright envelope around the
   lower stack at high altitude) is not modelled.
-- The SPS glow's temperatures are not sourced (L); the J-2's and the
-  hypergols' near-exit light is an estimate.
+- The SPS glow's temperatures are not sourced (L). The J-2's chamber glow
+  leaves out the water's blue continuum and the light it throws on the
+  nozzle's inside.
+- The wall jet spreads on the deck's plane past the deck's edges, and the
+  flow down the opening onto the flame deflector is hidden, not modelled
+  (P4's smoke leaves the trench).
 - The tower jettison motor's plume is one member on its thrust axis, not
   two at its canted scarfed nozzles: the drawn nozzles are a placeholder
   not linked to the thruster (VG3's open item, exhaust datasheet §7.5).

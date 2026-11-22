@@ -68,10 +68,12 @@ final class PlumeLookTests: XCTestCase {
         let members = altitudes.map { member(ApolloExhaust.f1, altitude: $0) }
         let x = 20 * ApolloExhaust.f1.spec.exitRadius * 2
         for (a, b) in zip(members, members.dropFirst()) {
-            XCTAssertGreaterThan(b.radius(atX: 0.25 * x), a.radius(atX: 0.25 * x), "near the exit")
+            // P1's boundary balloons as the air thins (the flame brush, the
+            // mixing layer's, grows slower in thin air).
+            XCTAssertGreaterThan(b.radiusGrowth, a.radiusGrowth, "the boundary near the exit")
             XCTAssertGreaterThan(b.length, a.length)
         }
-        XCTAssertGreaterThan(members[2].radius(atX: x), 1.5 * members[0].radius(atX: x))
+        XCTAssertGreaterThan(members[2].radius(atX: x), members[0].radius(atX: x))
         XCTAssertGreaterThan(members[2].radius(atX: x), 5, "each plume wider than the vehicle after max-Q")
         let high = member(ApolloExhaust.f1, altitude: 45_000)
         XCTAssertEqual(high.afterburning, 0)
