@@ -322,9 +322,12 @@ tile over that speed (1.28 s for the F-1).
   The F-1's near field, renewed every few milliseconds, is smooth and
   streaked, its slower edges ragged, its far field billowing.
 - **One flow through a cluster.** At each point the jet whose bent axis
-  passes nearest (in a cluster of like engines the strongest there, the
-  largest share of its excess speed; found from the exits and axes alone,
-  then that one member's flow) carries the noise, and the merged far field's flow takes
+  passes nearest, of those the point lies along (0 ≤ x ≤ length), carries
+  the noise (in a cluster of like engines the strongest there, the largest
+  share of its excess speed; found from the exits and axes alone, then that
+  one member's flow); where that one does not reach the point, the member
+  asking for the noise does (on the CPU, the first that reaches), as when
+  an engine tails off among full ones. The merged far field's flow takes
   over across the merge's window as its field does, so the field is
   continuous where jets meet (in a cluster of like engines) and across the
   merge: across the S-IC at 20 m, where engine 1's reach covers the centre
@@ -486,9 +489,10 @@ LEO, for the default physical look.
   Lagrangian times from an incompressible water jet mapped on the core's
   length, held upstream of 15 D. Their streak through the shutter is the
   self-similar mixing layer's in a band, down the whole jet (the axis's is
-  longer, the edge's shorter): through the core and to about three core
-  lengths, where the layers live longer, it is about 1/4.7 of what the
-  local shear layer carries past in its Lagrangian time (a near-field
+  longer, the edge's shorter), where the layers live longer, about 1/4.7
+  of what the local shear layer carries past in its Lagrangian time
+  through the core, about 1/3.4 at three core lengths and 1/2 at four, the
+  far field's own from about five on (a near-field
   streak would need a stretch applied to a per-band local offset, not to
   the axial coordinate). The depth the shutter keeps is each point's own.
 - Small impostors still draw before R6's composite (C2's clouds lie over

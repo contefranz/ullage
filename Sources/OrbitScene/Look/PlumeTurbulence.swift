@@ -34,16 +34,22 @@ import OrbitCore
 ///   two bands about its own lifetime, keeping the noise's variance (Heitz
 ///   and Neyret 2018), so nothing pulses.
 /// - **One flow through a cluster** (`flow(_:merged:mergeX:origin:axis:at:)`):
-///   at each point the jet whose bent axis passes nearest carries the noise
-///   (in a cluster of like engines the strongest there, its profile's share
-///   the largest), and the merged far field takes over across the merge's
-///   window, so that the field is continuous where jets meet.
+///   at each point the jet whose bent axis passes nearest, of those the
+///   point lies along (0 ≤ x ≤ length), carries the noise (in a cluster of
+///   like engines the strongest there, its profile's share the largest);
+///   where that one does not reach the point, the first member that does
+///   (the march: the member asking for the noise), as when an engine tails
+///   off among full ones; and the merged far field takes over across the
+///   merge's window, so that the field is continuous where jets meet.
 /// - **The shutter.** The camera sees the field averaged over its exposure
 ///   (`shutter`): at a point the field holds for an Eulerian time T_E,
 ///   1/T_E = u/L + 1/T_L (swept past, and decaying), so the average's
 ///   depth is 1/√(1 + Δ/(2 T_E)), and it streaks along the flow by what the
-///   flow carries past in the exposure, at most in a Lagrangian time. The
-///   F-1's fast near field shimmers in streaks; its slow far field billows.
+///   self-similar mixing layer carries past in the exposure, at most in a
+///   Lagrangian time, per band and the same down the whole jet
+///   (`streakRate`; a streak varying with x would warp the axial
+///   coordinate). The F-1's fast near field shimmers in streaks; its slow
+///   far field billows.
 ///
 /// Deterministic: a function of the turbulence clock (real time × min(warp,
 /// 4), reset with the scene) and the cluster's seed.
