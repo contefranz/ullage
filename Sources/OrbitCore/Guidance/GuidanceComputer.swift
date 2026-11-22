@@ -134,3 +134,19 @@ public protocol GuidanceComputer: AnyObject {
     /// (`WarpEvent`).
     func warpEvents(after now: Epoch) -> [WarpEvent]
 }
+
+/// A flight program that carries an onboard computer (the CSM's SCS, which
+/// hosts CMC-lite).
+public protocol GuidanceComputerHost: AnyObject {
+    var guidanceComputer: GuidanceComputer { get }
+}
+
+extension Vessel {
+    /// The onboard computer aboard: its flight program's, or on a stack the
+    /// one a part carries on standby (the CM's, under the Saturn's IU), where
+    /// the programs that need no stepping still run; nil when none.
+    public var guidanceComputer: GuidanceComputer? {
+        if let host = flightProgram as? GuidanceComputerHost { return host.guidanceComputer }
+        return parts.lazy.compactMap { ($0.standbyProgram as? GuidanceComputerHost)?.guidanceComputer }.first
+    }
+}

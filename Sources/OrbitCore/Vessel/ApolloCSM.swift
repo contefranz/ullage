@@ -103,10 +103,10 @@ extension ApolloCSM {
 
     /// The attitude (body -> ICRF) that points the SPS's thrust, trimmed
     /// through `v`'s centre of mass, along `direction` (ICRF), with the
-    /// crew's head (-Z_A, body +z) towards the Earth below: heads down, the
-    /// CM's lift up.
-    static func burnAttitude(_ v: Vessel, along direction: Vec3) -> Quat {
-        let d = direction.normalized, down = -v.position.normalized
+    /// crew's head (-Z_A, body +z) towards `down` as far as it can be: by
+    /// default the Earth below, heads down, the CM's lift up.
+    static func burnAttitude(_ v: Vessel, along direction: Vec3, down: Vec3? = nil) -> Quat {
+        let d = direction.normalized, down = down ?? -v.position.normalized
         let z = (down - d * down.dot(d)).normalized
         let aligned = Quat(matrix: Mat3(columns: d, z.cross(d), z))
         guard let sm = v.parts.first(where: { $0.name == "SM" }),

@@ -23,10 +23,22 @@ import Foundation
 ///   stretch it.
 /// - Once the SM has left, `successor` (the CM's entry program) flies the
 ///   vessel: every call is forwarded to it.
-///
-/// Automatic P40 (the CMC lighting the SPS at TIG) is M3's: the pilot
-/// lights the SPS (the main throttle) and the counter cuts it off.
-public final class ApolloSCS: FlightProgram, DeltaVCounting {
+/// - It hosts the onboard computer, `computer` (M2's CMC-lite), run first
+///   in each of its steps while the SM is aboard. Under G&N AUTO (`gnAuto`:
+///   G, or Return at P40's V50N18) the computer's attitude is the hold's
+///   command; 8, a pointing mode or the RCS rotation keys hand the attitude
+///   back to the SCS. The computer lights the SPS at TIG in P40 and cuts
+///   it off on VG: the EMS counter then counts but does not cut off, so a
+///   burn has one cutoff authority (docs/m2/design-flight-controls.md §10,
+///   decisions 1 and 9). Z remains the SCS way: the pilot lights the SPS
+///   and the counter cuts it off. The computer's warp events are the SCS's.
+public final class ApolloSCS: FlightProgram, DeltaVCounting, GuidanceComputerHost {
+    /// The onboard computer (CMC-lite).
+    public let computer = CMCLite()
+    public var guidanceComputer: GuidanceComputer { computer }
+    /// G&N AUTO: the computer flies the attitude, through the hold's
+    /// command (`Vessel.attitudeCommand` under `.attitudeHold`).
+    public private(set) var gnAuto = false
     /// What flies the CM once the SM has gone (track E1's entry program).
     public var successor: FlightProgram?
     /// Seconds of +X ullage at the CSM/LV separation; 0 for none (a CSM that
@@ -71,6 +83,10 @@ public final class ApolloSCS: FlightProgram, DeltaVCounting {
         let now = sim.time
         clock = sim.clock
         defer { lastUpdate = now }
+        if !smGone, v.parts.contains(where: { $0.name == "SM" }) {
+            computer.update(v, in: sim)
+            flyComputer(v, in: sim)
+        }
         if !smGone && !v.parts.contains(where: { $0.name == "SM" }) {
             smGone = true
             sim.log("\(v.name): SM gone, \(successor == nil ? "SCS holds the CM" : "entry program")")
@@ -111,7 +127,62 @@ public final class ApolloSCS: FlightProgram, DeltaVCounting {
         var next: Double?
         if let end = ullageUntil, end > now { next = end - now }
         if let c = pendingCutoff, c > now { next = min(next ?? (c - now), c - now) }
+        if let c = computer.timeToNextEvent(at: now) { next = min(next ?? c, c) }
         return next
+    }
+
+    public func warpEvents(after now: Epoch) -> [WarpEvent] {
+        if smGone { return successor?.warpEvents(after: now) ?? [] }
+        return computer.warpEvents(after: now)
+    }
+
+    // MARK: G&N AUTO
+
+    /// G: give the attitude to the computer, if it has one to fly; false
+    /// (logged) when it has none.
+    @discardableResult
+    public func selectGNAuto(_ v: Vessel, in sim: Simulation) -> Bool {
+        guard !smGone, computer.attitudeCommand != nil else {
+            sim.log("\(v.name): G&N AUTO refused, no computer attitude")
+            return false
+        }
+        startGNAuto(v, in: sim)
+        return true
+    }
+
+    /// Hand the attitude back to the SCS (8): the hold captures the
+    /// attitude now.
+    public func clearGNAuto(_ v: Vessel, in sim: Simulation, reason: String = "SCS hold") {
+        guard gnAuto else { return }
+        gnAuto = false
+        v.attitudeCommand = nil
+        sim.log("\(v.name): G&N AUTO off, \(reason)")
+    }
+
+    private func startGNAuto(_ v: Vessel, in sim: Simulation) {
+        computer.restartSlew(from: v.attitude)
+        if !gnAuto { sim.log("\(v.name): G&N AUTO") }
+        gnAuto = true
+        v.autopilot = .attitudeHold
+        if let c = computer.attitudeCommand { v.attitudeCommand = c }
+    }
+
+    /// After the computer's step: G&N AUTO asked for at V50N18, the pilot
+    /// taking the attitude back (rotation keys, a pointing mode), and the
+    /// computer's attitude written to the hold.
+    private func flyComputer(_ v: Vessel, in sim: Simulation) {
+        if computer.takeAutoManeuverRequest() { startGNAuto(v, in: sim) }
+        guard gnAuto else { return }
+        if !v.rotationInput.isZero {
+            clearGNAuto(v, in: sim, reason: "SCS takeover (RCS)")
+            return
+        }
+        if v.autopilot != .attitudeHold {
+            gnAuto = false
+            sim.log("\(v.name): G&N AUTO off, \(v.autopilot?.rawValue ?? "free")")
+            return
+        }
+        if let c = computer.attitudeCommand { v.attitudeCommand = c }
     }
 
     /// The Space key's check: for CM/SM separation (event 7) the first press
@@ -140,6 +211,7 @@ public final class ApolloSCS: FlightProgram, DeltaVCounting {
 
     public func nextEvent(at now: Epoch) -> (name: String, at: Epoch)? {
         if smGone, let next = successor { return next.nextEvent(at: now) }
+        if let e = computer.nextEvent(at: now) { return e }
         if let c = pendingCutoff { return ("SPS cutoff (ΔV counter)", c) }
         if let end = ullageUntil { return ("CSM/LV separation ullage off", end) }
         return nil
@@ -168,7 +240,8 @@ public final class ApolloSCS: FlightProgram, DeltaVCounting {
     /// The EMS counter: the last step's sensed Δv along X_A (thrust over
     /// mass, the step's thrust direction from the engines' now), and the SPS
     /// cutoff as the counter reaches zero. While the SPS burns it predicts
-    /// when, so the simulation ends a step there.
+    /// when, so the simulation ends a step there. In a burn the computer lit
+    /// it only counts (decision 9).
     func countDeltaV(_ v: Vessel, in sim: Simulation, now: Epoch) {
         guard var remaining = deltaVRemaining else { return }
         let p0 = sim.atmosphere(of: v.reference)?.seaLevelPressure ?? 0
@@ -177,7 +250,7 @@ public final class ApolloSCS: FlightProgram, DeltaVCounting {
         if let last = lastUpdate { remaining -= v.thrustAcceleration * alongX * max(0, now - last) }
         deltaVRemaining = remaining
         pendingCutoff = nil
-        guard !cutoffDone, spsBurning(v) else { return }
+        guard !cutoffDone, spsBurning(v), !computer.ownsThrust else { return }
         let rate = force.x / max(v.mass, 1e-9)
         let toGo = rate > 0 ? remaining / rate : .infinity
         if toGo < 1e-3 {
@@ -197,7 +270,8 @@ public final class ApolloSCS: FlightProgram, DeltaVCounting {
         var line = "SCS " + (wideDeadband ? "wide" : "narrow") + " dead band"
         if ullageUntil != nil { line += ", CSM/LV SEP +X ullage" }
         if let dv = deltaVRemaining { line += String(format: ", ΔV %.1f m/s", dv) }
-        if spsBurning(v) { line += ", SPS on" }
+        if spsBurning(v) { line += computer.ownsThrust ? ", SPS on (CMC)" : ", SPS on" }
+        if gnAuto { line += ", G&N AUTO" }
         if armedAt != nil { line += ", CM/SM SEP armed" }
         return line
     }
