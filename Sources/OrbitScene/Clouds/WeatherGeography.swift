@@ -11,7 +11,7 @@ import OrbitCore
 /// - `a`: land (the node's four mask cells, smoothed over about 100 km); the
 ///   continents (land smoothed over about 500 km: the monsoon's reach); how
 ///   far inland (the distance to the sea, 0 at the coast, 1 at 1,500 km or
-///   more); the ice sheets (Antarctica's and Greenland's land, smoothed as
+///   more); the ice sheets (the land south of 60° S and Greenland's, smoothed as
 ///   the land is).
 /// - `b`, along the node's parallel: over the sea, a continent close to the
 ///   east (e^(−d / 2,500 km): an ocean's eastern boundary, where the trades
@@ -107,10 +107,18 @@ public struct WeatherGeography: Equatable {
         let inland = Self.distanceToSea(fine)
         let pieces = Self.pieces(fine)
         let continent = pieces.area.map { $0 >= Self.continentArea }
-        // The ice sheets: the pieces under the South Pole and Greenland's
-        // summit (72.5° N, 38.5° W).
-        let sheets = Set([pieces.label[(Self.rows - 1) * Self.columns], pieces.label[35 * Self.columns + 643]]
-            .filter { $0 >= 0 })
+        // The ice sheets: every piece with land south of 60° S (Antarctica,
+        // and the ice-covered islands in its shelves, which Natural Earth's
+        // land leaves as sea: Berkner, Alexander, Roosevelt, Siple, Ross),
+        // and the piece under Greenland's summit (72.5° N, 38.5° W).
+        let south = (Self.rows - 60)...(Self.rows - 1)
+        var sheets: Set<Int> = [pieces.label[35 * Self.columns + 643]]
+        for j in south {
+            for c in 0..<Self.columns where pieces.label[j * Self.columns + c] >= 0 {
+                sheets.insert(pieces.label[j * Self.columns + c])
+            }
+        }
+        sheets.remove(-1)
         let ice = Self.blur(pieces.label.map { sheets.contains($0) ? 1 : 0 }, radius: 2, latitudeScaled: false)
         var along = [[Double]](repeating: [Double](repeating: 0, count: n), count: 4)
         let earth = 6_371.0, step = 0.5 * .pi / 180
@@ -184,8 +192,10 @@ public struct WeatherGeography: Equatable {
 
     /// The land's pieces: each land node's (`fine` at least one half) piece,
     /// −1 for the sea, land nodes side by side being one piece (the parallels
-    /// wrapping; not corner to corner, which would join Greenland to the
-    /// Canadian Arctic over the Nares Strait); each piece's area, km².
+    /// wrapping). Not corner to corner, which would join Greenland through
+    /// the Arctic Archipelago to North America (42 million km²); side by side
+    /// it takes in Ellesmere and Axel Heiberg across the Nares Strait, which
+    /// are ice-capped too. Each piece's area, km².
     static func pieces(_ fine: [Double]) -> (label: [Int], area: [Double]) {
         var label = [Int](repeating: -1, count: columns * rows)
         var area: [Double] = []

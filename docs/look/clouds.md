@@ -101,9 +101,10 @@ zonal means stay the climatology's.
   smoothed over ±2° (the climatology is 5° means). Only what varies along a
   parallel survives: a term of latitude alone is absorbed by the offset.
 - **Geography** (`WeatherGeography`, from `landmask.bin`, once): land, the
-  continents (500 km), the distance inland, the ice sheets (Antarctica's and
-  Greenland's land; Greenland's takes in northern Ellesmere Island, joined
-  to it across the Nares Strait on this grid and largely ice-capped too),
+  continents (500 km), the distance inland, the ice sheets (all the land
+  south of 60° S, the ice-covered islands in the shelves included, and
+  Greenland's; Greenland's takes in Ellesmere and Axel Heiberg, joined to it
+  across the Nares Strait on this grid and largely ice-capped too),
   and along each parallel a continent or the sea close to the east and
   west, from which come the eastern-boundary stratocumulus decks (cold
   upwelling under the trades; not in enclosed seas, and not in an island's
@@ -119,9 +120,11 @@ zonal means stay the climatology's.
     thinning by day), giving way westward to trade cumulus (600-750 m to
     2,400 m);
   - over land, cumulus with the surface's heating (the Sun's elevation
-    three hours earlier, so a 15 h peak, none at night, and no daily cycle
-    where the Sun circles in polar day), its base higher where dry; polar
-    stratus over the sea, little low cloud and no cumulus on the ice sheets;
+    three hours earlier, so a 15 h peak and none at night; single-valued at
+    the poles, and in polar day a daily cycle that follows the Sun's
+    elevation, weaker the nearer the pole), its base higher where dry; polar
+    stratus over the sea; on the ice sheets no heating and little low cloud,
+    mostly stratiform (a cumulus fraction of 0.2);
   - between the systems, weather noise (six octaves of gradient noise on the
     sphere, cells of 3,200 to 100 km) carried by the steering wind
     (850-500 hPa zonal mean), made afresh every 18 h with a new offset and
