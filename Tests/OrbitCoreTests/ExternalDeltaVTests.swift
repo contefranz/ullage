@@ -122,4 +122,68 @@ final class ExternalDeltaVTests: XCTestCase {
         XCTAssertEqual(e.speed / ft, eiRef.speed, accuracy: 10)
         XCTAssertEqual(e.gamma / deg, eiRef.flightPathAngle, accuracy: 0.05)
     }
+
+    // P41 on a PAD of 3 ft/s keyed by hand (TIG 259:40:00, along the
+    // scenario's +X): at TIG N85, the attitude holds TIG's while the crew
+    // nulls VG on the translation keys, holding U past zero (an overshoot of
+    // more than 0.3 ft/s) and tapping it back; VG ends under 0.2 ft/s.
+    func testP41NullsAKeyedPADWithTaps() throws {
+        let f = try CMCFlight()
+        let cmc = f.cmc
+        let tig = 259 * 3_600 + 40 * 60.0
+        let atTIG = Kepler.propagate(Kepler.State(position: f.v.position, velocity: f.v.velocity),
+                                     mu: f.v.reference.gm, by: ApolloCSM.apollo7RangeZero + tig - f.sim.time)
+        let n81 = DeorbitPlanner.localVerticalFrame(atTIG) * f.v.attitude.rotate(.unitX) * (3 * ft)
+        f.press(.program)
+        f.key("30")
+        f.press(.returnKey)
+        XCTAssertEqual(cmc.display.noun, 33)
+        for value in ["259", "40", "0"] {
+            f.key(value)
+            f.press(.returnKey)
+        }
+        f.press(.returnKey)
+        for x in [n81.x, n81.y, n81.z] {
+            f.key((x < 0 ? "-" : "+") + String(Int((abs(x) / ft * 10).rounded())))
+            f.press(.returnKey)
+        }
+        f.press(.returnKey, .returnKey)   // N42, P00
+        XCTAssertEqual(cmc.load?.engine, .rcs)
+        f.press(.next)
+        XCTAssertEqual(cmc.program, 41)
+        f.press(.returnKey)   // V50N18
+        f.fly(until: { cmc.step == .residuals }, limit: tig + 1)
+        XCTAssertEqual(f.get, tig, accuracy: 0.021)
+        let held = try XCTUnwrap(cmc.attitudeCommand).attitude
+        let r0 = try XCTUnwrap(cmc.residuals)
+        print(String(format: "P41 at TIG: N85 %+.2f %+.2f %+.2f ft/s", r0.x / ft, r0.y / ft, r0.z / ft))
+        XCTAssertEqual(r0.length, 3 * ft, accuracy: 0.1 * ft)
+
+        // Hold U past zero, then tap back.
+        f.v.setPilotInput(rotation: RotationCommand(), translation: Vec3(1, 0, 0))
+        f.fly(until: { (cmc.residuals?.x ?? 0) < -0.3 * ft }, limit: tig + 60)
+        f.v.setPilotInput(rotation: RotationCommand(), translation: .zero)
+        let over = try XCTUnwrap(cmc.residuals)
+        XCTAssertLessThan(over.x, -0.3 * ft)
+        var taps = 0
+        while let r = cmc.residuals, r.length >= 0.15 * ft, taps < 60 {
+            var t = Vec3.zero
+            if abs(r.x) > 0.08 * ft { t.x = r.x > 0 ? 1 : -1 }
+            if abs(r.y) > 0.08 * ft { t.y = r.y > 0 ? 1 : -1 }
+            if abs(r.z) > 0.08 * ft { t.z = r.z > 0 ? 1 : -1 }
+            f.v.firePilotPulse(translation: t, duration: 0.1)
+            taps += 1
+            f.fly(to: f.get + 0.5)
+        }
+        let r = try XCTUnwrap(cmc.residuals)
+        print(String(format: "P41 after the overshoot (%+.2f ft/s) and %d taps: %+.2f %+.2f %+.2f ft/s", over.x / ft,
+                     taps, r.x / ft, r.y / ft, r.z / ft))
+        XCTAssertLessThan(r.length, 0.2 * ft)
+        let command = try XCTUnwrap(cmc.attitudeCommand).attitude
+        XCTAssertLessThan(rotationVector(held.conjugate * command).length / deg, 1e-9)
+        XCTAssertLessThan(rotationVector(held.conjugate * f.v.attitude).length / deg, 1)
+        f.press(.returnKey, .returnKey)
+        XCTAssertEqual(cmc.program, 0)
+        XCTAssertNil(cmc.load)
+    }
 }

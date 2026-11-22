@@ -93,7 +93,9 @@ final class IgnitionLimitTests: XCTestCase {
             XCTAssertFalse(e.isDelivering, e.name)
             XCTAssertEqual(e.ignitions, 1, e.name)
         }
-        XCTAssertEqual(v.thrustAcceleration, 0)
+        // With every F-1 out, the IU senses T3 and stages, as it would for
+        // a burnout.
+        XCTAssertNotNil((v.flightProgram as? SaturnIU)?.timeBases[.t3])
     }
 
     /// Apollo 11 from first motion, its IU flying, to range time `t`.
@@ -120,6 +122,47 @@ final class IgnitionLimitTests: XCTestCase {
             XCTAssertFalse(e.isDelivering, e.name)
             XCTAssertEqual(e.ignitions, 1, e.name)
         }
+    }
+
+    // X during the S-IC's burn, at T+60 s: the F-1s are out for good, so the
+    // IU senses T3 as for a burnout (a spent engine is out, as a failed one
+    // is), stages, and lights the S-II; the stack is not left unable to
+    // stage.
+    func testAnSICCutoffByThePilotStillStages() throws {
+        let (sim, v) = try fly(to: 60)
+        let iu = try XCTUnwrap(v.flightProgram as? SaturnIU)
+        XCTAssertNil(iu.timeBases[.t3])
+        v.mainThrottle = 0
+        run(sim, seconds: 1)
+        XCTAssertNotNil(iu.timeBases[.t3])
+        run(sim, seconds: 9)
+        XCTAssertFalse(v.thrusters.contains { $0.name.hasPrefix("S-IC engine") })
+        let j2s = v.thrusters.filter { $0.name.hasPrefix("S-II engine") }
+        XCTAssertEqual(j2s.count, 5)
+        XCTAssertTrue(j2s.allSatisfy { $0.ignitions == 1 && $0.isDelivering })
+    }
+
+    // In the parking orbit the S-IVB's J-2 has its two starts: once they are
+    // spent, Z opens the throttle on an engine that cannot light, and the IU
+    // does not count it as firing, so Space still separates the CSM.
+    func testASpentSIVBDoesNotBlockSeparation() throws {
+        let sim = try Simulation.forTests(perturbations: true)
+        let v = VesselLibrary.apollo11InParkingOrbit(in: sim)
+        let iu = try XCTUnwrap(v.flightProgram as? SaturnIU)
+        let j2 = try XCTUnwrap(v.thrusters.first { $0.name == "S-IVB engine" })
+        for start in 1...2 {
+            v.mainThrottle = 1
+            run(sim, seconds: 4)
+            XCTAssertEqual(j2.ignitions, start)
+            v.mainThrottle = 0
+            run(sim, seconds: 2)
+        }
+        v.mainThrottle = 1
+        run(sim, seconds: 2)
+        XCTAssertTrue(j2.ignitionsSpent)
+        XCTAssertFalse(j2.isDelivering)
+        XCTAssertTrue(iu.allowsManualStaging(of: v))
+        XCTAssertEqual(v.mainDeltaV, 0)
     }
 
     // On the S-II, 40 s into its burn: X cuts the J-2s and Z lights none.

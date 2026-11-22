@@ -187,4 +187,179 @@ final class CMCLiteTests: XCTestCase {
         XCTAssertEqual(f.cmc.display.noun, 85)
         XCTAssertEqual(f.v.mainThrottle, 0)
     }
+
+    /// The angle between two attitudes, degrees.
+    func angle(_ a: Quat, _ b: Quat) -> Double { rotationVector(a.conjugate * b).length / CMCFlight.deg }
+
+    /// SPS-8's load turned 20° in pitch, TIG `later` s after the flight's.
+    func turnedLoad(_ f: CMCFlight, later: Double = 0) -> ManeuverPlan {
+        var load = f.sps8AsFlown()
+        let axis = f.v.position.cross(f.v.velocity).normalized
+        load.deltaV = Quat(axis: axis, angle: 20 * CMCFlight.deg).rotate(load.deltaV)
+        load.ignition = load.ignition + later
+        return load
+    }
+
+    // PRG then Return with nothing keyed is refused (OPR ERR, V37 still
+    // shown): it never answers V99 behind it. PRO is refused too, and so is
+    // Return with a sign alone, which stays for CLR. Without the crew's own
+    // Return at V99 the SPS stays dark past TIG.
+    func testPRGThenReturnNeverAnswersV99() throws {
+        let f = try countingDown()
+        f.fly(until: { f.cmc.step == .ignition }, limit: CMCFlight.tigGET)
+        f.press(.program, .returnKey)
+        XCTAssertTrue(f.cmc.display.lamps.contains(.operatorError))
+        XCTAssertEqual(f.cmc.display.reason, "KEY THE PROGRAM")
+        XCTAssertEqual(f.cmc.display.verb, 37)
+        XCTAssertFalse(f.cmc.ignitionEnabled)
+        f.press(.proceed)
+        XCTAssertFalse(f.cmc.ignitionEnabled)
+        f.press(.clear, .reset, .plus, .returnKey)
+        XCTAssertEqual(f.cmc.display.reason, "NO DIGITS")
+        XCTAssertEqual(f.cmc.display.keyBuffer, "+")
+        XCTAssertFalse(f.cmc.ignitionEnabled)
+        f.press(.proceed)
+        XCTAssertFalse(f.cmc.ignitionEnabled)
+        f.press(.clear, .reset)
+        f.fly(to: CMCFlight.tigGET + 2)
+        XCTAssertNil(f.cmc.ignition)
+        XCTAssertEqual(f.v.mainThrottle, 0)
+    }
+
+    // G answers V50N18 as Return does: the computer slews, counts down, asks
+    // V99, and lights at TIG on the crew's Return there.
+    func testGAnswersV50N18() throws {
+        let f = try CMCFlight()
+        XCTAssertEqual(f.cmc.uplink(f.sps8AsFlown(), at: f.sim.time), .accepted)
+        f.press(.returnKey, .returnKey, .next)
+        f.fly(to: f.get + 1)
+        XCTAssertEqual(f.cmc.step, .maneuver)
+        XCTAssertTrue(f.scs.selectGNAuto(f.v, in: f.sim))   // G
+        f.fly(to: f.get + 1)
+        XCTAssertTrue(f.scs.gnAuto)
+        XCTAssertEqual(f.cmc.step, .countdown)
+        f.fly(until: { f.cmc.step == .ignition }, limit: CMCFlight.tigGET)
+        f.press(.returnKey)
+        f.fly(to: CMCFlight.tigGET + 1)
+        XCTAssertEqual(try XCTUnwrap(f.cmc.ignition) - CMCFlight.tig, 0, accuracy: 1e-6)
+    }
+
+    // A load P40 has lit is flown: PRG 00 at N85 clears it, so NXT finds no
+    // load and the same Δv cannot be flown twice; the warp caps go with it.
+    func testAFlownLoadIsCleared() throws {
+        let f = try countingDown()
+        f.fly(until: { f.cmc.step == .ignition }, limit: CMCFlight.tigGET)
+        f.press(.returnKey)
+        f.fly(to: CMCFlight.tigGET + 20)
+        XCTAssertEqual(f.cmc.step, .residuals)
+        f.press(.program)
+        f.key("00")
+        f.press(.returnKey)
+        XCTAssertEqual(f.cmc.program, 0)
+        XCTAssertNil(f.cmc.load)
+        XCTAssertTrue(f.logged("SPS-8 flown, load cleared"))
+        f.press(.next)
+        XCTAssertEqual(f.cmc.display.reason, "NO LOAD")
+        XCTAssertTrue(f.cmc.warpEvents(after: f.sim.time).isEmpty)
+    }
+
+    // G&N AUTO ends with the program (the SCS holds where the vessel is),
+    // and the next P40 does not turn the CSM before the crew answers its
+    // V50N18.
+    func testGNAutoEndsWithTheProgramAndTheNextSlewWaits() throws {
+        let f = try countingDown()
+        XCTAssertTrue(f.scs.gnAuto)
+        f.fly(until: { f.cmc.step == .ignition }, limit: CMCFlight.tigGET)
+        f.press(.returnKey)
+        f.fly(to: CMCFlight.tigGET + 20)
+        f.press(.returnKey, .returnKey)   // N85, N44
+        XCTAssertEqual(f.cmc.program, 0)
+        f.fly(to: f.get + 0.1)
+        XCTAssertFalse(f.scs.gnAuto)
+        XCTAssertNil(f.v.attitudeCommand)
+        XCTAssertTrue(f.logged("G&N AUTO off, the program ended, SCS hold"))
+
+        XCTAssertEqual(f.cmc.uplink(turnedLoad(f, later: 1_200), at: f.sim.time), .accepted)
+        f.press(.returnKey, .returnKey, .next)
+        XCTAssertEqual(f.cmc.display.verb, 50)
+        let before = f.v.attitude
+        f.fly(to: f.get + 10)
+        XCTAssertEqual(f.cmc.step, .maneuver)
+        XCTAssertLessThan(angle(before, f.v.attitude), 1)
+    }
+
+    // A pointing mode under G&N AUTO hands the attitude back to the SCS and
+    // takes the computer's command off the vessel, so a later hold captures
+    // where the vessel is.
+    func testAPointingModeHandsTheAttitudeBack() throws {
+        let f = try CMCFlight()
+        XCTAssertEqual(f.cmc.uplink(turnedLoad(f), at: f.sim.time), .accepted)
+        f.press(.returnKey, .returnKey, .next, .returnKey)
+        f.fly(to: f.get + 5)
+        XCTAssertTrue(f.scs.gnAuto)
+        XCTAssertNotNil(f.v.attitudeCommand)
+        f.v.autopilot = .prograde
+        f.fly(to: f.get + 0.1)
+        XCTAssertFalse(f.scs.gnAuto)
+        XCTAssertNil(f.v.attitudeCommand)
+        XCTAssertTrue(f.logged("G&N AUTO off, Prograde"))
+    }
+
+    // NXT from P30's N42 accepts the load as PRO does: UPLINK ACTY goes out.
+    func testNXTFromN42PutsTheUplinkLampOut() throws {
+        let f = try CMCFlight()
+        XCTAssertEqual(f.cmc.uplink(f.sps8AsFlown(), at: f.sim.time), .accepted)
+        f.press(.returnKey)
+        XCTAssertEqual(f.cmc.display.noun, 42)
+        XCTAssertTrue(f.cmc.display.lamps.contains(.uplinkActivity))
+        f.press(.next)
+        XCTAssertEqual(f.cmc.program, 40)
+        XCTAssertFalse(f.cmc.display.lamps.contains(.uplinkActivity))
+        XCTAssertTrue(f.logged("CMC: P30 SPS-8 accepted"))
+    }
+
+    // The warp caps follow the burn as lit: lit 50 s late, past the planned
+    // burn's end, it still flies under the 10x cap until its cutoff.
+    func testTheWarpCapsFollowALateBurn() throws {
+        let f = try countingDown()
+        f.fly(to: CMCFlight.tigGET + 50)
+        f.press(.returnKey)
+        f.fly(to: CMCFlight.tigGET + 52)
+        XCTAssertNotNil(f.cmc.ignition)
+        XCTAssertNil(f.cmc.cutoff)
+        let caps = f.scs.warpEvents(after: f.sim.time).filter { $0.holds(at: f.sim.time) }
+        XCTAssertLessThanOrEqual(caps.map(\.maxWarp).min() ?? .infinity, 10)
+        f.fly(to: CMCFlight.tigGET + 70)
+        XCTAssertNotNil(f.cmc.cutoff)
+        XCTAssertTrue(f.scs.warpEvents(after: f.sim.time).isEmpty)
+    }
+
+    // On the Saturn stack the CM's computer, under the IU, sees the state
+    // (Vessel.guidanceComputer, observed each step): V82 gives the parking
+    // orbit's apsides, an uplink's N42 its prediction; P40 refuses, as the
+    // IU flies the stack.
+    func testTheComputerOnTheStack() throws {
+        let sim = try Simulation.forTests(perturbations: true)
+        let v = VesselLibrary.apollo11InParkingOrbit(in: sim)
+        let cmc = try XCTUnwrap(v.guidanceComputer as? CMCLite)
+        for _ in 0..<5 { sim.tick() }
+        cmc.press(.orbitParameters, at: sim.time)
+        let d = cmc.display
+        XCTAssertEqual(d.noun, 44)
+        let el = v.elements(snapshot: sim.snapshot), r = v.reference.radius, nm = 1_852.0
+        XCTAssertEqual(Double(d.registers[0].value) ?? .nan, (el.apoapsisRadius - r) / nm, accuracy: 0.2)
+        XCTAssertEqual(Double(d.registers[1].value) ?? .nan, (el.periapsisRadius - r) / nm, accuracy: 0.2)
+        print("V82 on the stack: " + d.registers.map { "\($0.label) \($0.value)" }.joined(separator: ", "))
+        cmc.press(.returnKey, at: sim.time)
+        let plan = ManeuverPlan(name: "TEST", ignition: sim.time + 600, deltaV: v.velocity.normalized * 10,
+                                deltaVLocal: Vec3(10, 0, 0), burnTime: 1, stateEpoch: sim.time, source: .transfer)
+        XCTAssertEqual(cmc.uplink(plan, at: sim.time), .accepted)
+        cmc.press(.returnKey, at: sim.time)
+        XCTAssertEqual(cmc.display.noun, 42)
+        XCTAssertNotEqual(cmc.display.registers[0].value, "OVFL")
+        cmc.press(.returnKey, at: sim.time)
+        cmc.press(.next, at: sim.time)
+        XCTAssertEqual(cmc.program, 0)
+        XCTAssertEqual(cmc.display.reason, "NO CONTROL OF THE VEHICLE")
+    }
 }

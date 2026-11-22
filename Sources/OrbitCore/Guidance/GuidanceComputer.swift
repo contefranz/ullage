@@ -127,6 +127,9 @@ public protocol GuidanceComputer: AnyObject {
     func uplink(_ plan: ManeuverPlan, at now: Epoch) -> UplinkResult
     /// One control step of `vessel` at `sim.time`.
     func update(_ vessel: Vessel, in sim: Simulation)
+    /// `vessel`'s state for the displays where no host steps the computer
+    /// (on a stack, in standby): nothing is flown.
+    func observe(_ vessel: Vessel, in sim: Simulation)
     /// Seconds from `now` to the computer's next timed action, so that the
     /// host's step ends there; nil when none is scheduled.
     func timeToNextEvent(at now: Epoch) -> Double?
