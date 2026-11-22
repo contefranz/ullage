@@ -882,12 +882,14 @@ fragment EffectVolumeOut plume_march_fragment(PlumeProxyOut in [[stage_in]],
     // free expansion's virtual source (c.reserved[1]), so its steps go
     // equiangular about that point, as dense as 1/(h² + d²) along the ray,
     // whenever the ray spans more than four of its closest approaches to it
-    // (no less than an exit radius). h is that, but no less than the onset
-    // surface's distance from the source at the ray's angle to the axis
-    // (the ice is nil inside it, S √(pv(θ)/onset): 72 m along a J-2's axis,
-    // under a metre across it): the onset shapes only the spacing, so the
-    // steps follow the ice, not the empty core, from every view and
-    // distance, with no switch.
+    // (no less than an exit radius), and whenever it is seen across (more
+    // than 30° off the axis): ice never takes the axis's steps, which crowd
+    // into the empty core. h is that closest approach, but no less than the
+    // onset surface's distance from the source at the ray's angle to the
+    // axis (the ice is nil inside it, S √(pv(θ)/onset): 72 m along a J-2's
+    // axis, under a metre across it): the onset shapes only the spacing.
+    // A ray within 30° of the axis that passes far from the source keeps
+    // the near and far halves.
     if (c.reserved[0].w > 0.5) {
         float3 source = c.reserved[1].xyz;
         float ts = dot(source, dir) / (len * len);
@@ -897,7 +899,7 @@ fragment EffectVolumeOut plume_march_fragment(PlumeProxyOut in [[stage_in]],
         float pv = theta < lim ? pow(max(cos(0.5 * M_PI_F * theta / lim), 0.0), mi.simons.y) : 0.0;
         float onset = mi.condensate.w > 0.0 ? mi.simons.w * sqrt(pv / mi.condensate.w) : 0.0;
         float hRay = max(length(source - dir * ts), c.reserved[1].w), h = max(hRay, onset);
-        if ((exit - enter) * len > 4.0 * hRay) {
+        if ((exit - enter) * len > 4.0 * hRay || equiangular) {
             equiangular = true;
             t0 = ts;
             hk = h / len;
