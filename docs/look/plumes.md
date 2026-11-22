@@ -321,11 +321,12 @@ LEO, for the default physical look.
   four pairs and the four S-II ullage motors, eight clusters): 3.94 ms at
   EV 15, 3.90 ms under the app's auto exposure. It was 38 ms with each
   proxy as wide as P1's jet boundary; the proxies now hold what can show,
-  and solid motors' clusters march at half the steps. The retros' plumes
-  end where their jets turn back into the oncoming air (70°), found on
-  the path's finer steps near the turn and between them: 39 m, where the
-  coarser stepping before the review stopped at 35 m (2.94 ms then). The
-  retros burn 0.64 s.
+  and solid motors' clusters march at half the steps. The 3.9 ms is the
+  retro pairs' accurate 70° end, 39 m: where their jets turn back into
+  the oncoming air, found on the path's finer steps near the turn and
+  between them. The 35 m before the review (2.94 ms then) was a stepping
+  artefact, jumping from one station to the next. Kept for the physics:
+  the retros burn 0.64 s, and R7's tiers can trim it.
 - LEO, physical: about 0.02 ms by day (the J-2s and the SPS culled by the
   exposure, the SPS bell's glow drawn), the same in forward scatter; the
   SPS at night in eclipse 0.45 ms (glow-only, marched at a quarter of the
