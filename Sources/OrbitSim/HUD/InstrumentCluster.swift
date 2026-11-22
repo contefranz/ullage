@@ -3,15 +3,15 @@ import OrbitCore
 import OrbitRender
 import OrbitInstruments
 
-/// The flight instruments at the bottom centre: throttle (the g meter in an
-/// entry), speed tape, the navball with heading, pitch and roll and the
-/// body-rate needles, the altitude tape with the apsides, the vertical-speed
-/// bar and the autopilot modes; below them a strip with the next event and
-/// the target's range and range rate, or in an entry the 0.05 g light, the
-/// bank, the heating and the landing system. The moving parts are drawn
-/// every frame from `InstrumentModel`, in step with the ball; the scales and
-/// labels once, the mode column when the mode changes and the strip five
-/// times a second (text is what costs in a canvas).
+/// The flight instruments at the bottom centre: the G-meter over the LV
+/// engine lights, throttle, speed tape, the navball with heading, pitch and
+/// roll and the body-rate needles, the altitude tape with the apsides, the
+/// vertical-speed bar and the autopilot modes; below them a strip with the
+/// next event and the target's range and range rate, or in an entry the
+/// 0.05 g light, the bank, the heating and the landing system. The moving
+/// parts are drawn every frame from `InstrumentModel`, in step with the
+/// ball; the scales and labels once, the mode column when the mode changes
+/// and the strip five times a second (text is what costs in a canvas).
 struct InstrumentCluster: View {
     let instruments: InstrumentModel
     let layout: Layout
@@ -50,6 +50,9 @@ struct InstrumentCluster: View {
     struct Layout: Equatable {
         let size: CGSize
         let ball: CGRect
+        /// The leftmost column: the G-meter's dial, its readouts below it,
+        /// then the LV engine lights.
+        let accel: CGRect, dial: CGRect, lights: CGRect
         let throttle, speedTape, altitudeTape, vsi, modes: CGRect
         /// Rows above and below the tapes, for their labels.
         let labelRow: CGFloat, belowRows: (CGFloat, CGFloat)
@@ -66,6 +69,10 @@ struct InstrumentCluster: View {
                 defer { x += w + gap }
                 return CGRect(x: x, y: tapeTop, width: w, height: tapeHeight)
             }
+            accel = column(Self.accelWidth, gap: 10)
+            dial = CGRect(x: accel.minX, y: accel.minY, width: accel.width, height: accel.width)
+            let lightsHeight: CGFloat = 80
+            lights = CGRect(x: accel.minX, y: accel.maxY - lightsHeight, width: accel.width, height: lightsHeight)
             throttle = column(22, gap: 10)
             speedTape = column(84, gap: 12)
             ball = CGRect(x: x, y: tapeTop + 12, width: d, height: d)
@@ -81,6 +88,9 @@ struct InstrumentCluster: View {
         }
 
         static func == (a: Layout, b: Layout) -> Bool { a.ball == b.ball }
+
+        /// The G-meter column's width, the dial's diameter.
+        static let accelWidth: CGFloat = 96
     }
 }
 
@@ -127,6 +137,8 @@ private struct Painter {
 
     /// The moving parts.
     func draw(_ ctx: inout GraphicsContext) {
+        gMeter(&ctx)
+        engineLights(&ctx)
         throttle(&ctx)
         speedTape(&ctx)
         altitudeTape(&ctx)
@@ -145,6 +157,8 @@ private struct Painter {
         func label(_ s: String, _ f: CGRect, _ y: CGFloat, weight: Font.Weight = .regular) {
             ctx.draw(text(s, size: 10, weight: weight), at: CGPoint(x: f.midX, y: y))
         }
+        drawDial(&ctx, layout)
+        drawLightsPanel(&ctx, layout)
         label("ALT", layout.altitudeTape, layout.labelRow, weight: .semibold)
         label("VS", layout.vsi, layout.labelRow, weight: .semibold)
         label("m/s", layout.vsi, layout.belowRows.1)
@@ -207,15 +221,118 @@ private struct Painter {
         return f.midY - CGFloat(vs < 0 ? -s : s) * half
     }
 
+    // MARK: G-meter
+
+    /// The LV engine lights' yellow.
+    static let lamp = Color(red: 1, green: 0.84, blue: 0.2)
+
+    /// The dial's centre and radius.
+    static func dialGeometry(_ layout: InstrumentCluster.Layout) -> (centre: CGPoint, radius: CGFloat) {
+        let d = layout.dial
+        return (CGPoint(x: d.midX, y: d.midY), d.width / 2 - 2)
+    }
+
+    /// The point at `r` from `c` at `angle` (rad, counterclockwise from 3
+    /// o'clock, as `GMeter.dialAngle` gives it).
+    static func point(_ c: CGPoint, _ r: CGFloat, _ angle: Double) -> CGPoint {
+        CGPoint(x: c.x + r * CGFloat(cos(angle)), y: c.y - r * CGFloat(sin(angle)))
+    }
+
+    /// The face, as the CM's: a tick every g, long at the even ones, the
+    /// numbers −1, 0, 2 ... 14 (the 15 at the stop is left unlabelled, too
+    /// close to the 14 at this size), and the label on a dark sector at the
+    /// bottom, between the stops.
+    static func drawDial(_ ctx: inout GraphicsContext, _ layout: InstrumentCluster.Layout) {
+        let (c, radius) = dialGeometry(layout)
+        let face = Path(ellipseIn: CGRect(x: c.x - radius, y: c.y - radius, width: 2 * radius, height: 2 * radius))
+        ctx.fill(face, with: .color(.black.opacity(0.6)))
+        let s = GMeter.scale
+        var sector = Path()
+        sector.move(to: c)
+        sector.addArc(center: c, radius: radius, startAngle: .radians(-GMeter.dialAngle(s.upperBound)),
+                      endAngle: .radians(-GMeter.dialAngle(s.lowerBound)), clockwise: false)
+        sector.closeSubpath()
+        ctx.fill(sector, with: .color(.black.opacity(0.85)))
+        ctx.stroke(face, with: .color(dim), lineWidth: 1)
+        for k in Int(s.lowerBound)...Int(s.upperBound) {
+            let g = Double(k), long = k % 2 == 0 || k == Int(s.lowerBound) || k == Int(s.upperBound)
+            let a = GMeter.dialAngle(g)
+            var p = Path()
+            p.move(to: point(c, radius - 1.5, a))
+            p.addLine(to: point(c, radius - (long ? 7 : 4), a))
+            ctx.stroke(p, with: .color(long ? green : dim), lineWidth: long ? 1.2 : 1)
+            if (k % 2 == 0 || k == Int(s.lowerBound)) && k < Int(s.upperBound) {
+                ctx.draw(text("\(k)", size: 8, color: green), at: point(c, radius - 14, a))
+            }
+        }
+        ctx.draw(text("ACCEL", size: 7, weight: .semibold, color: dim), at: CGPoint(x: c.x, y: c.y + radius * 0.48))
+        ctx.draw(text("G", size: 8, weight: .bold, color: dim), at: CGPoint(x: c.x, y: c.y + radius * 0.72))
+    }
+
+    /// The pointer, and the readouts under the dial: the axial reading and
+    /// the total.
+    func gMeter(_ ctx: inout GraphicsContext) {
+        let (c, radius) = Self.dialGeometry(layout), m = r.gMeter
+        let a = GMeter.dialAngle(m.axial), tip = Self.point(c, radius - 5, a), tail = Self.point(c, 7, a + Double.pi)
+        let half: CGFloat = 2, n = CGPoint(x: CGFloat(sin(a)) * half, y: CGFloat(cos(a)) * half)
+        var p = Path()
+        p.move(to: tip)
+        p.addLine(to: CGPoint(x: c.x + n.x, y: c.y + n.y))
+        p.addLine(to: CGPoint(x: tail.x + n.x / 2, y: tail.y + n.y / 2))
+        p.addLine(to: CGPoint(x: tail.x - n.x / 2, y: tail.y - n.y / 2))
+        p.addLine(to: CGPoint(x: c.x - n.x, y: c.y - n.y))
+        p.closeSubpath()
+        ctx.fill(p, with: .color(.white))
+        ctx.fill(Path(ellipseIn: CGRect(x: c.x - 3, y: c.y - 3, width: 6, height: 6)), with: .color(.white))
+
+        let below = layout.dial.maxY
+        ctx.draw(text(HUDFormat.axialLoad(m.axial), size: 11, weight: .semibold),
+                 at: CGPoint(x: c.x, y: below + 8))
+        ctx.draw(text(String(format: "TOT %.2f", m.total), size: 9, color: Self.dim),
+                 at: CGPoint(x: c.x, y: below + 21))
+    }
+
+    // MARK: LV engine lights
+
+    /// Where light n (1-5) sits: as on MDC-1 and on the stage, 4 1 / 5 / 3 2.
+    static func lampRect(_ n: Int, _ layout: InstrumentCluster.Layout) -> CGRect {
+        let f = layout.lights, w: CGFloat = 22, h: CGFloat = 14
+        let c = CGPoint(x: f.midX, y: f.minY + 15 + (f.height - 15 - 12) / 2)
+        let dx: CGFloat = 23, dy: CGFloat = 16
+        let offsets: [CGPoint] = [CGPoint(x: dx, y: -dy), CGPoint(x: dx, y: dy), CGPoint(x: -dx, y: dy),
+                                  CGPoint(x: -dx, y: -dy), .zero]
+        let o = offsets[n - 1]
+        return CGRect(x: c.x + o.x - w / 2, y: c.y + o.y - h / 2, width: w, height: h)
+    }
+
+    static func drawLightsPanel(_ ctx: inout GraphicsContext, _ layout: InstrumentCluster.Layout) {
+        let f = layout.lights
+        ctx.fill(Path(roundedRect: f, cornerRadius: 4), with: .color(.black.opacity(0.5)))
+        ctx.stroke(Path(roundedRect: f, cornerRadius: 4), with: .color(dim), lineWidth: 1)
+        ctx.draw(text("LV ENGINES", size: 8, weight: .semibold, color: dim), at: CGPoint(x: f.midX, y: f.minY + 8))
+        for n in 1...5 {
+            let lamp = lampRect(n, layout)
+            ctx.stroke(Path(roundedRect: lamp, cornerRadius: 2), with: .color(dim.opacity(0.7)), lineWidth: 1)
+            ctx.draw(text("\(n)", size: 9, color: dim), at: CGPoint(x: lamp.midX, y: lamp.midY))
+        }
+    }
+
+    /// The lit lamps, and the stage they read.
+    func engineLights(_ ctx: inout GraphicsContext) {
+        guard let lights = r.engineLights else { return }
+        for (i, on) in lights.lit.enumerated() where on {
+            let lamp = Self.lampRect(i + 1, layout)
+            ctx.fill(Path(roundedRect: lamp, cornerRadius: 2), with: .color(Self.lamp))
+            ctx.draw(text("\(i + 1)", size: 9, weight: .bold, color: .black), at: CGPoint(x: lamp.midX, y: lamp.midY))
+        }
+        let f = layout.lights
+        ctx.draw(text(lights.stage.rawValue, size: 8, color: Self.dim), at: CGPoint(x: f.midX, y: f.maxY - 7))
+    }
+
     // MARK: Throttle
 
-    /// The throttle, or in an entry the g meter in its place.
     func throttle(_ ctx: inout GraphicsContext) {
         let f = layout.throttle
-        if let entry = r.entry {
-            gMeter(&ctx, entry)
-            return
-        }
         let level = max(0, min(1, r.throttle))
         let bar = CGRect(x: f.minX + 3, y: f.maxY - 3 - (f.height - 6) * level, width: f.width - 6,
                          height: (f.height - 6) * level)
@@ -223,36 +340,6 @@ private struct Painter {
         ctx.draw(text("THR", size: 10), at: CGPoint(x: f.midX, y: layout.labelRow))
         ctx.draw(text(String(format: "%.0f", level * 100), size: 10), at: CGPoint(x: f.midX, y: layout.belowRows.0))
         ctx.draw(text("%", size: 10), at: CGPoint(x: f.midX, y: layout.belowRows.1))
-    }
-
-    /// Full scale of the g meter, g.
-    static let gMeterScale = 10.0
-
-    /// The sensed load factor on a 0-10 g scale (the EMS's), ticked every g,
-    /// amber from 5 g and red from 8 g, with the entry's peak.
-    func gMeter(_ ctx: inout GraphicsContext, _ entry: EntryReadouts) {
-        let f = layout.throttle, inner = f.height - 6
-        func y(_ g: Double) -> CGFloat { f.maxY - 3 - inner * CGFloat(max(0, min(1, g / Self.gMeterScale))) }
-        let g = entry.loadFactor
-        let color = g >= 8 ? Color(red: 1, green: 0.3, blue: 0.25) : g >= 5 ? Color(red: 1, green: 0.7, blue: 0.2)
-            : Self.green
-        ctx.fill(Path(CGRect(x: f.minX + 7, y: y(g), width: f.width - 10, height: f.maxY - 3 - y(g))),
-                 with: .color(color))
-        for k in 0...Int(Self.gMeterScale) {
-            var p = Path()
-            p.move(to: CGPoint(x: f.minX, y: y(Double(k))))
-            p.addLine(to: CGPoint(x: f.minX + (k % 5 == 0 ? 6 : 3), y: y(Double(k))))
-            ctx.stroke(p, with: .color(Self.dim), lineWidth: 1)
-        }
-        if let peak = entry.peakLoadFactor, peak > 0 {
-            var p = Path()
-            p.move(to: CGPoint(x: f.minX + 4, y: y(peak)))
-            p.addLine(to: CGPoint(x: f.maxX - 1, y: y(peak)))
-            ctx.stroke(p, with: .color(Color(red: 1, green: 0.85, blue: 0.3)), lineWidth: 1.5)
-        }
-        ctx.draw(text("G", size: 10, weight: .semibold), at: CGPoint(x: f.midX, y: layout.labelRow))
-        ctx.draw(text(String(format: "%.1f", g), size: 10), at: CGPoint(x: f.midX, y: layout.belowRows.0))
-        ctx.draw(text("g", size: 10), at: CGPoint(x: f.midX, y: layout.belowRows.1))
     }
 
     // MARK: Tapes
