@@ -522,4 +522,33 @@ final class CMCLiteTests: XCTestCase {
         XCTAssertEqual(f.cmc.display.noun, 83)
         XCTAssertGreaterThan(abs(Double(f.cmc.display.registers[0].value) ?? 0), 300)   // ft/s along X
     }
+
+    // A load uplinked on the Saturn stack and re-keyed there drops its burn
+    // time (nothing there can work it out from the CSM's mass); after the
+    // CSM/LV separation P40 estimates it on the CSM.
+    func testAReKeyOnTheStackIsEstimatedOnTheCSM() throws {
+        let sim = try Simulation.forTests(perturbations: true)
+        let v = VesselLibrary.apollo11InParkingOrbit(in: sim)
+        let cmc = try XCTUnwrap(v.guidanceComputer as? CMCLite)
+        cmc.clockZero = AS506.rangeZero
+        for _ in 0..<5 { sim.tick() }
+        let plan = ManeuverPlan(name: "TEST", ignition: sim.time + 1_800, deltaV: -v.velocity.normalized * 30,
+                                deltaVLocal: Vec3(-30, 0, 0), burnTime: 99, stateEpoch: sim.time, source: .transfer)
+        XCTAssertEqual(cmc.uplink(plan, at: sim.time), .accepted)
+        for k: DSKYKey in [.minus, .digit(9), .digit(0), .digit(0), .returnKey, .returnKey] { cmc.press(k, at: sim.time) }
+        XCTAssertEqual(cmc.display.noun, 42)
+        XCTAssertEqual(cmc.load?.source, .keyed)
+        XCTAssertNil(cmc.load?.burnTime)
+        cmc.press(.returnKey, at: sim.time)   // P00
+        XCTAssertNotNil(sim.stage(v))        // CSM/LV separation: the SCS takes the CSM
+        XCTAssertTrue(v.flightProgram is ApolloSCS)
+        for _ in 0..<5 { sim.tick() }
+        XCTAssertTrue(cmc.controlsVehicle)
+        cmc.press(.next, at: sim.time)
+        XCTAssertEqual(cmc.program, 40)
+        let bt = try XCTUnwrap(cmc.load?.burnTime)
+        print(String(format: "P40's burn time on the CSM: %.2f s", bt))
+        XCTAssertGreaterThan(bt, 1)
+        XCTAssertLessThan(bt, 10)
+    }
 }

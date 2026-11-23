@@ -160,7 +160,11 @@ final class ExternalDeltaVTests: XCTestCase {
         let r0 = try XCTUnwrap(cmc.residuals)
         print(String(format: "P41 at TIG: N85 %+.2f %+.2f %+.2f ft/s", r0.x / ft, r0.y / ft, r0.z / ft))
         XCTAssertEqual(r0.length, 3 * ft, accuracy: 0.1 * ft)
-        XCTAssertTrue(f.scs.warpEvents(after: f.sim.time).isEmpty)   // P41 at TIG: no caps
+        // P41 at TIG: 1x to TIG+5 s, then 10x while the crew thrusts.
+        func lowest() -> Double {
+            f.scs.warpEvents(after: f.sim.time).filter { $0.holds(at: f.sim.time) }.map(\.maxWarp).min() ?? .infinity
+        }
+        XCTAssertEqual(lowest(), 1)
 
         // Hold U past zero, then tap back.
         f.v.setPilotInput(rotation: RotationCommand(), translation: Vec3(1, 0, 0))
@@ -185,7 +189,10 @@ final class ExternalDeltaVTests: XCTestCase {
         let command = try XCTUnwrap(cmc.attitudeCommand).attitude
         XCTAssertLessThan(rotationVector(held.conjugate * command).length / deg, 1e-9)
         XCTAssertLessThan(rotationVector(held.conjugate * f.v.attitude).length / deg, 1)
-        f.press(.returnKey, .returnKey)
+        XCTAssertEqual(lowest(), 10)
+        f.press(.returnKey)   // N44: no caps
+        XCTAssertTrue(f.scs.warpEvents(after: f.sim.time).isEmpty)
+        f.press(.returnKey)
         XCTAssertEqual(cmc.program, 0)
         XCTAssertNil(cmc.load)
     }

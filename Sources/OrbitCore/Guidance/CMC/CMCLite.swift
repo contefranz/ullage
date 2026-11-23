@@ -327,7 +327,9 @@ public final class CMCLite: GuidanceComputer {
     /// lit (late, or longer than planned) until its cutoff.
     public func warpEvents(after now: Epoch) -> [WarpEvent] {
         guard let l = load, cutoff == nil else { return [] }
-        if program == 41, ignition != nil { return [] }   // P41 at TIG: the crew thrusts, at any warp
+        // P41 after its TIG: the caps (1x to TIG+5 s, then 10x) while the
+        // crew thrusts at N85; none from N44.
+        if program == 41, ignition != nil, step != .residuals { return [] }
         let tig = l.ignition
         var end = tig + ((l.burnTime ?? 0) + 30)
         if ignition != nil { end = max(end, now + 60) }
@@ -561,9 +563,10 @@ public final class CMCLite: GuidanceComputer {
         plan.deltaV = dv
         plan.deltaVLocal = local
         plan.engine = engine
-        plan.burnTime = bt ?? plan.burnTime
         if keyedDeltaV != nil || keyedTIG != nil {
-            // Re-keyed: the ground's figures for its burn no longer hold.
+            // Re-keyed: the ground's figures for its burn no longer hold. Its
+            // burn time is worked out here, or by P40 on the CSM (nil).
+            plan.burnTime = bt
             plan.source = .keyed
             plan.stateEpoch = s.time
             plan.attitude = nil
