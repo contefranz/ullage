@@ -28,6 +28,13 @@ import OrbitCore
 /// computer nor a counter.
 /// Once TIG has passed, the page plans from now: its Δv is the Δv still to
 /// go to the target.
+///
+/// The planner burns retrograde only (Franz, 2026-11-23): it cannot
+/// reproduce a historical burn that was not retrograde. Apollo 7's SPS-8
+/// pointed 57° below retrograde, and DEORBIT's best PAD for its entry angle
+/// reaches entry interface 150 s later and 91 ft/s slower than the flight;
+/// fly such burns from a PAD keyed by hand into the CMC's P30
+/// (docs/m2/design-flight-controls.md §7).
 public final class DeorbitMFD: MFDMode {
     public enum Target: Hashable, Sendable {
         /// The inertial flight-path angle at EI, rad (negative).
