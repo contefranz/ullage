@@ -113,6 +113,15 @@ public struct ManeuverPlan: Equatable {
 }
 
 extension ManeuverPlan {
+    /// A deorbit plan's Δv in P30's LVLH frame at its centred ignition, the
+    /// load's TIG (the planner gives it at the impulsive TIG, half the burn
+    /// later: re-keyed there, it would turn by the orbital rate times that).
+    public static func centredLocal(_ plan: DeorbitPlanner.Plan, mu: Double) -> Vec3 {
+        guard let bt = plan.burnTime else { return plan.deltaVLocal }
+        let atIgnition = Kepler.propagate(plan.preBurn, mu: mu, by: -bt / 2)
+        return DeorbitPlanner.localVerticalFrame(atIgnition) * plan.deltaV
+    }
+
     /// What `v`'s main engines still give after a cutoff signal, m/s: each
     /// one's vacuum thrust falling linearly to nothing over its shutdown
     /// time, at `mass` (the mass at the cutoff; `v`'s now by default).
@@ -137,7 +146,8 @@ extension ManeuverPlan {
         let after = plan.postBurnElements
         let endMass = v.mass - (plan.propellantMass ?? 0)
         self.init(name: name, engine: hasMain ? .sps : .rcs, ignition: plan.centredIgnition ?? plan.ignition,
-                  deltaV: plan.deltaV, deltaVLocal: plan.deltaVLocal, burnTime: plan.burnTime, headsUp: false,
+                  deltaV: plan.deltaV, deltaVLocal: Self.centredLocal(plan, mu: v.reference.gm),
+                  burnTime: plan.burnTime, headsUp: false,
                   deltaVCounter: plan.deltaVMagnitude - (hasMain ? Self.tailOff(of: v, mass: endMass) : 0),
                   without: Prediction(apoapsisAltitude: before.isBound ? before.apoapsisRadius - r : nil,
                                       periapsisAltitude: before.periapsisRadius - r),

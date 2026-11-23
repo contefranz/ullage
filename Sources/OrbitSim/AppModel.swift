@@ -231,6 +231,9 @@ final class AppModel: ObservableObject {
     }
 
     private func handleKeys(sim: Simulation, dt: Double) {
+        // The MFDs' keys first, so the CMC page's digits are in before a
+        // Return pressed after them.
+        MFDModel.shared(for: self).takeKeys()
         let pressed = input.takePressed()
         for key in pressed {
             // F, then a digit: the key after F is the capture's. A digit fails
@@ -270,6 +273,12 @@ final class AppModel: ObservableObject {
             default: break
             }
             guard let v = sim.focus, v.status != .crashed else { continue }
+            // A pointing mode, kill rotation or 0 on the CSM ends G&N AUTO
+            // (and a Return at V50N18 not yet acted on) at once.
+            if [.killRotation, .prograde, .retrograde, .normal, .antinormal, .radialOut, .radialIn, .horizonLevel,
+                .autopilotOff].contains(command) {
+                (v.flightProgram as? ApolloSCS)?.clearGNAuto(v, in: sim, reason: command.rawValue)
+            }
             switch command {
             case .stage: stageOrBackUpELS(v, sim: sim)
             case .entryMode: cycleEntryMode(of: v, sim: sim)

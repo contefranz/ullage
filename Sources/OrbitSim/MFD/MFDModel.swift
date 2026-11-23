@@ -94,16 +94,28 @@ final class MFDModel: ObservableObject {
         return s
     }
 
-    private func poll() {
-        guard let app else {
-            timer?.invalidate()
-            return
-        }
+    /// Act on the keys pressed with Shift since the last call; true if any
+    /// did something. The app's frame calls it before its own keys, so a
+    /// digit keyed on the CMC page reaches the computer before a Return
+    /// pressed after it.
+    @discardableResult
+    func takeKeys() -> Bool {
+        guard let app else { return false }
         let sim = currentSim()
         var acted = false
         for (side, key) in app.input.takeMFDKeys() {
             acted = controller.handle(key, side: route(side), sim: sim) || acted
         }
+        if acted { refresh() }
+        return acted
+    }
+
+    private func poll() {
+        guard let app else {
+            timer?.invalidate()
+            return
+        }
+        let acted = takeKeys()
         let now = ProcessInfo.processInfo.systemUptime
         // The CMC page at 10 Hz, its counts and prompts in step.
         let interval = controller.shows(.cmc) ? Self.computerRefreshInterval : Self.refreshInterval

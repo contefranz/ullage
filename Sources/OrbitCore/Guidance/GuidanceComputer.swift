@@ -120,6 +120,9 @@ public protocol GuidanceComputer: AnyObject {
     /// The burn loaded (P30's), which the navball's marker and the HUD show;
     /// nil when none.
     var load: ManeuverPlan? { get }
+    /// A host steps the computer, so it can fly the vehicle; false while it
+    /// only observes (on the Saturn stack, after the SM has gone).
+    var controlsVehicle: Bool { get }
     /// A key pressed on the DSKY at `now`.
     func press(_ key: DSKYKey, at now: Epoch)
     /// A load from the ground at `now`; it lands in the program that takes

@@ -18,7 +18,7 @@ import OrbitCore
 ///   and the CM's entry program on to entry interface.
 ///
 /// DEORBIT's planner burns retrograde, while the flight's states put SPS-8
-/// 57° below retrograde, mostly radial (`ApolloCSM.apollo7SPS8DeltaV`): its
+/// 54° from retrograde, mostly radial (`ApolloCSM.apollo7SPS8DeltaV`): its
 /// PAD for the flight's EI angle comes in 150 s later and 90 ft/s slower,
 /// and no retrograde burn at that TIG meets the flight's EI in time, speed
 /// and angle together. So DEORBIT's flight is held to its own prediction,
@@ -194,7 +194,7 @@ final class DeorbitThroughP40Tests: XCTestCase {
         XCTAssertEqual(mode.uplink, .accepted)
         XCTAssertEqual(f.cmc.program, 30)
         XCTAssertEqual(f.cmc.display.noun, 81)
-        XCTAssertTrue(f.mfd.page(.left, sim: f.sim).shows("UPLINK: CMC P30"))
+        XCTAssertTrue(f.mfd.page(.left, sim: f.sim).shows("LOAD IN CMC P30"))
         let load = try XCTUnwrap(f.cmc.load)
         XCTAssertEqual(load.source, .deorbit)
         XCTAssertEqual(load.ignition - zero, tig, accuracy: 1e-9)
@@ -208,18 +208,29 @@ final class DeorbitThroughP40Tests: XCTestCase {
         let page = f.mfd.page(.right, sim: f.sim)
         XCTAssertTrue(page.shows("[UPLK]"), page.lines.joined(separator: "\n"))
         XCTAssertTrue(page.shows("LOAD DEORBIT SPS DEORBIT"), page.lines.joined(separator: "\n"))
-        // A second SET while P30 checks the first is refused, and says so.
+        // A second SET, for a changed plan, while P30 checks the first, is
+        // refused, says so, and changes nothing: the counter and the marker
+        // stay with the burn the computer holds.
+        f.shift(.leftBracket, .left)
         XCTAssertTrue(f.shift(.s, .left))
         XCTAssertEqual(mode.uplink, .refused("CMC NOT IN P00"))
-        XCTAssertTrue(f.mfd.page(.left, sim: f.sim).shows("UPLINK REFUSED: CMC NOT IN P00"))
+        let refused = f.mfd.page(.left, sim: f.sim)
+        XCTAssertTrue(refused.shows("UPLINK REFUSED: CMC NOT IN P00"))
+        XCTAssertTrue(refused.shows("LOAD IN CMC P30"))
+        XCTAssertEqual(f.scs.deltaVRemaining, dvc)
+        XCTAssertEqual(f.cmc.load, load)
+        XCTAssertEqual(try XCTUnwrap(f.mfd.activeManeuver(for: f.v)).deltaV, plan.deltaV)
+        XCTAssertEqual(f.mfd.data(for: f.v).maneuver?.deltaV, plan.deltaV)
+        f.shift(.rightBracket, .left)
 
         // P30's two Returns, then P40.
         f.returnKey()
         XCTAssertEqual(f.cmc.display.noun, 42)
         f.returnKey()
         XCTAssertEqual(f.cmc.program, 0)
+        XCTAssertTrue(f.mfd.page(.left, sim: f.sim).shows("LOAD IN CMC P00"))
         let (burn, r) = try flyP40(f, retrograde: true)
-        XCTAssertFalse(f.mfd.page(.left, sim: f.sim).shows("UPLINK: CMC P30"))   // flown
+        XCTAssertFalse(f.mfd.page(.left, sim: f.sim).shows("LOAD IN CMC"))   // flown and cleared
         XCTAssertEqual(burn, try XCTUnwrap(plan.burnTime), accuracy: 0.6)
         XCTAssertLessThan(r.length, 0.2 * ft)
 

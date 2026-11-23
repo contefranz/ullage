@@ -491,8 +491,8 @@ extension VesselLibrary {
 extension ApolloCSM {
     /// Apollo 7's SPS-8 as a P30 load for `v` (the deorbit scenario's CSM)
     /// at `now`: TIG at the flight's ignition, 259:39:16.3, heads down, the
-    /// Δv along the burn the flight's states imply (`apollo7SPS8DeltaV`, 57°
-    /// below retrograde: most of it radial) and sized so that P40's cutoff
+    /// Δv along the burn the flight's states imply (`apollo7SPS8DeltaV`, 54°
+    /// from retrograde, 53° below the horizontal: most of it radial) and sized so that P40's cutoff
     /// signal comes when the flight's did, 11.9 s on: the 102.8 m/s along
     /// X_A the EMS counter takes (`apollo7SPS8CounterLoad`) turned along the
     /// thrust, plus what Average-G counts of the crew's 15 s of four-jet

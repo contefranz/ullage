@@ -80,8 +80,8 @@ public final class CMCMFD: MFDMode {
         }
         let d = computer.display
         var title = "CMC"
-        if let p = d.program { title += String(format: "  P%02d %@", p, d.title) }
-        var page = MFDPage(title: String(title.prefix(21)))
+        if let p = d.program { title += String(format: " P%02d %@", p, d.title) }
+        var page = MFDPage(title: String(title.prefix(22)))   // the GET starts at column 23
         page.add(35, 0, "GET " + Self.get(c.time, zero: c.missionClockZero), .referenceDim, alignment: .trailing)
 
         func two(_ n: Int?) -> String { n.map { String(format: "%02d", $0) } ?? "  " }
@@ -111,31 +111,25 @@ public final class CMCMFD: MFDMode {
             let tig = Self.get(l.ignition, zero: c.missionClockZero, tenths: true)
             line("LOAD \(l.name) \(l.engine.rawValue)  \(l.source.rawValue)", .target)
             line("TIG \(tig)  TTG " + MFDFormat.duration(l.ignition - c.time))
-            var dv = String(format: "DVT %.1f", l.deltaVMagnitude / Self.ft)
-            if let bt = l.burnTime { dv += String(format: "  BT %.1f S", bt) }
-            if let dvc = l.deltaVCounter { dv += String(format: "  DVC %.1f", dvc / Self.ft) }
+            var dv = String(format: "DVT %.1f FT/S", l.deltaVMagnitude / Self.ft)
+            if let bt = l.burnTime { dv += "  BT " + Self.burnTime(bt) }
             line(dv)
+            line("DVC " + (l.deltaVCounter.map { String(format: "%.1f FT/S", $0 / Self.ft) } ?? "---"))
             let n = l.deltaVLocal / Self.ft
-            line(String(format: "N81 %+.1f %+.1f %+.1f FT/S", n.x, n.y, n.z))
+            line(String(format: "N81 %+.1f %+.1f %+.1f", n.x, n.y, n.z))
         } else {
             line("NO LOAD", .referenceDim)
         }
-        row = 13
+        row = 14
         if let counter = c.deltaVCounter {
             line("EMS " + (counter.deltaVRemaining.map { String(format: "%+.1f FT/S", $0 / Self.ft) } ?? "NOT SET"),
                  .reference)
         }
-        let hold: String
-        if let scs = c.vessel.flightProgram as? ApolloSCS, scs.gnAuto {
-            hold = "G&N AUTO"
-        } else if c.vessel.autopilot == .attitudeHold {
-            hold = "SCS HOLD"
-        } else {
-            hold = c.vessel.autopilot.map { "SCS " + $0.rawValue.uppercased() } ?? "FREE"
-        }
-        line("ATT " + hold, .reference)
+        line("ATT " + AttitudeOwner.describe(c.vessel), .reference)
 
-        if let why = d.reason { page.add(4, 16, String(why.prefix(32)), .warn) }
+        if let why = d.reason {
+            for (i, l) in Self.wrap(why, width: 32).prefix(2).enumerated() { page.add(4, 16 + i, l, .warn) }
+        }
 
         func lamp(_ name: String, _ on: Bool) -> String { on ? "[\(name)]" : "\(name) ." }
         let lamps = [lamp("UPLK", d.lamps.contains(.uplinkActivity)), lamp("PROG", d.lamps.contains(.programAlarm)),
@@ -145,10 +139,16 @@ public final class CMCMFD: MFDMode {
         page.add(4, 19, "KEY  " + (d.keyBuffer.isEmpty ? "__" : d.keyBuffer + "_"), .own)
 
         // The prompt, wrapped onto the last rows.
-        for (i, l) in Self.wrap(d.prompt, width: 32).prefix(2).enumerated() {
+        for (i, l) in Self.wrap(d.prompt, width: 32).prefix(3).enumerated() {
             page.add(4, 21 + i, l, d.flashing ? .target : .reference)
         }
         return page
+    }
+
+    /// A burn time: "11.9 S", or minutes and seconds from a minute on
+    /// ("4:06.9").
+    static func burnTime(_ t: Double) -> String {
+        t < 60 ? String(format: "%.1f S", t) : String(format: "%d:%04.1f", Int(t) / 60, t - Double(Int(t) / 60 * 60))
     }
 
     /// Ground elapsed time as the PADs give it, "259:39:16" ("259:39:16.3"
