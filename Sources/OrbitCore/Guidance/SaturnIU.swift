@@ -661,7 +661,10 @@ public final class SaturnIU: FlightProgram {
         func part(_ name: String) -> VesselPart? { v.parts.first { $0.name == name } }
         func burnedOut(_ name: String) -> Bool {
             guard let p = part(name) else { return true }
-            return !p.thrusters.contains { $0.groups.contains(.main) && $0.isAvailable && $0.hasPropellant }
+            // An engine whose starts are spent is out, as a failed one is.
+            return !p.thrusters.contains {
+                $0.groups.contains(.main) && $0.isAvailable && $0.hasPropellant && !$0.ignitionsSpent
+            }
         }
         func firing(_ name: String) -> Bool { stageFiring(v, name) }
         func start(_ b: TimeBase, _ what: String) {
@@ -798,7 +801,7 @@ public final class SaturnIU: FlightProgram {
     /// Whether a main engine of the named part delivers thrust.
     private func stageFiring(_ v: Vessel, _ name: String) -> Bool {
         v.parts.first { $0.name == name }?.thrusters.contains {
-            $0.groups.contains(.main) && $0.level > 0 && $0.isAvailable && $0.hasPropellant
+            $0.groups.contains(.main) && $0.level > 0 && $0.isAvailable && $0.hasPropellant && !$0.ignitionsSpent
         } ?? false
     }
 

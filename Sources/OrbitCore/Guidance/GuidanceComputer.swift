@@ -127,10 +127,29 @@ public protocol GuidanceComputer: AnyObject {
     func uplink(_ plan: ManeuverPlan, at now: Epoch) -> UplinkResult
     /// One control step of `vessel` at `sim.time`.
     func update(_ vessel: Vessel, in sim: Simulation)
+    /// `vessel`'s state for the displays where no host steps the computer
+    /// (on a stack, in standby): nothing is flown.
+    func observe(_ vessel: Vessel, in sim: Simulation)
     /// Seconds from `now` to the computer's next timed action, so that the
     /// host's step ends there; nil when none is scheduled.
     func timeToNextEvent(at now: Epoch) -> Double?
     /// The warp stops and caps the computer asks for from `now` on
     /// (`WarpEvent`).
     func warpEvents(after now: Epoch) -> [WarpEvent]
+}
+
+/// A flight program that carries an onboard computer (the CSM's SCS, which
+/// hosts CMC-lite).
+public protocol GuidanceComputerHost: AnyObject {
+    var guidanceComputer: GuidanceComputer { get }
+}
+
+extension Vessel {
+    /// The onboard computer aboard: its flight program's, or on a stack the
+    /// one a part carries on standby (the CM's, under the Saturn's IU), where
+    /// the programs that need no stepping still run; nil when none.
+    public var guidanceComputer: GuidanceComputer? {
+        if let host = flightProgram as? GuidanceComputerHost { return host.guidanceComputer }
+        return parts.lazy.compactMap { ($0.standbyProgram as? GuidanceComputerHost)?.guidanceComputer }.first
+    }
 }

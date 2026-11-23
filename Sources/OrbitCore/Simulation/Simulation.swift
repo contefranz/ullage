@@ -163,6 +163,9 @@ public final class Simulation {
         }
         if let c = terminalCount, c.vehicle === v { c.update(v, in: self) }
         v.flightProgram?.update(v, in: self)
+        // A computer aboard that its host does not step (the CM's on the
+        // Saturn stack) still sees the state, for its displays.
+        if !(v.flightProgram is GuidanceComputerHost), let c = v.guidanceComputer { c.observe(v, in: self) }
         v.applyThrottles()
         if let c = terminalCount, c.vehicle === v { c.programmed(v, in: self) }
         v.groupSwitch = .infinity   // the phase-plane law sets it again if it runs

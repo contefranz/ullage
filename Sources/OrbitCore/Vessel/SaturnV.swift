@@ -85,7 +85,7 @@ extension VesselLibrary {
         /// 1-4 at `radius` on the diagonals under fins A-D, with `actuators`;
         /// engine 5 fixed on the axis.
         func cluster(_ p: VesselPart, rating: EngineRating, schedule: PerformanceSchedule? = nil,
-                     transients: EngineTransients, gimbal: Double, radius: Double,
+                     transients: EngineTransients, ignitions: Int, gimbal: Double, radius: Double,
                      oxidizer: PropellantTank, fuel: PropellantTank, actuators: [GimbalActuator]) {
             let d = radius / 2.squareRoot()
             for (i, (y, z)) in [(-d, d), (-d, -d), (d, -d), (d, d), (0, 0)].enumerated() {
@@ -95,6 +95,7 @@ extension VesselLibrary {
                                  throttleRange: 1...1, gimbal: i < 4 ? actuators : [])
                 e.schedule = schedule
                 e.transients = transients
+                e.ignitionLimit = ignitions
                 p.thrusters.append(e)
             }
         }
@@ -161,7 +162,7 @@ extension VesselLibrary {
         let sICRP1 = tank("S-IC RP-1", in: sIC, load: D.sICRP1AtFirstMotion, centroid: D.sICRP1Centroid,
                           density: D.rp1Density, lines: D.sICRP1Lines)
         sIC.tanks = [sICLOX, sICRP1]
-        cluster(sIC, rating: D.f1, schedule: D.f1Schedule, transients: D.f1Transients,
+        cluster(sIC, rating: D.f1, schedule: D.f1Schedule, transients: D.f1Transients, ignitions: D.f1Ignitions,
                 gimbal: D.station(D.f1GimbalStation), radius: D.f1OutboardRadius * D.inch,
                 oxidizer: sICLOX, fuel: sICRP1,
                 actuators: actuators(range: D.f1GimbalRange, rate: D.f1GimbalRate))
@@ -207,7 +208,7 @@ extension VesselLibrary {
                           density: D.lh2Density)
         sII.tanks = [sIILOX, sIILH2]
         // The J-2s start at PU null; the IU steps them to high and low EMR.
-        cluster(sII, rating: D.sIIJ2Start, transients: D.sIIJ2Transients,
+        cluster(sII, rating: D.sIIJ2Start, transients: D.sIIJ2Transients, ignitions: D.sIIJ2Ignitions,
                 gimbal: D.station(D.sIIJ2GimbalStation), radius: D.sIIOutboardCircle / 2 * D.foot,
                 oxidizer: sIILOX, fuel: sIILH2,
                 actuators: actuators(range: D.sIIJ2GimbalRange, rate: D.sIIJ2GimbalRate))
@@ -258,6 +259,7 @@ extension VesselLibrary {
                           throttleRange: 1...1,
                           gimbal: actuators(range: D.sIVBJ2GimbalRange, rate: D.sIVBJ2GimbalRate))
         j2.transients = D.sIVBJ2Transients
+        j2.ignitionLimit = D.sIVBJ2Ignitions
         sIVB.thrusters.append(j2)
         // APS groups follow the sign of each engine's torque about a point on
         // the axis 8 m ahead of the modules, near the CoM of the S-IVB stack

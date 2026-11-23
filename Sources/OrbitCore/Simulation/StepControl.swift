@@ -70,7 +70,9 @@ extension Simulation {
         var h = 60.0
         let passive = isPassive(v)
         if v.landed != nil {
-            h = v.thrusters.contains(where: { $0.isCommanded || ($0.isEnabled && $0.level > 0) || $0.groundStart != nil })
+            h = v.thrusters.contains(where: {
+                $0.isCommanded || ($0.isEnabled && $0.level > 0 && !$0.ignitionsSpent) || $0.groundStart != nil
+            })
                 ? 0.02 : 10
         } else {
             // Commanded engines too: a start delay delivers nothing yet.
