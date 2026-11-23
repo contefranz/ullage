@@ -15,6 +15,9 @@ public enum PhysicalKey: String, CaseIterable, Hashable, Sendable {
     /// key beside left Shift.
     case isoSection = "section"
     case space, escape, tab
+    /// Return (the keypad's Enter is the same key here) and Delete (the
+    /// backspace above Return).
+    case returnKey = "return", delete
     case f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12
     case left, right, down, up
 
@@ -68,9 +71,11 @@ public enum PhysicalKey: String, CaseIterable, Hashable, Sendable {
         case .n: 0x2D
         case .m: 0x2E
         case .period: 0x2F
+        case .returnKey: 0x24
         case .tab: 0x30
         case .space: 0x31
         case .grave: 0x32
+        case .delete: 0x33
         case .escape: 0x35
         case .f5: 0x60
         case .f6: 0x61
@@ -91,12 +96,18 @@ public enum PhysicalKey: String, CaseIterable, Hashable, Sendable {
         }
     }
 
-    /// The key with macOS virtual key code `keyCode`; nil for keys that are
-    /// not named (Return, Delete, the keypad, the modifiers...).
+    /// The key with macOS virtual key code `keyCode`, the keypad's Enter
+    /// (0x4C) being Return; nil for keys that are not named (the rest of the
+    /// keypad, forward delete, the modifiers...).
     public init?(keyCode: UInt16) {
-        guard let key = Self.byKeyCode[keyCode] else { return nil }
+        guard let key = Self.byKeyCode[keyCode == Self.keypadEnter ? Self.returnKey.keyCode : keyCode] else {
+            return nil
+        }
         self = key
     }
+
+    /// The keypad's Enter (kVK_ANSI_KeypadEnter), which reads as Return.
+    public static let keypadEnter: UInt16 = 0x4C
 
     private static let byKeyCode = Dictionary(uniqueKeysWithValues: allCases.map { ($0.keyCode, $0) })
 

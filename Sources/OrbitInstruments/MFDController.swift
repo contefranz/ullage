@@ -208,16 +208,24 @@ public final class MFDController {
         buttons.prefix(12).map { $0.map { MFDButtonLabel($0.label, inactive: !$0.active) } }
     }
 
-    /// The modes beside the left buttons, with their keys.
+    /// The modes beside their buttons, with their keys: the first six down
+    /// the left (name, then key), the next six down the right (key, then
+    /// name against the right edge).
     func selectPage(current: MFDModeID) -> MFDPage {
         var page = MFDPage(title: "MODE SELECT")
-        for (i, id) in Self.modeOrder.enumerated() {
-            let row = MFDPage.buttonRow(i)
-            page.add(4, row, id.name, id == current ? .own : .ownDim)
-            page.add(35, row, "Shift-" + id.selectKey.rawValue.uppercased(), .referenceDim, alignment: .trailing)
+        for (i, id) in Self.modeOrder.prefix(12).enumerated() {
+            let row = MFDPage.buttonRow(i), style: MFDStyle = id == current ? .own : .ownDim
+            let key = "Shift-" + id.selectKey.rawValue.uppercased()
+            if i < 6 {
+                page.add(4, row, id.name, style)
+                page.add(13, row, key, .referenceDim)
+            } else {
+                page.add(35, row, id.name, style, alignment: .trailing)
+                page.add(27, row, key, .referenceDim, alignment: .trailing)
+            }
         }
         page.add(4, 22, "SEL: back   PWR: off", .referenceDim)
-        page.buttons = Self.modeOrder.map { MFDButtonLabel($0.label) }
+        page.buttons = Self.modeOrder.prefix(12).map { MFDButtonLabel($0.label) }
         return page
     }
 
