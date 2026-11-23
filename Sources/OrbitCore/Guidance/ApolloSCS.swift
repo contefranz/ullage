@@ -185,6 +185,10 @@ public final class ApolloSCS: FlightProgram, DeltaVCounting, GuidanceComputerHos
             clearGNAuto(v, in: sim, reason: "SCS takeover (RCS)")
         } else if v.autopilot != .attitudeHold {
             clearGNAuto(v, in: sim, reason: v.autopilot?.rawValue ?? "free")
+        } else if computer.step == .maneuver {
+            // A program waiting at V50N18 has no consent to slew: the SCS
+            // holds where the vessel is until Return or G.
+            clearGNAuto(v, in: sim, reason: "V50N18, SCS hold")
         } else if let c = computer.attitudeCommand {
             v.attitudeCommand = c
         } else {

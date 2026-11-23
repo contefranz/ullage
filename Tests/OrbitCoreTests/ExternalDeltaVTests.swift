@@ -160,6 +160,7 @@ final class ExternalDeltaVTests: XCTestCase {
         let r0 = try XCTUnwrap(cmc.residuals)
         print(String(format: "P41 at TIG: N85 %+.2f %+.2f %+.2f ft/s", r0.x / ft, r0.y / ft, r0.z / ft))
         XCTAssertEqual(r0.length, 3 * ft, accuracy: 0.1 * ft)
+        XCTAssertTrue(f.scs.warpEvents(after: f.sim.time).isEmpty)   // P41 at TIG: no caps
 
         // Hold U past zero, then tap back.
         f.v.setPilotInput(rotation: RotationCommand(), translation: Vec3(1, 0, 0))

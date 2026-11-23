@@ -226,7 +226,7 @@ public struct MFDContext {
     /// there are none.
     public var mainEngine: DeorbitPlanner.Engine? {
         let mains = vessel.activeStage?.thrusters.filter { $0.groups.contains(.main) && $0.isAvailable && $0.hasPropellant
-                                                         && !$0.isSolid } ?? []
+                                                         && !$0.isSolid && !$0.ignitionsSpent } ?? []
         let thrust = mains.reduce(0) { $0 + $1.maxThrustVacuum }
         let flow = mains.reduce(0) { $0 + $1.maxThrustVacuum / $1.ispVacuum }
         guard thrust > 0, flow > 0 else { return nil }
