@@ -84,14 +84,20 @@ final class IgnitionLimitTests: XCTestCase {
         XCTAssertEqual(f1s.count, 5)
         for e in f1s { XCTAssertEqual(e.ignitions, 1, e.name) }
         v.mainThrottle = 0
-        run(sim, seconds: 1)
-        for e in f1s { XCTAssertFalse(e.isDelivering, e.name) }
-        v.mainThrottle = 1
-        run(sim, seconds: 2)
+        run(sim, seconds: 0.1)
+        v.mainThrottle = 1   // Z while the S-IC is still the stack's
+        run(sim, seconds: 0.02)
+        // One step on (the IU's own T3 cutoff then closes the throttle again).
+        XCTAssertTrue(v.parts.contains { $0.name == "S-IC" })
+        for e in f1s {
+            XCTAssertGreaterThan(e.level, 0, e.name)
+            XCTAssertFalse(e.isCommanded, e.name)
+            XCTAssertEqual(e.ignitions, 1, e.name)
+        }
+        run(sim, seconds: 1.6)
         for e in f1s {
             XCTAssertFalse(e.isCommanded, e.name)
             XCTAssertFalse(e.isDelivering, e.name)
-            XCTAssertEqual(e.ignitions, 1, e.name)
         }
         // With every F-1 out, the IU senses T3 and stages, as it would for
         // a burnout.
@@ -107,19 +113,22 @@ final class IgnitionLimitTests: XCTestCase {
         return (sim, v)
     }
 
-    // In flight, 20 s after first motion: X cuts the F-1s and Z lights none.
+    // In flight, 20 s after first motion: X cuts the F-1s, and Z, pressed
+    // while the S-IC is still aboard (the IU senses T3 and separates it
+    // 0.7 s later), lights none.
     func testTheF1sDoNotRelightInFlight() throws {
         let (sim, v) = try fly(to: 20)
         XCTAssertNil(v.landed)
         let f1s = v.thrusters.filter { $0.name.hasPrefix("S-IC engine") }
         for e in f1s { XCTAssertTrue(e.isCommanded, e.name) }
         v.mainThrottle = 0
-        run(sim, seconds: 1)
+        run(sim, seconds: 0.1)
         v.mainThrottle = 1
-        run(sim, seconds: 1)
+        run(sim, seconds: 0.3)
+        XCTAssertTrue(v.parts.contains { $0.name == "S-IC" })
         for e in f1s {
+            XCTAssertGreaterThan(e.level, 0, e.name)
             XCTAssertFalse(e.isCommanded, e.name)
-            XCTAssertFalse(e.isDelivering, e.name)
             XCTAssertEqual(e.ignitions, 1, e.name)
         }
     }
@@ -165,7 +174,8 @@ final class IgnitionLimitTests: XCTestCase {
         XCTAssertEqual(v.mainDeltaV, 0)
     }
 
-    // On the S-II, 40 s into its burn: X cuts the J-2s and Z lights none.
+    // On the S-II, 40 s into its burn: X cuts the J-2s, and Z, pressed while
+    // the S-II is still aboard, lights none.
     func testTheSIIJ2sDoNotRelight() throws {
         let (sim, v) = try fly(to: 205)
         let j2s = v.thrusters.filter { $0.name.hasPrefix("S-II engine") }
@@ -173,13 +183,33 @@ final class IgnitionLimitTests: XCTestCase {
         XCTAssertFalse(v.thrusters.contains { $0.name.hasPrefix("S-IC engine") })
         for e in j2s { XCTAssertTrue(e.isDelivering, e.name) }
         v.mainThrottle = 0
-        run(sim, seconds: 2)
+        run(sim, seconds: 0.1)
         v.mainThrottle = 1
-        run(sim, seconds: 3)
+        run(sim, seconds: 0.3)
+        XCTAssertTrue(v.parts.contains { $0.name == "S-II" })
         for e in j2s {
+            XCTAssertGreaterThan(e.level, 0, e.name)
             XCTAssertFalse(e.isCommanded, e.name)
-            XCTAssertFalse(e.isDelivering, e.name)
             XCTAssertEqual(e.ignitions, 1, e.name)
         }
+    }
+
+    // A landed vessel whose engines' starts are spent, its throttle open,
+    // takes the long steps of one at rest: nothing on it can fire.
+    func testASpentEngineOnTheGroundIsAtRest() throws {
+        let sim = try Simulation.forTests(perturbations: false)
+        let v = Toy.rocket()
+        sim.add(v)
+        sim.placeLanded(v, on: sim.system.earth, latitude: 28.6, longitude: -80.6)
+        for e in v.thrusters { e.ignitionLimit = 1 }
+        for e in v.thrusters { e.groundStart = 0.01 }   // a ground start, too weak to lift
+        run(sim, seconds: 0.1)
+        for e in v.thrusters { e.groundStart = nil }
+        run(sim, seconds: 1)
+        XCTAssertNotNil(v.landed)
+        v.mainThrottle = 1
+        XCTAssertTrue(v.thrusters.allSatisfy { $0.ignitionsSpent })
+        for w in sim.vessels { sim.prepareControls(w) }
+        XCTAssertEqual(sim.maxStep(for: v), 10)
     }
 }

@@ -186,6 +186,83 @@ final class CMCLiteTests: XCTestCase {
         XCTAssertEqual(f.cmc.step, .residuals)
         XCTAssertEqual(f.cmc.display.noun, 85)
         XCTAssertEqual(f.v.mainThrottle, 0)
+        // Under G&N AUTO the attitude holds through N85, whatever VG does.
+        XCTAssertTrue(f.scs.gnAuto)
+        let held = try XCTUnwrap(f.cmc.attitudeCommand).attitude
+        f.v.firePilotPulse(translation: Vec3(-1, 0, 0), duration: 3)
+        f.fly(to: CMCFlight.tigGET + 30)
+        XCTAssertEqual(angle(held, try XCTUnwrap(f.cmc.attitudeCommand).attitude), 0, accuracy: 1e-9)
+    }
+
+    // X in a burn the computer lit: it goes on to N85 with the attitude
+    // held from the cutoff on.
+    func testXCutsTheBurnAndTheAttitudeHolds() throws {
+        let f = try countingDown()
+        f.fly(until: { f.cmc.step == .ignition }, limit: CMCFlight.tigGET)
+        f.press(.returnKey)
+        f.fly(to: CMCFlight.tigGET + 5)
+        f.v.mainThrottle = 0   // X
+        f.fly(to: CMCFlight.tigGET + 7)
+        XCTAssertTrue(f.logged("SPS off by the crew (X)"))
+        XCTAssertEqual(f.cmc.step, .residuals)
+        let held = try XCTUnwrap(f.cmc.attitudeCommand).attitude
+        f.v.firePilotPulse(translation: Vec3(0, 1, 0), duration: 3)
+        f.fly(to: CMCFlight.tigGET + 17)
+        XCTAssertEqual(angle(held, try XCTUnwrap(f.cmc.attitudeCommand).attitude), 0, accuracy: 1e-9)
+    }
+
+    // A refused selection after the burn (an unknown program, P41 with the
+    // load flown) is OPR ERR or PROG and changes nothing: the load stays,
+    // P40 stays at N85, and VG goes on sensing the crew's trim.
+    func testARefusedPRGAtN85KeepsTheLoadAndVG() throws {
+        let f = try countingDown()
+        f.fly(until: { f.cmc.step == .ignition }, limit: CMCFlight.tigGET)
+        f.press(.returnKey)
+        f.fly(to: CMCFlight.tigGET + 20)
+        XCTAssertEqual(f.cmc.step, .residuals)
+        f.press(.program)
+        f.key("99")
+        f.press(.returnKey)
+        XCTAssertEqual(f.cmc.display.reason, "NO PROGRAM 99")
+        f.press(.reset, .program)
+        f.key("41")
+        f.press(.returnKey)
+        XCTAssertEqual(f.cmc.display.reason, "NO LOAD FOR P41")
+        XCTAssertEqual(f.cmc.program, 40)
+        XCTAssertEqual(f.cmc.step, .residuals)
+        XCTAssertNotNil(f.cmc.load)
+        let before = try XCTUnwrap(f.cmc.residuals)
+        f.v.firePilotPulse(translation: Vec3(1, 0, 0), duration: 1)
+        f.fly(to: f.get + 2)
+        XCTAssertGreaterThan((try XCTUnwrap(f.cmc.residuals) - before).length, 0.1)
+    }
+
+    // A load without a burn time gets the SPS's at P40, and a P40 re-selected
+    // under G&N AUTO waits at V50N18 with the SCS holding: no slew before
+    // the crew's consent.
+    func testP40EstimatesTheBurnTimeAndAReselectionWaits() throws {
+        let f = try CMCFlight()
+        var load = turnedLoad(f)
+        load.burnTime = nil
+        XCTAssertEqual(f.cmc.uplink(load, at: f.sim.time), .accepted)
+        f.press(.returnKey, .returnKey, .next)
+        let bt = try XCTUnwrap(f.cmc.load?.burnTime)
+        XCTAssertGreaterThan(bt, 10)
+        XCTAssertLessThan(bt, 15)
+        f.press(.returnKey)
+        f.fly(to: f.get + 5)
+        XCTAssertTrue(f.scs.gnAuto)
+        f.press(.program)
+        f.key("40")
+        f.press(.returnKey)
+        XCTAssertEqual(f.cmc.step, .maneuver)
+        f.fly(to: f.get + 1)
+        XCTAssertFalse(f.scs.gnAuto)
+        XCTAssertTrue(f.logged("G&N AUTO off, V50N18, SCS hold"))
+        let held = f.v.attitude
+        f.fly(to: f.get + 60)
+        XCTAssertLessThan(angle(held, f.v.attitude), 1.5)
+        XCTAssertEqual(f.cmc.step, .maneuver)
     }
 
     /// The angle between two attitudes, degrees.
@@ -323,12 +400,18 @@ final class CMCLiteTests: XCTestCase {
     func testTheWarpCapsFollowALateBurn() throws {
         let f = try countingDown()
         f.fly(to: CMCFlight.tigGET + 50)
+        // Waiting at V99, past the planned window: still 1x.
+        func lowest() -> Double {
+            f.scs.warpEvents(after: f.sim.time).filter { $0.holds(at: f.sim.time) }.map(\.maxWarp).min() ?? .infinity
+        }
+        XCTAssertEqual(lowest(), 1)
         f.press(.returnKey)
         f.fly(to: CMCFlight.tigGET + 52)
         XCTAssertNotNil(f.cmc.ignition)
         XCTAssertNil(f.cmc.cutoff)
-        let caps = f.scs.warpEvents(after: f.sim.time).filter { $0.holds(at: f.sim.time) }
-        XCTAssertLessThanOrEqual(caps.map(\.maxWarp).min() ?? .infinity, 10)
+        XCTAssertEqual(lowest(), 1)   // until 5 s after the ignition
+        f.fly(to: CMCFlight.tigGET + 57)
+        XCTAssertEqual(lowest(), 10)
         f.fly(to: CMCFlight.tigGET + 70)
         XCTAssertNotNil(f.cmc.cutoff)
         XCTAssertTrue(f.scs.warpEvents(after: f.sim.time).isEmpty)
@@ -342,6 +425,7 @@ final class CMCLiteTests: XCTestCase {
         let sim = try Simulation.forTests(perturbations: true)
         let v = VesselLibrary.apollo11InParkingOrbit(in: sim)
         let cmc = try XCTUnwrap(v.guidanceComputer as? CMCLite)
+        cmc.clockZero = AS506.rangeZero
         for _ in 0..<5 { sim.tick() }
         cmc.press(.orbitParameters, at: sim.time)
         let d = cmc.display
@@ -361,5 +445,34 @@ final class CMCLiteTests: XCTestCase {
         cmc.press(.next, at: sim.time)
         XCTAssertEqual(cmc.program, 0)
         XCTAssertEqual(cmc.display.reason, "NO CONTROL OF THE VEHICLE")
+        // P47 is refused there too, and a PAD keyed on the stack has no burn
+        // time from the stack's mass (P40 works it out on the CSM).
+        cmc.press(.reset, at: sim.time)
+        for k: DSKYKey in [.program, .digit(4), .digit(7), .returnKey] { cmc.press(k, at: sim.time) }
+        XCTAssertEqual(cmc.program, 0)
+        XCTAssertEqual(cmc.display.reason, "NO CONTROL OF THE VEHICLE")
+        cmc.press(.reset, at: sim.time)
+        // PRG 30 shows the uplinked load; PRG 00 from there abandons it.
+        for k: DSKYKey in [.program, .digit(3), .digit(0), .returnKey, .program, .digit(0), .digit(0), .returnKey] {
+            cmc.press(k, at: sim.time)
+        }
+        XCTAssertNil(cmc.load)
+        for k: DSKYKey in [.program, .digit(3), .digit(0), .returnKey] { cmc.press(k, at: sim.time) }
+        XCTAssertEqual(cmc.display.noun, 33)
+        let get = sim.time + 1_800 - (cmc.clockZero ?? Epoch(tdbSecondsPastJ2000: 0))
+        let h = Int(get / 3_600), m = Int(get / 60) % 60
+        for value in [String(h), String(m), "0"] {
+            for c in value { cmc.press(.digit(Int(String(c))!), at: sim.time) }
+            cmc.press(.returnKey, at: sim.time)
+        }
+        cmc.press(.returnKey, at: sim.time)
+        for value in ["-1000", "0", "0"] {
+            for c in value { cmc.press(c == "-" ? .minus : .digit(Int(String(c))!), at: sim.time) }
+            cmc.press(.returnKey, at: sim.time)
+        }
+        cmc.press(.returnKey, at: sim.time)
+        XCTAssertEqual(cmc.display.noun, 42)
+        XCTAssertEqual(cmc.load?.engine, .sps)
+        XCTAssertNil(cmc.load?.burnTime)
     }
 }
