@@ -142,12 +142,11 @@ final class CMCFlowTests: XCTestCase {
         f.returnKey()
         f.fly(to: f.get + 5)
         XCTAssertTrue(f.scs.gnAuto)
-        f.scs.clearGNAuto(f.v, in: f.sim, reason: "prograde")   // 1, as the app sends it
-        f.v.autopilot = .prograde
+        f.v.autopilot = .prograde   // straight from G&N AUTO: the SCS sees it at its next step
         f.fly(to: f.get + 0.5)
+        XCTAssertFalse(f.scs.gnAuto)
         XCTAssertNil(f.v.attitudeCommand)
-        f.scs.clearGNAuto(f.v, in: f.sim)   // 8
-        f.v.autopilot = .attitudeHold
+        f.scs.holdAttitude(f.v, in: f.sim)   // 8
         let held = f.v.attitude
         f.fly(to: f.get + 10)
         XCTAssertNil(f.v.attitudeCommand)
@@ -161,6 +160,89 @@ final class CMCFlowTests: XCTestCase {
         g.v.autopilot = .attitudeHold
         g.fly(to: g.get + 2)
         XCTAssertFalse(g.scs.gnAuto)
+    }
+
+    // 8 holds where the vessel is whoever set the hold's command: Apollo 7's
+    // scenario holds the flight's SPS-8 attitude (a standing command, which
+    // Apollo7DeorbitTests fly by); 2 swings the nose round, and 8 then holds
+    // there instead of swinging 54° back.
+    func testEightAfterAPointingModeOnTheScenariosStandingCommand() throws {
+        let f = try scenario()
+        let standing = try XCTUnwrap(f.v.attitudeCommand).attitude
+        f.v.autopilot = .retrograde   // 2
+        f.fly(to: f.get + 20)
+        XCTAssertGreaterThan(Self.angle(standing, f.v.attitude), 20)
+        f.scs.holdAttitude(f.v, in: f.sim)   // 8
+        XCTAssertNil(f.v.attitudeCommand)
+        f.fly(to: f.get + 2)
+        let held = f.v.attitude
+        f.fly(to: f.get + 20)
+        XCTAssertLessThan(Self.angle(held, f.v.attitude), 2)
+        XCTAssertGreaterThan(Self.angle(standing, f.v.attitude), 20)
+    }
+
+    // DEORBIT names the program from the computer's state, not from its
+    // display (blank from TIG-35 s to TIG-30 s), and shows the latest
+    // refusal: a CLR refused after a refused SET.
+    func testDeorbitNamesTheProgramAndTheLatestRefusal() throws {
+        let f = try scenario()
+        f.shift(.minus, .right, times: 9)   // TIG (impulsive) 259:40:00
+        XCTAssertTrue(f.shift(.s, .right))
+        XCTAssertTrue(f.shift(.s, .right))   // refused: P30 has the first
+        XCTAssertTrue(f.page(.right).shows("UPLINK REFUSED: CMC NOT IN P00"))
+        f.returnKey()
+        f.returnKey()
+        f.shift(.n, .left)
+        let tig = try XCTUnwrap(f.cmc.load).ignition - VesselLibrary.apollo7RangeZero
+        f.v.autopilot = .retrograde   // 2, then Return at V50N18 once round
+        f.fly(until: { angleBetween(f.v.attitude.rotate(.unitX), -f.v.velocity) < 2 * Self.deg }, limit: tig - 60)
+        f.returnKey()
+        f.fly(until: { f.cmc.step == .countdown }, limit: tig - 36)
+        XCTAssertEqual(f.cmc.step, .countdown)
+        f.fly(to: tig - 32)
+        XCTAssertNil(f.cmc.display.program)   // the blank
+        XCTAssertTrue(f.shift(.c, .right))
+        let p = f.page(.right)
+        XCTAssertTrue(p.shows("LOAD IN CMC P40"), dump(p))
+        XCTAssertTrue(p.shows("CLR REFUSED: P40 HAS THE LOAD"), dump(p))
+        XCTAssertFalse(p.shows("UPLINK REFUSED"), dump(p))
+    }
+
+    // With a computer that flies the vehicle the marker is its load alone:
+    // once a re-keyed load is dropped, SET's own record does not come back
+    // as a marker for a burn nobody will fly.
+    func testNoPhantomMarkerAfterARekey() throws {
+        let f = try scenario()
+        f.shift(.minus, .right, times: 10)
+        XCTAssertTrue(f.shift(.s, .right))
+        f.cmc.press(.minus, at: f.sim.time)
+        for c in "500" { f.cmc.press(.digit(Int(String(c))!), at: f.sim.time) }
+        f.returnKey()   // DVX re-keyed: -50.0 ft/s
+        XCTAssertEqual(try XCTUnwrap(f.mfd.activeManeuver(for: f.v)).deltaV, try XCTUnwrap(f.cmc.load).deltaV)
+        for k: PhysicalKey in [.v, .digit0, .digit0, .returnKey] { f.shift(k, .left) }   // PRG 00: abandoned
+        XCTAssertNil(f.cmc.load)
+        XCTAssertNotNil(f.mfd.data(for: f.v).maneuver)
+        XCTAssertGreaterThan(try XCTUnwrap(f.scs.deltaVRemaining), 1)
+        XCTAssertNil(f.mfd.activeManeuver(for: f.v))
+    }
+
+    // DEORBIT's N81 and P30's re-key share the J2 coast: for a TIG an apsis
+    // away, the load re-keyed with its own digits is the same burn.
+    func testARekeyAnApsisAwayIsTheSameBurn() throws {
+        let f = try scenario()
+        XCTAssertTrue(f.shift(.a, .right))   // TIG at the next apoapsis
+        XCTAssertTrue(f.shift(.s, .right))
+        let load = try XCTUnwrap(f.cmc.load)
+        print(String(format: "TIG %.0f s away", load.ignition - f.sim.time))
+        XCTAssertGreaterThan(load.ignition - f.sim.time, 600)
+        let x = load.deltaVLocal.x / ft
+        f.cmc.press(x < 0 ? .minus : .plus, at: f.sim.time)
+        for c in String(Int((abs(x) * 10).rounded())) { f.cmc.press(.digit(Int(String(c))!), at: f.sim.time) }
+        f.returnKey()
+        f.returnKey()
+        let rekeyed = try XCTUnwrap(f.cmc.load)
+        XCTAssertEqual(rekeyed.source, .keyed)
+        XCTAssertLessThan(angleBetween(rekeyed.deltaV, load.deltaV) / Self.deg, 0.02)
     }
 
     // #2 (a): SET, then the SCS way (Z at TIG, the EMS cutting off) with the

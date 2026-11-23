@@ -502,4 +502,24 @@ final class CMCLiteTests: XCTestCase {
         XCTAssertEqual(cmc.load?.engine, .sps)
         XCTAssertNil(cmc.load?.burnTime)
     }
+
+    // P47 monitoring an SCS burn while a load waits: once the burn is over
+    // the load goes, but P47 and its N83 stay for the crew to read.
+    func testP47KeepsItsN83AfterAnSCSBurn() throws {
+        let f = try CMCFlight()
+        XCTAssertEqual(f.cmc.uplink(f.sps8AsFlown(), at: f.sim.time), .accepted)
+        f.press(.returnKey, .returnKey)
+        f.press(.program)
+        f.key("47")
+        f.press(.returnKey)
+        XCTAssertEqual(f.cmc.program, 47)
+        f.fly(to: CMCFlight.tigGET)
+        f.v.mainThrottle = 1   // Z; the scenario's EMS load cuts it off
+        f.fly(to: CMCFlight.tigGET + 20)
+        XCTAssertTrue(f.logged("SPS cutoff (ΔV counter)"))
+        XCTAssertNil(f.cmc.load)
+        XCTAssertEqual(f.cmc.program, 47)
+        XCTAssertEqual(f.cmc.display.noun, 83)
+        XCTAssertGreaterThan(abs(Double(f.cmc.display.registers[0].value) ?? 0), 300)   // ft/s along X
+    }
 }

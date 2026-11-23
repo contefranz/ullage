@@ -148,7 +148,10 @@ public final class CMCMFD: MFDMode {
     /// A burn time: "11.9 S", or minutes and seconds from a minute on
     /// ("4:06.9").
     static func burnTime(_ t: Double) -> String {
-        t < 60 ? String(format: "%.1f S", t) : String(format: "%d:%04.1f", Int(t) / 60, t - Double(Int(t) / 60 * 60))
+        let r = (t * 10).rounded() / 10   // rounded first, so 59.97 s reads 1:00.0
+        guard r >= 60 else { return String(format: "%.1f S", r) }
+        let m = Int(r / 60)
+        return String(format: "%d:%04.1f", m, r - Double(m * 60))
     }
 
     /// Ground elapsed time as the PADs give it, "259:39:16" ("259:39:16.3"

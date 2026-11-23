@@ -59,7 +59,12 @@ extension MFDController {
     /// else what DEORBIT's SET loaded while the ΔV counter has it to go; nil
     /// otherwise.
     public func activeManeuver(for v: Vessel) -> ActiveManeuver? {
-        if let plan = v.guidanceComputer?.load { return ActiveManeuver(plan) }
+        if let computer = v.guidanceComputer, computer.controlsVehicle || computer.load != nil {
+            // The computer's load, while it has one; once it is flown,
+            // re-keyed and flown, or dropped, no marker (DEORBIT's own record
+            // of its SET serves vessels without a computer).
+            return computer.load.map(ActiveManeuver.init)
+        }
         guard let m = data(for: v).maneuver, m.isPending(on: v) else { return nil }
         return m
     }

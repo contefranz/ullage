@@ -123,6 +123,8 @@ public protocol GuidanceComputer: AnyObject {
     /// A host steps the computer, so it can fly the vehicle; false while it
     /// only observes (on the Saturn stack, after the SM has gone).
     var controlsVehicle: Bool { get }
+    /// The major mode it runs (P00, P30...), whatever the display shows.
+    var program: Int { get }
     /// A key pressed on the DSKY at `now`.
     func press(_ key: DSKYKey, at now: Epoch)
     /// A load from the ground at `now`; it lands in the program that takes

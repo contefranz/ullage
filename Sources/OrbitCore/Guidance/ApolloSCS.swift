@@ -155,6 +155,16 @@ public final class ApolloSCS: FlightProgram, DeltaVCounting, GuidanceComputerHos
         return true
     }
 
+    /// 8 on the CSM: the SCS holds the attitude the vessel has now, whoever
+    /// commanded the hold before (G&N AUTO, or a scenario's standing
+    /// command, as Apollo 7's deorbit sets one).
+    public func holdAttitude(_ v: Vessel, in sim: Simulation) {
+        clearGNAuto(v, in: sim)
+        v.attitudeCommand = nil
+        v.autopilot = .attitudeHold
+        v.resetAttitudeReference()
+    }
+
     /// Hand the attitude back to the SCS (8): the hold captures the
     /// attitude now.
     public func clearGNAuto(_ v: Vessel, in sim: Simulation, reason: String = "SCS hold") {

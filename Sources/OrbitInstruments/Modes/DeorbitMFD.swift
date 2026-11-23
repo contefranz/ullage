@@ -66,8 +66,9 @@ public final class DeorbitMFD: MFDMode {
     public private(set) var centredIgnition: Epoch?
     /// The last SET's uplink: accepted, or refused with the reason.
     public private(set) var uplink: UplinkResult?
-    /// The last CLR, refused while a program flies DEORBIT's load.
-    public private(set) var clearRefused: String?
+    /// The latest refusal, of a SET's uplink or a CLR ("UPLINK REFUSED: ..."),
+    /// until a SET or CLR is accepted.
+    public private(set) var refusal: String?
 
     /// The vessel's computer, if it flies the vehicle (a host steps it).
     static func liveComputer(_ c: MFDContext?) -> GuidanceComputer? {
@@ -134,25 +135,26 @@ public final class DeorbitMFD: MFDMode {
                 let result = computer.uplink(load, at: c.time)
                 uplink = result
                 if case .refused(let why) = result {
+                    refusal = "UPLINK REFUSED: " + why
                     c.sim.log("\(c.vessel.name): DEORBIT uplink refused, \(why)")
                     return true
                 }
             }
-            clearRefused = nil
+            refusal = nil
             c.deltaVCounter?.loadDeltaV(load.deltaVCounter ?? plan.deltaVMagnitude)
             c.data.maneuver = ActiveManeuver(deorbit: plan)
         case .c:
             guard let c, c.deltaVCounter != nil || Self.liveComputer(c) != nil else { return false }
             if let computer = Self.liveComputer(c), computer.load?.source == .deorbit, !computer.clearLoad(at: c.time) {
-                let why = "P\(computer.display.program ?? 0) HAS THE LOAD"
-                clearRefused = why
+                let why = String(format: "P%02d HAS THE LOAD", computer.program)
+                refusal = "CLR REFUSED: " + why
                 c.sim.log("\(c.vessel.name): DEORBIT CLR refused, \(why)")
                 return true
             }
             c.deltaVCounter?.loadDeltaV(nil)
             c.data.maneuver = nil
             uplink = nil
-            clearRefused = nil
+            refusal = nil
         default: return false
         }
         return true
@@ -270,14 +272,9 @@ public final class DeorbitMFD: MFDMode {
         // DEORBIT's load in the computer, while it has it; then the last
         // SET's or CLR's refusal.
         if let computer = Self.liveComputer(c), computer.load?.source == .deorbit {
-            page.add(4, 20, "LOAD IN CMC P\(computer.display.program.map { String(format: "%02d", $0) } ?? "--")",
-                     .target)
+            page.add(4, 20, String(format: "LOAD IN CMC P%02d", computer.program), .target)
         }
-        if case .refused(let why)? = uplink {
-            page.add(4, 21, String(("UPLINK REFUSED: " + why).prefix(32)), .warn)
-        } else if let why = clearRefused {
-            page.add(4, 21, String(("CLR REFUSED: " + why).prefix(32)), .warn)
-        }
+        if let refusal { page.add(4, 21, String(refusal.prefix(32)), .warn) }
         if let counter = c.deltaVCounter {
             page.field(4, 22, "DVC", counter.deltaVRemaining.map { MFDFormat.fixed($0, 1) + " m/s" } ?? "not set",
                        valueEnd: 20, .target, labelStyle: .reference)

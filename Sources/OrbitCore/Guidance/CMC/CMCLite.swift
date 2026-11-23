@@ -134,6 +134,7 @@ public final class CMCLite: GuidanceComputer {
         var state: Kepler.State
         var mu: Double
         var radius: Double
+        var body: CelestialBody
         var attitude: Quat
         var controlFrame: Quat
         var mass: Double
@@ -543,7 +544,10 @@ public final class CMCLite: GuidanceComputer {
             error(tig > s.time ? "NO DV" : "TIG PASSED")
             return false
         }
-        let atTIG = Kepler.propagate(s.state, mu: s.mu, by: tig - s.time)
+        // The LVLH frame at TIG on the vacuum coast with J2, as DEORBIT plans
+        // on it: N81 re-keyed as shown is the same burn.
+        let pole = sim?.snapshot.orientation(s.body).pole ?? .unitZ
+        let atTIG = VacuumCoast(body: s.body, pole: pole).propagate(s.state, by: tig - s.time)
         let dv = DeorbitPlanner.localVerticalFrame(atTIG).transposed * local
         let engine: ManeuverPlan.Engine = local.length <= Self.rcsBelow ? .rcs : .sps
         var bt: Double?
@@ -660,6 +664,7 @@ public final class CMCLite: GuidanceComputer {
             scsBurnSeen = false
             note("CMC: \(l.name) flown on the SCS, load cleared")
             load = nil
+            guard program != 47 else { return }   // P47 keeps its N83 for the crew
             keyedTIG = nil
             keyedDeltaV = nil
             clearKeys()
@@ -898,7 +903,8 @@ extension CMCLite.Situation {
     init(_ v: Vessel, at now: Epoch) {
         let sps = v.thrusters.first { $0.name == "SPS" && $0.isAvailable }
         self.init(time: now, state: Kepler.State(position: v.position, velocity: v.velocity), mu: v.reference.gm,
-                  radius: v.reference.radius, attitude: v.attitude, controlFrame: v.controlFrame, mass: v.mass,
+                  radius: v.reference.radius, body: v.reference, attitude: v.attitude, controlFrame: v.controlFrame,
+                  mass: v.mass,
                   sps: sps.map { ($0.maxThrustVacuum, $0.ispVacuum) })
     }
 }

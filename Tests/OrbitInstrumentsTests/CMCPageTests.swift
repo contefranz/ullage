@@ -160,4 +160,13 @@ final class CMCPageTests: XCTestCase {
         XCTAssertNil(FlightKeyMap.command(for: .r))
         XCTAssertNil(FlightKeyMap.command(for: .backslash))
     }
+
+    // The burn time rounds before it splits: just under a minute reads
+    // 1:00.0, not 0:60.0 or 1:60.0.
+    func testBurnTimeFormat() {
+        XCTAssertEqual(CMCMFD.burnTime(11.9), "11.9 S")
+        XCTAssertEqual(CMCMFD.burnTime(59.97), "1:00.0")
+        XCTAssertEqual(CMCMFD.burnTime(119.96), "2:00.0")
+        XCTAssertEqual(CMCMFD.burnTime(246.9), "4:06.9")
+    }
 }

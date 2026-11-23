@@ -295,9 +295,14 @@ final class AppModel: ObservableObject {
             case .radialIn: v.autopilot = .radialIn
             case .horizonLevel: v.autopilot = .horizonLevel
             case .attitudeHold:
-                // On the CSM, the SCS's hold of the attitude now: G&N AUTO ends.
-                (v.flightProgram as? ApolloSCS)?.clearGNAuto(v, in: sim)
-                v.autopilot = .attitudeHold
+                // On the CSM, the SCS's hold of the attitude now, whoever
+                // commanded the hold before; elsewhere the hold (the IU's
+                // command on the Saturn stack).
+                if let scs = v.flightProgram as? ApolloSCS, v.parts.contains(where: { $0.name == "SM" }) {
+                    scs.holdAttitude(v, in: sim)
+                } else {
+                    v.autopilot = .attitudeHold
+                }
             case .autopilotOff: v.autopilot = nil
             case .computerKey: v.guidanceComputer?.press(.returnKey, at: sim.time)
             case .gnAuto: selectGNAuto(v, sim: sim)
