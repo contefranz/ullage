@@ -16,7 +16,8 @@ public struct EffectMedium: Equatable {
     ///  7 start, 8 end, 9 radius, 10 growth (m, m/m), 11 ground (site z, or
     ///  `noGround`), 12 norm (1/m of along-density, 1 for a thermal),
     ///  13 taper (m: the along-density's fade at its end),
-    ///  14 source, 15 water, 16 soot (kg), 17 heat (J),
+    ///  14 source, 15 all its water (the deluge's and the exhaust's), 16
+    ///  soot (kg), 17 heat (J),
     ///  18 the air's specific humidity, 19 flux (m⁴/s² a jet's, m⁴/s³ a
     ///  stem's, m/s a thermal's), 20 the seed's bits, 21-23 reserved.
     public static let stride = 24
@@ -80,7 +81,7 @@ public struct EffectMedium: Equatable {
         r[12] = Float(p.norm)
         r[13] = Float(p.taper)
         r[14] = Float(p.source)
-        r[15] = Float(p.water)
+        r[15] = Float(p.totalWater)
         r[16] = Float(p.soot)
         r[17] = Float(p.heat)
         r[18] = Float(p.airHumidity)
@@ -119,17 +120,35 @@ public struct EffectMedium: Equatable {
     // MARK: The shader's evaluation, in Float
 
     /// Record `i`'s density at site point `p` (1/m³), its level sets
-    /// displaced by `eta` m: `GroundCloudField.Primitive.density(at:
-    /// displacement:)` in Float, as LaunchCloudShaders evaluates it.
-    public func density(_ i: Int, at p: SIMD3<Float>, displacement eta: Float = 0) -> Float {
+    /// displaced by `eta` m of rms `spread` m: `GroundCloudField.Primitive
+    /// .density(at:displacement:spread:)` in Float, as LaunchCloudShaders
+    /// evaluates it, the gains from `gains`.
+    public func density(_ i: Int, at p: SIMD3<Float>, displacement eta: Float = 0, spread: Float = 0) -> Float {
         let r = Array(records[(i * Self.stride)..<((i + 1) * Self.stride)])
         guard r[12] > 0 else { return 0 }
-        var d = Self.unmirrored(r, p, eta)
+        var (d, scale) = Self.unmirrored(r, p, eta)
         if r[11] > Self.noGround {
             guard p.z >= r[11] else { return 0 }
-            d += Self.unmirrored(r, SIMD3(p.x, p.y, 2 * r[11] - p.z), eta)
+            d += Self.unmirrored(r, SIMD3(p.x, p.y, 2 * r[11] - p.z), eta).density
         }
-        return d * r[12]
+        guard spread > 0 else { return d * r[12] }
+        return d * r[12] / Self.gain(shape: Int(r[0]), spread: spread / max(scale, 1e-9))
+    }
+
+    /// The displacement's gains (`GroundCloudField.DisplacementGain`), three
+    /// tables of `DisplacementGain.count` (thermal, round, wall), every
+    /// `DisplacementGain.step` of σ: the shader's constants.
+    public static let gains: [Float] = {
+        let g = GroundCloudField.DisplacementGain.self
+        return (g.thermal + g.round + g.wall).map(Float.init)
+    }()
+
+    static func gain(shape: Int, spread sigma: Float) -> Float {
+        let n = GroundCloudField.DisplacementGain.count
+        let table = shape == 0 ? 0 : shape == 2 ? 2 : 1
+        let u = min(max(sigma / Float(GroundCloudField.DisplacementGain.step), 0), Float(n - 1) - 1e-4)
+        let k = Int(u), f = u - Float(k)
+        return gains[table * n + k] + (gains[table * n + k + 1] - gains[table * n + k]) * f
     }
 
     static func smoothstep(_ a: Float, _ b: Float, _ x: Float) -> Float {
@@ -153,7 +172,8 @@ public struct EffectMedium: Equatable {
         }
     }
 
-    static func unmirrored(_ r: [Float], _ p: SIMD3<Float>, _ eta: Float) -> Float {
+    /// The density before `norm` and the level-set coordinate's scale (m).
+    static func unmirrored(_ r: [Float], _ p: SIMD3<Float>, _ eta: Float) -> (density: Float, scale: Float) {
         let origin = SIMD3(r[1], r[2], r[3]), axis = SIMD3(r[4], r[5], r[6])
         let d = p - origin
         let pi = Float.pi
@@ -164,26 +184,26 @@ public struct EffectMedium: Equatable {
             let a = Float(GroundCloudField.ringRadius) * radius, sigma = Float(GroundCloudField.coreRadius) * radius
             let z = d.z / Float(GroundCloudField.capStretch)
             let q = displaced(((s - a) * (s - a) + z * z).squareRoot() / max(sigma, 1e-9), eta, sigma)
-            return expf(-q * q) / Float(GroundCloudField.ringVolume(Double(radius)))
+            return (expf(-q * q) / Float(GroundCloudField.ringVolume(Double(radius))), sigma)
         case 1, 3:
             let x = (d * axis).sum()
+            let b = r[0] == 1 ? Float(GroundCloudField.concentrationSpread * GroundCloud.jetSpread) * max(x, r[7], 1e-6)
+                : r[9] + r[10] * max(x, 0)
             let m = along(r, x)
-            guard m > 0 else { return 0 }
+            guard m > 0 else { return (0, b) }
             let across = d - axis * x
             let rr = (across * across).sum().squareRoot()
-            let b = r[0] == 1 ? Float(GroundCloudField.concentrationSpread * GroundCloud.jetSpread) * max(x, 1e-6)
-                : r[9] + r[10] * max(x, 0)
             let q = displaced(rr / b, eta, b)
-            return m * expf(-q * q) / (pi * b * b)
+            return (m * expf(-q * q) / (pi * b * b), b)
         default:
             let rho = (d.x * d.x + d.y * d.y).squareRoot()
-            guard d.z >= 0, rho > 0 else { return 0 }
-            let m = along(r, rho)
-            guard m > 0 else { return 0 }
             let delta = r[9] + r[10] * max(rho - r[7], 0)
+            guard d.z >= 0, rho > 0 else { return (0, delta) }
+            let m = along(r, rho)
+            guard m > 0 else { return (0, delta) }
             let q = displaced(d.z / delta, eta, delta)
-            return m * (1 - smoothstep(0.5, 1.5, q)) / (Float(GroundCloudField.wallProfileIntegral) * delta)
-                / (2 * pi * rho)
+            return (m * (1 - smoothstep(0.5, 1.5, q)) / (Float(GroundCloudField.wallProfileIntegral) * delta)
+                / (2 * pi * rho), delta)
         }
     }
 

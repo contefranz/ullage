@@ -149,9 +149,13 @@ public struct GroundCloud: Equatable {
         /// footprint on the deck (`PadExhaust.footprint`), at least the ML's
         /// opening.
         public var deckRadius: Double
+        /// The exits' height above the deck (site z): the wall jet's
+        /// thickness follows the jets' radius there (`PadExhaust.wallThickness`).
+        public var exitHeight: Double
 
         public init(exhaust: Double, thrust: Double, trench: Double, deck: Double, trenchWater: Double,
-                    deckWater: Double, startSmoke: Double = 0, deckRadius: Double = PadExhaust.openingHalf) {
+                    deckWater: Double, startSmoke: Double = 0, deckRadius: Double = PadExhaust.openingHalf,
+                    exitHeight: Double = PadExhaust.exitHeightOnPad) {
             self.exhaust = exhaust
             self.thrust = thrust
             self.trench = trench
@@ -160,6 +164,7 @@ public struct GroundCloud: Equatable {
             self.deckWater = deckWater
             self.startSmoke = startSmoke
             self.deckRadius = deckRadius
+            self.exitHeight = exitHeight
         }
 
         public static let none = Sources(exhaust: 0, thrust: 0, trench: 0, deck: 0, trenchWater: 0, deckWater: 0)
@@ -178,6 +183,8 @@ public struct GroundCloud: Equatable {
         public var smoke = 0.0
         public var soot = 0.0
         public var volume = 0.0
+        /// The exits' height above the deck then (site z; `Sources.exitHeight`).
+        public var exitHeight = PadExhaust.exitHeightOnPad
 
         public init() {}
 
@@ -220,8 +227,10 @@ public struct GroundCloud: Equatable {
         let exhaust = s.exhaust * share
         let heat = exhaust * exhaustHeat(ambient: ambient) * (1 - radiantFraction)
         let perKg = waterHeat * max(0, 373.15 - ambient) + waterLatent
-        let boiled = min(water, heat / perKg)
-        let left = heat - boiled * perKg
+        // Either the water takes all the heat, or all the water boils:
+        // explicitly, so that no rounding residue is left as heat.
+        let boiled = heat <= water * perKg ? heat / perKg : water
+        let left = heat <= water * perKg ? 0 : heat - water * perKg
         f.momentum = momentum
         f.buoyancy = 9.80665 * left / (rho * airHeat * ambient)
         f.heat = left
@@ -379,7 +388,8 @@ public struct GroundCloud: Equatable {
         let groundVapour = vapour.specificHumidity(height: 0, temperature: ground.temperature, pressure: ground.pressure)
         for k in lobes.indices {
             var l = lobes[k]
-            let f = Self.fluxes(s, lobe: l.kind, density: ground.rho, ambient: ground.temperature)
+            var f = Self.fluxes(s, lobe: l.kind, density: ground.rho, ambient: ground.temperature)
+            f.exitHeight = s.exitHeight
             l.jet = (f.momentum, f.buoyancy)
             l.feed = f
             // The jet's front, at half its centreline speed, out to its runout.
@@ -388,7 +398,14 @@ public struct GroundCloud: Equatable {
             let start = l.kind == .deck ? PadExhaust.openingHalf : Self.exitDistance
             let end = max(start, min(runout, 1e5))
             if m > 0, l.front < end {
-                l.front = min(end, l.front + Self.jetFront * Self.jetVelocity * m / l.front * h)
+                // The deck's front at the speed of its own layer, the law the
+                // medium's wall jet carries its fluid at (`GroundCloudField`);
+                // a trench jet's at its round jet's.
+                let speed = l.kind == .deck
+                    ? GroundCloudField.wallSpeed(momentum: f.momentum, rho: l.front,
+                                                 thickness: PadExhaust.wallThickness(rho: l.front, height: s.exitHeight))
+                    : Self.jetVelocity * m / l.front
+                l.front = min(end, l.front + Self.jetFront * speed * h)
             }
             switch l.kind {
             case .trench: l.start = Self.exitDistance

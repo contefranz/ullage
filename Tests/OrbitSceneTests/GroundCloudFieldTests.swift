@@ -11,16 +11,14 @@ import OrbitCore
 final class GroundCloudFieldTests: XCTestCase {
     /// AS-506's launch as `GroundCloudTests` runs it, with the gas
     /// generators' start smoke from the plan's start commands to its
-    /// ignitions and the deck's wall jet from the plume's envelope.
+    /// ignitions.
     static func sources(at t: Epoch, zero: Epoch) -> GroundCloud.Sources {
         var s = GroundCloudTests.sources(at: t, zero: zero)
         let plan = TerminalCount.Plan.as506
-        let range = t - zero, fm = plan.release
+        let range = t - zero
         let film = ApolloExhaust.f1.spec.film!
         let each = film.massFraction * ApolloExhaust.f1.ratedFlow
         s.startSmoke = Double(plan.starts.filter { range >= $0.command && range < $0.ignition }.count) * each
-        let climb = range < fm ? 0 : LiftoffRise.rise(after: range - fm)
-        s.deckRadius = PadExhaust.footprint(height: PadExhaust.exitHeightOnPad + climb)
         return s
     }
 
@@ -58,7 +56,7 @@ final class GroundCloudFieldTests: XCTestCase {
         for l in c.state(at: f.epoch).lobes {
             let a = f.ambient(height: l.centre.z)
             t.0 += l.exhaust
-            t.1 += l.water + LaunchCloudOptics.exhaustWater * l.exhaust
+            t.1 += l.water
             t.2 += l.smoke
             t.3 += l.soot
             t.4 += l.heat(density: a.rho, ambient: a.temperature)
@@ -168,8 +166,8 @@ final class GroundCloudFieldTests: XCTestCase {
         let spec = ApolloExhaust.f1.spec
         let air = USStandardAtmosphere1976().state(altitude: 0)
         let state = PlumeModel.state(spec, flowFraction: 1, ambient: air, streamAlong: 0, streamAcross: 0)
-        let z = PadExhaust.exitHeightOnPad + climb, d = 4.6 / 2.0.squareRoot()
-        let exits = [Vec3(0, 0, z), Vec3(d, d, z), Vec3(-d, d, z), Vec3(-d, -d, z), Vec3(d, -d, z)]
+        let z = PadExhaust.exitHeightOnPad + climb
+        let exits = PadExhaust.exitPattern.map { Vec3($0.x, $0.y, z) }
         let deck = PlumeImpingement(centre: .zero, normal: .unitZ, openingHalf: LC39A.openingHalf, openingAxis: .unitX)
         let members = exits.map {
             PlumeLook.member(spec, state: state, exit: $0, axis: -.unitZ, exitRadius: spec.exitRadius, ambient: air)
@@ -177,75 +175,92 @@ final class GroundCloudFieldTests: XCTestCase {
         return (members, deck)
     }
 
-    // The deck's wall jet carries on from P2's (`PlumeImpingement`): from
-    // where P2's ends, with P2's half-thickness there and its growth, 0.087
-    // a metre (Poreh, Tsuei and Cermak 1967), within 1 %; and its flow is
-    // continuous through the joint: what P2 draws ahead of it and what the
-    // field draws past it carry the same share of the deck lobe's feed, the
-    // flux through every cylinder the feed's within 1 % (the mass the wall
-    // jet holds per unit radius is the flow over the layer's speed there,
-    // the speed that keeps all its momentum).
-    func testWallJetCarriesOnFromP2s() throws {
-        let t = 8.0
-        let c = Self.cloud(to: t)
-        let fm = TerminalCount.Plan.as506.release
-        let climb = LiftoffRise.rise(after: t - fm)
-        let (members, deck) = Self.p2(climb: climb)
-        let handover = try XCTUnwrap(GroundCloudField.WallJetHandover.p2(members, deck: deck), "P2 meets the deck")
-        let f = Self.field(c, at: t, handover: handover)
-        let wall = try XCTUnwrap(f.primitives.first { $0.shape == .wallJet })
-        XCTAssertEqual(wall.start, handover.radius, accuracy: 1e-9)
-        // P2's own thickness at the joint, its central engine's.
-        let centre = members[0]
-        let meeting = try XCTUnwrap(deck.meeting(centre))
-        let h = try XCTUnwrap(deck.distance(centre))
-        let p2 = meeting.thickness(centre, h: h, rho: meeting.reach)
-        XCTAssertEqual(wall.thickness(wall.start), p2, accuracy: 0.01 * p2, "half-thickness at the joint")
-        XCTAssertEqual(wall.growth, PlumeImpingement.wallGrowth)
-        // The flux through cylinders: ∫ c u dA, the speed u0 p(z/δ).
-        let lobe = try XCTUnwrap(c.state(at: f.epoch).lobes.first { $0.kind == .deck })
-        let feed = lobe.feed.exhaust + lobe.feed.water + LaunchCloudOptics.exhaustWater * lobe.feed.exhaust
-        let share = wall.source / feed / (wallTime(wall, lobe))
-        XCTAssertLessThanOrEqual(share, 1 + 1e-9)
-        for rho in [wall.start + 0.5, wall.start + 5, 0.5 * (wall.start + wall.end), wall.end - wall.taper - 1] {
-            let d = wall.thickness(rho), u0 = GroundCloudField.wallSpeed(momentum: wall.flux, rho: rho, thickness: d)
-            var flux = 0.0
-            let n = 4_000, dz = 2 * d / Double(n)
-            for k in 0..<n {
-                let z = (Double(k) + 0.5) * dz
-                let q = GroundCloudField.wallProfile(z / d)
-                flux += wall.source * wall.density(at: Vec3(rho, 0, z)) * u0 * q * dz
-            }
-            flux *= 2 * .pi * rho
-            XCTAssertEqual(flux, share * feed, accuracy: 0.01 * share * feed, "flux at ρ = \(rho) m")
+    /// The field's wall jet's mass flux of exhaust through the cylinder of
+    /// radius ρ (kg/s): 2πρ ∫ c u dz, its speed u0 p(z/δ).
+    static func wallFlux(_ wall: GroundCloudField.Primitive, rho: Double) -> Double {
+        let d = wall.thickness(rho), u0 = GroundCloudField.wallSpeed(momentum: wall.flux, rho: rho, thickness: d)
+        var flux = 0.0
+        let n = 4_000, dz = 2 * d / Double(n)
+        for k in 0..<n {
+            let z = (Double(k) + 0.5) * dz
+            flux += wall.exhaust * wall.density(at: Vec3(rho, 0, z)) * u0 * GroundCloudField.wallProfile(z / d) * dz
         }
-        // P2's part ahead of it: the same share of the feed over its own
-        // stretch, so nothing is lost or gained at the joint.
-        if f.inPlume.source > 0 {
-            var behind = wall
-            behind.start = lobe.start
-            behind.end = wall.start
-            behind.radius = wall.radius - wall.growth * (wall.start - lobe.start)
-            let time = GroundCloudField.gauss(lobe.start, wall.start) { rho in
-                GroundCloudField.wallProfileIntegral / GroundCloudField.wallProfileSquare
-                    / GroundCloudField.wallSpeed(momentum: wall.flux, rho: rho, thickness: behind.thickness(rho))
-            }
-            XCTAssertEqual(f.inPlume.source, share * feed * time, accuracy: 1e-6 * f.inPlume.source)
-        }
-        // What P2 itself puts on the deck, against the deck lobe's (P4's
-        // envelope model): reported, the two models' split is not the same.
-        let p2Share = members.reduce(0.0) { $0 + (deck.meeting($1)?.deckShare ?? 0) } / Double(members.count)
-        print(String(format: "T+%.0f s, climb %.1f m: P2's wall jet to %.1f m (δ %.2f m); the deck's share P2 %.3f, PadExhaust %.3f",
-                     t, climb, handover.radius, handover.thickness, p2Share,
-                     PadExhaust.shares(exitHeight: PadExhaust.exitHeightOnPad + climb).deck))
+        return flux * 2 * .pi * rho
     }
 
-    /// The time's worth of the feed the wall jet holds at its steady flow.
-    func wallTime(_ w: GroundCloudField.Primitive, _ l: GroundCloud.Lobe) -> Double {
-        GroundCloudField.gauss(w.start, w.end) { rho in
-            GroundCloudField.wallProfileIntegral / GroundCloudField.wallProfileSquare * w.along(rho)
-                / (rho * w.thickness(rho)).squareRoot()
-                / GroundCloudField.wallSpeed(momentum: l.feed.momentum, rho: rho, thickness: w.thickness(rho))
+    // The deck's wall jet carries on from P2's (`PlumeImpingement`): where
+    // P2's ends, the field's carries the exhaust P2's wall jet carries, the
+    // members' flow times their deck shares (one model with PadExhaust:
+    // the per-jet split and the fountain's reach), within 1 %, at each
+    // climb P2 draws a wall jet; its half-thickness there is P2's own, and
+    // grows as P2's, 0.087 a metre. Its flux holds out to its taper.
+    func testWallJetCarriesOnFromP2s() throws {
+        var checked = 0
+        for t in [7.0, 7.5, 8.0, 8.5] {
+            let c = Self.cloud(to: t)
+            let lobe = try XCTUnwrap(c.state(at: Self.zero + t).lobes.first { $0.kind == .deck })
+            // P2's members where the feed was taken.
+            let climb = lobe.feed.exitHeight - PadExhaust.exitHeightOnPad
+            let (members, deck) = Self.p2(climb: climb)
+            guard let handover = GroundCloudField.WallJetHandover.p2(members, deck: deck) else { continue }
+            let f = Self.field(c, at: t, handover: handover)
+            let wall = try XCTUnwrap(f.primitives.first { $0.shape == .wallJet }, "T+\(t) s")
+            // From where P2's ends, or the jets' footprint if that is beyond.
+            XCTAssertEqual(wall.start, max(handover.radius, lobe.start), accuracy: 1e-9)
+            // P2's own: each member's flow (a fifth of the five F-1s' at
+            // full) times its deck share.
+            let p2 = members.reduce(0.0) { $0 + (deck.meeting($1)?.deckShare ?? 0) } * LiftoffRise.flow / 5
+            let field = Self.wallFlux(wall, rho: wall.start + 0.01)
+            XCTAssertEqual(field, p2, accuracy: 0.01 * p2, "T+\(t) s: the exhaust's flux at the handover")
+            XCTAssertEqual(Self.wallFlux(wall, rho: 0.5 * (wall.start + wall.end)), field, accuracy: 0.01 * field)
+            // P2's own thickness at the joint, an outboard engine's (the
+            // centre's jet is inside the opening).
+            let outboard = try XCTUnwrap(members.first { deck.meeting($0) != nil })
+            let meeting = try XCTUnwrap(deck.meeting(outboard))
+            let h = try XCTUnwrap(deck.distance(outboard))
+            let p2Thickness = meeting.thickness(outboard, h: h, rho: meeting.reach)
+            let atHandover = wall.radius - wall.growth * (wall.start - handover.radius)
+            XCTAssertEqual(atHandover, p2Thickness, accuracy: 0.01 * p2Thickness, "T+\(t) s")
+            XCTAssertEqual(wall.growth, PlumeImpingement.wallGrowth)
+            print(String(format: "T+%.1f s, climb %.1f m: P2's wall jet to %.1f m (δ %.2f m), %.0f kg/s; the field's %.0f kg/s",
+                         t, climb, handover.radius, handover.thickness, p2, field))
+            checked += 1
+        }
+        XCTAssertGreaterThanOrEqual(checked, 3, "P2 draws a wall jet at most of these climbs")
+    }
+
+    // The stems fade in as their clouds lift off and as their jets' buoyancy
+    // rises, and out as it falls: from one grid step to the next a stem's
+    // content changes by at most a twentieth of its lobe's. Once the deluge
+    // takes all of a trench jet's heat, its buoyancy flux is exactly 0 (no
+    // rounding residue switches a stem on).
+    func testStemsFadeWithoutJumps() {
+        var c = GroundCloud(origin: Self.start)
+        var last: [Double: Double] = [:]
+        var t = -1.0, worst = 0.0
+        while t < 20 {
+            t += GroundCloud.step
+            c.advance(to: Self.zero + t, sources: { Self.sources(at: $0, zero: Self.zero) }, air: Self.air,
+                      deckHeight: Self.deck, siteFromEastNorth: { e, n in Vec3(n, -e, 0) })
+            let f = Self.field(c, at: t)
+            for side in [1.0, -1.0] {
+                let held = c.lobes.first { $0.kind == .trench(side) }!.exhaust
+                guard held > 0 else { continue }
+                let stem = f.primitives.first { $0.shape == .stem && $0.lobe == .trench(side) }?.exhaust ?? 0
+                let share = stem / held
+                if let l = last[side] { worst = max(worst, abs(share - l)) }
+                last[side] = share
+            }
+        }
+        print(String(format: "a stem's share of its lobe changes at most %.4f a grid step", worst))
+        XCTAssertLessThan(worst, 0.05)
+        // The boil-off's branch: all the heat to the water, none left.
+        let s = GroundCloud.Sources(exhaust: LiftoffRise.flow, thrust: LiftoffRise.thrust, trench: 0.01, deck: 0,
+                                    trenchWater: 50_000 * GroundCloud.gallon / 60, deckWater: 0)
+        for t in stride(from: 290.0, to: 305, by: 0.37) {
+            let f = GroundCloud.side(s, density: 1.17, ambient: t)
+            XCTAssertEqual(f.heat, 0)
+            XCTAssertEqual(f.buoyancy, 0)
         }
     }
 

@@ -97,6 +97,14 @@ public enum PadExhaust {
         return max(openingHalf, pattern.map { $0.length + r }.max() ?? r)
     }
 
+    /// The deck's wall jet's half-thickness at ρ from the pad's axis, the
+    /// exits `h` m above the deck: P2's law (`PlumeImpingement.thickness`),
+    /// half the jet's radius there and 0.087 a metre (Poreh, Tsuei and
+    /// Cermak 1967), the cluster's from its axis.
+    public static func wallThickness(rho: Double, height h: Double) -> Double {
+        0.5 * jet.radius(atX: max(h, 0)) + PlumeImpingement.wallGrowth * max(rho, 0)
+    }
+
     // MARK: The reach: a fountain
 
     /// Turner's (1966) constant for a round fountain's steady penetration,

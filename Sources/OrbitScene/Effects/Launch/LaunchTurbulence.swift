@@ -81,22 +81,35 @@ public enum LaunchTurbulence {
     public static func displacement(_ p: GroundCloudField.Primitive, at x: Vec3, bands: [PlumeTurbulence.Band],
                                     footprint: Double, limit: Int = maximumOctaves,
                                     noise: (Vec3, Int) -> Double) -> Double {
+        displacementAndSpread(p, at: x, bands: bands, footprint: footprint, limit: limit, noise: noise).eta
+    }
+
+    /// The displacement (m) and its rms there (m): every octave drawn, its
+    /// weight, gain and exposure's depth (for `GroundCloudField.Primitive
+    /// .density(at:displacement:spread:)`, which keeps the mass).
+    public static func displacementAndSpread(_ p: GroundCloudField.Primitive, at x: Vec3,
+                                             bands: [PlumeTurbulence.Band], footprint: Double,
+                                             limit: Int = maximumOctaves,
+                                             noise: (Vec3, Int) -> Double) -> (eta: Double, spread: Double) {
         let size = p.size(at: x)
-        guard size > 0 else { return 0 }
+        guard size > 0 else { return (0, 0) }
         let speed = max(p.speed(at: x), convectiveVelocity)
         let spectrum = Self.spectrum(size: size, speed: speed, limit: limit)
         let a0 = interfaceSpread * size / cascade
         let seed = PlumeTurbulence.seedOffset(p.seed)
-        var eta = 0.0
+        var eta = 0.0, variance = 0.0
         for (k, weight) in weights(spectrum, footprint: footprint).enumerated() where weight > 0 {
             let eddy = spectrum.cell(octave: k)
             let life = spectrum.lifetime(octave: k)
             let band = min(max(log2(life / PlumeTurbulence.shortestLife), 0), Double(PlumeTurbulence.bandCount - 1) - 1e-3)
             let j = Int(band), beta = PlumeTurbulence.blend(band - Double(j))
-            var octave = 0.0, bandWeights = 0.0
+            var octave = 0.0, bandWeights = 0.0, depths = 0.0
             for (b, wb) in [(j, 1 - beta), (j + 1, beta)] where wb > 1e-3 {
                 let layerLife = PlumeTurbulence.life(band: b)
-                let depth = PlumeTurbulence.shutterAverage(life: layerLife, sweep: speed / eddy).depth
+                // The flow sweeps past u/L integral lengths a second, L the
+                // noise's integral length in its cell (P2's `Flow.sweep`).
+                let depth = PlumeTurbulence.shutterAverage(life: layerLife,
+                                                           sweep: speed / (PlumeTurbulence.integralLength * eddy)).depth
                 var sum = 0.0, weights2 = 0.0
                 for layer in 0..<2 {
                     let phase = layer == 0 ? bands[b].phase.0 : bands[b].phase.1
@@ -115,11 +128,14 @@ public enum LaunchTurbulence {
                 guard weights2 > 0 else { continue }
                 octave += wb * depth * sum / weights2.squareRoot()
                 bandWeights += wb * wb
+                depths += wb * wb * depth * depth
             }
             guard bandWeights > 0 else { continue }
-            eta += weight * a0 * gain(k) * octave / bandWeights.squareRoot()
+            let amplitude = weight * a0 * gain(k)
+            eta += amplitude * octave / bandWeights.squareRoot()
+            variance += amplitude * amplitude * depths / bandWeights
         }
-        return eta
+        return (eta, variance.squareRoot())
     }
 
     /// Octave k's own offset in the tile, so the octaves are independent.
@@ -157,12 +173,17 @@ public enum LaunchTurbulence {
             let mid = max(r - 0.5 * age * u0, 0.5 * p.start)
             let from = max(r - age * GroundCloudField.wallSpeed(momentum: p.flux, rho: mid, thickness: p.thickness(mid)),
                            0.5 * p.start)
-            // Polar: the radius in eddies along the flow, ∫dρ/δ = ln δ / g,
-            // the direction as it is (no seam).
+            // In local eddies of 0.45 δ(ρ) every way: across the flow on a
+            // circle of (ρ + z)/δ eddies in the noise's plane (its arc ρ dφ/δ
+            // and its height dz/δ, with no seam), along it in the third
+            // axis, ∫dρ/δ = ln(δ/δ0)/g from the layer's start, carried back
+            // at the layer's speed.
             let d = x - p.origin
             let dir = rho > 1e-6 ? (d.x / rho, d.y / rho) : (1.0, 0.0)
-            let s = log(max(p.thickness(from), 1e-3)) / max(p.growth, 1e-6) * scale
-            return Vec3(dir.0 * s, dir.1 * s, z / p.thickness(r) * scale)
+            let delta = p.thickness(r)
+            let around = (r + max(z, 0)) / delta * scale
+            let along = log(max(p.thickness(from), 1e-3) / max(p.radius, 1e-3)) / max(p.growth, 1e-6) * scale
+            return Vec3(dir.0 * around, dir.1 * around, along)
         case .stem:
             let (s, _) = p.axial(x)
             let d = x - p.origin, across = d - p.axis * s
@@ -191,8 +212,8 @@ public enum LaunchTurbulence {
                                  limit: Int = maximumOctaves, noise: @escaping (Vec3, Int) -> Double)
         -> (GroundCloudField.Primitive) -> Double {
         { p in
-            p.density(at: x, displacement: displacement(p, at: x, bands: bands, footprint: footprint, limit: limit,
-                                                         noise: noise))
+            let d = displacementAndSpread(p, at: x, bands: bands, footprint: footprint, limit: limit, noise: noise)
+            return p.density(at: x, displacement: d.eta, spread: d.spread)
         }
     }
 

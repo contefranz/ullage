@@ -470,7 +470,8 @@ public final class LaunchEffects: EffectProducer {
                                    trenchWater: PadExhaust.trenchWater * gpm,
                                    deckWater: PadExhaust.deckWater(sinceFirstMotion: t - c.firstMotion) * gpm,
                                    startSmoke: Self.startSmokeFlow(c.ignition, at: t),
-                                   deckRadius: PadExhaust.footprint(height: z, pattern: c.vehicle.pattern))
+                                   deckRadius: PadExhaust.footprint(height: z, pattern: c.vehicle.pattern),
+                                   exitHeight: z)
     }
 
     /// The gas generators' turbine exhaust at `t`, kg/s: 2.9 % of an F-1's

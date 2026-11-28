@@ -226,17 +226,19 @@ public struct LaunchHumidity: Equatable {
 ///   cloud's vertical axis (`ringRadius`, `coreRadius`, `capStretch` of its
 ///   radius, L), mirrored in the ground it rests on;
 /// - the stems, buoyant plumes from each trench jet's end up into its
-///   cloud while the jet feeds it and the cloud has lifted (Morton, Taylor
-///   and Turner 1956, top-hat α 0.117 as List 1982 compiles it: M);
-/// - the start smoke's three small thermals, the exits' two drawn inside
-///   their trench's cloud once its jet has run through them.
+///   cloud while the jet feeds it, faded in as the cloud lifts and as the
+///   jet's buoyancy rises (Morton, Taylor and Turner 1956, top-hat α 0.117
+///   as List 1982 compiles it: M);
+/// - the start smoke's three small thermals until the trench's jets run,
+///   then all of it inside the trench's clouds (the exits' through them,
+///   the chimney's taken in down the opening, half to each).
 ///
 /// What each carries is GroundCloud's: a lobe's exhaust, water, start
-/// smoke, soot and heat are shared between its jet and stem (what is in
-/// them at their steady flow, at most half of the lobe's: a starting jet's
-/// head, L) and its cloud (the rest), so the field's totals are the
-/// cloud's (`GroundCloudFieldTests`: within 1 %). The deck's wall jet as far
-/// as P2 draws it is P2's (`inPlume`).
+/// smoke, soot and heat are shared between its jet and stem (what flows in
+/// them at their steady flow, at most what the lobe has) and its cloud (the
+/// rest), so the field's totals are the cloud's (`GroundCloudFieldTests`:
+/// within 1 %). The deck's wall jet as far as P2 draws it is P2's
+/// (`inPlume`); past that it carries P2's own flux on, within 1 %.
 ///
 /// The condensate is not carried: at each point the mixture of what the
 /// primitives bring there and the air (the cloud's own, entrained with its
@@ -269,9 +271,10 @@ public struct GroundCloudField: Equatable {
     /// they run over and are mirrored in.
     public static var jetHeight: Double { PadExhaust.trenchExits[0].position.z }
     public static var grade: Double { LC39A.gradeHeight }
-    /// A starting jet's head keeps at least half of what its jet carried
-    /// (L), so a jet and its stem hold at most half of their lobe's.
-    public static let transitShare = 0.5
+    /// A stem fades in as its cloud lifts off the ground (over this share of
+    /// its radius) and as its jet's buoyancy flux rises past this share of
+    /// a trench jet's at full thrust (L, so that neither switches it on).
+    public static let stemLiftOff = 0.5, stemBuoyancy = 0.05
     /// Without P2's wall jet: its half-thickness where it starts, half an
     /// F-1 jet's radius at the deck (P2's R(h)/2, the overexpanded jet
     /// barely wider than its exit at sea level: L).
@@ -306,8 +309,9 @@ public struct GroundCloudField: Equatable {
         public var radius = 0.0, growth = 0.0
         /// The plane it rests on and is mirrored in (site z); −∞ for none.
         public var ground = -Double.infinity
-        /// What it carries: kg of exhaust, water (its own and the exhaust's),
-        /// start smoke and soot, and its heat above the air (J).
+        /// What it carries: kg of exhaust (its own water in it), the deluge's
+        /// water it boiled, start smoke and soot, and its heat above the air
+        /// (J).
         public var exhaust = 0.0, water = 0.0, smoke = 0.0, soot = 0.0, heat = 0.0
         /// The specific humidity of the air it carries (its lobe's
         /// entrained air's, or the ground's for a jet).
@@ -323,6 +327,9 @@ public struct GroundCloudField: Equatable {
         /// Everything it carries from the pad, kg: the exhaust, the water
         /// and the start smoke (the soot is in them).
         public var source: Double { exhaust + water + smoke }
+        /// All the water it brings, kg: the deluge's, the exhaust's own and
+        /// what the exhaust's hydrogen makes burning (`LaunchCloudOptics.exhaustWater`).
+        public var totalWater: Double { water + LaunchCloudOptics.exhaustWater * exhaust }
 
         // MARK: Shape
 
@@ -371,14 +378,21 @@ public struct GroundCloudField: Equatable {
         /// With `displacement` (m, `LaunchTurbulence`) its level sets across
         /// the flow are moved out by that much (in by a negative one), the
         /// more the further from its core: its boundary turbulent.
-        public func density(at p: Vec3, displacement eta: Double = 0) -> Double {
+        ///
+        /// Moving the level sets of a convex profile by a zero-mean amount
+        /// raises its integral on average. With the displacement's rms
+        /// `spread` (m) the density is divided by that expected gain
+        /// (`DisplacementGain`), so that the medium holds its mass however
+        /// many octaves the pixel draws.
+        public func density(at p: Vec3, displacement eta: Double = 0, spread: Double = 0) -> Double {
             guard norm > 0 else { return 0 }
             var d = unmirrored(p, eta)
             if ground.isFinite {
                 guard p.z >= ground else { return 0 }
                 d += unmirrored(Vec3(p.x, p.y, 2 * ground - p.z), eta)
             }
-            return d * norm
+            guard spread > 0 else { return d * norm }
+            return d * norm / DisplacementGain.gain(shape, spread: spread / levelScale(at: p))
         }
 
         /// The level-set coordinate q, displaced by `eta` m on a scale of
@@ -509,6 +523,73 @@ public struct GroundCloudField: Equatable {
         }
     }
 
+    /// The expected gain in a shape's integral when its level sets are
+    /// displaced by a zero-mean Gaussian amount of rms σ (in units of its
+    /// level-set coordinate q): E[f(q′)], q′ = max(q − smoothstep(0, 1, q) x,
+    /// 0), x ~ N(0, σ²), integrated over the shape's measure in q, over the
+    /// undisplaced integral. Tabled every 0.05 of σ to 2 (linear between),
+    /// by quadrature: q every 0.01 to 6, x over ±5σ in 61 points.
+    /// - a thermal's ring torus: dV = 2π ε σc² q (a + σc q cos θ) dq dθ over
+    ///   the half-plane s ≥ 0 (ring a = 0.35, core σc = 0.5, stretch ε = 1.2);
+    /// - a round jet's or a stem's Gaussian disc: 2π q dq;
+    /// - the wall jet's one-sided layer: dq.
+    public enum DisplacementGain {
+        public static let step = 0.05, count = 41
+
+        public static func gain(_ shape: Shape, spread sigma: Double) -> Double {
+            let table: [Double]
+            switch shape {
+            case .thermal: table = thermal
+            case .roundJet, .stem: table = round
+            case .wallJet: table = wall
+            }
+            let u = min(max(sigma / step, 0), Double(count - 1) - 1e-9)
+            let i = Int(u), f = u - Double(i)
+            return table[i] + (table[i + 1] - table[i]) * f
+        }
+
+        /// The torus's measure per unit q (R = 1).
+        public static func ringMeasure(_ q: Double) -> Double {
+            let a = ringRadius, sc = coreRadius, e = capStretch
+            let around: Double
+            if sc * q <= a {
+                around = 2 * .pi * a
+            } else {
+                let t = acos(-a / (sc * q))
+                around = 2 * a * t + 2 * sc * q * sin(t)
+            }
+            return 2 * .pi * e * sc * sc * q * around
+        }
+
+        static func table(profile: (Double) -> Double, measure: (Double) -> Double) -> [Double] {
+            let dq = 0.01, n = 600
+            let qs = (0..<n).map { (Double($0) + 0.5) * dq }
+            let base = qs.reduce(0.0) { $0 + profile($1) * measure($1) }
+            return (0..<count).map { j in
+                let sigma = Double(j) * step
+                guard sigma > 0 else { return 1 }
+                let m = 61, span = 5 * sigma, dx = 2 * span / Double(m - 1)
+                var total = 0.0, weights = 0.0
+                for k in 0..<m {
+                    let x = -span + Double(k) * dx
+                    let w = exp(-0.5 * x * x / (sigma * sigma)) * (k == 0 || k == m - 1 ? 0.5 : 1)
+                    weights += w
+                    var sum = 0.0
+                    for q in qs {
+                        let qd = max(q - PlumeMember.smoothstep(0, 1, q) * x, 0)
+                        sum += profile(qd) * measure(q)
+                    }
+                    total += w * sum
+                }
+                return total / weights / base
+            }
+        }
+
+        public static let thermal = table(profile: { exp(-$0 * $0) }, measure: ringMeasure)
+        public static let round = table(profile: { exp(-$0 * $0) }, measure: { 2 * .pi * $0 })
+        public static let wall = table(profile: wallProfile, measure: { _ in 1 })
+    }
+
     /// The wall jet's profile across it: P2's top hat at large distances,
     /// 1 − smoothstep(0.5, 1.5, q).
     public static func wallProfile(_ q: Double) -> Double { 1 - PlumeMember.smoothstep(0.5, 1.5, q) }
@@ -635,25 +716,32 @@ public struct GroundCloudField: Equatable {
         let state = cloud.state(at: epoch)
         let dt = max(0, epoch - state.time)
         let ground = ambient(height: 0)
-        // An exit's start smoke is drawn inside its trench's cloud once the
-        // trench's jet has run through it (GroundCloud integrates it apart).
-        func swept(_ l: GroundCloud.Lobe) -> Bool {
-            guard case .startSmoke(let side) = l.kind, side != 0 else { return false }
-            return state.lobes.contains { $0.kind == .trench(side) && $0.exhaust > 0 }
+        // The start smoke is drawn inside the trench's clouds once their jets
+        // run: the exits' through them, the chimney's (round the vehicle,
+        // over the opening) taken in by the jets down it, half to each.
+        // GroundCloud integrates it apart, so that P4's sprites stay as they
+        // were.
+        let running = state.lobes.contains { if case .trench = $0.kind { $0.exhaust > 0 } else { false } }
+        func swept(_ l: GroundCloud.Lobe) -> [(side: Double, share: Double)]? {
+            guard running, case .startSmoke(let side) = l.kind else { return nil }
+            return side == 0 ? [(1, 0.5), (-1, 0.5)] : [(side, 1)]
         }
-        for lobe in state.lobes where !swept(lobe) {
+        for lobe in state.lobes where swept(lobe) == nil {
             build(lobe, dt: dt, ground: ground, handover: handover)
         }
-        for lobe in state.lobes where swept(lobe) {
-            guard case .startSmoke(let side) = lobe.kind,
-                  let k = primitives.firstIndex(where: { $0.shape == .thermal && $0.lobe == .trench(side) })
-            else { continue }
+        for lobe in state.lobes {
+            guard let into = swept(lobe) else { continue }
             let a = ambient(height: lobe.centre.z)
-            primitives[k].exhaust += lobe.exhaust
-            primitives[k].water += lobe.water + LaunchCloudOptics.exhaustWater * lobe.exhaust
-            primitives[k].smoke += lobe.smoke
-            primitives[k].soot += lobe.soot
-            primitives[k].heat += lobe.heat(density: a.rho, ambient: a.temperature)
+            let heat = lobe.heat(density: a.rho, ambient: a.temperature)
+            for (side, share) in into {
+                guard let k = primitives.firstIndex(where: { $0.shape == .thermal && $0.lobe == .trench(side) })
+                else { continue }
+                primitives[k].exhaust += share * lobe.exhaust
+                primitives[k].water += share * lobe.water
+                primitives[k].smoke += share * lobe.smoke
+                primitives[k].soot += share * lobe.soot
+                primitives[k].heat += share * heat
+            }
         }
         precondition(primitives.count <= Self.maximum)
     }
@@ -671,9 +759,25 @@ public struct GroundCloudField: Equatable {
                 humidity.specificHumidity(height: z, temperature: s.temperature, pressure: s.pressure))
     }
 
+    /// A trench jet's buoyancy flux at full thrust, all of it down the
+    /// opening, in air of 1.17 kg/m³ at 300 K: the stem's fade's scale.
+    static let fullBuoyancy: Double = {
+        let s = GroundCloud.Sources(exhaust: LiftoffRise.flow, thrust: LiftoffRise.thrust, trench: 1, deck: 0,
+                                    trenchWater: 0, deckWater: 0)
+        return GroundCloud.side(s, density: 1.17, ambient: 300).buoyancy
+    }()
+
     /// Lobe `l`'s primitives: its jet and stem (or the deck's wall jet),
-    /// holding what is in them at its last feed, and its cloud, holding the
-    /// rest; carried on `dt` s along its velocity.
+    /// holding what flows in them at its last feed, and its cloud, holding
+    /// the rest; carried on `dt` s along its velocity.
+    ///
+    /// A jet holds its steady flow's content, the flow over the speed that
+    /// carries it, out to its front. GroundCloud's fronts run at half their
+    /// jets' speeds (a starting jet's, Turner 1962), the deck's at its own
+    /// layer's (`wallSpeed`), so the steady content is less than what the
+    /// jet has carried; only while a flow rises faster than its jet fills is
+    /// it more, and then the jet takes what the lobe has, one share for
+    /// everything it carries.
     mutating func build(_ l: GroundCloud.Lobe, dt: Double, ground: (rho: Double, temperature: Double, pressure: Double,
                                                                    humidity: Double),
                         handover: WallJetHandover?) {
@@ -682,7 +786,7 @@ public struct GroundCloudField: Equatable {
         cloud.radius = l.radius
         cloud.ground = 0
         cloud.exhaust = l.exhaust
-        cloud.water = l.water + LaunchCloudOptics.exhaustWater * l.exhaust
+        cloud.water = l.water
         cloud.smoke = l.smoke
         cloud.soot = l.soot
         cloud.heat = l.heat(density: centreAir.rho, ambient: centreAir.temperature)
@@ -690,24 +794,22 @@ public struct GroundCloudField: Equatable {
         cloud.flux = l.rise
         let f = l.feed
 
-        // The share of `time` s of the feed's flow that the lobe can give
-        // its jet and stem: all of it, or as much as keeps `transitShare`
-        // of each thing it carries (one share for all, so their mixture is
-        // the feed's, and the flow continuous from jet to stem).
+        // The share of `time` s of the feed's flow the lobe can give its
+        // jet and stem: all of it, or what the lobe has, the same share of
+        // everything it carries (so their mixture is the feed's).
         func share(time: Double) -> Double {
             guard time > 0 else { return 0 }
             var s = 1.0
-            let water = f.water + LaunchCloudOptics.exhaustWater * f.exhaust
-            for (rate, held) in [(f.exhaust, cloud.exhaust), (water, cloud.water), (f.smoke, cloud.smoke),
+            for (rate, held) in [(f.exhaust, cloud.exhaust), (f.water, cloud.water), (f.smoke, cloud.smoke),
                                  (f.soot, cloud.soot), (f.heat, max(cloud.heat, 0))] where rate > 0 {
-                s = min(s, Self.transitShare * held / (rate * time))
+                s = min(s, held / (rate * time))
             }
             return max(s, 0)
         }
         // Moves `time` s of the feed's flow from the cloud into `p`.
         func carry(_ p: inout Primitive, time t: Double) {
             p.exhaust = f.exhaust * t
-            p.water = (f.water + LaunchCloudOptics.exhaustWater * f.exhaust) * t
+            p.water = f.water * t
             p.smoke = f.smoke * t
             p.soot = f.soot * t
             p.heat = f.heat * t
@@ -734,14 +836,17 @@ public struct GroundCloudField: Equatable {
             let integral = jet.alongIntegral()
             jet.norm = 1 / integral
             let jetTime = k * integral
-            // The stem, from the jet's end up into its cloud once it has
-            // lifted off the ground: its mass per unit length the flow over
-            // its rise there.
+            // The stem, from the jet's end up into its cloud: its mass per
+            // unit length the flow over its rise there, faded in as the cloud
+            // lifts off and as the jet's buoyancy flux rises (so that neither
+            // switches it on with its whole steady content).
             let base = Vec3(side * l.front, 0, Self.jetHeight)
             let top = cloud.origin - Vec3(0, 0, 0.5 * cloud.radius)
+            let lift = PlumeMember.smoothstep(0, Self.stemLiftOff, (l.centre.z - l.radius) / max(l.radius, 1e-6))
+            let buoyant = PlumeMember.smoothstep(0, Self.stemBuoyancy, f.buoyancy / Self.fullBuoyancy)
             var stem: Primitive?
             var stemTime = 0.0
-            if l.centre.z - l.radius > 1, f.buoyancy > 0, (top - base).length > 1 {
+            if lift * buoyant > 0, (top - base).length > 1 {
                 var p = Primitive(shape: .stem, lobe: l.kind, origin: base, axis: (top - base).normalized)
                 p.end = (top - base).length
                 p.radius = jet.jetRadius(l.front)
@@ -751,7 +856,7 @@ public struct GroundCloudField: Equatable {
                 p.flux = f.buoyancy
                 p.norm = 1 / p.alongIntegral()
                 let v = p.virtualOrigin
-                stemTime = Self.gauss(0, p.end) { s in
+                stemTime = lift * buoyant * Self.gauss(0, p.end) { s in
                     p.along(s) / pow(s + v, 1.0 / 3) / Self.plumeSpeed(buoyancy: f.buoyancy, height: s + v)
                 }
                 stem = p
@@ -771,7 +876,10 @@ public struct GroundCloudField: Equatable {
             var wall = Primitive(shape: .wallJet, lobe: l.kind, origin: .zero, axis: .unitZ)
             wall.start = from
             wall.end = l.front
-            wall.radius = handover?.thickness ?? (Self.defaultWallThickness + PlumeImpingement.wallGrowth * from)
+            // P2's thickness where its wall jet ends, carried on at its growth
+            // to where the field's starts (the jets' footprint, if beyond).
+            wall.radius = handover.map { $0.thickness + PlumeImpingement.wallGrowth * (from - $0.radius) }
+                ?? PadExhaust.wallThickness(rho: from, height: f.exitHeight)
             wall.growth = PlumeImpingement.wallGrowth
             wall.airHumidity = ground.humidity
             wall.flux = f.momentum
@@ -853,7 +961,7 @@ public struct GroundCloudField: Equatable {
         for prim in primitives {
             let d = density?(prim) ?? prim.density(at: p)
             s.source += prim.source * d
-            s.water += prim.water * d
+            s.water += prim.totalWater * d
             s.soot += prim.soot * d
             s.heat += prim.heat * d
             let w = prim.share(at: p)

@@ -21,21 +21,27 @@ public enum LaunchCloudOptics {
     public static var dropletExtinction: Double {
         CloudOptics.extinction(waterContent: 1, effectiveRadius: dropletRadius)
     }
-    /// Kerosene soot: 7.5 m²/g of extinction at 550 nm and a single-
-    /// scattering albedo of 0.2, fresh soot's (Bond and Bergstrom 2006: M).
-    public static let sootExtinction = 7_500.0
-    public static let sootAlbedo = 0.2
-    /// Soot's asymmetry in the visible: small aggregates scatter about
-    /// evenly forward and back (L).
+    /// Kerosene soot: fresh black carbon's mass absorption cross-section,
+    /// 7.5 ± 1.2 m²/g at 550 nm (Bond and Bergstrom 2006, Aerosol Sci.
+    /// Technol. 40, 27: M), and P2's single-scattering albedo, 0.25 (one
+    /// value with the plume, `PlumeLook.Optics.sootAlbedo`; fresh soot's
+    /// 0.2-0.3, L), so its extinction is 7.5 / (1 − ω) = 10 m²/g.
+    public static let sootAbsorption = 7_500.0
+    public static var sootAlbedo: Double { PlumeLook.Optics.sootAlbedo }
+    public static var sootExtinction: Double { sootAbsorption / (1 - sootAlbedo) }
+    /// Soot's asymmetry in the visible: its aggregates scatter mostly
+    /// forward, Henyey-Greenstein 0.4 sending about three-quarters of the
+    /// light into the forward hemisphere (L).
     public static let sootAsymmetry = 0.4
 
     /// The soot the F-1's exhaust leaves in the air, kg a kilogram of it:
-    /// P2's, implied by its plume (decision 4 picks the round's value from
-    /// LR5 PR1's renders; until then P2's): its soot's optical depth across
-    /// an F-1 exit at the rated flow (`PlumeLook.Optics.sootDepth` times the
-    /// spec's soot index) over this extinction, the exit's diameter and the
-    /// exit's density at sea level (P1's `PlumeModel`), what the
-    /// afterburning flame leaves of it (`burntSoot`): about 0.075 %.
+    /// P2's, implied by its plume (decision 4 picks the round's value; until
+    /// then P2's): its soot's optical depth across an F-1 exit at the rated
+    /// flow (`PlumeLook.Optics.sootDepth` times the spec's soot index, a fit
+    /// to the flame's opacity, L) over this extinction, the exit's diameter
+    /// and the exit's density at sea level (P1's `PlumeModel`): 0.29 % at
+    /// the exit; what the afterburning flame leaves of it (`burntSoot`, L):
+    /// 0.072 %.
     public static let sootYield: Double = {
         let f1 = ApolloExhaust.f1.spec
         let air = USStandardAtmosphere1976().state(altitude: 0)
@@ -170,7 +176,7 @@ public enum LaunchCloudOptics {
     /// times the blackbody's luminance at its temperature (`PlumeLook`'s
     /// fit, none below 300 K); the condensate is cold.
     public static func emission(_ c: Content) -> Photometry.RGB {
-        let a = sootExtinction * max(c.soot, 0) * (1 - sootAlbedo)
+        let a = sootAbsorption * max(c.soot, 0)
         guard a > 0 else { return Photometry.RGB(0, 0, 0) }
         return PlumeLook.blackbody(c.temperature).scaled(by: a)
     }

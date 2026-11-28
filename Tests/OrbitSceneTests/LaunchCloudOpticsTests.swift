@@ -58,8 +58,8 @@ final class LaunchCloudOpticsTests: XCTestCase {
     }
 
     // The medium's optics from its mass: droplets of 10 µm at 150 m²/kg
-    // (3 Q / 4 ρ r), soot at 7.5 m²/g and 0.2 albedo; a cloud of water
-    // alone scatters as C2's.
+    // (3 Q / 4 ρ r), soot absorbing 7.5 m²/g at 0.25 albedo (10 m²/g of
+    // extinction); a cloud of water alone scatters as C2's.
     func testOpticsFromMass() {
         XCTAssertEqual(LaunchCloudOptics.dropletExtinction, 150, accuracy: 1e-9)
         let water = LaunchCloudOptics.optics(.init(condensate: 1e-3, soot: 0, temperature: 300))
@@ -67,11 +67,12 @@ final class LaunchCloudOpticsTests: XCTestCase {
         XCTAssertEqual(water.albedo, 1)
         XCTAssertEqual(water.asymmetry, CloudLighting().asymmetry)
         let soot = LaunchCloudOptics.optics(.init(condensate: 0, soot: 1e-5, temperature: 300))
-        XCTAssertEqual(soot.extinction, 0.075, accuracy: 1e-12)
-        XCTAssertEqual(soot.albedo, 0.2, accuracy: 1e-12)
+        XCTAssertEqual(soot.extinction, 0.1, accuracy: 1e-12)
+        XCTAssertEqual(soot.absorption, 0.075, accuracy: 1e-12, "Bond and Bergstrom's 7.5 m²/g")
+        XCTAssertEqual(soot.albedo, 0.25, accuracy: 1e-12)
         // Mixed: the albedo is the extinctions' weighting.
         let both = LaunchCloudOptics.optics(.init(condensate: 1e-3, soot: 1e-5, temperature: 300))
-        XCTAssertEqual(both.albedo, (0.15 + 0.2 * 0.075) / 0.225, accuracy: 1e-12)
+        XCTAssertEqual(both.albedo, (0.15 + 0.25 * 0.1) / 0.25, accuracy: 1e-12)
         XCTAssertEqual(LaunchCloudOptics.phase(0.3, dropletShare: 1), LaunchCloudOptics.dropletPhase.phase(0.3))
         // The phase integrates to one over the sphere (μ = 1 − 2u², to
         // resolve the droplets' diffraction peak).
@@ -87,11 +88,14 @@ final class LaunchCloudOpticsTests: XCTestCase {
         XCTAssertGreaterThan(LaunchCloudOptics.emission(.init(condensate: 0, soot: 1e-5, temperature: 1_200)).luminance, 0)
     }
 
-    // The soot yield is P2's (decision 4, until LR5 PR1's renders choose):
-    // its plume's soot depth across an F-1 exit, 8, over 7.5 m²/g, the exit's
-    // 3.55 m and P1's 0.078 kg/m³ at sea level, 0.38 %, a quarter of it left
-    // by the flame: 0.096 % (the plan's study estimated 0.07 %).
+    // The soot yield is P2's (decision 4, until it is chosen): its plume's
+    // soot depth across an F-1 exit, 8, over soot's extinction (Bond and
+    // Bergstrom's 7.5 m²/g of absorption at P2's albedo 0.25: 10 m²/g), the
+    // exit's 3.55 m and P1's 0.078 kg/m³ at sea level, 0.29 %, a quarter of
+    // it left by the flame: 0.072 %.
     func testSootYieldIsP2s() {
+        XCTAssertEqual(LaunchCloudOptics.sootExtinction, 7_500 / 0.75, accuracy: 1e-9)
+        XCTAssertEqual(LaunchCloudOptics.sootAlbedo, PlumeLook.Optics.sootAlbedo)
         let f1 = ApolloExhaust.f1.spec
         let exit = PlumeModel.state(f1, flowFraction: 1, ambient: USStandardAtmosphere1976().state(altitude: 0),
                                     streamAlong: 0, streamAcross: 0)
@@ -99,7 +103,7 @@ final class LaunchCloudOpticsTests: XCTestCase {
         let column = LaunchCloudOptics.sootYield / PlumeLook.Optics.burntSoot * exit.exitDensity
             * LaunchCloudOptics.sootExtinction * 2 * f1.exitRadius
         XCTAssertEqual(column, PlumeLook.Optics.sootDepth * f1.sootIndex, accuracy: 1e-9, "P2's depth across the exit")
-        XCTAssertEqual(LaunchCloudOptics.sootYield * 100, 0.096, accuracy: 0.005)
+        XCTAssertEqual(LaunchCloudOptics.sootYield * 100, 0.072, accuracy: 0.003)
     }
 
     // Saturation over water is IAPWS-95's (its Table 8's check values and

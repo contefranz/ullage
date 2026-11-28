@@ -140,4 +140,112 @@ final class LaunchTurbulenceTests: XCTestCase {
         XCTAssertGreaterThan(p.density(at: edge, displacement: 10), p.density(at: edge))
         XCTAssertLessThan(p.density(at: edge, displacement: -10), p.density(at: edge))
     }
+
+    // The displaced shapes keep their mass. Moving a convex profile's level
+    // sets by a zero-mean amount raises its integral on average (a ring
+    // thermal by a third with every octave drawn); the expected gain
+    // (`DisplacementGain`, tabled in each shape's level-set measure) is
+    // checked here by an independent quadrature in space: the thermal's
+    // (s, z) half-plane, the jet's disc, the wall jet's layer.
+    func testDisplacementGainsAreTheShapes() {
+        func expected(_ sigma: Double, _ profile: (Double) -> Double, _ points: [(q: Double, w: Double)]) -> Double {
+            let m = 41, span = 6 * sigma, dx = 2 * span / Double(m - 1)
+            var total = 0.0, weights = 0.0
+            for k in 0..<m {
+                let x = -span + Double(k) * dx, w = exp(-0.5 * x * x / (sigma * sigma))
+                weights += w
+                total += w * points.reduce(0.0) { $0 + $1.w * profile(max($1.q - PlumeMember.smoothstep(0, 1, $1.q) * x, 0)) }
+            }
+            return total / weights / points.reduce(0.0) { $0 + $1.w * profile($1.q) }
+        }
+        let gauss: (Double) -> Double = { exp(-$0 * $0) }
+        // The thermal (R = 1): its ring coordinate over the (s, z) half-plane.
+        var ring: [(q: Double, w: Double)] = []
+        let a = GroundCloudField.ringRadius, sc = GroundCloudField.coreRadius, e = GroundCloudField.capStretch
+        for i in 0..<150 {
+            let sr = (Double(i) + 0.5) * 0.02
+            for j in 0..<360 {
+                let z = -3.6 + (Double(j) + 0.5) * 0.02
+                let q = (((sr - a) * (sr - a) + (z / e) * (z / e)).squareRoot()) / sc
+                ring.append((q, 2 * .pi * sr * 0.02 * 0.02))
+            }
+        }
+        XCTAssertEqual(ring.reduce(0.0) { $0 + $1.w * gauss($1.q) }, GroundCloudField.ringVolume(1), accuracy: 1e-3,
+                       "the ring's volume")
+        // The jet's disc on a Cartesian grid, the wall jet's layer.
+        var disc: [(q: Double, w: Double)] = []
+        for i in 0..<250 {
+            for j in 0..<250 {
+                let y = -5 + (Double(i) + 0.5) * 0.04, z = -5 + (Double(j) + 0.5) * 0.04
+                disc.append(((y * y + z * z).squareRoot(), 0.04 * 0.04))
+            }
+        }
+        let layer = (0..<1_000).map { (q: (Double($0) + 0.5) * 0.004, w: 0.004) }
+        for sigma in [0.1, 0.25, 0.5, 0.8] {
+            let t = expected(sigma, gauss, ring), r = expected(sigma, gauss, disc)
+            let w = expected(sigma, GroundCloudField.wallProfile, layer)
+            XCTAssertEqual(GroundCloudField.DisplacementGain.gain(.thermal, spread: sigma), t, accuracy: 0.005 * t, "σ \(sigma)")
+            XCTAssertEqual(GroundCloudField.DisplacementGain.gain(.roundJet, spread: sigma), r, accuracy: 0.005 * r, "σ \(sigma)")
+            XCTAssertEqual(GroundCloudField.DisplacementGain.gain(.wallJet, spread: sigma), w, accuracy: 0.005 * w, "σ \(sigma)")
+            print(String(format: "σ %.2f: gains thermal %.3f, jet %.3f, wall %.3f", sigma, t, r, w))
+        }
+        XCTAssertGreaterThan(GroundCloudField.DisplacementGain.gain(.thermal, spread: 0.5), 1.25, "a third more uncorrected")
+    }
+
+    // A drawn field keeps its mass: a thermal's displaced density over space,
+    // every octave close up and the largest few far away, averaged over a
+    // few turbulence times, is its undisplaced integral within 3 %; close up,
+    // without the gain, it is about a third more (far away about 1 %).
+    func testDrawnTurbulenceKeepsTheMass() {
+        let p = Self.thermal
+        let r = p.radius * 2.6, cell = p.radius / 5
+        let lo = p.origin - Vec3(r, r, r * 1.2)
+        let n = [Int((2 * r / cell).rounded(.up)), Int((2 * r / cell).rounded(.up)), Int((2.4 * r / cell).rounded(.up))]
+        let d = Vec3(2 * r / Double(n[0]), 2 * r / Double(n[1]), 2.4 * r / Double(n[2]))
+        for (label, footprint) in [("close", 0.05), ("far", 0.2 * p.radius)] {
+            var kept = 0.0, raw = 0.0
+            let times = [3.7, 11.3, 19.9, 27.1]
+            for t in times {
+                let bands = PlumeTurbulence.bands(time: t)
+                for i in 0..<n[0] {
+                    for j in 0..<n[1] {
+                        for k in 0..<n[2] {
+                            let x = lo + Vec3((Double(i) + 0.5) * d.x, (Double(j) + 0.5) * d.y, (Double(k) + 0.5) * d.z)
+                            let e = LaunchTurbulence.displacementAndSpread(p, at: x, bands: bands, footprint: footprint,
+                                                                         noise: LaunchTurbulence.smoothNoise)
+                            kept += p.density(at: x, displacement: e.eta, spread: e.spread)
+                            raw += p.density(at: x, displacement: e.eta)
+                        }
+                    }
+                }
+            }
+            let volume = d.x * d.y * d.z / Double(times.count)
+            print(String(format: "%@: displaced and kept %.3f, uncorrected %.3f", label, kept * volume, raw * volume))
+            XCTAssertEqual(kept * volume, 1, accuracy: 0.03, label)
+            if label == "close" { XCTAssertGreaterThan(raw * volume, 1.2, "the bias the gain removes") }
+        }
+    }
+
+    // The wall jet's noise is laid out in local eddies every way: a metre
+    // out along the deck, round it and up moves the noise as far, within a
+    // quarter (near the layer's start, where its thickness is far from
+    // proportional to the radius, the circle's own growth adds to the
+    // radial rate), in units free of the metre.
+    func testWallJetNoiseIsIsotropic() throws {
+        let f = GroundCloudFieldTests.field(GroundCloudFieldTests.cloud(to: 10), at: 10)
+        let wall = try XCTUnwrap(f.primitives.first { $0.shape == .wallJet })
+        for rho in [wall.start + 5, 0.5 * (wall.start + wall.end), wall.end - 5] {
+            let z = 0.5 * wall.thickness(rho), h = 0.05
+            let at = Vec3(rho, 0, z)
+            let c = LaunchTurbulence.carried(wall, at: at, age: 0, octave: 0)
+            let radial = (LaunchTurbulence.carried(wall, at: Vec3(rho + h, 0, z), age: 0, octave: 0) - c).length / h
+            let around = (LaunchTurbulence.carried(wall, at: Vec3(rho * cos(h / rho), rho * sin(h / rho), z), age: 0,
+                                                   octave: 0) - c).length / h
+            let up = (LaunchTurbulence.carried(wall, at: Vec3(rho, 0, z + h), age: 0, octave: 0) - c).length / h
+            let local = 1 / (LaunchTurbulence.integralScale * wall.thickness(rho))
+            for (name, rate) in [("radial", radial), ("around", around), ("up", up)] {
+                XCTAssertEqual(rate, local, accuracy: 0.25 * local, "\(name) at \(rho) m")
+            }
+        }
+    }
 }

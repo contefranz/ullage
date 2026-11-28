@@ -32,10 +32,10 @@ final class EffectMediumTests: XCTestCase {
                     peak = max(peak, p.density(at: x))
                 }
                 for x in points {
-                    for eta in [0.0, 3, -3] {
-                        let want = p.density(at: x, displacement: eta)
+                    for (eta, spread) in [(0.0, 0.0), (3, 2), (-3, 2), (3, 0)] {
+                        let want = p.density(at: x, displacement: eta, spread: spread)
                         let got = Double(m.density(i, at: SIMD3(Float(x.x), Float(x.y), Float(x.z)),
-                                                   displacement: Float(eta)))
+                                                   displacement: Float(eta), spread: Float(spread)))
                         XCTAssertEqual(got, want, accuracy: 1e-4 * peak + 1e-4 * want, "T\(t) s \(p.shape) at \(x)")
                     }
                 }

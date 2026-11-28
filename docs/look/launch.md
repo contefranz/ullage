@@ -125,15 +125,16 @@ Plausibility, not a fit (`GroundCloudTests`):
 - at 15 s the cloud is 954 m across (Apollo 16: 750 m);
 - at 30 s it is 1.09 km across (Apollo 10 and 16: 1.2-1.3 km), its top at
   0.74 km (Apollo 16's south lobe: 0.5 km);
-- its top is at 1.18 km at 60 s (Apollo 16: 0.8 km) and 2.56 km at 180 s
-  (2.2 km).
+- the south trench cloud's top is at 1.18 km at 60 s, 1.76 km at 120 s and
+  2.14 km at 180 s (Apollo 16's south plume: 0.8, 1.65 and 2.2 km); the
+  deck's cloud is higher, 1.34 km at 60 s and 2.75 km at 180 s.
 
 Sources: TM X-2935 Figs. 3 and 4; Apollo 10's plume in CR-61326 (Dumbauld
 et al.'s handbook) Fig. E-9.
 
 Apollo 16's cloud stabilised with its centre line at about 2.2 km by
 T+2.5 min, under a subsidence inversion at about 2 km (TM X-2910). The
-model's, volume-weighted, is 1.64 km then, 25 % lower, and still rising at
+model's, volume-weighted, is 1.73 km then, 21 % lower, and still rising at
 6 m/s, slowing; AS-506's sounding has no such inversion. That is another
 vehicle (AS-511) and another day (16 April 1972). By T+240 s the clouds
 hold 390 t of exhaust: 155 t from the trench, 236 t from the deck. Nothing
@@ -195,9 +196,17 @@ with that air's vapour, and its last step's feed. The F-1s' start smoke,
 the gas generators' 2.9 % at 887 K from each start command to its
 ignition, feeds three small thermals of its own: half up through the ML's
 opening, a quarter out of each exit (P4's split, L). All three are
-integrated apart, so the trench and deck lobes are exactly as they were,
-and so are P4's sprites. The field draws the exits' two inside their
-trench's cloud once its jet has run through them.
+integrated apart, so P4's sprites still see the lobes they did. Once the
+trench's jets run, the field draws all three inside the trench's clouds:
+the exits' smoke through which the jets run, and the chimney's, round the
+vehicle over the opening, taken in by the jets down it, half to each. No
+start smoke lingers round the vehicle.
+
+Every jet's front runs at half its jet's speed (a starting jet, Turner
+1962): the trench's at the round jet's, and the deck's, since round 2, at
+its own wall layer's, the speed the field's wall jet carries its fluid at.
+The water takes all the heat it can, or all the water boils, branched
+explicitly, so no rounding residue is left as heat.
 
 **The field** (`GroundCloudField`). It is built from GroundCloud's state
 alone, so a rebuilt field is the frames' to the bit. It holds at most 12
@@ -206,19 +215,24 @@ similarity primitives, each with a closed-form shape whose integral is one:
 | primitive | law | source | grade |
 |---|---|---|---|
 | trench jets | round momentum jets from the deflector: the concentration's e-folding radius λ 0.107 x, λ = 1.19; mass per unit length (1 + λ²) x / (7.0 √M) per kg/s; along the ground at the exits' mid-depth, mirrored in the grade | Fischer et al. 1979, Table 9.1 | H (the law) |
-| deck wall jet | P2's continued from where P2's ends (`WallJetHandover`): its half-thickness there, growing 0.087 a metre, P2's top-hat profile across it; the speed that keeps all its momentum in that layer | Poreh, Tsuei and Cermak 1967; P2 | M |
+| deck wall jet | P2's continued from where P2's ends (`WallJetHandover`), or from the jets' footprint if that is beyond: its half-thickness there, growing 0.087 a metre, P2's top-hat profile across it; the speed that keeps all its momentum in that layer. It carries P2's own flux of exhaust where P2's ends, within 1 % (the members' flow times their deck shares, one model with PadExhaust) | Poreh, Tsuei and Cermak 1967; P2 | M |
 | clouds | ring thermals: a Gaussian torus about the cloud's vertical axis (ring 0.35 R, core 0.5 R, stretched 1.2 upward), mirrored in the deck's level, which GroundCloud rests them on | the look of Scorer's thermals | L |
-| stems | pure plumes from each trench jet's end up into its cloud once it has lifted, top-hat α 0.117 | MTT 1956, List 1982 | M |
-| start smoke | its three thermals, as the clouds; the exits' two drawn in their trench's cloud once its jet has run | — | L |
+| stems | pure plumes from each trench jet's end up into its cloud, top-hat α 0.117; faded in over the cloud's lift-off (half its radius) and as the jet's buoyancy flux rises past 5 % of a trench jet's at full thrust (L) | MTT 1956, List 1982 | M |
+| start smoke | its three thermals, as the clouds, until the trench's jets run; then inside the trench's clouds | — | L |
 
 A lobe's exhaust, water, smoke, soot and heat are shared between its jet
-and stem and its cloud. The jet and stem get what is in them at the feed's
-steady flow, at most half the lobe's: a starting jet's head keeps the rest
-(L). The share is one factor for all of them, so their mixture is the
-feed's and the flow is continuous from jet to stem. The deck's wall jet as
-far as P2 draws it is P2's (`inPlume`). So the field's totals are the
-clouds' to rounding, and integrated over space they are within 1 %
-(`GroundCloudFieldTests`).
+and stem and its cloud. The jet and stem get what flows in them at the
+feed's steady flow: the flow over the speed that carries it, out to the
+front. The fronts run at half their jets' speeds, so that is less than the
+jet has carried, and the head keeps the rest. Only while a flow rises
+faster than its jet fills is it more, and then the jet takes what the lobe
+has. The share is one factor for everything they carry, so their mixture
+is the feed's and the flow is continuous from jet to stem.
+
+The deck's wall jet, as far as P2 draws it, is P2's (`inPlume`). So the
+field's totals are the clouds' to rounding, and integrated over space they
+are within 1 % (`GroundCloudFieldTests`). The exhaust's own water is part
+of its mass; the vapour budget adds what its hydrogen makes burning.
 
 **Condensate.** It is not carried. At each point, the mixture of what the
 primitives bring there with the air (the cloud's own entrained air, blended
@@ -252,8 +266,31 @@ T+60 s.
 With July's humidity aloft, the clouds hold no condensate for the first
 five minutes; the first appears at a trench cloud's top at about 2.5 km
 (`testCondensateIsTheSaturationAdjustments`). They show their soot: at
-P2's 0.096 %, an optical depth of 15-20 through a trench cloud at
+P2's 0.072 %, an optical depth of about 15 through a trench cloud at
 T+5-10 s and a few at T+30 s, a grey smoke.
+
+**The soot, not only the water, bounds the whiteness.** Even with all of the
+pad's water condensed on 10 µm droplets (the deluge's 58,000 gpm and the
+exhaust's own, 0.62 kg a kilogram of exhaust), a cloud is white (thick-cloud
+reflectance about 0.6, single-scattering albedo 0.99) only with at most
+0.013 % soot (0.008 % in a trench cloud, which gets only the trench's
+8,000 gpm). At P2's 0.072 % it is mid-grey: reflectance about 0.31.
+
+What the sources say of the soot left near the ground:
+- Nothing measures it in an RP-1 ground cloud.
+- MSFC's own F-1 table (TM X-2935 Table II) lists 0.0575 % particulates at
+  the exit, mainly from the turbine exhaust, and keeps them after mixing
+  with the air.
+- The global models' kerosene engines give 2-2.5 % black carbon at the
+  exit (Ross and Sheaffer 2014; the National Academies' CSVEM, 2021; Barker,
+  Marais and McDowell 2024). Their afterburning leaves 4 % of it at low
+  altitude (CSVEM, Barker: 0.09-0.1 %), or none at sea level (Maloney et
+  al. 2022).
+- P2's exit value, 0.29 %, is a fit to the flame's opacity. Its 25 %
+  survival (`burntSoot`) has no source. P2's exit with CSVEM's 4 % survival
+  would be 0.012 %, white with all the water condensed.
+
+The yield stays P2's until decision 4.
 
 The white part is a trench jet from T+20 s. By then the climb has carried
 most of the jets onto the deck while the trench's water still runs, so the
@@ -284,16 +321,28 @@ white near the pad may be, is Franz's call.
   level sets are displaced by octaves of gain 2^(−k(3 − D)), the whole
   cascade's rms 0.25 of the flow's size (L).
 - The noise: P2's flow noise, in P2's bands of lifetimes, carried in each
-  flow's own coordinates.
-- Measured: the structure function's slope is 1.29 against 4/3, and a
-  frame's change at T+15 s is 1.4 % of the boundary's rms.
+  flow's own coordinates. Each octave is averaged over the exposure as P2
+  averages it, u/L integral lengths a second. The wall jet's noise is laid
+  out in its local eddies every way, round the deck on a circle, out along
+  it in ∫dρ/δ.
+- The mass is kept. Displacing a convex profile's level sets by a zero-mean
+  amount raises its integral on average: a ring thermal's by a third with
+  every octave drawn, a jet's by a quarter. So each displaced density is
+  divided by that expected gain, tabled by shape against the displacement's
+  rms (`GroundCloudField.DisplacementGain`; `EffectMedium.gains` for the
+  shader). A drawn thermal then holds its mass within 2 %, close up or far.
+- Measured: the structure function's slope is 1.32 against 4/3, and a
+  frame's change at T+15 s is 1.3 % of the boundary's rms.
 
 **Optics** (`LaunchCloudOptics`).
-- Extinction from mass: droplets of 10 µm (L) at 150 m²/kg, soot at 7.5 m²/g
-  with albedo 0.2 (Bond and Bergstrom 2006, M).
-- The soot yield: P2's implied value, 0.096 % (its soot depth across an F-1
-  exit, less what its flame burns; the plan's study estimated 0.07 %) until
-  decision 4 picks one.
+- Extinction from mass: droplets of 10 µm (L) at 150 m²/kg; soot absorbing
+  7.5 m²/g (fresh black carbon's mass absorption cross-section, Bond and
+  Bergstrom 2006, M) at P2's single-scattering albedo, 0.25, so its
+  extinction is 10 m²/g.
+- The soot yield: P2's implied value until decision 4 picks one. That is its
+  soot depth across an F-1 exit over that extinction, 0.29 %, less what its
+  flame burns (`burntSoot`, L): 0.072 %. Both parts are L: the depth is a
+  fit to the flame's opacity.
 - The phase: C2's approximate Mie at 20 µm, blended with soot's
   Henyey-Greenstein at 0.4 (L).
 - Multiple scattering: a two-stream with absorption, C2's exactly at albedo
