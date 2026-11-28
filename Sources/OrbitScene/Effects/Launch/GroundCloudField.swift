@@ -271,6 +271,14 @@ public struct GroundCloudField: Equatable {
     /// they run over and are mirrored in.
     public static var jetHeight: Double { PadExhaust.trenchExits[0].position.z }
     public static var grade: Double { LC39A.gradeHeight }
+    /// A trench cloud, its starting jet's head, keeps at least half of what
+    /// its lobe holds (L, the coordinator's call on #106): the trench's front
+    /// runs at half its jet's centreline speed (Turner 1962), while the jet
+    /// carries its concentration at u_c/(1 + λ²), 0.41 u_c, so the steady
+    /// jet out to its front would hold more than has flowed in. The deck's
+    /// front runs at half its layer's speed, slower than its fluid, so its
+    /// wall jet takes no such share.
+    public static let headShare = 0.5
     /// A stem fades in as its cloud lifts off the ground (over this share of
     /// its radius) and as its jet's buoyancy flux rises past this share of
     /// a trench jet's at full thrust (L, so that neither switches it on).
@@ -716,35 +724,43 @@ public struct GroundCloudField: Equatable {
         let state = cloud.state(at: epoch)
         let dt = max(0, epoch - state.time)
         let ground = ambient(height: 0)
-        // The start smoke is drawn inside the trench's clouds once their jets
+        // The start smoke is taken into the trench's clouds as their jets
         // run: the exits' through them, the chimney's (round the vehicle,
-        // over the opening) taken in by the jets down it, half to each.
-        // GroundCloud integrates it apart, so that P4's sprites stay as they
-        // were.
-        let running = state.lobes.contains { if case .trench = $0.kind { $0.exhaust > 0 } else { false } }
-        func swept(_ l: GroundCloud.Lobe) -> [(side: Double, share: Double)]? {
-            guard running, case .startSmoke(let side) = l.kind else { return nil }
-            return side == 0 ? [(1, 0.5), (-1, 0.5)] : [(side, 1)]
-        }
-        for lobe in state.lobes where swept(lobe) == nil {
+        // over the opening) by the jets down it, half to each. The share
+        // swept rises smoothly with the exhaust the trench has carried
+        // (`sweptBy`), the rest staying where it was; GroundCloud integrates
+        // it apart, so that P4's sprites stay as they were.
+        let carried = state.lobes.reduce(0.0) { if case .trench = $1.kind { $0 + $1.exhaust } else { $0 } }
+        let swept = PlumeMember.smoothstep(0, Self.sweptBy, carried)
+        for var lobe in state.lobes {
+            if case .startSmoke = lobe.kind {
+                guard swept < 1 else { continue }
+                lobe.scale(1 - swept)
+            }
             build(lobe, dt: dt, ground: ground, handover: handover)
         }
-        for lobe in state.lobes {
-            guard let into = swept(lobe) else { continue }
+        for lobe in state.lobes where swept > 0 {
+            guard case .startSmoke(let side) = lobe.kind else { continue }
             let a = ambient(height: lobe.centre.z)
             let heat = lobe.heat(density: a.rho, ambient: a.temperature)
-            for (side, share) in into {
-                guard let k = primitives.firstIndex(where: { $0.shape == .thermal && $0.lobe == .trench(side) })
+            for (into, share) in side == 0 ? [(1.0, 0.5), (-1.0, 0.5)] : [(side, 1.0)] {
+                guard let k = primitives.firstIndex(where: { $0.shape == .thermal && $0.lobe == .trench(into) })
                 else { continue }
-                primitives[k].exhaust += share * lobe.exhaust
-                primitives[k].water += share * lobe.water
-                primitives[k].smoke += share * lobe.smoke
-                primitives[k].soot += share * lobe.soot
-                primitives[k].heat += share * heat
+                let w = swept * share
+                primitives[k].exhaust += w * lobe.exhaust
+                primitives[k].water += w * lobe.water
+                primitives[k].smoke += w * lobe.smoke
+                primitives[k].soot += w * lobe.soot
+                primitives[k].heat += w * heat
             }
         }
         precondition(primitives.count <= Self.maximum)
     }
+
+    /// The trench's carried exhaust over which the start smoke is swept into
+    /// its clouds, kg: two seconds of the five F-1s' full flow, the jets
+    /// taking it in over a few of their turnovers through the ignition (L).
+    public static var sweptBy: Double { 2 * LiftoffRise.flow }
 
     /// The air `z` m above the deck: density, temperature, pressure and
     /// specific humidity.
@@ -772,12 +788,18 @@ public struct GroundCloudField: Equatable {
     /// the rest; carried on `dt` s along its velocity.
     ///
     /// A jet holds its steady flow's content, the flow over the speed that
-    /// carries it, out to its front. GroundCloud's fronts run at half their
-    /// jets' speeds (a starting jet's, Turner 1962), the deck's at its own
-    /// layer's (`wallSpeed`), so the steady content is less than what the
-    /// jet has carried; only while a flow rises faster than its jet fills is
-    /// it more, and then the jet takes what the lobe has, one share for
-    /// everything it carries.
+    /// carries it, out to its front, at most what its cloud can give.
+    /// - The deck's front runs at half its own layer's speed (`wallSpeed`),
+    ///   slower than its fluid (0.87 of it, the flux-weighted speed), so its
+    ///   wall jet's steady content is less than has flowed in; only while
+    ///   its flow rises faster than the jet fills is it more, and then the
+    ///   wall jet takes what the lobe has.
+    /// - A trench's front runs at half its round jet's centreline speed
+    ///   (Turner 1962), faster than the jet carries its concentration
+    ///   (u_c/(1 + λ²)), so out to the front the steady jet would hold about
+    ///   1.2 times what has flowed in. Its cloud, the starting jet's head,
+    ///   keeps `headShare` of each thing; the jet and stem take at most the
+    ///   rest, each thing apart.
     mutating func build(_ l: GroundCloud.Lobe, dt: Double, ground: (rho: Double, temperature: Double, pressure: Double,
                                                                    humidity: Double),
                         handover: WallJetHandover?) {
@@ -794,25 +816,26 @@ public struct GroundCloudField: Equatable {
         cloud.flux = l.rise
         let f = l.feed
 
-        // The share of `time` s of the feed's flow the lobe can give its
-        // jet and stem: all of it, or what the lobe has, the same share of
-        // everything it carries (so their mixture is the feed's).
-        func share(time: Double) -> Double {
-            guard time > 0 else { return 0 }
-            var s = 1.0
-            for (rate, held) in [(f.exhaust, cloud.exhaust), (f.water, cloud.water), (f.smoke, cloud.smoke),
-                                 (f.soot, cloud.soot), (f.heat, max(cloud.heat, 0))] where rate > 0 {
-                s = min(s, held / (rate * time))
+        // What the lobe can give its jet and stem of `time` s of the feed's
+        // flow, of each thing it carries: all of it, or what leaves the
+        // cloud `head` of what it holds (each thing apart, so that none is
+        // driven to nothing in the cloud).
+        struct Take { var exhaust = 1.0, water = 1.0, smoke = 1.0, soot = 1.0, heat = 1.0 }
+        func take(time: Double, head: Double) -> Take {
+            func s(_ rate: Double, _ held: Double) -> Double {
+                rate > 0 && time > 0 ? min(1, max(0, (1 - head) * held / (rate * time))) : 1
             }
-            return max(s, 0)
+            return Take(exhaust: s(f.exhaust, cloud.exhaust), water: s(f.water, cloud.water),
+                        smoke: s(f.smoke, cloud.smoke), soot: s(f.soot, cloud.soot), heat: s(f.heat, max(cloud.heat, 0)))
         }
-        // Moves `time` s of the feed's flow from the cloud into `p`.
-        func carry(_ p: inout Primitive, time t: Double) {
-            p.exhaust = f.exhaust * t
-            p.water = f.water * t
-            p.smoke = f.smoke * t
-            p.soot = f.soot * t
-            p.heat = f.heat * t
+        // Moves `time` s of the feed's flow, `k` of each thing, from the
+        // cloud into `p`.
+        func carry(_ p: inout Primitive, time t: Double, _ k: Take) {
+            p.exhaust = f.exhaust * t * k.exhaust
+            p.water = f.water * t * k.water
+            p.smoke = f.smoke * t * k.smoke
+            p.soot = f.soot * t * k.soot
+            p.heat = f.heat * t * k.heat
             cloud.exhaust -= p.exhaust
             cloud.water -= p.water
             cloud.smoke -= p.smoke
@@ -861,11 +884,11 @@ public struct GroundCloudField: Equatable {
                 }
                 stem = p
             }
-            let s = share(time: jetTime + stemTime)
-            carry(&jet, time: jetTime * s)
+            let given = take(time: jetTime + stemTime, head: Self.headShare)
+            carry(&jet, time: jetTime, given)
             primitives.append(jet)
             if var p = stem {
-                carry(&p, time: stemTime * s)
+                carry(&p, time: stemTime, given)
                 primitives.append(p)
             }
         case .deck where f.momentum > 0 && f.exhaust > 0 && l.front > l.start:
@@ -899,17 +922,17 @@ public struct GroundCloudField: Equatable {
                 wall.norm = 1 / wall.alongIntegral()
                 wallTime = time(wall.start, wall.end) { rho in wall.along(rho) / (rho * wall.thickness(rho)).squareRoot() }
             }
-            let s = share(time: p2Time + wallTime)
+            let given = take(time: p2Time + wallTime, head: 0)
             if p2Time > 0 {
                 var p2 = Primitive(shape: .wallJet, lobe: .deck, origin: .zero, axis: .unitZ)
                 p2.start = l.start
                 p2.end = from
                 p2.growth = PlumeImpingement.wallGrowth
-                carry(&p2, time: p2Time * s)
+                carry(&p2, time: p2Time, given)
                 inPlume = p2
             }
             if wallTime > 0 {
-                carry(&wall, time: wallTime * s)
+                carry(&wall, time: wallTime, given)
                 primitives.append(wall)
             }
         default:

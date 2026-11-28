@@ -106,10 +106,7 @@ public enum LaunchTurbulence {
             var octave = 0.0, bandWeights = 0.0, depths = 0.0
             for (b, wb) in [(j, 1 - beta), (j + 1, beta)] where wb > 1e-3 {
                 let layerLife = PlumeTurbulence.life(band: b)
-                // The flow sweeps past u/L integral lengths a second, L the
-                // noise's integral length in its cell (P2's `Flow.sweep`).
-                let depth = PlumeTurbulence.shutterAverage(life: layerLife,
-                                                           sweep: speed / (PlumeTurbulence.integralLength * eddy)).depth
+                let depth = shutterDepth(speed: speed, cell: eddy, life: layerLife)
                 var sum = 0.0, weights2 = 0.0
                 for layer in 0..<2 {
                     let phase = layer == 0 ? bands[b].phase.0 : bands[b].phase.1
@@ -136,6 +133,15 @@ public enum LaunchTurbulence {
             variance += amplitude * amplitude * depths / bandWeights
         }
         return (eta, variance.squareRoot())
+    }
+
+    /// The depth an octave of noise cells `cell` m keeps over the camera's
+    /// exposure, its layers living `life` s, in a flow of `speed` m/s: P2's
+    /// shutter average, the flow sweeping u/L integral lengths a second past
+    /// the point, L the noise's integral length in its cell (P2's
+    /// `Flow.sweep`).
+    public static func shutterDepth(speed: Double, cell: Double, life: Double) -> Double {
+        PlumeTurbulence.shutterAverage(life: life, sweep: speed / (PlumeTurbulence.integralLength * cell)).depth
     }
 
     /// Octave k's own offset in the tile, so the octaves are independent.

@@ -35,8 +35,11 @@ import OrbitCore
 ///   (the length over which a buoyant jet forgets its momentum).
 /// - The deck: once the plume outgrows the ML's opening, what strikes the
 ///   deck turns into a radial wall jet with all its momentum (a jet on a
-///   plate), at the same law from the pad's axis: a third cloud, over the
-///   pad, fed as the vehicle climbs.
+///   plate), from the pad's axis: a third cloud, over the pad, fed as the
+///   vehicle climbs. Its layer is P2's, half-thickness δ = R(h)/2 + 0.087 ρ
+///   (`PadExhaust.wallThickness`), at the speed that keeps its momentum in
+///   it (`GroundCloudField.wallSpeed`); its front runs at half that speed,
+///   and its cloud is fed with the layer's own volume flux, 2πρδu0 ∫p.
 /// - The clouds: one Morton-Taylor-Turner (1956) thermal per jet, fed at
 ///   its jet's end with the jet's volume and buoyancy (the deck's centred
 ///   on the pad, its wall jet all round it): dV/dt = 4π R² α |w| +
@@ -47,17 +50,18 @@ import OrbitCore
 /// - What each cloud carries, for its medium (`GroundCloudField`): the
 ///   exhaust, the water it boiled, the soot (`LaunchCloudOptics.sootYield`),
 ///   the air it entrained and that air's vapour (the launch day's humidity,
-///   `LaunchHumidity`: TM X-64796's surface value, July's RRA aloft), and the jet's fluxes at
-///   the last step, so that the medium is built from the state alone.
+///   `LaunchHumidity`: TM X-64796's surface value, July's RRA aloft), and
+///   the jet's fluxes at the last step, so that the medium is built from
+///   the state alone.
 /// - The F-1s' start (`startSmoke`): from each engine's start command to
 ///   its ignition its gas generator's fuel-rich turbine exhaust, 2.9 % of its
 ///   rated flow at 887 K (`ApolloExhaust.f1`'s film), falls into the trench
 ///   and leaves it: half up through the ML's opening round the vehicle, a
 ///   quarter out of each exit (`LaunchEffects`'s split, L). Each share feeds
-///   a small thermal of its own, buoyant with its heat. The exits' two are
+///   a small thermal of its own, buoyant with its heat. All three are
 ///   integrated apart throughout, so that the trench's lobes (and P4's
-///   sprites) are as they were; the medium draws them inside their trench's
-///   cloud once its jet has run through them (`GroundCloudField`).
+///   sprites) are as they were; the medium takes them into the trench's
+///   clouds as the jets run (`GroundCloudField.sweptBy`).
 ///
 /// Apollo 10's and 16's clouds are the plausibility check, not a fit
 /// (NASA CR-61326, Fig. E-9; TM X-2935, Figs. 3 and 4): two lobes from the
@@ -295,6 +299,18 @@ public struct GroundCloud: Equatable {
         public var rise: Double { volume > 0 ? momentum / volume : 0 }
         /// Its top, m above the deck.
         public var top: Double { centre.z + radius }
+        /// What it carries scaled by `k`: its exhaust, water, smoke, soot,
+        /// air, vapour and buoyancy (its shape and motion kept).
+        public mutating func scale(_ k: Double) {
+            exhaust *= k
+            water *= k
+            smoke *= k
+            soot *= k
+            air *= k
+            vapour *= k
+            buoyancy *= k
+        }
+
         /// Its heat above the air round it (J), in air of density `rho` at
         /// `ambient` K: ρ c_p T B / g, its buoyancy's (Boussinesq).
         public func heat(density rho: Double, ambient: Double) -> Double {
@@ -413,7 +429,18 @@ public struct GroundCloud: Equatable {
             case .startSmoke: l.start = 0
             }
             // The cloud, fed at the jet's end with the jet's volume flux.
-            let feed = m > 0 ? Self.jetVolume * m * l.front : 0
+            // The trench's round jet brings Fischer's 0.25 √(M/ρ) x of volume;
+            // the deck's wall jet its layer's own, 2πρδu0 ∫p.
+            let feed: Double
+            if m <= 0 {
+                feed = 0
+            } else if l.kind == .deck {
+                let delta = PadExhaust.wallThickness(rho: l.front, height: s.exitHeight)
+                feed = 2 * .pi * l.front * delta * GroundCloudField.wallProfileIntegral
+                    * GroundCloudField.wallSpeed(momentum: f.momentum, rho: l.front, thickness: delta)
+            } else {
+                feed = Self.jetVolume * m * l.front
+            }
             let air = Self.air(profile, at: l.centre.z, deckHeight: deckHeight, wind: wind)
             let r = l.radius, w = l.rise
             let entrained = 4 * .pi * r * r * alpha * abs(w)

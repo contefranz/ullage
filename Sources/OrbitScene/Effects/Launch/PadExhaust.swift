@@ -12,15 +12,24 @@ import OrbitCore
 ///   opening's square (LC39A, H). What lies outside meets the deck and
 ///   spreads across it as a wall jet; the rest goes down the opening.
 /// - **The reach** is the jets' penetration as a fountain: a hot jet aimed
-///   down is turned back by its buoyancy at z_m = 2.46 M^¾ F^−½ (Turner
-///   1966, J. Fluid Mech. 26, 779, with the physical fluxes, π included: H;
-///   Seban et al. 1978's 2.35 for heated air jets aimed down cross-checks
-///   it), M the cluster's kinematic momentum flux and F its buoyancy flux
-///   at the exits. All of the exhaust reaches the pad while the exits are
-///   below z_m; none from the fountain's initial height, about 1.5 z_m
-///   (Turner 1966), smoothly between. At the rated flow z_m is about 760 m.
-///   P2's wall jet takes the same reach (`PlumeImpingement.meeting`); what
-///   does not reach the pad is the trail's (LR5).
+///   down is turned back by its buoyancy at z_m = 1.85 M^¾ F^−½ (Turner
+///   1966, J. Fluid Mech. 26, 779: his constant with the physical fluxes, π
+///   included, as Cooper and Hunt 2004 quote it; the same as z_m = 2.46 r0
+///   Fr0 with the fluxes per π, as Burridge and Hunt 2012 write it, 1.85 ×
+///   π^¼ = 2.46: M), M the cluster's kinematic momentum flux and F the
+///   jets' own buoyancy flux, GroundCloud's (`buoyancyFlux`). Seban et al.'s
+///   1978 2.35 r0 Fr0 for heated air jets aimed down, 1.77 with physical
+///   fluxes, cross-checks it. All of the exhaust reaches the pad while the
+///   exits are below z_m; none from the fountain's initial height, about
+///   1.5 z_m (Turner 1966), smoothly between. At the rated flow z_m is
+///   about 400 m. P2's wall jet takes the same reach
+///   (`PlumeImpingement.meeting`); what does not reach the pad is the
+///   trail's (LR5).
+/// - **One model** for a centred, vertical cluster: P4's sources put the
+///   cluster on the pad's axis with its jets straight down (a rebuilt
+///   history rises straight up), while P2's members see the tower-clearance
+///   yaw's drift of up to about 7 m by T+8 s. The split differs by that
+///   while the yaw lasts (T+1 to T+8.75 s).
 ///
 /// Site frame throughout (`LC39A`): x north towards the tower, y west, z up
 /// from the ML deck, m.
@@ -107,48 +116,53 @@ public enum PadExhaust {
 
     // MARK: The reach: a fountain
 
-    /// Turner's (1966) constant for a round fountain's steady penetration,
-    /// with the physical fluxes (H), and Seban et al.'s (1978) for heated
-    /// air jets aimed down (H): the cross-check.
-    public static let fountainConstant = 2.46, sebanConstant = 2.35
+    /// Turner's (1966) constant for a round fountain's steady penetration
+    /// with the physical fluxes, 1.85 (2.46 per π; M), and Seban et al.'s
+    /// (1978) for heated air jets aimed down, 2.35 per π, 1.77 with the
+    /// physical fluxes: the cross-check.
+    public static let fountainConstant = 1.85
+    public static var sebanConstant: Double { 2.35 / pow(Double.pi, 0.25) }
     /// A fountain's initial penetration over its steady one (Turner 1966, M).
     public static let initialPenetration = 1.5
 
-    /// The cluster's fountain penetration at flow fraction `f` in air of
-    /// `rho` (kg/m³), m: C M^¾ F^−½, M = thrust / ρ (LiftoffRise's five
-    /// F-1s), F = g (ρ − ρe)/ρ ṁ/ρe at the exits (P1's exit state at sea
-    /// level). It goes as f^¼.
-    public static func penetration(flowFraction f: Double = 1, airDensity rho: Double = 1.225,
-                                   constant c: Double = fountainConstant) -> Double {
+    /// The cluster's fountain penetration at flow fraction `f`, m: C M^¾
+    /// F^−½, M = thrust / ρ (LiftoffRise's five F-1s) and F the jets' own
+    /// buoyancy flux, `buoyancyFlux`. It goes as f^¼. In the standard
+    /// sea-level air, as P2's members see it, so that the two agree.
+    public static func penetration(flowFraction f: Double = 1, constant c: Double = fountainConstant) -> Double {
         guard f > 0 else { return 0 }
-        let rhoE = exitDensity
-        let m = f * LiftoffRise.thrust / rho
-        let b = 9.80665 * max(rho - rhoE, 0) / rho * f * LiftoffRise.flow / rhoE
+        let m = f * LiftoffRise.thrust / seaLevel.density
+        let b = f * buoyancyFlux
         guard b > 0 else { return .infinity }
         return c * pow(m, 0.75) / b.squareRoot()
     }
 
-    /// The F-1's exit density at sea level and the rated flow (P1), kg/m³.
-    public static let exitDensity: Double = {
-        let spec = ApolloExhaust.f1.spec
-        let air = USStandardAtmosphere1976().state(altitude: 0)
-        return PlumeModel.state(spec, flowFraction: 1, ambient: air, streamAlong: 0, streamAcross: 0).exitDensity
-    }()
+    /// The standard sea-level air (US76) the reach is taken in.
+    static let seaLevel = USStandardAtmosphere1976().state(altitude: 0)
+
+    /// The five F-1s' buoyancy flux at the rated flow, m⁴/s³: GroundCloud's
+    /// for the same jets, g Q / (ρ c_p T), Q the heat their exhaust brings
+    /// (its stagnation enthalpy and afterburning, `GroundCloud.exhaustHeat`)
+    /// less what the flames radiate, before any of it boils water.
+    public static var buoyancyFlux: Double {
+        let air = seaLevel
+        let q = LiftoffRise.flow * GroundCloud.exhaustHeat(ambient: air.temperature) * (1 - GroundCloud.radiantFraction)
+        return 9.80665 * q / (air.density * GroundCloud.airHeat * air.temperature)
+    }
 
     /// The share of the exhaust that reaches the pad from exits `h` m above
     /// the deck: all below the fountain's penetration, none from its
     /// initial height, smoothly between.
-    public static func reaching(height h: Double, flowFraction f: Double = 1, airDensity rho: Double = 1.225) -> Double {
-        let zm = penetration(flowFraction: f, airDensity: rho)
+    public static func reaching(height h: Double, flowFraction f: Double = 1) -> Double {
+        let zm = penetration(flowFraction: f)
         return 1 - PlumeMember.smoothstep(zm, initialPenetration * zm, h)
     }
 
     /// The shares with the exit plane `exitHeight` m above the deck (site
     /// z; below it on the pad), the exits in `pattern`, at flow fraction
     /// `f` in air of `rho`.
-    public static func shares(exitHeight z: Double, pattern: [Vec3] = exitPattern, flowFraction f: Double = 1,
-                              airDensity rho: Double = 1.225) -> Shares {
-        let reach = reaching(height: z, flowFraction: f, airDensity: rho)
+    public static func shares(exitHeight z: Double, pattern: [Vec3] = exitPattern, flowFraction f: Double = 1) -> Shares {
+        let reach = reaching(height: z, flowFraction: f)
         let deck = deckShare(height: z, pattern: pattern)
         return Shares(trench: reach * (1 - deck), deck: reach * deck)
     }

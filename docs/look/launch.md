@@ -116,7 +116,8 @@ and the buoyant cloud each feeds:
 | runout | 3 jet lengths l_M = (M/ρ)^¾ / F^½ (about 280 m beyond the exits) before buoyancy lifts the jet | a wall jet's lift-off | L |
 | deck | the plume striking the deck turned radial with all its momentum | a jet on a plate, inviscid | M |
 | the split (look round 2) | P2's per-jet geometry, one model with P2's wall jet: each F-1 jet's cross-section where its axis meets the deck, P1's R(h), against the ML opening's square; the rest goes down the opening. At T+8 s (65 m of climb) a third meets the deck | `PlumeImpingement`, P1 | M |
-| the reach (look round 2) | the jets' penetration as a fountain: z_m = 2.46 M^¾ F^−½ with the physical fluxes, M = thrust/ρ, F = g (ρ − ρe)/ρ ṁ/ρe at the exits; all of the exhaust reaches the pad below z_m, none from the fountain's initial height 1.5 z_m, smoothly between. About 760 m at the rated flow (Seban et al.'s 2.35 for heated air jets aimed down: 727 m). It replaces P4's fade of half at 45 m of climb (L) | Turner 1966, J. Fluid Mech. 26, 779; Seban, Behnia and Abreu 1978 | H (the law) |
+| the reach (look round 2) | the jets' penetration as a fountain: z_m = 1.85 M^¾ F^−½ with the physical fluxes (Turner's constant; 2.46 r0 Fr0 with the fluxes per π), M = thrust/ρ, F the jets' own buoyancy flux, GroundCloud's (3.2 × 10⁶ m⁴/s³); all of the exhaust reaches the pad below z_m, none from the fountain's initial height 1.5 z_m, smoothly between. About 400 m at the rated flow, gone by 600 m (Seban et al.'s 2.35 r0 Fr0 for heated air jets aimed down: 381 m). In standard sea-level air, as P2's members see it. It replaces P4's fade of half at 45 m of climb (L) | Turner 1966, J. Fluid Mech. 26, 779, as Cooper and Hunt 2004 and Huang, Burridge and van Reeuwijk 2023 state its fluxes; Seban, Behnia and Abreu 1978 | M (the convention from those) |
+| one model's limit | P4's sources put the cluster on the pad's axis with its jets straight down (a rebuilt history rises straight up); P2's members see the tower-clearance yaw's drift, up to about 7 m by T+8 s, so the split differs while it lasts (T+1 to T+8.75 s) | — | — |
 | clouds | Morton-Taylor-Turner thermals, α 0.25, fed at their jets' ends with the jets' volume and buoyancy, on the launch day's sounding (its stability N² and winds) | MTT 1956 | M |
 
 Plausibility, not a fit (`GroundCloudTests`):
@@ -127,18 +128,20 @@ Plausibility, not a fit (`GroundCloudTests`):
   0.74 km (Apollo 16's south lobe: 0.5 km);
 - the south trench cloud's top is at 1.18 km at 60 s, 1.76 km at 120 s and
   2.14 km at 180 s (Apollo 16's south plume: 0.8, 1.65 and 2.2 km); the
-  deck's cloud is higher, 1.34 km at 60 s and 2.75 km at 180 s.
+  deck's cloud is 1.03 km at 60 s and 2.21 km at 180 s.
 
 Sources: TM X-2935 Figs. 3 and 4; Apollo 10's plume in CR-61326 (Dumbauld
 et al.'s handbook) Fig. E-9.
 
 Apollo 16's cloud stabilised with its centre line at about 2.2 km by
-T+2.5 min, under a subsidence inversion at about 2 km (TM X-2910). The
-model's, volume-weighted, is 1.73 km then, 21 % lower, and still rising at
-6 m/s, slowing; AS-506's sounding has no such inversion. That is another
-vehicle (AS-511) and another day (16 April 1972). By T+240 s the clouds
-hold 390 t of exhaust: 155 t from the trench, 236 t from the deck. Nothing
-in the model was adjusted to these.
+T+2.5 min, some 800 m deep, under a subsidence inversion at about 2 km (TM
+X-2910). The model's clouds are about as deep, 900 m. Their volume-weighted
+centre at T+2.5 min, though, is 1.5 km, 31 % lower, still rising at
+5.5 m/s and slowing; AS-506's sounding has no such inversion. That is
+another vehicle (AS-511) and another day (16 April 1972), and the model's
+clouds rise too little. By T+240 s the clouds hold 299 t of exhaust: 155 t
+from the trench, 145 t from the deck. Nothing in the model was adjusted to
+these.
 
 **Filling them.** P3's particles are parcels that entrain and drag on their
 own; a crowd of small ones would rise as small thermals, far slower than
@@ -196,17 +199,21 @@ with that air's vapour, and its last step's feed. The F-1s' start smoke,
 the gas generators' 2.9 % at 887 K from each start command to its
 ignition, feeds three small thermals of its own: half up through the ML's
 opening, a quarter out of each exit (P4's split, L). All three are
-integrated apart, so P4's sprites still see the lobes they did. Once the
-trench's jets run, the field draws all three inside the trench's clouds:
+integrated apart, so P4's sprites still see the lobes they did. As the
+trench's jets run, the field takes all three into the trench's clouds:
 the exits' smoke through which the jets run, and the chimney's, round the
-vehicle over the opening, taken in by the jets down it, half to each. No
+vehicle over the opening, taken in by the jets down it, half to each. The
+share swept rises smoothly with the exhaust the trench has carried, over
+its first two seconds of full flow (L), the rest staying where it was. No
 start smoke lingers round the vehicle.
 
 Every jet's front runs at half its jet's speed (a starting jet, Turner
-1962): the trench's at the round jet's, and the deck's, since round 2, at
-its own wall layer's, the speed the field's wall jet carries its fluid at.
-The water takes all the heat it can, or all the water boils, branched
-explicitly, so no rounding residue is left as heat.
+1962): the trench's at the round jet's centreline speed, and the deck's,
+since round 2, at its own wall layer's. The deck's cloud is fed its wall
+jet's own volume flux, 2πρδu0 ∫p, four to six times Fischer's round-jet
+0.25 √(M/ρ) x that the trench's clouds take. The water takes all the heat
+it can, or all the water boils, branched explicitly, so no rounding
+residue is left as heat.
 
 **The field** (`GroundCloudField`). It is built from GroundCloud's state
 alone, so a rebuilt field is the frames' to the bit. It holds at most 12
@@ -218,16 +225,25 @@ similarity primitives, each with a closed-form shape whose integral is one:
 | deck wall jet | P2's continued from where P2's ends (`WallJetHandover`), or from the jets' footprint if that is beyond: its half-thickness there, growing 0.087 a metre, P2's top-hat profile across it; the speed that keeps all its momentum in that layer. It carries P2's own flux of exhaust where P2's ends, within 1 % (the members' flow times their deck shares, one model with PadExhaust) | Poreh, Tsuei and Cermak 1967; P2 | M |
 | clouds | ring thermals: a Gaussian torus about the cloud's vertical axis (ring 0.35 R, core 0.5 R, stretched 1.2 upward), mirrored in the deck's level, which GroundCloud rests them on | the look of Scorer's thermals | L |
 | stems | pure plumes from each trench jet's end up into its cloud, top-hat α 0.117; faded in over the cloud's lift-off (half its radius) and as the jet's buoyancy flux rises past 5 % of a trench jet's at full thrust (L) | MTT 1956, List 1982 | M |
-| start smoke | its three thermals, as the clouds, until the trench's jets run; then inside the trench's clouds | — | L |
+| start smoke | its three thermals, as the clouds, taken into the trench's clouds as their jets run | — | L |
 
 A lobe's exhaust, water, smoke, soot and heat are shared between its jet
 and stem and its cloud. The jet and stem get what flows in them at the
 feed's steady flow: the flow over the speed that carries it, out to the
-front. The fronts run at half their jets' speeds, so that is less than the
-jet has carried, and the head keeps the rest. Only while a flow rises
-faster than its jet fills is it more, and then the jet takes what the lobe
-has. The share is one factor for everything they carry, so their mixture
-is the feed's and the flow is continuous from jet to stem.
+front.
+- The deck's front runs at half its layer's speed, slower than its fluid
+  (0.87 of the layer's), so its wall jet holds less than has flowed in and
+  its cloud keeps the rest.
+- A trench's front runs at half its round jet's centreline speed, but the
+  jet carries its concentration at u_c/(1 + λ²), 0.41 of it. The steady jet
+  out to the front would hold about 1.2 times what has flowed in, so the
+  trench's cloud, the starting jet's head, keeps at least half of each
+  thing its lobe holds (L, `headShare`), and the jet and stem take at most
+  the rest.
+
+The share is taken for each thing apart, so that none is driven to nothing
+in the cloud, and the same for a jet and its stem, so the flow is
+continuous from one to the other.
 
 The deck's wall jet, as far as P2 draws it, is P2's (`inPlume`). So the
 field's totals are the clouds' to rounding, and integrated over space they
@@ -330,7 +346,8 @@ white near the pad may be, is Franz's call.
   every octave drawn, a jet's by a quarter. So each displaced density is
   divided by that expected gain, tabled by shape against the displacement's
   rms (`GroundCloudField.DisplacementGain`; `EffectMedium.gains` for the
-  shader). A drawn thermal then holds its mass within 2 %, close up or far.
+  shader). A drawn thermal then holds its mass within 3 % (1.5 % close up,
+  0.1 % far).
 - Measured: the structure function's slope is 1.32 against 4/3, and a
   frame's change at T+15 s is 1.3 % of the boundary's rms.
 

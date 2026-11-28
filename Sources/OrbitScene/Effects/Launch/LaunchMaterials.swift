@@ -46,11 +46,13 @@ public enum LaunchMaterials {
     /// its afterburnt hydrogen's, CEA, and the deluge's it boiled, all of it
     /// condensed: L) on 10 µm droplets (3 Q / (4 ρ r), Q = 2: 150 m²/kg, M
     /// for the law, L for the size), and the kerosene's soot (0.5 % of the
-    /// exhaust, L) at 7.5 m²/g (M).
+    /// exhaust, L) at the medium's extinction, Bond and Bergstrom's 7.5 m²/g
+    /// of absorption at P2's albedo 0.25 (`LaunchCloudOptics`, M).
     public static let exhaustWater = (GroundCloud.exhaustH2 + GroundCloud.exhaustH2O) * 0.018015
         / ApolloExhaust.f1.spec.molarMass
     public static let dropletExtinction = 150.0
-    public static let sootYield = 0.005, sootExtinction = 7_500.0
+    public static let sootYield = 0.005
+    public static var sootExtinction: Double { LaunchCloudOptics.sootExtinction }
     public static func cloudExtinction(exhaust: Double, water: Double) -> Double {
         dropletExtinction * (water + exhaustWater * exhaust) + sootExtinction * sootYield * exhaust
     }
@@ -83,14 +85,14 @@ public enum LaunchMaterials {
     }
 
     /// The ground cloud's eddies (`LaunchEffects.groundCloud`): its water
-    /// and soot, whose single-scattering albedo, water's 1 and soot's 0.2
-    /// weighted by their extinction, is about 0.72 with the trench's water
+    /// and soot, whose single-scattering albedo, water's 1 and soot's 0.25
+    /// weighted by their extinction, is about 0.69 with the trench's water
     /// (`cloudAlbedo`), a light warm grey; at the air's temperature, for
     /// they follow the cloud's own rise (`GroundCloud`): eddies of a quarter
     /// of its radius riding its thermal.
     public static var cloudAlbedo: Double {
         let water = dropletExtinction * (exhaustWater + 0.13), soot = sootExtinction * sootYield
-        return (water + 0.2 * soot) / (water + soot)
+        return (water + LaunchCloudOptics.sootAlbedo * soot) / (water + soot)
     }
     public static var groundCloud: ParticleMaterial {
         var m = ParticleMaterial(name: "p4 ground cloud", renderClass: .smoke)

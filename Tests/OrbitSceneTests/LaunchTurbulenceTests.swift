@@ -248,4 +248,25 @@ final class LaunchTurbulenceTests: XCTestCase {
             }
         }
     }
+
+    // The exposure averages each octave as P2 averages its plume's: the flow
+    // sweeps u/L integral lengths a second past the point, L the noise's
+    // integral length in its cell (P2's `Flow.sweep`, 0.39 of the cell). A
+    // trench jet's fifth octave 30 m from its exit keeps about a quarter of
+    // its depth, as P2's would.
+    func testShutterIsP2s() throws {
+        let f = GroundCloudFieldTests.field(GroundCloudFieldTests.cloud(to: 3), at: 3)
+        let jet = try XCTUnwrap(f.primitives.first { $0.shape == .roundJet })
+        let x = jet.origin + jet.axis * (jet.start + 30)
+        let u = jet.speed(at: x), size = jet.size(at: x)
+        let spectrum = LaunchTurbulence.spectrum(size: size, speed: u)
+        for k in [0, 3, 5] {
+            let cell = spectrum.cell(octave: k), life = spectrum.lifetime(octave: k)
+            let p2 = PlumeTurbulence.shutterAverage(life: life, sweep: u / (PlumeTurbulence.integralLength * cell)).depth
+            XCTAssertEqual(LaunchTurbulence.shutterDepth(speed: u, cell: cell, life: life), p2, accuracy: 1e-12)
+            XCTAssertNotEqual(PlumeTurbulence.shutterAverage(life: life, sweep: u / cell).depth, p2, "not u/cell")
+        }
+        print(String(format: "a trench jet %.0f m from its exit: u %.0f m/s, octave 5 keeps %.2f of its depth", 30.0, u,
+                     LaunchTurbulence.shutterDepth(speed: u, cell: spectrum.cell(octave: 5), life: spectrum.lifetime(octave: 5))))
+    }
 }

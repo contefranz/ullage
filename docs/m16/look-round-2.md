@@ -211,12 +211,12 @@ Approved 2026-11-28; the M2 flight-controls increment (#100-#102) is merged (mai
 1. **Scope:** the minimum round (39-47 d) and then M2, or the full round (61-76 d)? **Minimum round**; the rest after the review.
 2. **Budget:** re-baseline plan.md's per-pass table (decision 54) to the ledger and hold 13 ms a frame? Or keep the table and leave new High knobs off at the pad until R7? **Re-baseline**, with LR4 at Medium on the pad when there is no room.
 3. **Decision 39** for the pad cloud and trail: media or sprites? **Media**; sprite v2 for the flash, the vapour and Low.
-4. **Soot yield** at the exit. P2's afterburning survival sets how it varies with altitude. A condensed column on 10 µm droplets (est.): its single-scattering albedo ω, and the reflectance R∞ of a thick cloud of it (two-stream, g 0.85; corrected 2026-11-28, LR4 review: the albedos below were first labelled as the look, but 0.93 is mid-grey):
-   - ω 0.93, R∞ 0.27 (mid-grey) at P2's implied 0.07 %;
-   - ω 0.66-0.72, R∞ 0.06-0.08 (dark grey) at P4's 0.5 %;
-   - ω 0.30-0.35, R∞ about 0.02 (near black) at 3-5 %, Maloney et al. 2022's stratospheric upper bound.
+4. **Soot yield** at the exit. P2's afterburning survival sets how it varies with altitude. A thick cloud with all of the pad's water condensed on 10 µm droplets: its single-scattering albedo ω and its reflectance R∞ (two-stream, g 0.85). The figures are corrected 2026-11-28 by LR4's #106 review: soot at 10 m²/g of extinction (Bond and Bergstrom's 7.5 m²/g of absorption at ω 0.25), AS-506's deluge, and the albedos, first labelled as the look, given as reflectances. Each range runs from a trench cloud (its 8,000 gpm only) to the deck's (all 58,000 gpm); see docs/look/launch.md:
+   - ω 0.92-0.95, R∞ 0.24-0.31 (mid-grey) at P2's implied 0.072 %;
+   - ω 0.65-0.74, R∞ 0.06-0.09 (dark grey) at P4's 0.5 %;
+   - ω 0.33-0.43, R∞ about 0.02 (near black) at 3-5 %, Maloney et al. 2022's stratospheric upper bound.
 
-   A white cloud (R∞ about 0.6) needs ω ≥ 0.99, so at most about 0.01-0.03 % soot left in it with all of the pad's water condensed (LR4's #106 review).
+   A white cloud (R∞ about 0.6, ω ≥ 0.99) holds at most about 0.013 % soot (0.008 % in a trench cloud).
 
    **Choose from LR5 PR1's three predicted renders**; P2's value until then.
 5. **Launch photo fit:** physics or refit? `LaunchMaterials` is fitted to S69-39961 and S68-56050: the albedos, the 4e4 cd/m² glow, the fill and eddy factors, and the trail bands. The physics greys the sooty lobes and dims the trench glow 20-30×; the orange then comes from F-1 light on the cloud. **Physics**; if photos disagree, question the L inputs, not the fit.

@@ -461,9 +461,7 @@ public final class LaunchEffects: EffectProducer {
     func sources(_ c: Context, _ t: Epoch, previousClimb: Double?) -> GroundCloud.Sources {
         let fraction = flow(c, t)
         let z = PadExhaust.exitHeightOnPad + climb(c, t, previous: previousClimb)
-        let rho = deckAir(c).rho
-        let shares = PadExhaust.shares(exitHeight: z, pattern: c.vehicle.pattern, flowFraction: max(fraction, 1e-3),
-                                       airDensity: rho)
+        let shares = PadExhaust.shares(exitHeight: z, pattern: c.vehicle.pattern, flowFraction: max(fraction, 1e-3))
         let gpm = GroundCloud.gallon / GroundCloud.minute
         return GroundCloud.Sources(exhaust: LiftoffRise.flow * fraction, thrust: LiftoffRise.thrust * fraction,
                                    trench: shares.trench, deck: shares.deck,

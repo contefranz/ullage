@@ -264,6 +264,68 @@ final class GroundCloudFieldTests: XCTestCase {
         }
     }
 
+    // A trench cloud, its starting jet's head, keeps at least half of what
+    // its lobe holds of each thing (`headShare`): its front runs at half the
+    // jet's centreline speed while the jet carries its concentration at
+    // 0.41 of it, so the steady jet out to the front would hold more than
+    // has flowed in. From the first ignition through the climb.
+    func testTrenchCloudsKeepTheirHeads() {
+        var c = GroundCloud(origin: Self.start)
+        var t = -2.0
+        var least = (exhaust: 1.0, heat: 1.0, soot: 1.0)
+        while t <= 8 {
+            c.advance(to: Self.zero + t, sources: { Self.sources(at: $0, zero: Self.zero) }, air: Self.air,
+                      deckHeight: Self.deck, siteFromEastNorth: { e, n in Vec3(n, -e, 0) })
+            let f = Self.field(c, at: t)
+            for side in [1.0, -1.0] {
+                let all = f.primitives.filter { $0.lobe == .trench(side) }
+                guard let cloud = all.first(where: { $0.shape == .thermal }) else { continue }
+                let exhaust = all.reduce(0) { $0 + $1.exhaust }, heat = all.reduce(0) { $0 + $1.heat }
+                let soot = all.reduce(0) { $0 + $1.soot }
+                guard exhaust > 0 else { continue }
+                // The start smoke swept in is the cloud's own: compare the
+                // lobe's exhaust and heat.
+                least.exhaust = min(least.exhaust, cloud.exhaust / exhaust)
+                if heat > 0 { least.heat = min(least.heat, cloud.heat / heat) }
+                least.soot = min(least.soot, cloud.soot / soot)
+            }
+            t += 0.25
+        }
+        print(String(format: "the trench clouds keep at least %.2f of their exhaust, %.2f of their heat, %.2f of their soot",
+                     least.exhaust, least.heat, least.soot))
+        XCTAssertGreaterThanOrEqual(least.exhaust, GroundCloudField.headShare - 1e-9)
+        XCTAssertGreaterThanOrEqual(least.heat, GroundCloudField.headShare - 1e-9)
+        XCTAssertGreaterThanOrEqual(least.soot, GroundCloudField.headShare - 1e-9)
+    }
+
+    // The start smoke is taken into the trench's clouds smoothly as their
+    // jets run (`sweptBy`): across the first ignition no primitive's soot
+    // changes by more than a twentieth of the start smoke's from one grid
+    // step to the next, nor does the smoke move all at once.
+    func testStartSmokeIsSweptSmoothly() {
+        var c = GroundCloud(origin: Self.start)
+        var last: [String: Double] = [:]
+        var t = -4.0, worst = 0.0, total = 0.0
+        while t <= 0 {
+            c.advance(to: Self.zero + t, sources: { Self.sources(at: $0, zero: Self.zero) }, air: Self.air,
+                      deckHeight: Self.deck, siteFromEastNorth: { e, n in Vec3(n, -e, 0) })
+            total = c.lobes.reduce(0) { if case .startSmoke = $1.kind { $0 + $1.soot } else { $0 } }
+            let f = Self.field(c, at: t)
+            var now: [String: Double] = [:]
+            for p in f.primitives where p.shape == .thermal { now["\(p.lobe)"] = p.soot }
+            for key in Set(now.keys).union(last.keys) {
+                guard let a = last[key], total > 0 else { continue }
+                // Only the start smoke's part: the trench's own soot grows with its feed.
+                if key.hasPrefix("startSmoke") { worst = max(worst, abs((now[key] ?? 0) - a) / total) }
+            }
+            last = now
+            t += GroundCloud.step
+        }
+        print(String(format: "a start smoke thermal's soot changes at most %.3f of the start smoke's a grid step", worst))
+        XCTAssertLessThan(worst, 0.05)
+        XCTAssertGreaterThan(total, 0)
+    }
+
     // The field is a function of GroundCloud's state alone: advanced at
     // once or in frames of 1/30 s (through the start smoke, the ignition,
     // first motion), the fields at the same epoch are identical to the
