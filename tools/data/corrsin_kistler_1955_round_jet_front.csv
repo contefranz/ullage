@@ -24,6 +24,13 @@
 # Figure 24(a) gives the lines' power laws in x - x0: Rbar 0.88, r_half 1.00,
 # sigma 1.06.
 #
+# Used in place of Wygnanski & Fiedler 1969 (J. Fluid Mech. 38, 577-612), the
+# reference look round 2's plan names, which is not open: Chevray & Tutu 1978
+# (J. Fluid Mech. 88) found their round jet's intermittency to agree with both
+# Corrsin & Kistler's and Wygnanski & Fiedler's (as Gilliland et al., Flow
+# Turbulence Combust., review them). It checks JetFluctuations' edge; it is
+# not an input.
+#
 # Derived (not in the report), eta = r/(x - x0) with x0 = 3 d, at x/d = 60:
 # the front Rbar at eta 0.160 with sigma 0.0425, the half-velocity radius at
 # 0.094 (Rbar/r_half 1.70, sigma/r_half 0.45); at x/d = 70, Rbar at 0.157,
