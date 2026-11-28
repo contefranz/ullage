@@ -324,10 +324,14 @@ tile over that speed (1.28 s for the F-1).
   across the jet a Gaussian of half-width R/2 (exp(−ln2 (r/r½)²), the round
   jet's) outside the core's shrinking top hat; uniform in a free expansion.
   Each layer's pattern is laid out where the flow carried each point from
-  since the layer's birth (one midpoint step back along the
-  decelerating jet), so it rides the flow: on the axis 0.99 m against the
-  flow's 1.10 m over 3 ms at 110 m, half-way out 0.49 m against 0.55 m (24 seeds)
-  (`PlumeTurbulenceTests`).
+  since the layer's birth (one midpoint step back along the decelerating
+  jet), so it rides the flow: on the axis 0.99 m against the flow's 1.10 m over 3 ms at 110 m, half-way out 0.43 m against 0.55 m (24 seeds; `PlumeTurbulenceTests`).
+  It is carried at most half-way back to the exit (L): a jet's layers go
+  1-30 % of the way, but a ballooned plume's, carried at the whole exhaust
+  speed for a life longer than their transit, reached the exit and drew its
+  small cells far downstream as thin plates across the jet (`p2-f1-billow`
+  before the limit). Half-way back, where the cells grow as x, they are the
+  local ones.
 - **Decaying as a jet's turbulence.** Each octave band of lifetimes (0.12
   ms to 64 s) holds two layers, cross-faded half a life apart and re-seeded
   at each birth with an offset hashed from the band's cycle and the
@@ -383,7 +387,8 @@ tile over that speed (1.28 s for the F-1).
   at 261 lags to ten minutes (whole numbers of the old loop, of the tile
   carried at the flow's speed and of every band's life, and lags at
   random); the GPU's field against the reference, the cluster's flow and
-  its merged far field included (mean difference 0.0004); the flow
+  its merged far field included (the unit-variance noise: mean difference
+  0.003, the shutter's depth exact); the flow
   continuous across the S-IC; and on screen, frames whole numbers of the
   old loop apart differ as much as frames ten seconds apart (2.2-2.5 against
   2.5, mean |Δ| per pixel), a frame a millisecond on by 0.14, while the same
@@ -458,13 +463,19 @@ a factor of 5-8 in light between neighbouring eddies, the core's mottling.
   mixes and the flame's heat beyond its tip, as the mixture fraction falls
   (Ta + (Tf − Ta) L_f/x). Where the afterburning flame burns (to its tip,
   fading beyond as L_f/x) the temperature is the flame's own and does not
-  fluctuate: its light varies with its soot. The light is divided by its
-  mean over the fluctuation, (1 + bσ²/A) exp(b²σ²/2A)/√A per channel, A =
-  1 − cσ², b and c the drawn excess times d ln B/dT and its square times
-  d² ln B/dT² (ln B to second order, the fluctuation Gaussian), so the mean
-  is kept. Its log-contrast is held to 1 a standard deviation (L): at 1,000-
-  1,600 K the light's slope is so steep that the noise's one eddy size would
-  draw hot eddies tens of times the mean, the blobs again.
+  fluctuate: its light varies with its soot. The drawn excess is D δ, no
+  hotter than the hottest gas, and the light follows it to first order in
+  ln B, B(t) e^(bδ), b = D d ln B/dT per channel. Its mean over the
+  rectified fluctuation, the density's with it, has a closed form (one
+  exponential and one Φ a channel), and the light is divided by it, so the
+  mean is kept at the intermittent edge too, where the fluctuation's tail
+  is heavy. (Normalised as for a Gaussian fluctuation, the light ran +28 %
+  at 1.2 R and ×3.5 beyond 1.35 R: review of #110.) Its log-contrast is
+  held to 1 per unit of the noise in its bluest channel (L): at 1,000-1,600
+  K the light's slope is so steep that the noise's one eddy size would draw
+  hot eddies tens of times the mean, the blobs again, and the light's mean
+  would rest on the noise's far tail, which the volume noise lacks
+  (kurtosis 2.7).
 - **Checks** (`JetFluctuationsTests`, `JetFluctuationsRenderTests`):
   - the tables are tools/data's, their curves meet the printed centreline
     values, and Corrsin and Kistler's half-velocity radius is the round
@@ -478,20 +489,26 @@ a factor of 5-8 in light between neighbouring eddies, the core's mottling.
     field's, side-on at 6-160 m: by day its light and optical depth over
     384 moments (within 0.7 %); at night, beyond the flame, each point's
     light over the noise's own values (within 1.7 %);
-  - the light's mean over the noise within 2 % where the jet is always
-    there; at the intermittent edge within 10 % (8 % at 2.5 flame lengths,
-    q 1.1: the normalisation takes the fluctuation as Gaussian, the edge's
-    is skewed; the columns through it hold);
+  - the light's mean over a Gaussian noise, point by point, out to 1.42 R:
+    within 0.01 % (bound 0.5 %);
+  - columns tangent to the far field beyond the flame at 1.2-1.4 R, the
+    edge alone: the light's mean within 0.01 % over a Gaussian noise and
+    −0.9 to −2.0 % over the noise's own values (bounds 1 % and 2.5 %);
+  - the heat on its excess: with none (a warm air, the gas at it) the light
+    follows the density alone; below the contrast's hold the drawn
+    excursion is the excess times the fluctuation; none drawn above the
+    hottest gas;
   - the billowing boundary keeps its mean within 1 %;
   - the GPU's field against the reference at the same noise (extinction
     within 10⁻⁴, light 2×10⁻⁴);
-  - on screen, the same region of the F-1s' far field 2 km off, 1× to 32×
-    zoom: with the turbulence over without within 0.1 % at every zoom (its
-    eddies under the footprint's cut-off at 1×, drawn in full from 4×), its
-    light within 1.9 % of 32×'s, one moment's frame moving 31 % r.m.s. a
-    pixel at 32×;
-  - hard goldens `p2-f1-shear-closeup` (the F-1's core and shear layer
-    from 40 m), `p2-f1-zoom-farfield` (the far field at 10°),
+  - on screen, the same angular window of the F-1s' far field 2 km off
+    (the 32× frame's, 49.1 by 78.5 m), 1× to 32× zoom: with the turbulence
+    over without within 0.21 % at every zoom (its eddies under the footprint's
+    cut-off at 1×, drawn in full from 4×), its light within 0.5 % of
+    32×'s, one moment's frame moving 30 % r.m.s. a pixel at 32×;
+  - hard goldens `p2-f1-shear-closeup` (the F-1 from its exit to 36 m,
+    its potential core and the shear layer about it, from 40 m),
+    `p2-f1-zoom-farfield` (the far field at 10°),
     `p2-f1-edge` (the edge 70 m down) and `p2-f1-billow` (the S-IC's five
     at 65 km).
 

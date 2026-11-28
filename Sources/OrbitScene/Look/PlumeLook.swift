@@ -333,7 +333,7 @@ public struct PlumeMember: Equatable {
         var s = Sample()
         let de = exitDiameter, re = exitRadius
         func add(_ sigma0: Double, albedo: Double, temperature: Double, tint: Photometry.RGB = Photometry.RGB(1, 1, 1),
-                 lightMean k: Photometry.RGB = Photometry.RGB(1, 1, 1)) {
+                 light k: Photometry.RGB = Photometry.RGB(1, 1, 1)) {
             let sigma = sigma0 * densityScale
             guard sigma > 0 else { return }
             let a = sigma * (1 - albedo)
@@ -344,8 +344,8 @@ public struct PlumeMember: Equatable {
                                                 s.tintedScattering.b + sigma * albedo * tint.b)
             if temperature > 0 {
                 let b = PlumeLook.blackbody(temperature)
-                s.emission = Photometry.RGB(s.emission.r + a * b.r / k.r, s.emission.g + a * b.g / k.g,
-                                            s.emission.b + a * b.b / k.b)
+                s.emission = Photometry.RGB(s.emission.r + a * b.r * k.r, s.emission.g + a * b.g * k.g,
+                                            s.emission.b + a * b.b * k.b)
             }
         }
         // The base's recirculation, upstream of the exit too.
@@ -368,14 +368,15 @@ public struct PlumeMember: Equatable {
         // The fluctuations (`JetFluctuations`): the jet's mixed fluid by its
         // factor, a ballooned plume's boundary billowing; nothing in the
         // potential core or the free expansion within the boundary.
-        var jet = 1.0, spread = 0.0
+        var jet = 1.0, spread = 0.0, jetStrength = 0.0, jetThreshold = 0.0
         if let n = noise, turbulence > 0, n.weight > 0 {
             let drawn = turbulence * n.weight
             if v < 0.95 {
                 let a = drawn * JetFluctuations.mixedness(self, x: x, r: r, radius: rx) * JetFluctuations.jetShare(v)
                 if a > 0 {
-                    jet = JetFluctuations.factor(noise: n.value, threshold: JetFluctuations.threshold(meanShare: pc),
-                                                 strength: a)
+                    jetThreshold = JetFluctuations.threshold(meanShare: pc)
+                    jetStrength = a
+                    jet = JetFluctuations.factor(noise: n.value, threshold: jetThreshold, strength: a)
                     spread = a * JetFluctuations.spread(meanShare: pc)
                 }
             }
@@ -434,16 +435,16 @@ public struct PlumeMember: Equatable {
                     * Self.smoothstep(sootBurnout, 1.5 * sootBurnout, x)
             }
             // The mixed heat's excess over the air follows the exhaust's
-            // share, its light's mean kept.
-            var lightMean = Photometry.RGB(1, 1, 1)
+            // share, its light's mean kept (`JetFluctuations.heatLight`).
+            var light = Photometry.RGB(1, 1, 1)
             if spread > 0 {
-                let excess = (1 - burning) * max(t - ambientTemperature, 0)
-                let k = JetFluctuations.lightMean(temperature: t, excess: excess, spread: (1 - v) * spread)
-                let hottest = max(t, coreTemperature, flameTemperature)
-                t = min(t + excess * k.drawn * (1 - v) * (jet - 1), hottest)
-                lightMean = k.mean
+                let h = JetFluctuations.heatLight(temperature: t, excess: (1 - burning) * max(t - ambientTemperature, 0),
+                                                  hottest: max(t, coreTemperature, flameTemperature),
+                                                  strength: (1 - v) * jetStrength, threshold: jetThreshold,
+                                                  spread: (1 - v) * spread, delta: (1 - v) * (jet - 1))
+                light = h.light
             }
-            add(gasExtinction * rho * cells * burnt, albedo: gasAlbedo, temperature: t, lightMean: lightMean)
+            add(gasExtinction * rho * cells * burnt, albedo: gasAlbedo, temperature: t, light: light)
         }
         // The film, a dark band at the edge until it burns.
         if sheathExtinction > 0 && x < sheathLength + 0.5 * de {

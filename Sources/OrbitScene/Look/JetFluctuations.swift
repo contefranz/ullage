@@ -26,7 +26,7 @@ import Foundation
 ///   at the edge the threshold rises and the exhaust is present only part
 ///   of the time, Φ(−t): the turbulent front, ragged and bounded by pockets
 ///   of clear air, falling to half the time where Dowling and Dimotakis's
-///   r.m.s. reaches 1.6 times the mean (η = r/(x − x0) ≈ 0.18), within half
+///   r.m.s. reaches 1.46 times the mean (η = r/(x − x0) ≈ 0.18), within half
 ///   a front width of the vortical front Corrsin and Kistler (1955)
 ///   measured (η 0.16, standard deviation 0.043; `JetFluctuationsTests`).
 /// - **Billowing boundaries.** Where the air confines a ballooned plume's
@@ -36,8 +36,8 @@ import Foundation
 /// - **The heat on its excess.** The temperature's excess over the air
 ///   follows the exhaust's share where it is mixed (inert dilution), not
 ///   where the afterburning flame burns (its own temperature; the flame
-///   sheet comes later, decision 8); the light's mean is kept
-///   (`lightMean`).
+///   sheet comes later, decision 8); the light follows it to first order
+///   in ln B, its mean kept over the rectified fluctuation (`heatLight`).
 ///
 /// The march draws them only until the plume in front of a sample is 90 %
 /// opaque, and a cluster that cannot fluctuate with the march's still
@@ -223,46 +223,61 @@ public enum JetFluctuations {
 
     // MARK: The light
 
-    /// d ln B / dT and d² ln B / dT² per channel at `kelvin`
-    /// (PlumeLook.blackbody's fit, ln B = c0 + c1/T + c2/T²).
-    public static func logSlope(_ kelvin: Double) -> (first: Photometry.RGB, second: Photometry.RGB) {
+    /// d ln B / dT per channel at `kelvin` (PlumeLook.blackbody's fit, ln B
+    /// = c0 + c1/T + c2/T²).
+    public static func logSlope(_ kelvin: Double) -> Photometry.RGB {
         let u = 1 / max(kelvin, 300), c = PlumeLook.wien
-        func s1(_ i: Int) -> Double { -(c[i].1 + 2 * c[i].2 * u) * u * u }
-        func s2(_ i: Int) -> Double { (2 * c[i].1 + 6 * c[i].2 * u) * u * u * u }
-        return (Photometry.RGB(s1(0), s1(1), s1(2)), Photometry.RGB(s2(0), s2(1), s2(2)))
+        func s(_ i: Int) -> Double { -(c[i].1 + 2 * c[i].2 * u) * u * u }
+        return Photometry.RGB(s(0), s(1), s(2))
     }
 
-    /// The light's log-contrast a standard deviation of the heat's
-    /// fluctuation is held to (L): beyond it the noise's one eddy size
-    /// draws the hot eddies as blobs many times the mean (P2's ×5-8).
+    /// The light's log-contrast per unit of the noise (its standard
+    /// deviation), in its bluest channel, is held to this (L): beyond it the
+    /// noise's one eddy size draws the hot eddies as blobs many times the
+    /// mean (P2's ×5-8), and the light's mean would rest on the noise's far
+    /// tail, which the volume noise lacks (kurtosis 2.7): at the
+    /// intermittent edge the light would vary as e^(2.5 n).
     public static let lightContrast = 1.0
     /// The heat is drawn fluctuating only where its light's log-contrast is
     /// more than this a standard deviation (the burning flame's heat, cold
     /// smoke are not): a cost, not a look.
     public static let lightThreshold = 0.02
 
-    /// For a temperature `t` whose excess `excess` (K) over the air
-    /// fluctuates by a factor of mean 1 and r.m.s. `spread`, the emitting
-    /// density fluctuating with it: how much of the excess's fluctuation is
-    /// drawn (1, or less where the light's log-contrast would pass
-    /// `lightContrast`; none under `lightThreshold`), and the light's mean
-    /// over its value at the mean
-    /// temperature, per channel, which the light is divided by. With ln B to
-    /// second order in the drawn excess D δ, b = D d ln B/dT, c = D² d² ln
-    /// B/dT², and δ Gaussian: (1 + bσ²/A) exp(b²σ²/2A) / √A, A = 1 − cσ².
-    public static func lightMean(temperature t: Double, excess: Double, spread: Double)
-        -> (drawn: Double, mean: Photometry.RGB) {
-        guard spread > 0, excess > 0 else { return (0, Photometry.RGB(1, 1, 1)) }
-        let (s1, s2) = logSlope(t)
-        let green = s1.g * excess * spread
-        // Not where it would move the light by under `lightThreshold`.
-        guard green > lightThreshold else { return (0, Photometry.RGB(1, 1, 1)) }
-        let drawn = green > lightContrast ? lightContrast / green : 1
-        let d = excess * drawn, v = spread * spread
-        func k(_ first: Double, _ second: Double) -> Double {
-            let b = first * d, a = max(1 - second * d * d * v, 0.1)
-            return (1 + b * v / a) * exp(0.5 * b * b * v / a) / a.squareRoot()
+    /// The light of a gas at mean temperature `t` whose excess `excess` (K)
+    /// over the air follows the exhaust's share, the share's factor 1 + δ
+    /// (δ = s ((n − τ)⁺/E[(n − τ)⁺] − 1), threshold τ, strength s, r.m.s.
+    /// `spread`), the emitting density fluctuating with it. The excess is
+    /// drawn D δ, D the excess or less where the light's log-contrast per
+    /// unit of the noise would pass `lightContrast` (none where the light
+    /// would move by under `lightThreshold` a σ of δ), no hotter than
+    /// `hottest`; the light follows it to first order in ln B, B(t) e^(b δ),
+    /// b = D d ln B/dT per channel, divided by the mean of (1 + δ) e^(b δ)
+    /// over a Gaussian n, closed form for the rectified Gaussian:
+    /// e^(−bs) [(1 − s)(Φ(τ) + E Φ(κ − τ)) + (s/μ) E ((κ − τ) Φ(κ − τ) +
+    /// φ(κ − τ))], κ = b s/μ, μ = E[(n − τ)⁺], E = e^(−κτ + κ²/2). So the
+    /// light's mean is kept at the intermittent edge too, where δ's tail is
+    /// heavy. Returns the drawn temperature, D's share of the excess and the
+    /// factor on B(t) per channel.
+    public static func heatLight(temperature t: Double, excess: Double, hottest: Double, strength s: Double,
+                                 threshold tau: Double, spread: Double, delta: Double)
+        -> (kelvin: Double, drawn: Double, light: Photometry.RGB) {
+        guard s > 0, spread > 0, excess > 0 else { return (t, 0, Photometry.RGB(1, 1, 1)) }
+        let slope = logSlope(t)
+        let green = slope.g * excess * spread
+        guard green > lightThreshold else { return (t, 0, Photometry.RGB(1, 1, 1)) }
+        let mu = positivePart(threshold: tau), below = normalCDF(tau)
+        // The bluest channel's log-contrast per unit of the noise, b s/μ.
+        let perNoise = slope.b * excess * s / mu
+        let drawn = perNoise > lightContrast ? lightContrast / perNoise : 1
+        let d = excess * drawn
+        // No hotter than the hottest gas.
+        let dt = min(delta, max(hottest - t, 0) / d)
+        func k(_ slopeC: Double) -> Double {
+            let b = slopeC * d, kappa = b * s / mu, z = kappa - tau
+            let e = exp(-kappa * tau + 0.5 * kappa * kappa)
+            let mean = (1 - s) * (below + e * normalCDF(z)) + s / mu * e * (z * normalCDF(z) + normalDensity(z))
+            return exp(b * (dt + s)) / mean
         }
-        return (drawn, Photometry.RGB(k(s1.r, s2.r), k(s1.g, s2.g), k(s1.b, s2.b)))
+        return (t + d * dt, drawn, Photometry.RGB(k(slope.r), k(slope.g), k(slope.b)))
     }
 }

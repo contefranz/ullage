@@ -291,45 +291,120 @@ final class JetFluctuationsTests: XCTestCase {
         XCTAssertLessThan(worst, 0.02)
     }
 
-    /// The heat fluctuates on its excess over the air where the jet is
-    /// mixed: a sample whose mean is the air's temperature stays there, none
-    /// is drawn hotter than the hottest gas, and the light's mean over a
-    /// Gaussian noise is the mean field's within 2 % beyond the flame (inert,
-    /// its heat fluctuating) and in it (its soot) where the exhaust is always
-    /// there; at the intermittent edge within 10 % (the light's mean is
-    /// reckoned for a Gaussian fluctuation, the edge's is skewed; the columns
-    /// through it hold, `testMeanColumnWithinTwoPercent`).
-    func testHeatOnItsExcess() {
-        let m = member(ApolloExhaust.f1, altitude: 0)
-        func meanLight(x: Double, r: Double) -> (Double, Double) {
-            var sum = 0.0, weight = 0.0
-            for k in 0..<161 {
-                let z = -8 + 0.1 * Double(k), w = JetFluctuations.normalDensity(z) * 0.1
-                sum += w * m.sample(x: x, r: r, noise: JetFluctuations.Noise(value: z)).emission.luminance
-                weight += w
-            }
-            return (sum / weight, m.sample(x: x, r: r).emission.luminance)
+    /// Gaussian quadrature of f(n) over a unit normal n.
+    func overNoise(_ f: (Double) -> Double) -> Double {
+        var sum = 0.0, weight = 0.0
+        for k in 0..<321 {
+            let z = -8 + 0.05 * Double(k), w = JetFluctuations.normalDensity(z) * 0.05
+            sum += w * f(z)
+            weight += w
         }
+        return sum / weight
+    }
+
+    /// The light's mean over the noise is the mean field's, the intermittent
+    /// edge included: per point beyond the F-1's flame (its heat
+    /// fluctuating) and in it (its soot), out to 1.45 R where the exhaust is
+    /// there a third of the time, within 0.5 % for a Gaussian noise.
+    func testLightMeanKeptToTheEdge() {
+        let m = member(ApolloExhaust.f1, altitude: 0)
         var report: [String] = []
         for (x, q) in [(0.5 * m.flameLength, 0.9), (1.5 * m.flameLength, 0.3), (2.5 * m.flameLength, 0.6),
-                       (2.5 * m.flameLength, 1.1)] {
+                       (2.5 * m.flameLength, 1.1), (2.5 * m.flameLength, 1.2), (2.5 * m.flameLength, 1.27),
+                       (2.5 * m.flameLength, 1.35), (2.5 * m.flameLength, 1.42), (3 * m.flameLength, 1.3)] {
             let r = q * m.radius(atX: x)
-            let (fluctuating, mean) = meanLight(x: x, r: r)
-            let w = min(max(0.06 + 0.45 * x / (x + 6 * m.exitDiameter), 0.06), 0.5)
-            let pc = 1 - PlumeMember.smoothstep(1 - w, 1 + w, q)
-            let presence = JetFluctuations.presence(threshold: JetFluctuations.threshold(meanShare: pc))
-            report.append(String(format: "x %.0f m q %.1f (there %.0f %%): %+.2f %%", x, q, 100 * presence,
-                                 100 * (fluctuating / mean - 1)))
-            XCTAssertEqual(fluctuating / mean, 1, accuracy: presence > 0.95 ? 0.02 : 0.1, "x \(x) m, q \(q)")
+            let mean = m.sample(x: x, r: r).emission.luminance
+            XCTAssertGreaterThan(mean, 0, "x \(x) m, q \(q) is within the field")
+            let fluctuating = overNoise { m.sample(x: x, r: r, noise: JetFluctuations.Noise(value: $0)).emission.luminance }
+            report.append(String(format: "x %.0f m q %.2f: %+.2f %%", x, q, 100 * (fluctuating / mean - 1)))
+            XCTAssertEqual(fluctuating / mean, 1, accuracy: 0.005, "x \(x) m, q \(q)")
         }
         print("JetFluctuationsTests: the light's mean over the noise:", report.joined(separator: "; "))
-        // The heat never passes the hottest gas, and ambient stays ambient.
-        var cold = m
-        cold.coreTemperature = cold.ambientTemperature
-        cold.afterburning = 0
-        for z in [-3.0, 0, 3] {
-            XCTAssertEqual(cold.sample(x: 200, r: 3, noise: JetFluctuations.Noise(value: z)).emission.luminance,
-                           cold.sample(x: 200, r: 3).emission.luminance, accuracy: 1e-12)
+    }
+
+    /// Columns tangent to the F-1's far field beyond its flame at 1.2-1.4 R
+    /// (the edge alone, where the fluctuation's tail is heaviest), thin:
+    /// each point's light over the noise against the mean field's, within
+    /// 1 % for a Gaussian noise (the closed form is exact) and 2.5 % over
+    /// the noise's own values (the volume noise's tails are lighter than a
+    /// Gaussian's, kurtosis 2.7; −0.9 to −2.0 % measured).
+    func testTangentColumnsKeepTheLight() {
+        let m = member(ApolloExhaust.f1, altitude: 0)
+        let values = noiseValues(m, count: 1_500)
+        var report: [String] = []
+        for x in [2.0 * m.flameLength, 3 * m.flameLength] {
+            let big = m.radius(atX: x)
+            for b in [1.2, 1.3, 1.4] {
+                // The chord at impact b R across the field's extent.
+                let e = m.extent(atX: x), half = (max(e * e - b * b * big * big, 0)).squareRoot()
+                var mean = 0.0, gaussian = 0.0, drawn = 0.0
+                for i in 0..<80 {
+                    let y = -half + 2 * half * (Double(i) + 0.5) / 80
+                    let r = (b * b * big * big + y * y).squareRoot()
+                    mean += m.sample(x: x, r: r).emission.luminance
+                    gaussian += overNoise { m.sample(x: x, r: r, noise: JetFluctuations.Noise(value: $0)).emission.luminance }
+                    drawn += values.reduce(0.0) {
+                        $0 + m.sample(x: x, r: r, noise: JetFluctuations.Noise(value: $1)).emission.luminance
+                    } / Double(values.count)
+                }
+                report.append(String(format: "x %.0f m at %.2f R: Gaussian %+.2f %%, the noise's own %+.2f %%", x, b,
+                                     100 * (gaussian / mean - 1), 100 * (drawn / mean - 1)))
+                XCTAssertGreaterThan(mean, 0)
+                XCTAssertEqual(gaussian / mean, 1, accuracy: 0.01, "x \(x) m at \(b) R")
+                XCTAssertEqual(drawn / mean, 1, accuracy: 0.025, "x \(x) m at \(b) R, the noise's own values")
+            }
+        }
+        print("JetFluctuationsTests: tangent columns' light:", report.joined(separator: "; "))
+    }
+
+    /// The heat fluctuates on its excess over the air, not on the absolute
+    /// temperature: with no excess (a warm ambient, the gas at it) the light
+    /// follows the density alone; below the contrast's hold the drawn
+    /// excursion is the excess times the fluctuation, so it scales with the
+    /// excess; and none is drawn hotter than the hottest gas.
+    func testHeatOnItsExcess() {
+        // No excess: the gas at a warm air's 1,000 K emits, but its light per
+        // unit of absorption (its blackbody) does not move with the noise.
+        var warm = member(ApolloExhaust.f1, altitude: 0)
+        warm.ambientTemperature = 1_000
+        warm.coreTemperature = 1_000
+        warm.afterburning = 0
+        let x = 100.0, r = 3.0
+        let still = warm.sample(x: x, r: r)
+        XCTAssertGreaterThan(still.emission.luminance, 0, "the warm gas glows")
+        var moved = 0.0
+        for z in [-3.0, -1, 0, 1, 3] {
+            let s = warm.sample(x: x, r: r, noise: JetFluctuations.Noise(value: z))
+            moved = max(moved, abs(s.absorption / still.absorption - 1))
+            XCTAssertEqual(s.emission.luminance / s.absorption, still.emission.luminance / still.absorption,
+                           accuracy: 1e-9 * still.emission.luminance / still.absorption, "z \(z)")
+        }
+        XCTAssertGreaterThan(moved, 0.1, "its density does fluctuate")
+        // The drawn excursion is the excess times the fluctuation, below the
+        // contrast's hold: the same mean temperature over two airs.
+        for z in [-1.0, 0.5, 2] {
+            let tau = JetFluctuations.thresholds[15], s = 0.02
+            let delta = JetFluctuations.factor(noise: z, threshold: tau, strength: s) - 1
+            let spread = s * JetFluctuations.spreads[15]
+            let a = JetFluctuations.heatLight(temperature: 1_200, excess: 900, hottest: 3_000, strength: s,
+                                              threshold: tau, spread: spread, delta: delta)
+            let b = JetFluctuations.heatLight(temperature: 1_200, excess: 300, hottest: 3_000, strength: s,
+                                              threshold: tau, spread: spread, delta: delta)
+            XCTAssertEqual(a.drawn, 1, "under the hold")
+            XCTAssertEqual(a.kelvin - 1_200, 900 * delta, accuracy: 1e-9)
+            XCTAssertEqual(b.kelvin - 1_200, 300 * delta, accuracy: 1e-9)
+            // The absolute temperature's fluctuation would not scale.
+            if abs(delta) > 1e-6 { XCTAssertEqual((a.kelvin - 1_200) / (b.kelvin - 1_200), 3, accuracy: 1e-9) }
+        }
+        // None hotter than the hottest gas: a hot excess near it, a large
+        // fluctuation.
+        for z in [0.0, 2, 4] {
+            let tau = JetFluctuations.thresholds[3], s = 1.0
+            let delta = JetFluctuations.factor(noise: z, threshold: tau, strength: s) - 1
+            let h = JetFluctuations.heatLight(temperature: 2_200, excess: 1_900, hottest: 2_300, strength: s,
+                                              threshold: tau, spread: JetFluctuations.spreads[3], delta: delta)
+            XCTAssertLessThanOrEqual(h.kelvin, 2_300 + 1e-9, "z \(z)")
+            if z == 4 { XCTAssertEqual(h.kelvin, 2_300, accuracy: 1e-9, "the cap holds it") }
         }
     }
 

@@ -20,7 +20,11 @@ import OrbitCore
 ///   of half-width R/2 outside the core's shrinking top hat (uniform in a
 ///   free expansion). The axis runs faster than the edge. Each layer's
 ///   pattern is laid out where the flow carried each point from since the
-///   layer's birth (`carriedFrom`), so it rides the decelerating jet.
+///   layer's birth (`carriedFrom`), so it rides the decelerating jet; at most
+///   half-way back to the exit (`carryLimit`), so that a layer outliving its
+///   transit (a ballooned plume's, carried at the whole exhaust speed) keeps
+///   cells near the local ones (ℓ grows as x) instead of drawing the exit's
+///   small cells far downstream as thin plates across the jet.
 /// - **They decay** as a jet's turbulence does following the flow: its
 ///   Lagrangian integral time is `lagrangianTime` L/u' (L the integral
 ///   length, u' the turbulence's intensity times the centreline's excess
@@ -121,6 +125,11 @@ public enum PlumeTurbulence {
     /// ln 16: the mean speed's Gaussian across the jet, exp(-ln 2 (r/r½)²)
     /// with r½ = R/2.
     public static let profileShape = 4 * log(2.0)
+    /// How far back towards the exit a layer's pattern is carried, at most,
+    /// over the distance from it: half (L). A jet's layers are carried 1-30 %
+    /// of it; a ballooned plume's would reach the exit and beyond.
+    public static let carryLimit = 0.5
+
     /// The noise's tile: eddies per repeat of the volume noise (its
     /// coarsest octave's cells across the 128³ texture).
     public static let eddiesPerTile = 8.0
@@ -184,16 +193,11 @@ public enum PlumeTurbulence {
         m.eddySize + m.eddyGrowth * max(x, 0)
     }
 
-    /// Eddies from the exit to x, ∫dx/ℓ. Upstream of the exit (where a
-    /// layer's pattern comes from before the flow carries it out) in cells
-    /// of `upstream` (m): the eddies where the sample now is, so that a
-    /// parcel that left the nozzle within the layer's life carries a pattern
-    /// as coarse as the eddies about it (in the lip's cells, the default, a
-    /// fast jet whose layers outlive its transit, a ballooned plume's, would
-    /// draw lip-sized stripes across its far field).
-    public static func eddies(_ m: PlumeMember, atX x: Double, upstream: Double? = nil) -> Double {
+    /// Eddies from the exit to x, ∫dx/ℓ; upstream of the exit at the lip's
+    /// size.
+    public static func eddies(_ m: PlumeMember, atX x: Double) -> Double {
         let l0 = max(m.eddySize, 1e-6), k = m.eddyGrowth
-        guard x > 0 else { return x / max(upstream ?? l0, 1e-6) }
+        guard x > 0 else { return x / l0 }
         return k > 1e-5 ? log(1 + k * x / l0) / k : x / l0
     }
 
@@ -423,9 +427,10 @@ public enum PlumeTurbulence {
                 let cycle = layer == 0 ? layers.cycle.0 : layers.cycle.1
                 let w = wb * (1 - abs(2 * phase - 1))
                 let age = phase * life
-                // Laid out where the flow carried it from since the layer's birth.
-                let from = x + f.carriedFrom(age: age) - f.x
-                let c = perp / l + m.axis * (eddies(m, atX: from, upstream: l) / stretch)
+                // Laid out where the flow carried it from since the layer's
+                // birth, at most half-way back to the exit.
+                let from = x - min(f.x - f.carriedFrom(age: age), carryLimit * x)
+                let c = perp / l + m.axis * (eddies(m, atX: from) / stretch)
                 let rotated = Vec3(basis[0].dot(c), basis[1].dot(c), basis[2].dot(c)) / eddiesPerTile
                 let shift = offset(cycle: cycle, band: band, layer: layer) + seedOffset(seed)
                 let n = 2 * noise(rotated + shift, layer) - 1

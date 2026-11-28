@@ -510,12 +510,12 @@ inline float2 plume_noise(const device PlumeMember &m, PlumeFlow f, float3 p, co
             float4 lay = pf.layers[2 * band + layer];
             float w = wb * (1.0 - abs(2.0 * lay.x - 1.0));
             float age = lay.x * life;
-            // Laid out where the flow carried it from since the layer's
-            // birth (PlumeTurbulence.Flow.carriedFrom): a midpoint step back.
+            // Laid out where the flow carried it from since the layer's birth
+            // (PlumeTurbulence.Flow.carriedFrom: a midpoint step back), at
+            // most half-way back to the exit (PlumeTurbulence.carryLimit).
             float mid = xf - 0.5 * age * (f.coflow + e * min(1.0, core / max(xf, 1e-3)));
-            float from = x - age * (f.coflow + e * min(1.0, core / max(mid, 1e-3)));
-            // Upstream of the exit in the eddies' cells where the sample is.
-            float s = from > 0.0 ? (k > 1e-5 ? log(1.0 + k * from / l0) / k : from / l0) : from / l;
+            float from = x - min(age * (f.coflow + e * min(1.0, core / max(mid, 1e-3))), 0.5 * x);
+            float s = k > 1e-5 ? log(1.0 + k * from / l0) / k : from / l0;
             float4 t = noise.sample(ns, across + along * (s / stretch) + lay.yzw + seedOffset);
             float n = 2.0 * (layer == 0 ? t.r : t.g) - 1.0;
             total += w * n;
@@ -665,7 +665,7 @@ inline void plume_member_t(thread PlumeSample &s, const device PlumeMember &m, i
         // factor, a ballooned plume's boundary billowing; the noise is read
         // only where one of them is, faded out where the eddies are under a
         // few texels across (TurbulenceSpectrum's cut-off).
-        float jet = 1.0, spread = 0.0, drawn = m.noise.z;
+        float jet = 1.0, spread = 0.0, drawn = m.noise.z, jetT = 0.0, jetS = 0.0, jetMu = 1.0;
         if (FLUCTUATES && drawn > 0.0) {
             // The jet's mixing, faded out as the free expansion takes the
             // field over (JetFluctuations.jetShare).
@@ -681,8 +681,11 @@ inline void plume_member_t(thread PlumeSample &s, const device PlumeMember &m, i
                     drawn *= nd.y;
                     if (a > 0.0 && drawn > 0.0) {
                         float2 th = plume_threshold(pc, pf);
-                        jet = plume_factor(nd.x, th.x, a * drawn, plume_positivePartJet(th.x));
-                        spread = a * drawn * th.y;
+                        jetT = th.x;
+                        jetS = a * drawn;
+                        jetMu = plume_positivePartJet(th.x);
+                        jet = plume_factor(nd.x, th.x, jetS, jetMu);
+                        spread = jetS * th.y;
                     }
                     if (billow && drawn > 0.0) {
                         // The expansion's gas is there the boundary's share of the time.
@@ -735,28 +738,29 @@ inline void plume_member_t(thread PlumeSample &s, const device PlumeMember &m, i
             }
             float burnt = 1.0;
             if (m.sheath.w > 0.0) { burnt -= 0.75 * m.flame.w * plume_smoothstep(m.sheath.w, 1.5 * m.sheath.w, x); }
-            float3 light;
             // The mixed heat's excess over the air follows the exhaust's
-            // share, its light's mean kept (JetFluctuations.lightMean): per
-            // channel (1 + bσ²/A) exp(b²σ²/2A) / √A, A = 1 - cσ², b and c the
-            // drawn excess D times d ln B/dT and D² times d² ln B/dT², its
-            // log-contrast held to 1 a σ; not where it would move the light
-            // by under 2 % (the burning flame's heat, cold smoke).
+            // share (JetFluctuations.heatLight): drawn D δ (the light's
+            // log-contrast held to 1 a unit of the noise in blue; not where it
+            // moves under 2 % a σ), no hotter than the hottest gas,
+            // the light B(t) e^(b δ) to first order in ln B, b = D d ln B/dT,
+            // over its mean for the rectified fluctuation, closed form.
+            float3 light = plume_blackbody(t, pf);
             float excess = (1.0 - burning) * max(t - ta, 0.0), sigma = (1.0 - v) * spread;
             float u = 1.0 / max(t, 300.0);
             float green = -(pf.wienA.g + 2.0 * pf.wienC.g * u) * u * u * excess * sigma;
             if (green > 0.02) {
                 float3 slope = -(pf.wienA.rgb + 2.0 * pf.wienC.rgb * u) * u * u;
-                float3 curve = (2.0 * pf.wienA.rgb + 6.0 * pf.wienC.rgb * u) * u * u * u;
-                float heat = green > 1.0 ? 1.0 / green : 1.0;
-                float d = excess * heat, var_ = sigma * sigma;
-                float3 b = slope * d, a = max(1.0 - curve * (d * d * var_), float3(0.1));
-                float3 lightMean = (1.0 + b * var_ / a) * exp(0.5 * b * b * var_ / a) * rsqrt(a);
+                float sj = (1.0 - v) * jetS, perNoise = slope.b * excess * sj / jetMu;
+                float d = excess * (perNoise > 1.0 ? 1.0 / perNoise : 1.0);
                 float hottest = max(t, max(wall ? m.deckHeat.x : m.gas.z, m.flame.x));
-                t = min(t + excess * heat * (1.0 - v) * (jet - 1.0), hottest);
-                light = plume_blackbody(t, pf) / lightMean;
-            } else {
-                light = plume_blackbody(t, pf);
+                float dt = min((1.0 - v) * (jet - 1.0), max(hottest - t, 0.0) / d);
+                float below = plume_normalCDF(jetT);
+                float3 b = slope * d, kappa = b * (sj / jetMu), z = kappa - jetT;
+                float3 e = exp(-kappa * jetT + 0.5 * kappa * kappa);
+                float3 cdf = float3(plume_normalCDF(z.x), plume_normalCDF(z.y), plume_normalCDF(z.z));
+                float3 pdf = 0.39894228 * exp(-0.5 * z * z);
+                float3 mean = (1.0 - sj) * (below + e * cdf) + (sj / jetMu) * e * (z * cdf + pdf);
+                light *= exp(b * (dt + sj)) / mean;
             }
             plume_add(s, m.gas.x * rho * cells * burnt, m.gas.y, light, k);
         }

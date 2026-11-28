@@ -203,30 +203,40 @@ final class JetFluctuationsRenderTests: XCTestCase {
         return sum.map { $0 / Float(times.count) }
     }
 
-    /// The luminance of the central `fraction` of a frame's width and height.
-    static func centralLuminance(_ light: [Float], width: Int, height: Int, fraction: Double) -> Double {
-        let w = max(Int((Double(width) * fraction).rounded()), 1), h = max(Int((Double(height) * fraction).rounded()), 1)
-        let x0 = (width - w) / 2, y0 = (height - h) / 2
-        var sum = 0.0
-        for y in y0..<(y0 + h) {
-            for x in x0..<(x0 + w) {
-                let i = 4 * (y * width + x)
-                sum += 0.2126 * Double(light[i]) + 0.7152 * Double(light[i + 1]) + 0.0722 * Double(light[i + 2])
+    /// The luminance of a frame's central angular window: the window the
+    /// whole frame spans at a vertical field of view `window` (rad), seen at
+    /// `fov` (rad) with square pixels, its edge pixels weighted by how much
+    /// of them it covers.
+    static func windowLuminance(_ light: [Float], width: Int, height: Int, fov: Double, window: Double) -> Double {
+        let scale = tan(window / 2) / tan(fov / 2)
+        let hx = 0.5 * Double(width) * scale, hy = 0.5 * Double(height) * scale
+        let cx = 0.5 * Double(width), cy = 0.5 * Double(height)
+        func cover(_ i: Int, _ c: Double, _ h: Double) -> Double {
+            max(0, min(Double(i + 1), c + h) - max(Double(i), c - h))
+        }
+        var sum = 0.0, weight = 0.0
+        for y in max(Int((cy - hy).rounded(.down)), 0)..<min(Int((cy + hy).rounded(.up)), height) {
+            let wy = cover(y, cy, hy)
+            for x in max(Int((cx - hx).rounded(.down)), 0)..<min(Int((cx + hx).rounded(.up)), width) {
+                let w = wy * cover(x, cx, hx), i = 4 * (y * width + x)
+                sum += w * (0.2126 * Double(light[i]) + 0.7152 * Double(light[i + 1]) + 0.0722 * Double(light[i + 2]))
+                weight += w
             }
         }
-        return sum / Double(w * h)
+        return sum / max(weight, 1e-12)
     }
 
-    /// Plan's test: the same region of the F-1s' far field at the pad (100 m
-    /// down the plume, 49 by 31 m, the whole frame at 32×) is as bright from
-    /// 1× to 32× zoom, within 3 %: 2 km off, marched at every zoom (at 1×
-    /// it would be an impostor, under 48 pixels), its
-    /// eddies are under the footprint's cut-off at 1× and drawn in full from
-    /// 4× on, and the fluctuations keep the mean as they come in. Each
-    /// zoom's light with the turbulence over its light without, averaged
-    /// over eight moments; the light without, against 32×'s, reported (at
-    /// 1× the region is 20 by 12 pixels, R6's half resolution blurring its
-    /// edges).
+    /// Plan's test: the same region of the F-1s' far field at the pad (the
+    /// window the 32× frame spans: 2 km off, 49.1 m down the plume about
+    /// 100 m from the exits and 78.5 m across, the plume's 43 or so and the
+    /// black backdrop beside it) is as bright from 1× to 32× zoom, within
+    /// 3 %. Marched at every zoom (at 1× it would be an impostor, under 48
+    /// pixels), its eddies are under the footprint's cut-off at 1× and drawn
+    /// in full from 4× on, and the fluctuations keep the mean as they come
+    /// in. Each zoom's light in that window with the turbulence over without,
+    /// averaged over eight moments, and against 32×'s (at 1× the window is
+    /// 19.5 by 12.2 pixels, its edges weighted; R6's half resolution blurs
+    /// them).
     func testLuminanceHeldOverAZoom() throws {
         let engine = PlumeTestEngine(engine: "F-1", position: [0, 0, 100], altitude: 0, ring: 4, ringRadius: 4.9)
         let times = (0..<8).map { 0.25 + 1.37 * Double($0) }
@@ -244,9 +254,9 @@ final class JetFluctuationsRenderTests: XCTestCase {
                 return s
             }
             let on = try meanLight(shot(true), times: times), off = try meanLight(shot(false), times: [0.25])
-            let fraction = zoom / 32
-            let lOn = Self.centralLuminance(on, width: 640, height: 400, fraction: fraction)
-            let lOff = Self.centralLuminance(off, width: 640, height: 400, fraction: fraction)
+            let fov = 45 / zoom * Double.pi / 180, window = 45.0 / 32 * Double.pi / 180
+            let lOn = Self.windowLuminance(on, width: 640, height: 400, fov: fov, window: window)
+            let lOff = Self.windowLuminance(off, width: 640, height: 400, fov: fov, window: window)
             ratios.append((zoom, lOn / lOff, lOff, lOn))
             if zoom == 32 {
                 // One moment's frame does move about the mean.

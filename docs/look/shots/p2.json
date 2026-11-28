@@ -100,7 +100,7 @@
      "camera": {"yaw": 0, "pitch": 0, "distance": 40, "fov": 50},
      "settings": {"post": {"exposure": {"mode": "manual", "ev100": 22}}, "cloud": {"enabled": false}, "probe": {"enabled": false},
                   "transparency": {"testBackdrop": true},
-                  "plume": {"testEngines": [{"engine": "F-1", "position": [0, 0, 35], "altitude": 0}]}}},
+                  "plume": {"testEngines": [{"engine": "F-1", "position": [0, 0, 17], "altitude": 0}]}}},
     {"name": "p2-f1-zoom-farfield", "scenario": "leo", "showOrbit": false,
      "camera": {"yaw": 0, "pitch": 0, "distance": 150, "fov": 10},
      "settings": {"post": {"exposure": {"mode": "manual", "ev100": 17}}, "cloud": {"enabled": false}, "probe": {"enabled": false},
