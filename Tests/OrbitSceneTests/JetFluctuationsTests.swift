@@ -86,6 +86,15 @@ final class JetFluctuationsTests: XCTestCase {
             // Weighted, the mean still holds and the r.m.s. scales.
             XCTAssertEqual(integral { JetFluctuations.factor(noise: $0, threshold: t, strength: 0.4) }, 1, accuracy: 1e-5)
         }
+        // The shader's mean without an exponential, over the jet's thresholds.
+        var worst = 0.0
+        for i in 0...2_000 {
+            let t = -4.5 + 5.2 * Double(i) / 2_000
+            worst = max(worst, abs(JetFluctuations.positivePartApproximation(threshold: t)
+                                   / JetFluctuations.positivePart(threshold: t) - 1))
+        }
+        XCTAssertLessThan(worst, 6e-4)
+        XCTAssertLessThan(JetFluctuations.thresholds.max() ?? 1, 0.7, "the thresholds are within its fit")
         // On the axis the factor is linear: 1 + 0.237 n down to 4.2 σ.
         XCTAssertEqual(JetFluctuations.thresholds[15], -1 / 0.237, accuracy: 0.05)
         XCTAssertEqual(JetFluctuations.factor(noise: 1, threshold: JetFluctuations.thresholds[15], strength: 1), 1.237,

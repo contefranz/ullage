@@ -69,13 +69,7 @@ enum Plumes {
     static func setTurbulence(_ u: inout PlumeFrameGPU) {
         typealias T = PlumeTurbulence
         u.flow = SIMD4(Float(T.shutter), Float(T.similarFrom), Float(1 / T.noiseDeviation), Float(T.eddiesPerTile))
-        func table(_ v: [Double]) -> (SIMD4<Float>, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>) {
-            let j = v.map(Float.init)
-            return (SIMD4(j[0], j[1], j[2], j[3]), SIMD4(j[4], j[5], j[6], j[7]), SIMD4(j[8], j[9], j[10], j[11]),
-                    SIMD4(j[12], j[13], j[14], j[15]))
-        }
-        u.thresholds = table(JetFluctuations.thresholds)
-        u.spreads = table(JetFluctuations.spreads)
+        u.setJet()
         u.flowRates = SIMD4(Float(T.shearIntensity), Float(T.similarIntensity), Float(T.decayRate),
                             Float(T.fadeIntegral))
         u.flowRates2 = SIMD4(Float(T.integralLength), u.flowRates2.y, Float(T.lagrangianStart), Float(T.lagrangianStep))
@@ -315,11 +309,10 @@ struct PlumeFrameGPU {
     var flowRates2 = SIMD4<Float>.zero
     /// The Lagrangian integral time over L/u' at the four stations.
     var lagrangian = SIMD4<Float>.zero
-    /// The fluctuations' thresholds where the jet's mean is j/15 of its
-    /// centreline's (`JetFluctuations.thresholds`), four a vector.
-    var thresholds = (SIMD4<Float>.zero, SIMD4<Float>.zero, SIMD4<Float>.zero, SIMD4<Float>.zero)
-    /// The fluctuation's r.m.s. over the mean there (`JetFluctuations.spreads`).
-    var spreads = (SIMD4<Float>.zero, SIMD4<Float>.zero, SIMD4<Float>.zero, SIMD4<Float>.zero)
+    /// Where the jet's mean is j/15 of its centreline's: the fluctuation's
+    /// threshold, the next station's less it, its r.m.s. over the mean, the
+    /// next's less it (`JetFluctuations.thresholds`, `.spreads`; `setJet`).
+    var jet = PlumeFrameGPU.noJet
     /// Its bands' layers, two a band (`Plumes.layers`).
     var layers = PlumeFrameGPU.noLayers
 
@@ -333,6 +326,23 @@ struct PlumeFrameGPU {
         (.zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero,
          .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero,
          .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero)
+
+    static let noJet: (SIMD4<Float>, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>,
+                       SIMD4<Float>, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>,
+                       SIMD4<Float>, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>) =
+        (.zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero)
+
+    /// Sets the jet's table from `JetFluctuations`.
+    mutating func setJet() {
+        let t = JetFluctuations.thresholds, r = JetFluctuations.spreads
+        withUnsafeMutableBytes(of: &jet) { raw in
+            for j in 0..<16 {
+                let k = min(j + 1, 15)
+                let v = SIMD4(Float(t[j]), Float(t[k] - t[j]), Float(r[j]), Float(r[k] - r[j]))
+                raw.storeBytes(of: v, toByteOffset: j * MemoryLayout<SIMD4<Float>>.stride, as: SIMD4<Float>.self)
+            }
+        }
+    }
 
     /// Sets the layers from `Plumes.layers`.
     mutating func setLayers(_ l: [SIMD4<Float>]) {

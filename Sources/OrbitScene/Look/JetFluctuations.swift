@@ -99,6 +99,20 @@ public enum JetFluctuations {
         max(normalDensity(t) - t * normalCDF(-t), 1e-12)
     }
 
+    /// E[(n − t)⁺] over the jet's thresholds (t ≤ 0.7) without an
+    /// exponential, as the shader takes it (`plume_positivePartJet`): −t
+    /// below −2.6 (within 0.06 %), else a polynomial of degree 7 fitted on
+    /// −2.6...0.7 (within 5×10⁻⁵).
+    public static func positivePartApproximation(threshold t: Double) -> Double {
+        if t < -2.6 { return -t }
+        let x = (2 * min(t, 0.7) + 1.9) / 3.3
+        var p = 0.009232227
+        for c in [-0.005121836, -0.05182828, -0.010591066, 0.18120124, 0.346270441, -1.36783254, 1.041547268] {
+            p = p * x + c
+        }
+        return p
+    }
+
     /// The r.m.s. of (n − t)⁺ over its mean.
     public static func rectifiedRMS(threshold t: Double) -> Double {
         let m1 = positivePart(threshold: t), m2 = (1 + t * t) * normalCDF(-t) - t * normalDensity(t)

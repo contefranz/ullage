@@ -20,9 +20,9 @@ struct PlumeFrame {
     float4 flowRates2;  // x: the noise's integral length over its cell, y: the ice's ramp, zw: the Lagrangian
                         // times' first station and spacing (core lengths)
     float4 lagrangian;  // the Lagrangian integral time over L/u' at the four stations
-    float4 thresholds[4]; // the fluctuation's thresholds where the jet's mean is j/15 of its centreline's
-                        // (JetFluctuations.thresholds)
-    float4 spreads[4];  // and its r.m.s. over the mean there (JetFluctuations.spreads)
+    float4 jet[16];     // where the jet's mean is j/15 of its centreline's: x the fluctuation's threshold, y the
+                        // next station's less it, z its r.m.s. over the mean, w the next's less it
+                        // (JetFluctuations.thresholds, .spreads)
     float4 layers[40];  // its bands' layers, two a band: x the phase in its life, yzw its offset (tiles)
 };
 
@@ -578,19 +578,29 @@ inline float plume_positivePart(float t) {
 
 // The jet's threshold, and the fluctuation's r.m.s. over the mean, where its
 // mean is g of the centreline's (JetFluctuations.threshold(meanShare:),
-// .spread(meanShare:)): linear in the tables.
+// .spread(meanShare:)): linear in the table.
 inline float2 plume_threshold(float g, constant PlumeFrame &pf) {
     float s = clamp(g, 0.0, 1.0) * 15.0;
     int i = min(int(s), 14);
     float f = s - float(i);
-    float2 a = float2(pf.thresholds[i / 4][i % 4], pf.spreads[i / 4][i % 4]);
-    float2 b = float2(pf.thresholds[(i + 1) / 4][(i + 1) % 4], pf.spreads[(i + 1) / 4][(i + 1) % 4]);
-    return mix(a, b, f);
+    float4 e = pf.jet[i];
+    return float2(e.x + e.y * f, e.z + e.w * f);
 }
 
-// The factor on the mean, weighted by `strength` (JetFluctuations.factor).
-inline float plume_factor(float n, float t, float strength) {
-    return 1.0 + strength * (max(n - t, 0.0) / plume_positivePart(t) - 1.0);
+// E[(n - t)+] over the jet's thresholds (t ≤ 0.7) without an exponential
+// (JetFluctuations.positivePartApproximation): -t below -2.6 (within
+// 0.06 %), else a polynomial of degree 7 (within 5e-5).
+inline float plume_positivePartJet(float t) {
+    if (t < -2.6) { return -t; }
+    float x = (2.0 * min(t, 0.7) + 1.9) / 3.3;
+    return ((((((0.009232227 * x - 0.005121836) * x - 0.05182828) * x - 0.010591066) * x + 0.18120124) * x
+             + 0.346270441) * x - 1.36783254) * x + 1.041547268;
+}
+
+// The factor on the mean, weighted by `strength` (JetFluctuations.factor),
+// E[(n - t)+] given.
+inline float plume_factor(float n, float t, float strength, float positive) {
+    return 1.0 + strength * (max(n - t, 0.0) / positive - 1.0);
 }
 
 // How mixed the jet is at x, r (JetFluctuations.mixedness), R its radius.
@@ -671,14 +681,14 @@ inline void plume_member_t(thread PlumeSample &s, const device PlumeMember &m, i
                     drawn *= nd.y;
                     if (a > 0.0 && drawn > 0.0) {
                         float2 th = plume_threshold(pc, pf);
-                        jet = plume_factor(nd.x, th.x, a * drawn);
+                        jet = plume_factor(nd.x, th.x, a * drawn, plume_positivePartJet(th.x));
                         spread = a * drawn * th.y;
                     }
                     if (billow && drawn > 0.0) {
                         // The expansion's gas is there the boundary's share of the time.
                         float gamma = 1.0 - cut, gc = clamp(gamma, 1e-4, 1.0 - 1e-4);
-                        confine = 1.0 - m.disk.w
-                            + m.disk.w * gamma * plume_factor(nd.x, log((1.0 - gc) / gc) / 1.702, drawn);
+                        float tb = log((1.0 - gc) / gc) / 1.702;
+                        confine = 1.0 - m.disk.w + m.disk.w * gamma * plume_factor(nd.x, tb, drawn, plume_positivePart(tb));
                     }
                 }
             }
