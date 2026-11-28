@@ -106,9 +106,9 @@ final class GaussianMediumRenderTests: XCTestCase {
         }
         let device = try device()
         let input = try XCTUnwrap(gpu.withUnsafeBytes { device.makeBuffer(bytes: $0.baseAddress!, length: $0.count) })
-        let out = try XCTUnwrap(device.makeBuffer(length: 7 * 16 * cases.count, options: .storageModeShared))
+        let out = try XCTUnwrap(device.makeBuffer(length: 8 * 16 * cases.count, options: .storageModeShared))
         try run("gaussianMedium_check", buffers: [input, out], threads: cases.count, lighting: LightingUniforms())
-        let p = out.contents().bindMemory(to: SIMD4<Float>.self, capacity: 7 * cases.count)
+        let p = out.contents().bindMemory(to: SIMD4<Float>.self, capacity: 8 * cases.count)
 
         func near(_ a: Float, _ b: Double, _ scale: Double, _ what: String, _ i: Int, rel: Double = 2e-4) {
             XCTAssertEqual(Double(a), b, accuracy: rel * max(abs(b), scale), "case \(i): \(what)")
@@ -116,7 +116,7 @@ final class GaussianMediumRenderTests: XCTestCase {
         for (i, c) in cases.enumerated() {
             let m = c.medium, r = m.ray(origin: c.origin, direction: c.direction)
             let depth = r.depth(from: c.t0, to: c.t1)
-            let row = (0..<7).map { p[7 * i + $0] }
+            let row = (0..<8).map { p[8 * i + $0] }
             near(row[0].x, r.centre, r.width, "nearest approach", i)
             near(row[0].y, r.width, 0, "width", i)
             near(row[0].z, r.peak, m.peakExtinction, "peak", i)
@@ -156,6 +156,13 @@ final class GaussianMediumRenderTests: XCTestCase {
             near(row[6].y, GaussianMedium.erfInverse(min(max(c.erf / 3.5, -0.99), 0.99)), 1e-3, "erf inverse", i, rel: 1e-3)
             XCTAssertEqual(Int(row[6].z), GaussianMedium.segments(depth: depth), "case \(i): segments")
             XCTAssertEqual(row[6].w, 1, "case \(i): the stand-in's axis")
+            let up = c.light.ambientUp, axis = Vec3(up.r, up.g, up.b + 1e-3).normalized
+            let column = m.ambientColumn(at: c.origin + c.direction * r.centre, axis: axis)
+            near(row[7].x, column.depth, 1e-3 * m.peakExtinction * m.sigma.x, "ambient column depth", i, rel: 2e-3)
+            near(row[7].y, column.chord, 1e-3 * m.peakExtinction * m.sigma.x, "ambient column chord", i, rel: 2e-3)
+            near(row[7].z, GaussianMedium.segmentBoundary(1, of: GaussianMedium.segments(depth: depth), depth: depth), 1e-3,
+                 "segment boundary", i)
+            near(row[7].w, r.shadingTime(from: c.t0, to: c.t0 + 0.02 * r.width), r.width, "faint chord's shading", i, rel: 1e-3)
         }
     }
 
@@ -180,15 +187,15 @@ final class GaussianMediumRenderTests: XCTestCase {
         }
         let device = try device()
         let input = try XCTUnwrap(gpu.withUnsafeBytes { device.makeBuffer(bytes: $0.baseAddress!, length: $0.count) })
-        let out = try XCTUnwrap(device.makeBuffer(length: 7 * 16 * dirs.count, options: .storageModeShared))
+        let out = try XCTUnwrap(device.makeBuffer(length: 8 * 16 * dirs.count, options: .storageModeShared))
         try run("gaussianMedium_check", buffers: [input, out], threads: dirs.count, lighting: lighting)
-        let p = out.contents().bindMemory(to: SIMD4<Float>.self, capacity: 7 * dirs.count)
+        let p = out.contents().bindMemory(to: SIMD4<Float>.self, capacity: 8 * dirs.count)
         for (i, d) in dirs.enumerated() {
             let want = SmokeScattering.ambient(SH9(irradianceOverPi: sh.irradianceOverPi), view: d, asymmetry: g, standIn: .zero)
-            XCTAssertEqual(Double(p[7 * i + 5].x), want.inScatter.r, accuracy: 1e-4 * want.inScatter.r, "\(d)")
-            XCTAssertEqual(Double(p[7 * i + 5].y), want.up.r, accuracy: 1e-4 * want.up.r, "\(d): up")
-            XCTAssertEqual(Double(p[7 * i + 5].z), want.down.r, accuracy: 1e-3 * want.up.r, "\(d): down")
-            XCTAssertEqual(Double(p[7 * i + 6].w), want.axis.z, accuracy: 1e-4, "\(d): axis")
+            XCTAssertEqual(Double(p[8 * i + 5].x), want.inScatter.r, accuracy: 1e-4 * want.inScatter.r, "\(d)")
+            XCTAssertEqual(Double(p[8 * i + 5].y), want.up.r, accuracy: 1e-4 * want.up.r, "\(d): up")
+            XCTAssertEqual(Double(p[8 * i + 5].z), want.down.r, accuracy: 1e-3 * want.up.r, "\(d): down")
+            XCTAssertEqual(Double(p[8 * i + 6].w), want.axis.z, accuracy: 1e-4, "\(d): axis")
         }
     }
 }

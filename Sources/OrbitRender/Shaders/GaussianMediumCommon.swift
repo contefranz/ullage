@@ -115,23 +115,50 @@ inline float orbit_gaussianTimeAtDepth(GaussianRay r, float t0, float tau) {
 // Where a segment t0...t1 is shaded with one source: midway between the
 // depth exact for light falling as e^-tau from its entry (front-lit),
 // -ln((1 + e^-T)/2), and the one exact for light rising as e^tau
-// (back-lit), ln(T/(1 - e^-T)): within 1 % for either on segments of depth
-// 0.5. GaussianMedium.Ray.shadingTime.
+// (back-lit), ln(T/(1 - e^-T)): within 0.3 % for either on segments of depth
+// 0.25. Below depth 0.05 their mean's series, T/2 - T^2/12 + T^4/360 (the
+// logarithms cancel in Float there). GaussianMedium.Ray.shadingTime.
 inline float orbit_gaussianShadingTime(GaussianRay r, float t0, float t1) {
     float d = orbit_gaussianDepth(r, t0, t1);
     if (d <= 1e-9) { return clamp(r.centre, t0, t1); }
-    float front = -log(0.5 * (1.0 + exp(-d))), back = d < 1e-4 ? 0.5 * d : log(d / (1.0 - exp(-d)));
-    return clamp(orbit_gaussianTimeAtDepth(r, t0, 0.5 * (front + back)), t0, t1);
+    float x = d < 0.05 ? d * (0.5 - d * (1.0 / 12.0 - d * d / 360.0))
+                       : 0.5 * (-log(0.5 * (1.0 + exp(-d))) + log(d / (1.0 - exp(-d))));
+    return clamp(orbit_gaussianTimeAtDepth(r, t0, x), t0, t1);
 }
 
-// How many segments of equal depth a chord of optical depth `depth` is
-// shaded in: of depth 0.5 or less, at most 16. A caller walks them, each
-// boundary at orbit_gaussianTimeAtDepth(r, t0, depth k / n), each lit with
-// one source at its orbit_gaussianShadingTime.
-#define ORBIT_GAUSSIAN_SEGMENT_DEPTH 0.5
+// How many segments a chord of optical depth `depth` is shaded in: 0.25
+// deep from the entry, at most 16, the last taking what is left (seen
+// through e^(-0.25 (n - 1)), so its own error hardly shows past depth 4). A
+// caller walks them, boundary k at orbit_gaussianTimeAtDepth(r, t0,
+// orbit_gaussianSegmentBoundary(k, n, depth)) (the exit t1 for the last),
+// each lit with one source at its orbit_gaussianShadingTime.
+#define ORBIT_GAUSSIAN_SEGMENT_DEPTH 0.25
 #define ORBIT_GAUSSIAN_MAX_SEGMENTS 16
 inline int orbit_gaussianSegments(float depth) {
     return clamp(int(ceil(max(depth, 0.0) / ORBIT_GAUSSIAN_SEGMENT_DEPTH)), 1, ORBIT_GAUSSIAN_MAX_SEGMENTS);
+}
+
+// The depth from the chord's entry of segment boundary k of n.
+inline float orbit_gaussianSegmentBoundary(int k, int n, float depth) {
+    return k >= n ? depth : min(float(k) * ORBIT_GAUSSIAN_SEGMENT_DEPTH, depth);
+}
+
+// The column the ambient lights a point p through along its unit axis
+// (towards its up side): (the depth from p to the up side, the whole chord
+// along the axis through p), both scaled down to the chord through p along
+// the primitive's shortest axis where that is shorter, so an elongated body
+// along the axis takes its skylight through its sides.
+// GaussianMedium.ambientColumn.
+inline float2 orbit_gaussianAmbientColumn(GaussianMedium g, float3 p, float3 axis) {
+    GaussianRay r = orbit_gaussianRay(g, p, axis);
+    float chord = orbit_gaussianTotal(r);
+    if (chord <= 1e-12) { return float2(0.0); }
+    float up = orbit_gaussianDepth(r, 0.0, r.centre + 10.0 * r.width + abs(r.centre));
+    float3 shortest = g.axisU.w <= g.axisV.w ? (g.axisU.w <= g.axisW.w ? g.axisU.xyz : g.axisW.xyz)
+                                             : (g.axisV.w <= g.axisW.w ? g.axisV.xyz : g.axisW.xyz);
+    float across = orbit_gaussianTotal(orbit_gaussianRay(g, p, shortest));
+    float scale = min(1.0, across / chord);
+    return float2(up, chord) * scale;
 }
 
 // Where the ray o + t d is inside the box (+-ORBIT_GAUSSIAN_EXTENT sigma
@@ -250,9 +277,11 @@ inline float3 orbit_smokeSunDiffuse(float sunDepth, float sunChord, float cosVie
 // The ambient's light scattered towards the eye per unit albedo (cd/m2):
 // E/pi `up` (from the side the axis points to) and `down`, through the
 // chord along the axis (the point `depth` from the up side, `column` in
-// all), seen at cosAxis (the view ray, camera to point, on the axis); each
-// side's unscattered share, (1 +- cosAxis)/2 e^-(depth from that side),
-// swapped for `inScatter` carried through. SmokeScattering.ambientDiffuse.
+// all), seen at cosAxis (the view ray, camera to point, on the axis); the
+// unscattered light the streams show, up (1 + c)/2 e^-t + down (1 - c)/2
+// e^-(tau - t), swapped for `inScatter` shared between the sides in the
+// same proportion, each carried through from its own side.
+// SmokeScattering.ambientDiffuse.
 inline float3 orbit_smokeAmbientDiffuse(float depth, float column, float cosAxis, float3 w, float g, float3 up,
                                         float3 down, float3 inScatter) {
     column = max(column, 0.0);
@@ -263,7 +292,9 @@ inline float3 orbit_smokeAmbientDiffuse(float depth, float column, float cosAxis
     float fromUp = exp(-depth), fromDown = exp(-(column - depth));
     float3 sideUp = ORBIT_SMOKE_PI * orbit_smokeStreamRadiance(a.down - fromUp, a.up, -c);
     float3 sideDown = ORBIT_SMOKE_PI * orbit_smokeStreamRadiance(b.down - fromDown, b.up, c);
-    float unscattered = 0.5 * (1.0 + c) * fromUp + 0.5 * (1.0 - c) * fromDown;
+    float3 wu = up * (0.5 * (1.0 + c)), wd = down * (0.5 * (1.0 - c));
+    float3 unscattered = select(float3(0.5 * (1.0 + c) * fromUp + 0.5 * (1.0 - c) * fromDown),
+                                (wu * fromUp + wd * fromDown) / max(wu + wd, float3(1e-30)), wu + wd > 1e-30);
     return up * sideUp + down * sideDown + inScatter * unscattered;
 }
 
@@ -277,8 +308,8 @@ struct SmokeLight {
     float cosAxis;       // the view ray on the ambient's axis
     float sunDepth;      // the smoke's optical depth from the point to the Sun
     float sunChord;      // its whole optical depth along that line through the point
-    float ambientDepth;  // the smoke's optical depth from the point along the axis (to its up side)
-    float ambientChord;  // its whole optical depth along that line
+    float ambientDepth;  // the smoke's optical depth from the point along the axis (to its up side),
+    float ambientChord;  // and its whole depth along that line: orbit_gaussianAmbientColumn
 };
 
 // J, cd/m2 per unit extinction: w (E (p e^-tauSun + D) + the ambient's).
@@ -379,10 +410,10 @@ kernel void gaussianMedium_check(device const GaussianMediumCheckCase *cases [[b
     GaussianRay r = orbit_gaussianRay(c.medium, o, d);
     float depth = orbit_gaussianDepth(r, t0, t1);
     float2 box = orbit_gaussianBox(c.medium, o, d);
-    out[7 * i + 0] = float4(r.centre, r.width, r.peak, depth);
-    out[7 * i + 1] = float4(box, orbit_gaussianBoxDepth(c.medium, o, d, t0, t1), orbit_gaussianShadingTime(r, t0, t1));
+    out[8 * i + 0] = float4(r.centre, r.width, r.peak, depth);
+    out[8 * i + 1] = float4(box, orbit_gaussianBoxDepth(c.medium, o, d, t0, t1), orbit_gaussianShadingTime(r, t0, t1));
     SmokeStreams s = orbit_smokeStreams(c.column.x, c.column.y, float3(c.column.z), c.column.w);
-    out[7 * i + 2] = float4(s.down.x, s.up.x,
+    out[8 * i + 2] = float4(s.down.x, s.up.x,
                             orbit_smokeAmbientDiffuse(c.column.x, c.column.y, c.extra.z, float3(c.column.z), c.column.w,
                                                       c.ambientUp.rgb, c.ambientDown.rgb, c.ambient.rgb).x,
                             orbit_smokeSunDiffuse(c.column.x, c.column.y, c.view.x, float3(c.column.z), c.column.w).x);
@@ -398,12 +429,15 @@ kernel void gaussianMedium_check(device const GaussianMediumCheckCase *cases [[b
     l.ambientDepth = c.view.w;
     l.ambientChord = c.extra.x;
     float3 source = orbit_smokeSource(c.medium.optics.rgb, c.medium.optics.w, l);
-    out[7 * i + 3] = float4(source, orbit_erf(c.extra.y));
-    out[7 * i + 4] = orbit_gaussianLight(source, depth);
+    out[8 * i + 3] = float4(source, orbit_erf(c.extra.y));
+    out[8 * i + 4] = orbit_gaussianLight(source, depth);
     SmokeAmbient a = orbit_smokeAmbient(lighting, d, c.medium.optics.w, c.ambient.rgb);
-    out[7 * i + 5] = float4(a.inScatter.x, a.up.x, a.down.x, orbit_gaussianTotal(r));
-    out[7 * i + 6] = float4(orbit_gaussianTimeAtDepth(r, t0, c.extra.w), orbit_erfInverse(clamp(c.extra.y / 3.5, -0.99, 0.99)),
+    out[8 * i + 5] = float4(a.inScatter.x, a.up.x, a.down.x, orbit_gaussianTotal(r));
+    out[8 * i + 6] = float4(orbit_gaussianTimeAtDepth(r, t0, c.extra.w), orbit_erfInverse(clamp(c.extra.y / 3.5, -0.99, 0.99)),
                             float(orbit_gaussianSegments(depth)), a.axis.z);
+    int n = orbit_gaussianSegments(depth);
+    out[8 * i + 7] = float4(orbit_gaussianAmbientColumn(c.medium, o + d * r.centre, normalize(c.ambientUp.xyz + float3(0.0, 0.0, 1e-3))),
+                            orbit_gaussianSegmentBoundary(1, n, depth), orbit_gaussianShadingTime(r, t0, t0 + 0.02 * r.width));
 }
 
 kernel void gaussianMedium_sizes(device uint *out [[buffer(0)]]) {

@@ -314,13 +314,25 @@ final class GaussianMediumTests: XCTestCase {
     }
 
     /// A thick column at ω = 1 lit by a sky above (E/π of 1) and a black
-    /// ground: its base seen from below and its top seen from above are
-    /// C2's `skyDiffuse` (π times it, per unit E/π), within e^(−τ) of the
-    /// in-scatter; dark below, bright above, as a cloud deck.
+    /// ground: its base and top are C2's `skyDiffuse` (π times it, per unit
+    /// E/π) seen at any angle, cosAxis 1, 0.5, 0, −0.5 and −1, where the
+    /// in-scatter is C2's own blend, ½ (1 + c) of the sky's (to 1e-12); with
+    /// a forward-scattering in-scatter (2.4) seen straight up or down, within
+    /// e^(−τ) of it; dark below, bright above, as a cloud deck.
     func testThickAmbientIsC2s() {
         var c2 = CloudLighting()
         c2.asymmetry = 0.85
         for tau in [3.0, 10, 30, 100] {
+            for c in [1.0, 0.5, 0, -0.5, -1] {
+                let base = SmokeScattering.ambientDiffuse(depth: tau, column: tau, cosAxis: c, albedo: 1, asymmetry: 0.85,
+                                                          up: 1, down: 0, inScatter: 0.5 * (1 + c))
+                let top = SmokeScattering.ambientDiffuse(depth: 0, column: tau, cosAxis: c, albedo: 1, asymmetry: 0.85,
+                                                         up: 1, down: 0, inScatter: 0.5 * (1 + c))
+                XCTAssertEqual(base, Double.pi * c2.skyDiffuse(column: tau, heightFraction: 0, muUp: -c), accuracy: 1e-12,
+                               "τ \(tau), cos \(c): base")
+                XCTAssertEqual(top, Double.pi * c2.skyDiffuse(column: tau, heightFraction: 1, muUp: -c), accuracy: 1e-12,
+                               "τ \(tau), cos \(c): top")
+            }
             let base = SmokeScattering.ambientDiffuse(depth: tau, column: tau, cosAxis: 1, albedo: 1, asymmetry: 0.85,
                                                       up: 1, down: 0, inScatter: 2.4)
             let top = SmokeScattering.ambientDiffuse(depth: 0, column: tau, cosAxis: -1, albedo: 1, asymmetry: 0.85,
@@ -329,10 +341,40 @@ final class GaussianMediumTests: XCTestCase {
             let wantTop = Double.pi * c2.skyDiffuse(column: tau, heightFraction: 1, muUp: 1)
             XCTAssertEqual(base, wantBase, accuracy: 3 * exp(-tau) + 1e-12, "τ \(tau): base")
             XCTAssertEqual(top, wantTop, accuracy: 3 * exp(-tau) + 1e-12, "τ \(tau): top")
-            print(String(format: "GaussianMediumTests: a sky-lit column of τ %.0f: base %.3f (C2 %.3f), top %.3f (C2 %.3f)",
-                         tau, base, wantBase, top, wantTop))
+            let side = SmokeScattering.ambientDiffuse(depth: tau, column: tau, cosAxis: 0, albedo: 1, asymmetry: 0.85,
+                                                      up: 1, down: 0, inScatter: 0.9)
+            print(String(format: "GaussianMediumTests: a sky-lit column of τ %.0f: base %.3f (C2 %.3f), top %.3f (C2 %.3f), base side-on %.3f",
+                         tau, base, wantBase, top, wantTop, side))
             if tau >= 30 { XCTAssertLessThan(base, top, "dark below, bright above") }
+            XCTAssertLessThan(side, Double.pi * c2.skyDiffuse(column: tau, heightFraction: 0, muUp: 0) + 0.9 * exp(-tau) + 1e-12,
+                              "side-on, the base no brighter than C2's but for its in-scatter through e^(−τ)")
         }
+    }
+
+    /// A body elongated along the ambient's axis (a climbing trail) takes
+    /// its skylight through its sides: `ambientColumn` caps the chord along
+    /// the axis by the chord across it, so a condensed node's side seen
+    /// side-on is lit as the column across it would light it (along its
+    /// 10:1 length it would be dark).
+    func testElongatedBodyTakesSkylightThroughItsSides() {
+        let m = GaussianMedium(centre: .zero, axisU: .unitZ, axisV: .unitX, sigma: Vec3(100, 10, 10), peakExtinction: 0.12)
+        let column = m.ambientColumn(at: .zero, axis: .unitZ)
+        let across = m.ray(origin: .zero, direction: .unitX).total, along = m.ray(origin: .zero, direction: .unitZ).total
+        XCTAssertEqual(column.chord, across, accuracy: 1e-9 * across)
+        XCTAssertEqual(column.depth, 0.5 * across, accuracy: 1e-6 * across)
+        XCTAssertEqual(along / across, 10, accuracy: 1e-9)
+        func j(_ depth: Double, _ chord: Double) -> Double {
+            SmokeScattering.ambientDiffuse(depth: depth, column: chord, cosAxis: 0, albedo: 0.93, asymmetry: 0.85, up: 1,
+                                           down: 0.2, inScatter: 0.6)
+        }
+        let capped = j(column.depth, column.chord), lengthwise = j(0.5 * along, along)
+        print(String(format: "GaussianMediumTests: an elongated node's side: J %.3f through its sides, %.3f through its length",
+                     capped, lengthwise))
+        XCTAssertGreaterThan(capped, 3 * lengthwise)
+        // A round body keeps its own chord.
+        let round = GaussianMedium(centre: .zero, axisU: .unitZ, axisV: .unitX, sigma: Vec3(10, 10, 10), peakExtinction: 0.12)
+        XCTAssertEqual(round.ambientColumn(at: .zero, axis: .unitZ).chord, round.ray(origin: .zero, direction: .unitZ).total,
+                       accuracy: 1e-12)
     }
 
     /// The ambient from R3's SH9 of a sky (brighter overhead): its axis is
@@ -350,44 +392,81 @@ final class GaussianMediumTests: XCTestCase {
 
     // MARK: The source
 
-    /// A primitive's chord shaded in `segments` of equal depth, each at its
-    /// `shadingTime`, against the radiance's quadrature ∫ J σ e^(−τ) dt,
-    /// for line depths 2, 5 and 10 lit from the front (the Sun behind the
-    /// camera) and from the back, condensed and sooty: within 1.2 % to depth
-    /// 5 (segments of 0.5), 2 % at 10 (16 of 0.625). One source at the
-    /// σ-weighted mean was 35 % to 2.4× off at depth 5.
+    /// A primitive's chord shaded in `segments` (0.25 deep from the entry,
+    /// the last taking the rest past 16), each at its `shadingTime`, against
+    /// the radiance's quadrature ∫ J σ e^(−τ) dt, condensed and sooty, for
+    /// line depths 2 to 100:
+    /// - lit from the front (the Sun behind the camera): within 0.5 %;
+    /// - lit from the side (cosView 0; the Sun's chord the line across the
+    ///   primitive through the point, the point halfway into it): within 2 %;
+    /// - lit from the back: within 1.5 % (condensed, at any depth; sooty, to
+    ///   depth 5). Thicker sooty smoke lit from behind sends only T e^(−T) of
+    ///   its source's light (under 5e-4 past depth 10), every depth alike,
+    ///   which the last segment's one source cannot hold: there the error is
+    ///   under 1e-3 of its brightest source's.
+    /// (One source at the σ-weighted mean was off by 35 % to 2.4× at depth 5.)
     func testSegmentsAgainstQuadrature() {
         let sun = Spectrum3(repeating: 1e5)
         for (albedo, g) in [(0.93, 0.85), (0.3, 0.6)] {
-            for depth in [2.0, 5, 10] {
+            for depth in [2.0, 5, 10, 30, 100] {
                 let w = 10.0, r = GaussianMedium.Ray(centre: 0, width: w, peak: depth / (w * (2 * Double.pi).squareRoot()))
                 let t0 = -5 * w, t1 = 5 * w, total = r.depth(from: t0, to: t1)
-                for front in [true, false] {
+                for lighting in ["front", "back", "side"] {
+                    var brightest = 0.0
                     func j(_ t: Double) -> Double {
-                        let sunDepth = front ? r.depth(from: t0, to: t) : r.depth(from: t, to: t1)
+                        // A round primitive: across it through the point the
+                        // line's depth is σ(t) w √(2π).
+                        let sigma = r.peak * exp(-0.5 * t * t / (w * w)), acrossDepth = sigma * w * (2 * Double.pi).squareRoot()
+                        let sunDepth: Double, chord: Double, cosView: Double
+                        switch lighting {
+                        case "front": (sunDepth, chord, cosView) = (r.depth(from: t0, to: t), total, -1)
+                        case "back": (sunDepth, chord, cosView) = (r.depth(from: t, to: t1), total, 1)
+                        default: (sunDepth, chord, cosView) = (0.5 * acrossDepth, acrossDepth, 0)
+                        }
                         let l = SmokeScattering.Light(sun: sun, ambient: .zero, ambientUp: .zero, ambientDown: .zero,
-                                                      cosView: front ? -1 : 1, cosAxis: 0, sunDepth: sunDepth,
-                                                      sunChord: total, ambientDepth: 0, ambientChord: 0)
-                        return SmokeScattering.source(albedo: Spectrum3(repeating: albedo), asymmetry: g, light: l).g
+                                                      cosView: cosView, cosAxis: 0, sunDepth: sunDepth, sunChord: chord,
+                                                      ambientDepth: 0, ambientChord: 0)
+                        let v = SmokeScattering.source(albedo: Spectrum3(repeating: albedo), asymmetry: g, light: l).g
+                        brightest = max(brightest, v)
+                        return v
                     }
                     let exact = simpson({ t in j(t) * r.peak * exp(-0.5 * t * t / (w * w)) * exp(-r.depth(from: t0, to: t)) },
-                                        t0, t1, n: 40_000)
+                                        t0, t1, n: 80_000)
                     let n = GaussianMedium.segments(depth: total)
                     var radiance = 0.0, transmittance = 1.0, a = t0
                     for k in 1...n {
-                        let b = k == n ? t1 : r.time(atDepth: total * Double(k) / Double(n), from: t0)
+                        let b = k == n ? t1 : r.time(atDepth: GaussianMedium.segmentBoundary(k, of: n, depth: total), from: t0)
                         let d = r.depth(from: a, to: b)
                         radiance += transmittance * j(r.shadingTime(from: a, to: b)) * (1 - exp(-d))
                         transmittance *= exp(-d)
                         a = b
                     }
-                    let bound = depth > 5 ? 0.02 : 0.012
-                    print(String(format: "GaussianMediumTests: ω %.2f depth %.0f %@-lit, %d segments: %.4f of the quadrature", albedo, depth, front ? "front" : "back", n, radiance / exact))
-                    XCTAssertEqual(radiance, exact, accuracy: bound * exact,
-                                   "ω \(albedo), depth \(depth), \(front ? "front" : "back")-lit, \(n) segments")
+                    print(String(format: "GaussianMediumTests: ω %.2f depth %3.0f %@-lit, %2d segments: %.4f of the quadrature (%.1e of its brightest source)",
+                                 albedo, depth, lighting, n, radiance / exact, abs(radiance - exact) / brightest))
+                    switch lighting {
+                    case "front": XCTAssertEqual(radiance, exact, accuracy: 0.005 * exact, "ω \(albedo), depth \(depth), front-lit")
+                    case "side": XCTAssertEqual(radiance, exact, accuracy: 0.02 * exact, "ω \(albedo), depth \(depth), side-lit")
+                    default:
+                        if albedo > 0.5 || depth <= 5 {
+                            XCTAssertEqual(radiance, exact, accuracy: 0.015 * exact, "ω \(albedo), depth \(depth), back-lit")
+                        } else {
+                            XCTAssertLessThan(abs(radiance - exact), 1e-3 * brightest, "ω \(albedo), depth \(depth), back-lit")
+                        }
+                    }
                 }
             }
         }
+    }
+
+    /// The shading depth's series below depth 0.05 meets the logarithms'
+    /// mean there to O(T⁶).
+    func testShadingSeriesMeetsTheLogarithms() {
+        let d = 0.05
+        let logs = 0.5 * (-log(0.5 * (1 + exp(-d))) + log(d / (1 - exp(-d))))
+        XCTAssertEqual(d * (0.5 - d * (1.0 / 12.0 - d * d / 360.0)), logs, accuracy: 1e-10)
+        let r = GaussianMedium.Ray(centre: 0, width: 10, peak: 1e-3)
+        let t = r.shadingTime(from: -1, to: 1), dd = r.depth(from: -1, to: 1)
+        XCTAssertEqual(r.depth(from: -1, to: t), dd * (0.5 - dd * (1.0 / 12.0 - dd * dd / 360.0)), accuracy: 1e-6 * dd)
     }
 
     /// In a thin smoke the source is single scattering: ω (E⊙ p + L_amb);

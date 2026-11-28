@@ -112,23 +112,55 @@ public struct GaussianMedium: Equatable {
         /// from t0 midway between the one exact for light falling as e^(−τ)
         /// from its entry (a front-lit primitive), −ln((1 + e^(−T))/2), and
         /// the one exact for light rising as e^(τ) (back-lit), ln(T/(1 −
-        /// e^(−T))) (T its depth): within 1 % for either on segments of
-        /// depth 0.5 (`segments`), 1.5 % at 0.625.
+        /// e^(−T))) (T its depth): within 0.3 % for either on segments of
+        /// depth 0.25 (`segments`). Below depth 0.05 their mean's series,
+        /// T/2 − T²/12 + T⁴/360 (the logarithms cancel in Float there).
         public func shadingTime(from t0: Double, to t1: Double) -> Double {
             let d = depth(from: t0, to: t1)
             guard d > 1e-9 else { return min(max(centre, t0), t1) }
-            let front = -log(0.5 * (1 + exp(-d))), back = d < 1e-4 ? 0.5 * d : log(d / (1 - exp(-d)))
-            return min(max(time(atDepth: 0.5 * (front + back), from: t0), t0), t1)
+            let x: Double
+            if d < 0.05 {
+                x = d * (0.5 - d * (1.0 / 12.0 - d * d / 360.0))
+            } else {
+                x = 0.5 * (-log(0.5 * (1 + exp(-d))) + log(d / (1 - exp(-d))))
+            }
+            return min(max(time(atDepth: x, from: t0), t0), t1)
         }
     }
 
-    /// A primitive's chord is shaded in this many segments of equal optical
-    /// depth, each with one source at its `shadingTime`: segments of depth
-    /// `segmentDepth` or less, at most `maxSegments`.
-    public static let segmentDepth = 0.5
+    /// A primitive's chord is shaded in `segments(depth:)` segments, each
+    /// with one source at its `shadingTime`: `segmentDepth` deep from the
+    /// entry (`segmentBoundary`), at most `maxSegments`, the last taking
+    /// whatever is left (seen through e^(−0.25 (n − 1)), so its own error
+    /// hardly shows past depth 4).
+    public static let segmentDepth = 0.25
     public static let maxSegments = 16
     public static func segments(depth: Double) -> Int {
         min(max(Int((max(depth, 0) / segmentDepth).rounded(.up)), 1), maxSegments)
+    }
+
+    /// The depth from the chord's entry of segment boundary `k` of `n`
+    /// (0 the entry, n the exit): k × `segmentDepth`, the exit's for the last.
+    public static func segmentBoundary(_ k: Int, of n: Int, depth: Double) -> Double {
+        k >= n ? depth : min(Double(k) * segmentDepth, depth)
+    }
+
+    /// The column the ambient lights a point `p` through, along its axis
+    /// (unit `axis`, towards its up side): the depth from `p` to the up
+    /// side and the whole chord along the axis through `p`, both scaled
+    /// down to the chord through `p` along the primitive's shortest axis
+    /// where that is shorter. So an elongated body along the axis (the
+    /// trail climbing) takes its skylight through its sides, not its
+    /// length.
+    public func ambientColumn(at p: Vec3, axis: Vec3) -> (depth: Double, chord: Double) {
+        let r = ray(origin: p, direction: axis), chord = r.total
+        guard chord > 1e-12 else { return (0, 0) }
+        let up = r.depth(from: 0, to: r.centre + 10 * r.width + abs(r.centre))
+        let axes = [axisU, axisV, axisW], s = [sigma.x, sigma.y, sigma.z]
+        let shortest = axes[s.firstIndex(of: s.min()!)!]
+        let across = ray(origin: p, direction: shortest).total
+        let scale = min(1, across / chord)
+        return (up * scale, chord * scale)
     }
 
     /// The Gaussian along the ray from `origin` in the unit `direction`:
@@ -324,9 +356,11 @@ public enum SmokeScattering {
     /// per channel: the two fluxes along the axis, E/π `up` (from the
     /// side the axis points to) and `down`, through the chord along the
     /// axis (the point `depth` from the up side, `column` in all), seen at
-    /// `cosAxis` (the view ray, camera to point, on the axis); each side's
-    /// unscattered share, ½ (1 ± cosAxis) e^(−depth from that side), swapped
-    /// for `inScatter` carried through.
+    /// `cosAxis` (the view ray, camera to point, on the axis); the
+    /// unscattered light the streams show, up ½ (1 + c) e^(−t) + down ½ (1 − c)
+    /// e^(−(τ − t)), swapped for `inScatter` shared between the sides in the
+    /// same proportion, each carried through from its own side (the plain
+    /// mean of the two where neither side has light).
     public static func ambientDiffuse(depth t: Double, column tau: Double, cosAxis c: Double, albedo w: Double,
                                       asymmetry g: Double, up: Double, down: Double, inScatter: Double) -> Double {
         let tau = max(tau, 0), t = min(max(t, 0), tau), c = min(max(c, -1), 1)
@@ -337,7 +371,9 @@ public enum SmokeScattering {
         // reaching the eye runs at −cosAxis to it; the down side's at +.
         let sideUp = Double.pi * streamRadiance(down: a.down - fromUp, up: a.up, muUp: -c)
         let sideDown = Double.pi * streamRadiance(down: b.down - fromDown, up: b.up, muUp: c)
-        let unscattered = 0.5 * (1 + c) * fromUp + 0.5 * (1 - c) * fromDown
+        let wu = up * 0.5 * (1 + c), wd = down * 0.5 * (1 - c)
+        let unscattered = wu + wd > 1e-30 ? (wu * fromUp + wd * fromDown) / (wu + wd)
+            : 0.5 * (1 + c) * fromUp + 0.5 * (1 - c) * fromDown
         return up * sideUp + down * sideDown + inScatter * unscattered
     }
 
@@ -377,7 +413,9 @@ public enum SmokeScattering {
         public var sunDepth: Double
         public var sunChord: Double
         /// The smoke's optical depth from the point along the ambient's axis
-        /// (towards its up side), and its whole depth along that line.
+        /// (towards its up side), and its whole depth along that line, no
+        /// more than the column across the body there
+        /// (`GaussianMedium.ambientColumn`).
         public var ambientDepth: Double
         public var ambientChord: Double
 
