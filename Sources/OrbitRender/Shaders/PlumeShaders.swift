@@ -609,7 +609,9 @@ inline void plume_member(thread PlumeSample &s, const device PlumeMember &m, int
         }
         float fadeFrom = m.bendSpan.y >= 0.0 ? m.bendSpan.y : 0.7 * length_;
         float fade = fadeFrom < length_ ? 1.0 - plume_smoothstep(fadeFrom, length_, x) : 1.0;
-        if (m.bendSpan.w > 0.0) { fade *= 1.0 - plume_smoothstep(m.bendDirection.w, m.bendSpan.w, x); }
+        // The hand-over to P4's trail: a linear ramp, as the trail's puffs fade
+        // in (LR5), so that the two sum to one.
+        if (m.bendSpan.w > 0.0) { fade *= 1.0 - clamp((x - m.bendDirection.w) / max(m.bendSpan.w - m.bendDirection.w, 1e-6), 0.0, 1.0); }
         float rho = profile * dilution * fade;
         float mixing = x > m.shape.w ? m.shape.w / x : 1.0;
         float cells = 1.0;

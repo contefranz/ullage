@@ -523,10 +523,10 @@ final class LaunchEffectsTests: XCTestCase {
     }
 
     /// The trail fades in as P2's plume fades out, on one clock: a puff laid
-    /// at the ramp's start, at rest in the air, lies V a further on at age
-    /// a, and its fade there plus the plume's smoothstep fade-out over the
-    /// hand-over's window sums to one within 3.5 % (the minimax ramp's
-    /// 3.08 %, and the share's 0.5 % steps), for a grid of windows and
+    /// at the window's start, at rest in the air, lies V a further on at age
+    /// a, and its fade there plus the plume's linear fade-out over the
+    /// hand-over's window sums to one within 0.5 % (the share's 0.5 % steps),
+    /// for a grid of windows and
     /// airspeeds to the S-IC's cutoff (2.4 km/s), and in flight from T+10 s
     /// to CECO, from the materials the frames set (the lifetime one value,
     /// so the share is its clock).
@@ -537,7 +537,7 @@ final class LaunchEffectsTests: XCTestCase {
             var e = 0.0
             for k in 0...400 {
                 let x = -w + 2 * w * Double(k) / 400          // from the window's middle
-                let plume = 1 - PlumeMember.smoothstep(-w, w, x)
+                let plume = 1 - min(max((x + w) / (2 * w), 0), 1)
                 let age = (x + ExhaustTrail.rampHalfWidth * w) / v
                 let trail = age <= 0 ? 0 : min(1, age / seconds)
                 e = max(e, abs(plume + trail - 1))
@@ -548,7 +548,7 @@ final class LaunchEffectsTests: XCTestCase {
             for v in [20.0, 50, 100, 400, 800, 1_200, 1_460, 1_650, 2_400] {
                 let share = ExhaustTrail.fadeIn(window: w, airspeed: v)
                 guard 2 * ExhaustTrail.rampHalfWidth * w / v < ExhaustTrail.longestFadeIn else { continue }
-                XCTAssertLessThan(worst(share, window: w, airspeed: v), 0.035, "window \(w) m at \(v) m/s")
+                XCTAssertLessThan(worst(share, window: w, airspeed: v), 0.005, "window \(w) m at \(v) m/s")
             }
         }
         let (sim, camera) = try open()
@@ -568,7 +568,7 @@ final class LaunchEffectsTests: XCTestCase {
                 XCTAssertEqual(share, ExhaustTrail.fadeIn(window: head.window, airspeed: v), "T+\(t) s")
             }
             let share = run.session.materials[materials.trail[0]].fadeIn
-            XCTAssertLessThan(worst(share, window: head.window, airspeed: v), 0.035, "T+\(t) s")
+            XCTAssertLessThan(worst(share, window: head.window, airspeed: v), 0.005, "T+\(t) s")
             print(String(format: "LaunchEffectsTests: at T+%.0f s the trail fades in over %.0f m at %.0f m/s (%.3f s)",
                          t, 2 * ExhaustTrail.rampHalfWidth * head.window, v, share * ExhaustTrail.lifetime.upperBound))
             checked += 1

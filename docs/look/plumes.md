@@ -258,8 +258,8 @@ field stays on the nozzle, gimbal and all.
   air), at most 85 % of its built length. The jet's speed, stream and kind
   are the member's of the most flow, so an engine shutting down does not
   lead the cluster.
-  - The plume fades out over 15 % of that distance on either side of it
-    and ends at the window's end: every member and the merged far field
+  - The plume fades out linearly over 15 % of that distance on either side
+    of it and ends at the window's end: every member and the merged far field
     (`PlumeMember.handoverFade`, its own pair of numbers in the shader), so
     the fade does not move with the exposure or a member's length. Where
     the exposure's trim (or an engine's own shorter plume) cuts a member
@@ -278,9 +278,9 @@ field stays on the nozzle, gimbal and all.
     far field's column there, projected side-on and unfaded (its depth,
     cross-section, soot and albedo), and λ = ṁ/V_air; the trail's puffs
     carry it on, laid from the window's start and fading in as the plume
-    fades out on the same window at the airspeed they recede at
-    (`ExhaustTrail.fadeIn`), the two summing to one within 3.5 % along it
-    (docs/look/launch.md, the trail).
+    fades out, both linearly over the same window, at the airspeed they
+    recede at (`ExhaustTrail.fadeIn`): the two sum to one along it, within
+    the share's 0.5 % steps (docs/look/launch.md, the trail).
 - **Continuity** (`PlumeAirflowTests`): sweeps through the angle of attack
   (-10° to 10° every quarter degree), the airspeed to beyond max-Q (every
   5 m/s) and AS-506's ascent (every half second). Each step moves the far

@@ -81,12 +81,16 @@ public final class EffectFrame {
     public let scene: RenderScene
     public let clock: EffectClock
     public let materials: ParticleMaterialTable
+    /// The frame's plume settings, as P2 draws the plumes: the launch
+    /// effects' trail takes P2's far field over with them.
+    public let plumes: PlumeSettings
     private unowned let session: EffectSession
 
-    init(scene: RenderScene, clock: EffectClock, session: EffectSession) {
+    init(scene: RenderScene, clock: EffectClock, session: EffectSession, plumes: PlumeSettings = PlumeSettings()) {
         self.scene = scene
         self.clock = clock
         materials = session.materials
+        self.plumes = plumes
         self.session = session
     }
 
@@ -290,7 +294,8 @@ public final class EffectSession {
 
     /// Runs one frame of `scene`: its clock, the resets, the journal's new
     /// events and every producer, or the settings' look-dev bursts instead.
-    public func frame(_ scene: RenderScene, settings: ParticleSettings) -> EffectFrameOutput {
+    public func frame(_ scene: RenderScene, settings: ParticleSettings, plumes: PlumeSettings = PlumeSettings())
+        -> EffectFrameOutput {
         let c = scene.clock
         let vessels = Set(scene.vessels.map(\.id))
         var newSimulation = last == nil
@@ -321,7 +326,7 @@ public final class EffectSession {
         dropped = 0
         propagateAnchors(scene, clock: clock)
         if !again { noteVelocities(scene, clock: clock) }
-        let f = EffectFrame(scene: scene, clock: clock, session: self)
+        let f = EffectFrame(scene: scene, clock: clock, session: self, plumes: plumes)
 
         if studio {
             if !again, let id = f.anchor(.studio(settings.studio.anchor)) {

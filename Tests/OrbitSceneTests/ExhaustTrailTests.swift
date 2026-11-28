@@ -11,7 +11,8 @@ import OrbitCore
 /// - the puffs laid carry it on: their line's depth and cross-section are
 ///   the column's, its width within 10 % of the field's, its albedo the
 ///   column's;
-/// - the trail's fade and the plume's sum to one at the joint;
+/// - the trail's fade and the plume's sum to one at the joint (both
+///   linear over P2's window);
 /// - a rebuild's modelled column is the frames' within 5 %;
 /// - the puffs are spread evenly along the path (no beads).
 final class ExhaustTrailTests: XCTestCase {
@@ -147,6 +148,27 @@ final class ExhaustTrailTests: XCTestCase {
         XCTAssertEqual(past, 0.00096, accuracy: 0.00003)
     }
 
+    /// Decision 4's knob: `PlumeSettings.sootScale` scales P2's kerosene
+    /// soot, so the hand-over's soot, and reaches the trail through the
+    /// frame's plume settings (`LaunchEffects.vehicle`); it is coded and
+    /// decoded with the settings.
+    func testSootScaleReachesTheTrail() throws {
+        let c = try XCTUnwrap(Self.flight.first { $0.t == 60 })
+        let own = c.scene.emitters.filter { $0.name.hasPrefix("S-IC engine") }
+        var settings = PlumeSettings()
+        settings.sootScale = 5
+        let base = try XCTUnwrap(PlumeAirflow.trailHandover(own)?.column)
+        let sooty = try XCTUnwrap(PlumeAirflow.trailHandover(own, settings: settings)?.column)
+        XCTAssertEqual(sooty.sootCrossSection, 5 * base.sootCrossSection, accuracy: 1e-9 * sooty.sootCrossSection)
+        XCTAssertLessThan(sooty.albedo, base.albedo)
+        let site = try XCTUnwrap(c.scene.sites.first { $0.name == LC39A.placement().name })
+        let vehicle = try XCTUnwrap(LaunchEffects.vehicle(in: c.scene, site: site, plumes: settings))
+        XCTAssertEqual(vehicle.trailHead?.column, sooty)
+        let decoded = try JSONDecoder().decode(PlumeSettings.self, from: try JSONEncoder().encode(settings))
+        XCTAssertEqual(decoded.sootScale, 5)
+        XCTAssertEqual(try JSONDecoder().decode(PlumeSettings.self, from: Data("{}".utf8)).sootScale, 1)
+    }
+
     /// The puffs laid near the joint carry the column on: the line of
     /// `puffs` has its depth and cross-section (to rounding), the field's
     /// half-maximum width within 10 %, and the column's albedo by weight;
@@ -177,8 +199,8 @@ final class ExhaustTrailTests: XCTestCase {
     }
 
     /// The fade at the checkpoints: the frames' share against the plume's
-    /// window, summing to one within 3.5 % (the minimax ramp's 3.08 % and
-    /// the share's 0.5 % steps), unless the pad's slow start caps it.
+    /// window, summing to one within 0.5 % (the share's 0.5 % steps),
+    /// unless the pad's slow start caps it.
     func testFadesSumToOneAtTheJoint() {
         for c in Self.flight {
             let w = c.head.window, v = c.vehicle.airspeed
@@ -192,9 +214,9 @@ final class ExhaustTrailTests: XCTestCase {
             for k in 0...200 {
                 let x = -w + 2 * w * Double(k) / 200
                 let trail = min(1, max(0, (x + ExhaustTrail.rampHalfWidth * w) / v / seconds))
-                worst = max(worst, abs(1 - PlumeMember.smoothstep(-w, w, x) + trail - 1))
+                worst = max(worst, abs(1 - min(max((x + w) / (2 * w), 0), 1) + trail - 1))
             }
-            XCTAssertLessThan(worst, 0.035, "T+\(c.t) s")
+            XCTAssertLessThan(worst, 0.005, "T+\(c.t) s")
         }
     }
 

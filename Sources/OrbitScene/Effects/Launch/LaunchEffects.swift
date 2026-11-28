@@ -268,7 +268,7 @@ public final class LaunchEffects: EffectProducer {
         let last = seen
         let open = now - windowStart < Self.window
         guard f.scene.launch != nil || range >= PadIgnition.firstCommand, open || venting,
-              let vehicle = Self.vehicle(in: f.scene, site: site)
+              let vehicle = Self.vehicle(in: f.scene, site: site, plumes: f.plumes)
         else {
             seen = Seen(epoch: now, vessel: nil, climb: 0)
             return
@@ -301,7 +301,7 @@ public final class LaunchEffects: EffectProducer {
 
     /// The vessel carrying the S-IC (the stack until staging), and its
     /// nozzles and flow.
-    static func vehicle(in scene: RenderScene, site: RenderScene.Site) -> Vehicle? {
+    static func vehicle(in scene: RenderScene, site: RenderScene.Site, plumes: PlumeSettings = PlumeSettings()) -> Vehicle? {
         guard let v = scene.vessels.first(where: { $0.geometry.parts.contains { $0.name == "S-IC" } }) else { return nil }
         let toSite = site.orientation.transposed
         var exits: [(centre: Vec3, radius: Double)] = []
@@ -322,7 +322,7 @@ public final class LaunchEffects: EffectProducer {
         return Vehicle(vessel: v, exits: exits, exitByEngine: byEngine, exitHeight: height,
                        climb: max(0, height - PadExhaust.exitHeightOnPad), flow: flow,
                        clusterRadius: PadExhaust.clusterRadius(exits: exits),
-                       trailHead: PlumeAirflow.trailHandover(own),
+                       trailHead: PlumeAirflow.trailHandover(own, settings: plumes),
                        airspeed: own.first { $0.name.hasPrefix("S-IC engine") }?.relativeWind.length ?? 0)
     }
 

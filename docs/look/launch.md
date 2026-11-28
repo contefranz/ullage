@@ -123,11 +123,11 @@ replaces the puffs).
   path was at its age (a source velocity along the chord), at rest in the
   air. No step from a puff to the next exceeds 2.6 strata (random places
   along a line, as before, left gaps of five to eight).
-- **The fade:** P3's puffs fade in linearly with age, P2's plume out by a
-  smoothstep over the window x ± w. The puffs are laid at x − 0.79 w and
-  fade in over 1.58 w at the airspeed, the minimax ramp: the two sum to
-  one within 3.08 % (3.5 % with the share's 0.5 % steps), the lifetime one
-  value (480 s) so that the share is a clock, at most 20 s at the pad.
+- **The fade:** P3's puffs fade in linearly with age, and P2's plume fades
+  out linearly over the window x ± w (it was a smoothstep). The puffs are
+  laid at x − w and fade in over 2w at the airspeed, so the two sum to one
+  along it, within the share's 0.5 % steps; the lifetime is one value
+  (480 s) so that the share is a clock, at most 20 s at the pad.
 - **A rebuild** models the column at each piece's height, airspeed and
   flow (`ExhaustTrail.modelColumn`: the F-1s as the scene gives them,
   along their axes in the air there), in 250 m bins: within 5 % of the

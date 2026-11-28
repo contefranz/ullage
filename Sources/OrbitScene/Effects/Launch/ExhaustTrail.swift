@@ -8,8 +8,9 @@ import OrbitCore
 /// - **its column:** the puffs' size, optical depth and albedo give the line
 ///   P2's projected far field's depth, cross-section and soot there
 ///   (`Column`, `puffs`);
-/// - **its fade:** the line fades in as P2's plume fades out, on the same
-///   window at the airspeed, so the two sum to one along it (`fadeIn`);
+/// - **its fade:** the line fades in as P2's plume fades out, both
+///   linearly over the same window, on the airspeed's clock, so the two sum
+///   to one along it (`fadeIn`);
 /// - **stratified:** each piece's puffs are spread evenly along it, each
 ///   where it was laid at its age, not at random (no beads).
 ///
@@ -106,19 +107,19 @@ public final class ExhaustTrail {
 
     // MARK: The fade
 
-    /// The puffs' linear fade-in (P3's) against P2's plume's smoothstep
-    /// fade-out over the hand-over's window [x − w, x + w]: the ramp over
-    /// its middle ±0.79 w is the one closest to the smoothstep's
-    /// complement (minimax), so the two sum to one within 3.1 % along it.
-    /// The puffs are laid at its start.
-    public static let rampHalfWidth = 0.79
+    /// The puffs fade in linearly with age (P3's fade) as P2's plume fades
+    /// out linearly over the hand-over's window [x − w, x + w]: laid at its
+    /// start, at rest in the air, a puff lies V a past it at age a, so the
+    /// two sum to one along it when its fade-in takes 2w/V. (The ramp spans
+    /// the whole window: its half-width in w.)
+    public static let rampHalfWidth = 1.0
     /// The fade-in never takes longer than this, s (the pad's slowest
     /// first metres; L).
     public static let longestFadeIn = 20.0
 
     /// The puffs' fade-in as a share of their life (the trail materials'
-    /// `fadeIn`): the ramp, 2 × 0.79 w long, at the airspeed the puffs, at
-    /// rest in the air, recede from the joint at; at most `longestFadeIn`.
+    /// `fadeIn`): the window, 2w long, at the airspeed the puffs, at rest in
+    /// the air, recede from the joint at; at most `longestFadeIn`.
     /// Without a hand-over, 0.0002 (a tenth of a second). Quantised to
     /// 0.5 %, so the materials change seldom.
     public static func fadeIn(window: Double?, airspeed: Double) -> Double {
@@ -211,7 +212,8 @@ public final class ExhaustTrail {
     /// scene would give them, through `PlumeAirflow.trailHandover`. For the
     /// paths a frame did not see.
     public static func modelColumn(_ vessel: RenderScene.Vessel, flow: (String) -> Double, density: Double,
-                                   temperature: Double, pressure: Double, airspeed: Double) -> PlumeAirflow.Column? {
+                                   temperature: Double, pressure: Double, airspeed: Double,
+                                   settings: PlumeSettings = PlumeSettings()) -> PlumeAirflow.Column? {
         guard density > 0 else { return nil }
         var air = AtmosphereState.vacuum
         air.temperature = temperature
@@ -230,7 +232,7 @@ public final class ExhaustTrail {
                     ambient: air, relativeWind: n.exhaust * max(airspeed, 1)))
             }
         }
-        return PlumeAirflow.trailHandover(emitters)?.column
+        return PlumeAirflow.trailHandover(emitters, settings: settings)?.column
     }
 
     // MARK: Curves
@@ -474,7 +476,7 @@ public final class ExhaustTrail {
                         Self.modelColumn(c.vehicle.vessel, flow: { [cutoffs = owner.cutoffs, full = fullFlow] name in
                             full * (cutoffs[name].map { min(1, max(0, 1 - (tm - $0) / LaunchEffects.tailOff)) } ?? 1)
                         }, density: $0.density, temperature: $0.temperature,
-                                         pressure: $0.pressure, airspeed: (wind - along).length)
+                                         pressure: $0.pressure, airspeed: (wind - along).length, settings: c.frame.plumes)
                     }
                     models[bin] = column
                 }

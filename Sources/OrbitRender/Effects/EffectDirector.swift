@@ -37,9 +37,10 @@ public final class EffectDirector {
         session = EffectSession(producers: producers ?? Self.defaultProducers())
     }
 
-    /// Runs the session on `scene`.
-    public func frame(_ scene: RenderScene, settings: ParticleSettings) -> EffectFrameOutput {
-        let out = session.frame(scene, settings: settings)
+    /// Runs the session on `scene`, with the frame's plume settings.
+    public func frame(_ scene: RenderScene, settings: ParticleSettings, plumes: PlumeSettings = PlumeSettings())
+        -> EffectFrameOutput {
+        let out = session.frame(scene, settings: settings, plumes: plumes)
         last = out
         totals.frames += 1
         totals.requests += out.requests.count
