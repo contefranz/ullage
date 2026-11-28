@@ -44,12 +44,17 @@ public struct PlumeSettings: Codable, Equatable {
     /// exit and 0.096 % past the afterburning. For decision 4's renders (look
     /// round 2); P4's trail takes the far field over with it.
     public var sootScale = 1.0
+    /// Decision 4: the kerosene exhaust's soot at the nozzle exit, kg per
+    /// kg (`KeroseneSoot.exit` by default, 22 g/kg), which P2's plume, P4's
+    /// trail and LR4's launch cloud all read through
+    /// `KeroseneSoot.surviving(pressure:exit:)`.
+    public var sootExit = KeroseneSoot.exit
 
     public init() {}
 
     private enum CodingKeys: String, CodingKey {
         case enabled, quality, readable, model, nozzleGlow, turbulence, marchPixels, impostorPixels, jetMarchDistance, testEngines,
-             sootScale
+             sootScale, sootExit
     }
 
     public init(from decoder: Decoder) throws {
@@ -66,6 +71,7 @@ public struct PlumeSettings: Codable, Equatable {
         jetMarchDistance = try c.decodeIfPresent(Double.self, forKey: .jetMarchDistance) ?? d.jetMarchDistance
         testEngines = try c.decodeIfPresent([PlumeTestEngine].self, forKey: .testEngines) ?? []
         sootScale = try c.decodeIfPresent(Double.self, forKey: .sootScale) ?? d.sootScale
+        sootExit = try c.decodeIfPresent(Double.self, forKey: .sootExit) ?? d.sootExit
     }
 }
 
