@@ -836,7 +836,7 @@ Defaults are in **bold**; "accept defaults" settles all of them.
     - **200× or more in powered flight, Release, Smooth;**
     - **the base M1 is estimated only: there is no such hardware to gate on.**
 
-    Amended 2026-11-28 (look-round-2.md §5): the per-pass table is re-baselined to LR0's measured ledger, holding 13.0 ms a frame on the pad.
+    Amended 2026-11-28 (look-round-2.md §5): the per-pass table is re-baselined to LR0's measured ledger, holding 13.0 ms a frame on the pad. The ledger is `docs/look/frame-ledger.md`; the table below is its re-baseline.
 
 **Data and licences**
 
@@ -976,22 +976,32 @@ M2 adds:
 - lunar terminator frames, compared with LROC WAC;
 - the night entry, with bank against MR Fig. 6.9-10.
 
-**GPU budget** (M3 Pro, 3024×1964, High; measured per pass by the profiler, and the GPU lock is held when measuring)
+**GPU budget** (M3 Pro, 3024×1964, High; re-baselined 2026-11-28 to LR0's measured ledger, `docs/look/frame-ledger.md`, decision 54; differences of medians with the GPU lock held, the whole frame as the period with three frames in flight)
 
-| Pass (owner) | Pad, inside cloud (worst) | LEO |
-|---|---|---|
-| Probe and IBL (R3) | 0.3 ms | 0.3 ms |
-| Shadows (R4) | 0.5 ms | 0.4 ms |
-| Atmosphere LUTs, froxels, limb (A2) | 0.3 ms | 1.0 ms |
-| Clouds (C2) | 3.0 ms | 2.0 ms |
-| Opaque: planet, vessels, pad, stars (E2, R2, LC) | 2.0 ms | 1.5 ms |
-| Composite (A2) | 0.4 ms | 0.4 ms |
-| Plumes (P2) | 1.5 ms | 0.5 ms |
-| Particles and smoke (P3) | 1.0 ms | 0.3 ms |
-| Post (R1) | 1.1 ms | 1.1 ms |
-| Overlay (F0) | 0.1 ms | 0.1 ms |
-| **Total** | **≈ 10.2 ms** | **≈ 7.6 ms** |
+| Pass (owner) | Pad budget | Pad measured | Max-Q measured | LEO (2026-10 estimate) |
+|---|---|---|---|---|
+| Probe and IBL (R3) | 0.3 ms | in "others" | in "others" | 0.3 ms |
+| Shadows (R4) | 0.5 ms | in "others" | in "others" | 0.4 ms |
+| Atmosphere LUTs, froxels, limb (A2) | 0.3 ms | in "others" | in "others" | 1.0 ms |
+| Opaque: planet, vessels, pad, stars (E2, R2, LC) | 2.0 ms | in "others" | in "others" | 1.5 ms |
+| Composite (A2) | 0.4 ms | in "others" | in "others" | 0.4 ms |
+| Post (R1) | 1.1 ms | in "others" | in "others" | 1.1 ms |
+| Overlay (F0) | 0.1 ms | in "others" | in "others" | 0.1 ms |
+| *Others, together* | *4.7 ms* | 2.9-4.8 ms | 2.4-2.7 ms | |
+| Clouds (C2) | 2.7 ms | 2.2-2.9 ms | 1.5-1.7 ms | 2.0 ms |
+| Effect slots and composite (R6) | 1.0 ms | 0.9-1.0 ms | 0.8 ms | |
+| Plumes (P2) | 2.1 ms | 0-2.1 ms; 6.8-7.2 ms at the ML base, T+4.9-7 s | 3.8-3.9 ms | 0.5 ms |
+| Particles, smoke and trail (P3, P4, LR4 at Medium, LR5) | 1.7 ms | 0.3-1.7 ms; 1.6-2.1 ms at the ML base, T+5.5 s | 0.2-0.6 ms | 0.3 ms |
+| Headroom: LR4 High where it fits | 0.8 ms | | | |
+| **Total** | **13.0 ms** | **6.8-11.1 ms; 15.6-16.5 ms at the ML base, T+4.9-7 s** | **8.7-9.5 ms** | **≈ 7.6 ms** |
 
+- **Pad:** the measured frames are P4's 380 m view at T+0, P2's 62 m ML-base view at T+3 s and T+5.5 s, and P4's 480 m view at T+8 s.
+  - All hold 13.0 ms except the ML base from T+4.9 s to about T+7 s, where P2's march adds 6-7 ms (frame-ledger.md).
+  - That overrun is P2's, for LR3 PR1's core skip and R7's Medium plumes to cut (§6 of `look-round-2.md`). LR4 stays at Medium there until it is.
+- **Staging** (0.3 s after S-IC/S-II separation, the retros' 0.64 s): 11.2-12.3 ms, of which the plumes are 5.7-6.5 ms.
+- **The old table** (2026-10, before any whole frame was timed) gave the pad 10.2 ms: plumes 1.5, particles 1.0, clouds 3.0 with R6's slots inside.
+- **LEO** is not re-measured; its column is the 2026-10 estimate.
+- **R6's slots** cost a fixed 0.8-1.0 ms whenever anything draws through them, and C2's clouds always do in an Earth scene.
 - **Alarm:** above 13 ms, auto-downgrade, and build dynamic resolution only if it is still needed.
 - **CPU per frame:**
   - stepping: about 10 ms in Smooth;

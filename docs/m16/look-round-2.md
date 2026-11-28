@@ -26,15 +26,17 @@ Measure first: no whole frame has been timed, and P4's pad cost predates #92. LR
 
 **Minimum round** (answers the three complaints): LR0, LR2 PR1-2, LR3 PR1, LR4, LR5 PR1-2; 39-47 d. **Deferred** to the review: LR1, LR2 PR3-5, LR3 PR2, LR5's humidity and soot phases; 22-29 d.
 
-**Pad ledger** (ms; LR0 replaces "today" with measurements):
+**Pad ledger** (ms). LR0 measured it (`docs/look/frame-ledger.md`, 2026-11-28) on four pad frames: P4's 380 m view at T+0, P2's 62 m ML-base view at T+3 and T+5.5 s, and P4's 480 m view at T+8 s. plan.md's budget is re-baselined to it (decision 54). The caps are the ledger's medians.
 
-| Pass | plan.md | Today | After the round |
+| Pass | plan.md | Measured on the pad | After the round |
 |---|---|---|---|
-| Clouds, with R6's slots | 3.0 | 2.0-2.9 | ≤ today's median |
-| Plumes | 1.5 | 2.62-2.77 | ≤ today's median |
-| Particles, smoke, trail | 1.0 | 1.16 (P3 synthetic); P4 not measured since #92 | ≤ today |
-| Others | 4.7 | partly measured | unchanged |
-| Whole frame | 10.2 | 10-12.5, summed, never timed | ≤ 13.0 |
+| Clouds (C2) | 2.7 | 2.2-2.9 | ≤ 2.5 |
+| Effect slots and composite (R6) | 1.0 | 0.9-1.0 | ≤ 1.1 (LR0 +0.05-0.1) |
+| Plumes | 2.1 | 0-2.1; 6.8-7.2 at the ML base, T+4.9-7 s | ≤ 1.8 at the ML base at T+3 s, ≤ 6.8 at T+5.5 s, ≤ 1.2 at T+8 s |
+| Particles, smoke, trail | 1.7 | 0.3-1.7; 1.6-2.1 at the ML base, T+5.5 s (P4's own 0.06-1.18) | ≤ 1.4 at T+3 s, ≤ 2.1 at T+5.5 s, ≤ 0.6 at T+8 s |
+| Others | 4.7 | 2.9-4.8 | unchanged |
+| Headroom (LR4 High) | 0.8 | | where it fits |
+| Whole frame | 13.0 | 6.8-11.1; 15.6-16.5 at the ML base, T+4.9-7 s | ≤ 13.0 |
 
 On the pad the round adds:
 - LR0: +0.1.
@@ -235,7 +237,7 @@ Approved 2026-11-28; the M2 flight-controls increment (#100-#102) is merged (mai
 
 ## 6. Risks and later
 
-- Plumes stay 1.8-3.5× over plan budget; R7 must cut them.
+- Plumes stay over plan.md's re-baselined 2.1 ms pad line: 3.2-3.4× at the ML base from T+4.9 to about T+7 s (6.8-7.2 ms), and 1.8-3.1× at max-Q and staging (3.8-6.5 ms). R7 must cut them.
 - No plume history this round. Its ceiling exp(−Δt/T_E) is 0.19 at T_E = 10 ms and 60 fps, and near 0 in the near field, so it cannot pay for fewer steps. In the far field it would lower the turbulence contrast.
 - About 40 pad shots vary from run to run. Emission-index slots (1-2 d) come later.
 - Memory: +19 MB for the minimum round and +105 MB for the full round, on top of R7's queued 285 MB.
