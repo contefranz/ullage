@@ -44,7 +44,9 @@ public final class PlumeMarchEffect: HalfResEffect {
     public let name = "Plume march"
 
     let system: PlumeSystem
-    private var pipeline: MTLRenderPipelineState?
+    /// The march's variants by `Plumes.variant`: without fluctuations, with
+    /// a ballooned plume's billows alone, with every fluctuation.
+    private var pipelines: [MTLRenderPipelineState] = []
     private var fallback: MTLTexture?
 
     public init(system: PlumeSystem) {
@@ -53,8 +55,10 @@ public final class PlumeMarchEffect: HalfResEffect {
 
     public func setUpHalfRes(_ s: HalfResSetup) throws {
         try system.setUp(device: s.device, shaders: s.shaders)
-        pipeline = try s.pipeline(try s.shaders.library(.plume), vertex: "plume_proxy_vertex",
-                                  fragment: "plume_march_fragment", layer: .volumes)
+        let library = try s.shaders.library(.plume)
+        pipelines = try ["plume_march_still_fragment", "plume_march_billow_fragment", "plume_march_fragment"].map {
+            try s.pipeline(library, vertex: "plume_proxy_vertex", fragment: $0, layer: .volumes)
+        }
         let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba16Float, width: 1, height: 1, mipmapped: false)
         d.usage = .shaderRead
         fallback = s.device.makeTexture(descriptor: d)
@@ -64,16 +68,15 @@ public final class PlumeMarchEffect: HalfResEffect {
     public var reconstructedLayers: HalfResLayers { [.volumes] }
 
     public func halfResLayers(in f: FrameContext) -> HalfResLayers {
-        pipeline != nil && system.noise != nil && system.marches(f) ? .volumes : []
+        pipelines.count == 3 && system.noise != nil && system.marches(f) ? .volumes : []
     }
 
     public func encodeHalfRes(_ f: FrameContext, _ slots: HalfResSlots, _ enc: MTLRenderCommandEncoder) {
         system.prepare(f)
         let data = system.frame
-        guard let pipeline, let noise = system.noise, let fallback, !data.marched.isEmpty,
+        guard pipelines.count == 3, let noise = system.noise, let fallback, !data.marched.isEmpty,
               let clusters = f.arena.push(data.marched), let members = f.arena.push(data.members) else { return }
         var u = data.uniforms
-        enc.setRenderPipelineState(pipeline)
         enc.setDepthStencilState(slots.noDepth)
         // Back faces only: each texel once, the camera inside too.
         enc.setFrontFacing(.counterClockwise)
@@ -86,8 +89,18 @@ public final class PlumeMarchEffect: HalfResEffect {
         enc.setFragmentSamplerState(noise.sampler, index: 0)
         enc.setFragmentTexture(f.textures[.cloudLayer] ?? fallback, index: 1)
         enc.setFragmentTexture(f.textures[.cloudDepth] ?? fallback, index: 2)
-        enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: Plumes.proxyVertices,
-                           instanceCount: data.marched.count)
+        // Far to near, each run of clusters of one variant by its march.
+        func variant(_ i: Int) -> Int { i < data.variants.count ? Int(min(data.variants[i], 2)) : 2 }
+        var start = 0
+        while start < data.marched.count {
+            let kind = variant(start)
+            var end = start + 1
+            while end < data.marched.count, variant(end) == kind { end += 1 }
+            enc.setRenderPipelineState(pipelines[kind])
+            enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: Plumes.proxyVertices,
+                               instanceCount: end - start, baseInstance: start)
+            start = end
+        }
         enc.setCullMode(.none)
     }
 }

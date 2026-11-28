@@ -1,0 +1,45 @@
+# S. Corrsin and A. L. Kistler, "Free-stream boundaries of turbulent flows",
+# NACA Report 1244 (1955; formerly NACA TN 3133), Johns Hopkins University.
+# Copy read: NTRS https://ntrs.nasa.gov/citations/19930092246
+# (https://ntrs.nasa.gov/api/citations/19930092246/downloads/19930092246.pdf,
+# 28,972,481 bytes, sha256 0a4a66cda474fcec4ea342b072a8011ffee4be708e917f8892829fbd21db50b7);
+# a scan whose text layer is OCR, so the values were read from the page
+# images. Public domain (NACA).
+#
+# The round jet: a 1/2 in. orifice at an exit velocity of 300 ft/s into still
+# air (p. 4), hot-wire signals; the intermittency factor gamma is the share
+# of the time the wire is in turbulent (vortical) fluid. Figure 23 (p. 10)
+# shows gamma across the jet at x/2r0 = 20-76 collapsing on the Gaussian
+# distribution function of (r - Rbar)/sigma: the turbulence front's radial
+# position is normally distributed about its mean Rbar with standard
+# deviation sigma, gamma(r) = 1/2 erfc((r - Rbar)/(sqrt(2) sigma)).
+#
+# Figure 24(b) (p. 11, PDF page 14): Rbar/r0, r_half/r0 (the half-velocity
+# radius) and sigma/r0 against x/d, d = 2 r0, as the lines the report fits
+# through its points; the apparent origin x0/d is about 3 (the figure's
+# arrow). Read from the lines at 300 dpi (pdftoppm -r 300 -gray): the axis
+# lines and the 0, 10 and 20 ticks calibrate it (17.1 px a unit up, 13.5 px
+# a unit of x/d across), the line's centre taken in the pixel column at each
+# x/d. A pixel is 0.06 r0; the r_half line ends at x/d = 68.
+# Figure 24(a) gives the lines' power laws in x - x0: Rbar 0.88, r_half 1.00,
+# sigma 1.06.
+#
+# Used in place of Wygnanski & Fiedler 1969 (J. Fluid Mech. 38, 577-612), the
+# reference look round 2's plan names, which is not open: Chevray & Tutu 1978
+# (J. Fluid Mech. 88) found their round jet's intermittency to agree with both
+# Corrsin & Kistler's and Wygnanski & Fiedler's (as Gilliland et al., Flow
+# Turbulence Combust., review them). It checks JetFluctuations' edge; it is
+# not an input.
+#
+# Derived (not in the report), eta = r/(x - x0) with x0 = 3 d, at x/d = 60:
+# the front Rbar at eta 0.160 with sigma 0.0425, the half-velocity radius at
+# 0.094 (Rbar/r_half 1.70, sigma/r_half 0.45); at x/d = 70, Rbar at 0.157,
+# sigma 0.043.
+x_over_d,rbar_over_r0,r_half_over_r0,sigma_over_r0
+10,2.98,1.29,0.47
+15,4.80,2.22,0.82
+30,9.65,5.15,2.11
+50,15.44,8.92,3.92
+55,16.90,9.82,4.44
+60,18.19,10.70,4.85
+70,21.05,,5.79

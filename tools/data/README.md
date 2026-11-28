@@ -65,3 +65,19 @@ and 880.79 m/s, the pad phase's 169.088 m/s, and the integral of |a_ng|,
 9,132.67 m/s, on the rows §14 had (PR 12's transcription: every row to 162 s,
 then mostly 10 s apart). On every row of the table that integral is 9,132.83
 m/s: shorter intervals follow the thrust's turn more closely.
+
+# Jet turbulence: transcribed data (look round 2, LR3)
+
+The plumes' fluctuations (`OrbitScene/Look/JetFluctuations.swift`,
+docs/look/plumes.md "The fluctuations") are taken from these measurements;
+`JetFluctuationsTests.testTablesAreToolsData` checks that the Swift copies
+agree with the files.
+
+| file | content | how it was read and checked |
+|---|---|---|
+| `dowling_dimotakis_1990_jet_concentration.csv` | Dowling and Dimotakis 1990 (J. Fluid Mech. 218), round gas jets: the mean concentration's fitted curve (figure 3) and the r.m.s.'s at Re0 5,000 and 16,000 (figures 8 and 9) against η = r/(x − x0), every 0.01 to 0.19 | The CaltechAUTHORS copy (its md5 matches the record's). Each fitted line's centre read in the pixel column at each η of 300 dpi page images, the data markers told apart by their width and the line's continuity, checked on overlays; the centreline values against the ones the text prints (p. 120) |
+| `corrsin_kistler_1955_round_jet_front.csv` | Corrsin and Kistler 1955 (NACA Report 1244), the round jet: the turbulence front's mean radius, its standard deviation and the half-velocity radius against x/d (figure 24b, the report's fitted lines) | The NTRS scan at 300 dpi; the lines' centres in pixel columns, the axes calibrated by their ticks. The front at x/d = 60 in η is derived in the header |
+
+Wygnanski and Fiedler 1969 (J. Fluid Mech. 38), the reference the look
+round's plan names for the intermittent edge, is not open; Corrsin and
+Kistler's measurement of the same is, and serves as the check.

@@ -492,22 +492,41 @@ final class PlumeTurbulenceTests: XCTestCase {
         XCTAssertGreaterThan(edge, 1.3 * near, "the slow edge is smoothed less")
     }
 
-    /// The noise's scale keeps M1.6's first noise's spread (its two octaves
-    /// at c and 2c), so the depth's calibration holds: within 10 %.
-    func testAmplitudeKeepsTheDepthCalibration() {
+    /// The volume noise's spread, 2 n − 1 over its texels, is the
+    /// `noiseDeviation` that `field` divides by (within 0.01), and it is
+    /// near enough a Gaussian (kurtosis 2.7 against 3, its 1 % and 99 %
+    /// quantiles within 0.15 σ of a Gaussian's) for `JetFluctuations`' factor:
+    /// the blended field has unit variance.
+    func testNoiseDeviationAndShape() {
         var state: UInt32 = 5
-        var old = 0.0, new = 0.0
-        let n = 4_000
-        for _ in 0..<n {
+        var values: [Double] = []
+        for _ in 0..<20_000 {
             let c = Vec3(ParticleRandom.uniform(&state), ParticleRandom.uniform(&state), ParticleRandom.uniform(&state))
-            let n1 = PlumeTurbulence.continuousNoise(c, channel: 0)
-            let n2 = PlumeTurbulence.continuousNoise(c * 2 + Vec3(0.37, 0.37, 0.37), channel: 1)
-            let o = 2 * (0.65 * n1 + 0.35 * n2) - 1
-            let v = PlumeTurbulence.amplitude * (2 * PlumeTurbulence.continuousNoise(c, channel: 0) - 1)
-            old += o * o
-            new += v * v
+            values.append(2 * PlumeTurbulence.texel(c, channel: Int(state & 1)) - 1)
         }
-        XCTAssertEqual((new / old).squareRoot(), 1, accuracy: 0.1)
+        let n = Double(values.count), mean = values.reduce(0, +) / n
+        let sd = (values.reduce(0) { $0 + ($1 - mean) * ($1 - mean) } / n).squareRoot()
+        let kurtosis = values.reduce(0) { $0 + pow(($1 - mean) / sd, 4) } / n
+        let sorted = values.sorted()
+        let q01 = (sorted[Int(0.01 * n)] - mean) / sd, q99 = (sorted[Int(0.99 * n)] - mean) / sd
+        print(String(format: "PlumeTurbulenceTests: noise sd %.4f, kurtosis %.2f, 1 %% %.2f, 99 %% %.2f", sd, kurtosis,
+                     q01, q99))
+        XCTAssertEqual(mean, 0, accuracy: 0.01)
+        XCTAssertEqual(sd, PlumeTurbulence.noiseDeviation, accuracy: 0.01)
+        XCTAssertEqual(kurtosis, 3, accuracy: 0.5)
+        XCTAssertEqual(q01, -2.326, accuracy: 0.15)
+        XCTAssertEqual(q99, 2.326, accuracy: 0.15)
+        // The blended field through the F-1's far field, many seeds.
+        let m = member(ApolloExhaust.f1, altitude: 0)
+        let field = (1...20).flatMap { seed in
+            farField(m).map { p in
+                PlumeTurbulence.field([m], at: p, bands: PlumeTurbulence.bands(time: 30), seed: UInt32(seed),
+                                      noise: PlumeTurbulence.texel)?.noise ?? 0
+            }
+        }
+        let variance = field.reduce(0) { $0 + $1 * $1 } / Double(field.count)
+        print(String(format: "PlumeTurbulenceTests: the blended field's variance %.3f", variance))
+        XCTAssertEqual(variance, 1, accuracy: 0.12)
     }
 
     /// The texture's sample is the noise's value at its texels: the

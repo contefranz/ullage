@@ -1,0 +1,65 @@
+# D. R. Dowling and P. E. Dimotakis, "Similarity of the concentration field
+# of gas-phase turbulent jets", J. Fluid Mech. 218, 109-141 (1990),
+# DOI 10.1017/S0022112090000945.
+# Copy read: CaltechAUTHORS https://authors.library.caltech.edu/31286
+# (file DOWjfm90.pdf, 3,165,418 bytes, md5 cad013b53d6178714be41be44d73b99a as the
+# record lists it, sha256 c595d4c8f92782451f7aa3bd469e1e864e8ff83cc93fdf397bbeed0543959716).
+# Round momentum-driven gas jets (laser Rayleigh scattering, single-point
+# time series, Schmidt number near 1) at Re0 5,000, 16,000 and 40,000,
+# x/d 20-90.
+#
+# Columns: eta = r/(x - x0), the radial similarity coordinate from the
+# far field's virtual origin x0 (Re0 5,000: x0 = -3.7 d, kappa = 5.11 +- 0.05,
+# d* = 0.96 d; Re0 16,000: x0 = 0.5 d, kappa = 4.73 +- 0.1; p. 116).
+#   mean      the mean concentration over its centreline value, C(x,eta)/C(x,0):
+#             the fitted curve of figure 3 (p. 116), chi C / kappa at Re0 5,000,
+#             least squares to the Re0 5,000 data; figures 4 and 5 draw the same
+#             curve through the Re0 16,000 and 40,000 data.
+#   rms_5000  the r.m.s. fluctuation over the centreline's mean, chi C'rms / kappa:
+#             the fitted curve of figure 8 (p. 120), Re0 5,000.
+#   rms_16000 the same, figure 9 (p. 121), Re0 16,000; the paper (p. 123) finds
+#             the r.m.s. at Re0 40,000 "essentially identical" to it (figure 5).
+# The curves end at eta = 0.19 (figures 8 and 9); figure 3's mean runs to
+# 0.25.
+#
+# How they were read: pdftoppm -r 300 -gray of PDF pages 8, 12 and 13; each
+# figure's frame found from its axis lines (eta 0-0.25 across, 0-1.5 or
+# 0-0.30 up) and the fitted line's centre read in the pixel column at each
+# eta, the data markers told apart by their width and by the line's
+# continuity, and checked on overlays. A pixel is 0.00023 in eta, 0.0019 in
+# the mean and 0.00037 in the r.m.s.; the reading is good to about two
+# pixels where the line runs clear and is interpolated between its
+# neighbours where a marker covers it (mean at 0.06 and 0.12; rms_5000 at
+# 0.06 and 0.13; rms_16000 at 0.13).
+#
+# Centreline values printed in the text (p. 120): C'rms/C on the axis is
+# 0.230 +- 0.007 at Re0 5,000, 0.237 +- 0.005 at Re0 16,000 and 0.23 +- 0.01
+# at Re0 40,000; the conclusions (p. 139) give a general self-similar value
+# "between 0.23 and 0.24".
+#
+# The PDF of C/C near the edge holds unmixed reservoir fluid a fraction of
+# the time; the paper declines to quantify the intermittency from it (p. 136).
+eta,mean,rms_5000,rms_16000
+0.00,1.000,0.230,0.237
+0.01,0.994,0.232,0.2375
+0.02,0.975,0.235,0.242
+0.03,0.945,0.2405,0.248
+0.04,0.907,0.247,0.255
+0.05,0.861,0.254,0.262
+0.06,0.806,0.261,0.268
+0.07,0.749,0.268,0.272
+0.08,0.692,0.272,0.275
+0.09,0.628,0.274,0.274
+0.10,0.566,0.273,0.272
+0.11,0.504,0.269,0.266
+0.12,0.444,0.261,0.259
+0.13,0.385,0.247,0.2505
+0.14,0.325,0.231,0.240
+0.15,0.268,0.211,0.228
+0.16,0.214,0.188,0.216
+0.17,0.165,0.163,0.203
+0.18,0.122,0.137,0.191
+0.19,0.082,0.111,0.180
+0.20,0.049,,
+0.21,0.027,,
+0.22,0.012,,

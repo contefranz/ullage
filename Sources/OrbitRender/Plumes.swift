@@ -64,10 +64,12 @@ enum Plumes {
     }
 
     /// The turbulence's constants as PlumeFrame holds them (`flow`,
-    /// `flowRates`, `flowRates2` but its y, `lagrangian`).
+    /// `flowRates`, `flowRates2` but its y, `lagrangian`, the fluctuations'
+    /// `thresholds`).
     static func setTurbulence(_ u: inout PlumeFrameGPU) {
         typealias T = PlumeTurbulence
-        u.flow = SIMD4(Float(T.shutter), Float(T.similarFrom), Float(T.amplitude), Float(T.eddiesPerTile))
+        u.flow = SIMD4(Float(T.shutter), Float(T.similarFrom), Float(1 / T.noiseDeviation), Float(T.eddiesPerTile))
+        u.setJet()
         u.flowRates = SIMD4(Float(T.shearIntensity), Float(T.similarIntensity), Float(T.decayRate),
                             Float(T.fadeIntegral))
         u.flowRates2 = SIMD4(Float(T.integralLength), u.flowRates2.y, Float(T.lagrangianStart), Float(T.lagrangianStep))
@@ -135,6 +137,21 @@ enum Plumes {
         guard b.offsets.count == PlumeBend.stations else { return .zero }
         return SIMD4(Float(b.offsets[first]), Float(b.offsets[first + 1]), Float(b.offsets[first + 2]),
                      Float(b.offsets[first + 3]))
+    }
+
+    /// Which of the march's variants draws a cluster (`JetFluctuations`):
+    /// 2 when a member (its merged far field too) is a jet the air mixes
+    /// with, 1 when the only fluctuation is a smoky ballooned plume's
+    /// billowing boundary (the S-IC's retros, the ullage motors), 0 when
+    /// none can fluctuate (an ice fan, a plume in vacuum, a glow). Each
+    /// variant is compiled without the others' fluctuations and their
+    /// registers.
+    static func variant(_ c: PlumeCluster) -> UInt8 {
+        let all = c.members + (c.merged.map { [$0] } ?? [])
+        if all.contains(where: { $0.turbulence > 0 && $0.vacuumBlend < 0.95 }) { return 2 }
+        if all.contains(where: { $0.turbulence > 0 && $0.vacuumBlend > 0 && $0.confinement > 0
+                                 && JetFluctuations.billows($0) }) { return 1 }
+        return 0
     }
 
     /// How far a marched cluster is for R6's back-to-front order: its
@@ -284,7 +301,7 @@ struct PlumeFrameGPU {
     var wienC = SIMD4<Float>.zero
     /// The turbulence (`PlumeTurbulence`, `Plumes.setTurbulence`): x the
     /// shutter (s), y where the far field is self-similar (core lengths), z
-    /// the noise's amplitude, w eddies per tile.
+    /// one over the noise's standard deviation, w eddies per tile.
     var flow = SIMD4<Float>.zero
     /// x: the intensity u'/ΔU in the shear layer, y: self-similar, z: the
     /// layers' decay rate, w: the cross-fade's integral.
@@ -295,6 +312,10 @@ struct PlumeFrameGPU {
     var flowRates2 = SIMD4<Float>.zero
     /// The Lagrangian integral time over L/u' at the four stations.
     var lagrangian = SIMD4<Float>.zero
+    /// Where the jet's mean is j/15 of its centreline's: the fluctuation's
+    /// threshold, the next station's less it, its r.m.s. over the mean, the
+    /// next's less it (`JetFluctuations.thresholds`, `.spreads`; `setJet`).
+    var jet = PlumeFrameGPU.noJet
     /// Its bands' layers, two a band (`Plumes.layers`).
     var layers = PlumeFrameGPU.noLayers
 
@@ -308,6 +329,23 @@ struct PlumeFrameGPU {
         (.zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero,
          .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero,
          .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero)
+
+    static let noJet: (SIMD4<Float>, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>,
+                       SIMD4<Float>, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>,
+                       SIMD4<Float>, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>) =
+        (.zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero, .zero)
+
+    /// Sets the jet's table from `JetFluctuations`.
+    mutating func setJet() {
+        let t = JetFluctuations.thresholds, r = JetFluctuations.spreads
+        withUnsafeMutableBytes(of: &jet) { raw in
+            for j in 0..<16 {
+                let k = min(j + 1, 15)
+                let v = SIMD4(Float(t[j]), Float(t[k] - t[j]), Float(r[j]), Float(r[k] - r[j]))
+                raw.storeBytes(of: v, toByteOffset: j * MemoryLayout<SIMD4<Float>>.stride, as: SIMD4<Float>.self)
+            }
+        }
+    }
 
     /// Sets the layers from `Plumes.layers`.
     mutating func setLayers(_ l: [SIMD4<Float>]) {
@@ -421,6 +459,8 @@ struct PlumeGlowGPU {
 /// drawn in P3.
 struct PlumeFrameData {
     var marched: [PlumeClusterGPU] = []
+    /// The march's variant for each marched cluster (`Plumes.variant`).
+    var variants: [UInt8] = []
     var members: [PlumeMemberGPU] = []
     var impostors: [PlumeVertex] = []
     /// The glowing nozzles: vessel, thruster, heat.
@@ -788,6 +828,7 @@ public final class PlumeSystem {
                                                    : max(16, settings.quality.steps / 2))
                 : solid ? max(16, settings.quality.steps / 2) : 0
             let vessel = c.vesselID.flatMap { id in scene.vessels.first { $0.id == id } }
+            data.variants.append(settings.turbulence ? Plumes.variant(c) : 0)
             data.marched.append(Plumes.gpu(c, memberStart: data.members.count, light: e.light, sunlit: e.sunlit,
                                            steps: steps, ice: ice, caster: vessel.flatMap(Plumes.capsule)))
             let seed = Plumes.noiseSeed(c)

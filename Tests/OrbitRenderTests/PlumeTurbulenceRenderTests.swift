@@ -16,7 +16,7 @@ final class PlumeTurbulenceRenderTests: XCTestCase {
         kernel void plume_noise_probe(const device PlumeMember *members [[buffer(0)]],
                                       constant PlumeFrame &pf [[buffer(1)]],
                                       const device float4 *points [[buffer(2)]],
-                                      device float *out [[buffer(3)]],
+                                      device float2 *out [[buffer(3)]],
                                       constant float4 *cluster [[buffer(4)]],
                                       texture3d<float> noise [[texture(0)]], sampler ns [[sampler(0)]],
                                       uint id [[thread_position_in_grid]]) {
@@ -108,7 +108,7 @@ final class PlumeTurbulenceRenderTests: XCTestCase {
             let a = 2 * Double.pi * ParticleRandom.uniform(&state)
             return m0.exit + m0.axis * x + u * (r * cos(a)) + v * (r * sin(a))
         }
-        var worst = 0.0, sum = 0.0, spread = 0.0
+        var worst = 0.0, sum = 0.0, spread = 0.0, worstDepth = 0.0
         for t in [0.0, 13.7, 1_234.567] {
             var pf = PlumeFrameGPU()
             Plumes.setTurbulence(&pf)
@@ -117,7 +117,7 @@ final class PlumeTurbulenceRenderTests: XCTestCase {
                                                                length: MemoryLayout<PlumeMemberGPU>.stride * gpuMembers.count))
             let p4 = points.map { SIMD4(Float($0.x), Float($0.y), Float($0.z), 0) }
             let pointBuffer = try XCTUnwrap(device.makeBuffer(bytes: p4, length: 16 * p4.count))
-            let out = try XCTUnwrap(device.makeBuffer(length: 4 * points.count, options: .storageModeShared))
+            let out = try XCTUnwrap(device.makeBuffer(length: 8 * points.count, options: .storageModeShared))
             var c = [SIMD4<Float>(Float(members.count), Float(merge.mergeX), 0, 0),
                      Plumes.f4(merge.origin, 0), Plumes.f4(merge.axis, 0)]
             let cb = try XCTUnwrap(queue.makeCommandBuffer()), enc = try XCTUnwrap(cb.makeComputeCommandEncoder())
@@ -134,24 +134,27 @@ final class PlumeTurbulenceRenderTests: XCTestCase {
             enc.endEncoding()
             cb.commit()
             cb.waitUntilCompleted()
-            let gpu = out.contents().bindMemory(to: Float.self, capacity: points.count)
+            let gpu = out.contents().bindMemory(to: SIMD2<Float>.self, capacity: points.count)
             let bands = PlumeTurbulence.bands(time: t)
             for (i, p) in points.enumerated() {
-                let reference = PlumeTurbulence.value(members, merged: merged, mergeX: merge.mergeX,
+                let reference = PlumeTurbulence.field(members, merged: merged, mergeX: merge.mergeX,
                                                       origin: merge.origin, axis: merge.axis, at: p, bands: bands,
-                                                      seed: seed, noise: PlumeTurbulence.texel)
-                let d = abs(Double(gpu[i]) - reference)
+                                                      seed: seed, noise: PlumeTurbulence.texel) ?? (0, 0)
+                let d = abs(Double(gpu[i].x) - reference.noise)
                 worst = max(worst, d)
                 sum += d
-                spread += reference * reference
+                spread += reference.noise * reference.noise
+                worstDepth = max(worstDepth, abs(Double(gpu[i].y) - reference.depth))
             }
         }
         let n = Double(3 * points.count)
-        print(String(format: "PlumeTurbulenceRenderTests: GPU against the reference, mean %.4f, worst %.4f (spread %.3f)",
-                     sum / n, worst, (spread / n).squareRoot()))
-        XCTAssertGreaterThan((spread / n).squareRoot(), 0.02, "the field is not flat")
-        XCTAssertLessThan(sum / n, 0.004)
-        XCTAssertLessThan(worst, 0.03)
+        print(String(format: "PlumeTurbulenceRenderTests: GPU against the reference, mean %.4f, worst %.4f "
+                     + "(spread %.3f), the depth within %.5f", sum / n, worst, (spread / n).squareRoot(), worstDepth))
+        // The unit noise (the old field over 0.74 times the noise's 0.29).
+        XCTAssertGreaterThan((spread / n).squareRoot(), 0.1, "the field is not flat")
+        XCTAssertLessThan(sum / n, 0.02)
+        XCTAssertLessThan(worst, 0.14)
+        XCTAssertLessThan(worstDepth, 1e-3)
     }
 
     /// The F-1s at the pad's air (P2's look-dev shot) through the renderer

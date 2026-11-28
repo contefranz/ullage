@@ -24,7 +24,8 @@ medium, L low (visual, calibrated or assumed).
    four (their pairs, side by side in their fairings).
    Each cluster gets a convex proxy: the upper concave hull of every
    member's extent (sampled cross-sections at their offsets and tilts, the
-   eddies' reach of 15 % beyond the jet included), with a 4 % margin,
+   jet's edge to 1.55 R: the fluctuations stay within the mean field, which
+   the old ragged boundary carried out 15 % more), with a 4 % margin,
    reduced to at most eight rings.
 3. **Visibility and detail.** Each member is first trimmed to what can
    show at the frame's exposure (`PlumeLook.trim`; the least light drawn
@@ -45,7 +46,7 @@ medium, L low (visual, calibrated or assumed).
    with an opaque film band, as the legacy kerosene look's) is marched too
    when it is that large, so that it lies in R6's volumes layer with the
    clouds and keeps its form seen end on: with its proxy held to the glow
-   (1.15 R), at a quarter of the steps for one member (equiangular) and
+   (R), at a quarter of the steps for one member (equiangular) and
    half for several. Solid motors' clusters, small dense cores the
    equiangular steps resolve, march at half the steps (at least 16). Attitude jets are impostors beyond 20 m. Low draws only
    impostors; Off, or `enabled: false`, nothing. The looks, trims and light
@@ -64,7 +65,10 @@ medium, L low (visual, calibrated or assumed).
    scene, and marches 16/32/48 steps (Medium/High/Ultra), half of them in
    the near field (ten exit diameters), jittered by interleaved gradient
    noise, Hillaire's energy-conserving step, stopping under 2 %
-   transmittance. A cluster seen more than 30° off its axis is stepped
+   transmittance; the fluctuations (`JetFluctuations`) are drawn until the
+   plume in front is 90 % opaque, and a cluster that cannot fluctuate is
+   drawn by a variant of the march compiled without them (three: none,
+   the billows alone, all). A cluster seen more than 30° off its axis is stepped
    equiangularly about its axis instead (Kulla and Fajardo 2012: the steps
    as dense as 1/(h² + d²) along the ray, h the ray's closest approach or
    half the members' spread about the axis and their dense radius), so a
@@ -80,12 +84,16 @@ medium, L low (visual, calibrated or assumed).
    it: 72 m along a J-2's axis, 41 m at 35°, under a metre across). So the
    steps follow the ice, not the empty core, as a camera orbits or closes
    in: the bright condensing shell near the nozzle is stepped finely and
-   the jitter leaves no pattern there. Only a ray within 30° of the axis
-   that passes far from the source (a quarter of its span or more) keeps
-   the near and far halves.
+   the jitter leaves no pattern there. A ray that passes far from the
+   source (a quarter of its span or more) keeps the near and far halves
+   unless the axis's steps took it: within 30° of the axis, and more than
+   30° off it too where it also passes far from the axis (the axis's own
+   gate, its span over four of its closest approach, fails).
    Look-dev: `p2-j2-ice-behind` (250 m behind five J-2s, 10° off their
    axis), `p2-j2-ice-oblique` (100 m, 40° off) and `p2-j2-ice-31` (120 m,
-   31° off), all on these steps with h at the onset's distance. The marched clusters blend far to
+   31° off), h at the onset's distance; about half of the oblique and 31°
+   shots' plume pixels are on these steps, the rest, far from both the
+   source and the axis, on the halves. The marched clusters blend far to
    near. The field is `PlumeMember.sample`, line by line, plus the
    turbulence. `PlumeRenderTests` checks the GPU against the CPU reference
    through the same rays (within 1 % on average; the test allows 10 %).
@@ -160,7 +168,8 @@ medium, L low (visual, calibrated or assumed).
 | Mach disk | P1's distance and radius; 0.85 Tc; emissivity 0.5 soot/alumina, 0.02 hydrogen, 0.05 hypergols; diluted as the free expansion there; faded in from n 2 to 3 | L |
 | Shock cells | P1's length and count; ±30 % of temperature and density, times P1's structure visibility; faded in from n 0.30 to 0.36 and out from 4 to 5 (P1's bounds) | L |
 | Alumina | extinction 3 Q Y ρe/(2 ρp d): Q 2 (particles much larger than the light's wavelength), Y the alumina's mass fraction, ρe P1's exit density, ρp 3,950 kg/m³, d 3 µm (3.0 across the S-IC retro's exit, 1.5 across the TJM's); leaves at Te + (Tc − Te)/2; cools by radiation (ε 0.3); cone lip + 5°; albedo 0.5 hot, 0.9 cold | H the optics and density, P1 the exit; L the diameter, the lag, ε, the albedos |
-| Turbulence | Flow noise (next section): eddies 0.25 re at the lip, growing with the compressible mixing layer, carried at the jet's mean speed, decaying as a jet's turbulence (T_L 1.7 L/u' at u'/ΔU 0.18 by the core, 0.55 L/u' at 0.28 in the far field), averaged over a 180° shutter; never repeating. Ragged boundary, outwards within 15 % (the proxy's reach); temperature ±5 %; density ±70 %; faded out where the eddies are under 1.5-4 half-resolution texels | the growth, intensity and decay M-H (below); the lip's eddies, the shutter and the depths L |
+| Turbulence | Flow noise (next section): eddies 0.25 re at the lip, growing with the compressible mixing layer, carried at the jet's mean speed, decaying as a jet's turbulence (T_L 1.7 L/u' at u'/ΔU 0.18 by the core, 0.55 L/u' at 0.28 in the far field), averaged over a 180° shutter; never repeating. Faded out where the eddies are under 1.5-4 half-resolution texels (`TurbulenceSpectrum`) | the growth, intensity and decay M-H (below); the lip's eddies, the shutter and the fade L |
+| Fluctuations | The exhaust's share as a rectified Gaussian of the noise about its mean (`JetFluctuations`): none in the potential core or within a ballooned plume's boundary; 0.237 of the mean on the axis, rising to an intermittent edge where the mean is thin; the mean field kept; the mixed heat's excess over the air following it, the light's mean kept, its log-contrast held to 1 a standard deviation | the r.m.s. H (Dowling and Dimotakis 1990), the front checked M (Corrsin and Kistler 1955); the core's and the layer's ramps and the contrast's hold L |
 | Blackbody | per channel exp(c0 + c1/T + c2/T²), fitted to `Photometry.blackbody` | within 6 % in luminance over 1,200-3,500 K |
 | SPS extension | 1,480 K at the 6:1 top, T ∝ r^-0.45, ε 0.8, 4 s heating, 12 s cooling | L (AOH: columbium, radiation-cooled) |
 | Readable floor | 0.3 E⊙/π near the exit, the family's colour, times the flow fraction (at most 1), over M1.5's length times 0.5 + 0.5 of it; B in the app | decision 19 (M1.5) |
@@ -316,10 +325,14 @@ tile over that speed (1.28 s for the F-1).
   across the jet a Gaussian of half-width R/2 (exp(−ln2 (r/r½)²), the round
   jet's) outside the core's shrinking top hat; uniform in a free expansion.
   Each layer's pattern is laid out where the flow carried each point from
-  since the layer's birth (one midpoint step back along the
-  decelerating jet), so it rides the flow: on the axis 0.99 m against the
-  flow's 1.10 m over 3 ms at 110 m, half-way out 0.49 m against 0.55 m (24 seeds)
-  (`PlumeTurbulenceTests`).
+  since the layer's birth (one midpoint step back along the decelerating
+  jet), so it rides the flow: on the axis 0.99 m against the flow's 1.10 m over 3 ms at 110 m, half-way out 0.43 m against 0.55 m (24 seeds; `PlumeTurbulenceTests`).
+  It is carried at most half-way back to the exit (L): a jet's layers go
+  1-30 % of the way, but a ballooned plume's, carried at the whole exhaust
+  speed for a life longer than their transit, reached the exit and drew its
+  small cells far downstream as thin plates across the jet (`p2-f1-billow`
+  before the limit). Half-way back, where the cells grow as x, they are the
+  local ones.
 - **Decaying as a jet's turbulence.** Each octave band of lifetimes (0.12
   ms to 64 s) holds two layers, cross-faded half a life apart and re-seeded
   at each birth with an offset hashed from the band's cycle and the
@@ -375,7 +388,8 @@ tile over that speed (1.28 s for the F-1).
   at 261 lags to ten minutes (whole numbers of the old loop, of the tile
   carried at the flow's speed and of every band's life, and lags at
   random); the GPU's field against the reference, the cluster's flow and
-  its merged far field included (mean difference 0.0004); the flow
+  its merged far field included (the unit-variance noise: mean difference
+  0.003, the shutter's depth exact); the flow
   continuous across the S-IC; and on screen, frames whole numbers of the
   old loop apart differ as much as frames ten seconds apart (2.2-2.5 against
   2.5, mean |Δ| per pixel), a frame a millisecond on by 0.14, while the same
@@ -385,6 +399,119 @@ tile over that speed (1.28 s for the F-1).
   and the base glow are steady fields (they move only with the state); the
   SPS's glow follows its heat in simulation time; the march's jitter turns
   every frame by design. None repeats.
+
+## The fluctuations
+
+What the noise does to the field (`OrbitScene/Look/JetFluctuations.swift`,
+the shader's `plume_member`; look round 2, LR3). Until it, the noise
+perturbed every phase's density by ±70 % and the absolute temperature by
+±5 % everywhere, the unmixed core included: at the flame's 2,300 K that is
+a factor of 5-8 in light between neighbouring eddies, the core's mottling.
+
+- **The core is still.** The potential core holds the exhaust as it left
+  the nozzle; no air has reached it, so nothing fluctuates and the noise is
+  not read there. The mixedness rises across the mixing layer's inner half
+  from the core's shrinking top hat (re (1 − x/core) out to R; L), and on
+  the axis from the core's end to the self-similar far field (four core
+  lengths; linearly, L). A ballooned plume's free expansion is a laminar
+  flow: within its boundary nothing fluctuates either.
+- **The measured fluctuation.** In the mixed jet the exhaust's share
+  fluctuates as Dowling and Dimotakis (1990) measured the concentration of
+  round gas jets at Re0 5,000-40,000 (laser Rayleigh scattering,
+  `tools/data/dowling_dimotakis_1990_jet_concentration.csv`): its r.m.s.
+  is 0.237 ± 0.005 of the mean on the axis at Re0 16,000 (0.230 at 5,000),
+  peaks at 0.275 of the centreline's mean at η = r/(x − x0) 0.08-0.09, the
+  jet's shear region, and falls more slowly than the mean beyond, so that
+  over the local mean it rises from 0.24 to 0.53 at the mean's half value
+  (η 0.11) and 2.2 at their last station (η 0.19, the mean 8 % of the
+  centreline's). The plume takes it by the share of the centreline's mean
+  that its own mean has fallen to (its profile is narrower than theirs at
+  the edge), held beyond their last station. Re0 16,000's profile is used:
+  they find 40,000's the same, and the edge's r.m.s. rising with Re0 up to
+  about 10⁴ (their eq. 14), so it stands for the rockets' far higher Re.
+- **An intermittent edge that keeps the mean.** The factor on the mean is a
+  rectified Gaussian, (n − t)⁺ / E[(n − t)⁺] on the unit noise n (the
+  volume noise's blend over its measured 0.29 deviation; kurtosis 2.7, near
+  enough a Gaussian's), its threshold t set so that its r.m.s. over its mean
+  is the measured one (a table of sixteen in PlumeFrame): its mean is
+  exactly 1 for a Gaussian n, so the mean field is today's. On the axis t
+  is −4.2 and the factor 1 + 0.24 n; where the mean is thin t rises, and
+  the exhaust is present only Φ(−t) of the time, in pockets bounded by
+  clear air: the turbulent front. It is there half the time at η = 0.177;
+  Corrsin and Kistler (1955, NACA Report 1244; their round jet's front at
+  x/d = 60, `tools/data/corrsin_kistler_1955_round_jet_front.csv`) measured
+  the vortical front at 0.160 with a standard deviation of 0.043, so the
+  edge the measured r.m.s. implies lies within half a width of the measured
+  front. (Wygnanski and Fiedler 1969, the plan's reference, is behind a
+  paywall; Chevray and Tutu's 1978 intermittency agreed with both theirs
+  and Corrsin and Kistler's, as Gilliland et al. review them in Flow,
+  Turbulence and Combustion.) On the plume's own profile the front lies at about
+  1.3 R in the far field, nearer in the near field, where the edge's band is
+  thinner. The shutter's average and the footprint's fade weigh the
+  factor towards 1, keeping its mean.
+- **Billowing boundaries.** Where the air confines a ballooned plume's free
+  expansion (P1's structure visibility), the boundary's cut, over 1-1.5 R,
+  is the share of the time the expansion's gas is there, drawn as the same
+  factor at the threshold of that presence (a logistic probit; where it
+  lies only shapes the billows, the mean is kept). The S-IC's plume at
+  burnout (65 km, wholly the free expansion, the air bounding it) was a
+  smooth capsule; it billows (`p2-f1-billow`). A clear exhaust's ice fan
+  (the J-2's above staging, the SPS's) keeps its mean boundary, faint
+  against the dark sky: its billows would read the noise across a fan
+  hundreds of metres wide, 1.6 ms more behind the S-II 10 s after staging.
+- **The heat on its excess.** The temperature's excess over the air
+  follows the exhaust's share where the jet is mixed: the core's gas as it
+  mixes and the flame's heat beyond its tip, as the mixture fraction falls
+  (Ta + (Tf − Ta) L_f/x). Where the afterburning flame burns (to its tip,
+  fading beyond as L_f/x) the temperature is the flame's own and does not
+  fluctuate: its light varies with its soot. The drawn excess is D δ, no
+  hotter than the hottest gas, and the light follows it to first order in
+  ln B, B(t) e^(bδ), b = D d ln B/dT per channel. Its mean over the
+  rectified fluctuation, the density's with it, has a closed form (one
+  exponential and one Φ a channel), and the light is divided by it, so the
+  mean is kept at the intermittent edge too, where the fluctuation's tail
+  is heavy. (Normalised as for a Gaussian fluctuation, the light ran +28 %
+  at 1.2 R and ×3.5 beyond 1.35 R: review of #110.) Its log-contrast is
+  held to 1 per unit of the noise in its bluest channel (L): at 1,000-1,600
+  K the light's slope is so steep that the noise's one eddy size would draw
+  hot eddies tens of times the mean, the blobs again, and the light's mean
+  would rest on the noise's far tail, which the volume noise lacks
+  (kurtosis 2.7).
+- **Checks** (`JetFluctuationsTests`, `JetFluctuationsRenderTests`):
+  - the tables are tools/data's, their curves meet the printed centreline
+    values, and Corrsin and Kistler's half-velocity radius is the round
+    jet's 0.094;
+  - the rectified Gaussian's moments, inverse and factor against numerical
+    integrals (its mean 1 within 10⁻⁵ at every station);
+  - the front against Corrsin and Kistler's (above);
+  - the core: r.m.s. 0 on the CPU and the GPU (the plan's bound 10⁻³),
+    the ballooned interior too, while the shear layer moves;
+  - the mean column through the F-1 at the pad within 2 % of the mean
+    field's, side-on at 6-160 m: by day its light and optical depth over
+    384 moments (within 0.7 %); at night, beyond the flame, each point's
+    light over the noise's own values (within 1.7 %);
+  - the light's mean over a Gaussian noise, point by point, out to 1.42 R:
+    within 0.01 % (bound 0.5 %);
+  - columns tangent to the far field beyond the flame at 1.2-1.4 R, the
+    edge alone: the light's mean within 0.01 % over a Gaussian noise and
+    −0.9 to −2.0 % over the noise's own values (bounds 1 % and 2.5 %);
+  - the heat on its excess: with none (a warm air, the gas at it) the light
+    follows the density alone; below the contrast's hold the drawn
+    excursion is the excess times the fluctuation; none drawn above the
+    hottest gas;
+  - the billowing boundary keeps its mean within 1 %;
+  - the GPU's field against the reference at the same noise (extinction
+    within 10⁻⁴, light 2×10⁻⁴);
+  - on screen, the same angular window of the F-1s' far field 2 km off
+    (the 32× frame's, 49.1 by 78.5 m), 1× to 32× zoom: with the turbulence
+    over without within 0.21 % at every zoom (its eddies under the footprint's
+    cut-off at 1×, drawn in full from 4×), its light within 0.5 % of
+    32×'s, one moment's frame moving 30 % r.m.s. a pixel at 32×;
+  - hard goldens `p2-f1-shear-closeup` (the F-1 from its exit to 36 m,
+    its potential core and the shear layer about it, from 40 m),
+    `p2-f1-zoom-farfield` (the far field at 10°),
+    `p2-f1-edge` (the edge 70 m down) and `p2-f1-billow` (the S-IC's five
+    at 65 km).
 
 ## The upper stages
 
@@ -538,8 +665,12 @@ it, they do not set it.
   continuation.
 - **The base glow** (depth 1.5, 1,750-2,000 K), **the shock cells'
   strength** (±30 %), **the Mach disk's emissivity**, **the turbulence's
-  depths** and **its lip eddies and shutter**:
-  visual.
+  lip eddies and shutter**: visual.
+- **The fluctuations' ramps and holds** (`JetFluctuations`): the core's
+  stillness across the mixing layer's inner half and on the axis to four
+  core lengths, the measured r.m.s. held beyond Dowling and Dimotakis's last
+  station, the light's log-contrast held to 1 a standard deviation, the
+  billows' presence the boundary cut's share: no measurement in hand.
 - **The phase functions' g**, **the alumina's diameter** (3 µm), **its
   thermal lag and emissivity**: particle optics without a measured size
   distribution for these motors.
@@ -553,6 +684,32 @@ plumes on and off on alternate frames, the difference of the medians, at
 3024×1964 on the M3 Pro. Measured with the airflow after its review at
 High (32 steps); the plan's budget is 1.5 ms on the pad and 0.5 ms in
 LEO, for the default physical look.
+
+- **The fluctuations** (2026-11-28, look round 2, LR3 PR1, after its
+  review), against main 546c8ef measured back to back, both with the
+  weather fields (main / now, ms, three runs each): the ML base at T+5.5 s,
+  LR0's worst pad frame (`p2-cost-pad-base-5s`, new) 6.71-6.87 /
+  6.84-6.99; the pad at T+8 s 2.60-2.66 / 2.42-2.53; the ascent 3.75-3.88 /
+  3.51-3.59; max-Q 3.73-3.77 / 3.64-3.75; staging 4.74-4.92 / 4.84-4.93
+  (auto 5.17-5.58 / 5.47-5.76); the S-II 10 s after staging 4.74-5.01 /
+  4.09-4.36. Run to run a shot moves 0.1-0.4 ms. What pays for the
+  fluctuations' own sums (about 0.4 ms at max-Q, spread over every
+  overlapping member's sample, not in any one function):
+  - the noise is read only until the plume in front of the sample is 90 %
+    opaque (behind it a few per cent of a pixel's light could move; 0.5 ms
+    at max-Q);
+  - the field's reach is the mean field's 1.55 R, not the old ragged
+    boundary's 1.78 R (proxies and rays shorter);
+  - three variants of the march, each compiled without the fluctuations
+    its clusters cannot have (`Plumes.variant`): none (an ice fan, a
+    plume in vacuum, a glow), the billows alone (the S-IC's retros and the
+    ullage motors at staging), all of them. A fluctuation compiled in but
+    never run still costs its registers: the S-II's ice paid 0.8 ms for
+    it, and staging 0.4 ms for the heat's light;
+  - the shader's E[(n − t)⁺] a polynomial (no exponential), the jet's
+    table one float4 a station, the heat's light a channel at a time.
+  The core skip alone saves little where the plume is far: its core is a
+  small part of it.
 
 - **After the second fix-check** (2026-11-22: the shadow's mean over each
   step, the ice's steps bounded by its onset surface, the chamber seen
@@ -643,8 +800,14 @@ LEO, for the default physical look.
 ## Known limits
 
 - The turbulence is flow noise with a jet's statistics, not a simulation of
-  its eddies: no vortex pairing, no intermittent edge, one length scale per
-  place (the noise's three octaves below it).
+  its eddies: no vortex pairing, one length scale per place (the noise's
+  three octaves below it; LR3's PR2 adds detail octaves). The fluctuations'
+  measured r.m.s. are a far-field jet's, taken by the mean's share, in the
+  near field's mixing layer too; the burning flame's temperature does not
+  fluctuate (the Burke-Schumann flame sheet is decision 8's later step), so
+  the flame's light varies only with its soot, and in an optically thick
+  flame hardly at all. The shutter's average draws the fast near field's
+  edge smooth.
 - C2's clouds are treated as one sheet at their mean depth for the plume
   inside them.
 - Members are evaluated per sample with an early radial reject; the cost
