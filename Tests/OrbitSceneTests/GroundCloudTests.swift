@@ -163,4 +163,43 @@ final class GroundCloudTests: XCTestCase {
         advance(&tenth, to: 10.2)
         XCTAssertEqual(once.lobes(at: zero + 10.2)[0].front, tenth.lobes[0].front, accuracy: 30, "within a sample")
     }
+
+    // The gas generators' start smoke feeds three small thermals of its
+    // own, half through the ML's opening and a quarter out of each exit:
+    // none of it is lost (what the lobes hold is what the start gave on
+    // the grid). The trench's lobes are left as they were (P4's sprites are
+    // built from them); the medium draws the exits' smoke inside their
+    // trench's cloud once its jet has run through it.
+    func testStartSmokeFeedsItsThermals() {
+        let zero = VesselLibrary.apollo11RangeZero
+        let start = zero + TerminalCount.Plan.as506.starts.map(\.command).min()!
+        var c = GroundCloud(origin: start), plain = GroundCloud(origin: start)
+        let sources = { GroundCloudFieldTests.sources(at: $0, zero: zero) }
+        var given = 0.0
+        for k in 0..<Int(((zero + 1 - start) / GroundCloud.step).rounded(.down)) {
+            given += sources(start + (Double(k) + 0.5) * GroundCloud.step).startSmoke * GroundCloud.step
+        }
+        let air = Self.air(), deck = LC39A.placement().height
+        c.advance(to: zero + 1, sources: sources, air: air, deckHeight: deck, siteFromEastNorth: { e, n in Vec3(n, -e, 0) })
+        plain.advance(to: zero + 1, sources: { Self.sources(at: $0, zero: zero) }, air: air, deckHeight: deck,
+                      siteFromEastNorth: { e, n in Vec3(n, -e, 0) })
+        let held = c.lobes.reduce(0) { $0 + $1.smoke }
+        XCTAssertGreaterThan(given, 1_000, "five engines' 2.9 % for some 3 s")
+        XCTAssertEqual(held, given, accuracy: 1e-9 * given)
+        let chimney = c.lobes.first { $0.kind == .startSmoke(0) }!
+        XCTAssertEqual(chimney.smoke, GroundCloud.chimneyShare * given, accuracy: 1e-9 * given)
+        XCTAssertGreaterThan(chimney.centre.z, chimney.radius, "rising, buoyant at 887 K")
+        for side in [1.0, -1.0] {
+            let exit = c.lobes.first { $0.kind == .startSmoke(side) }!
+            XCTAssertEqual(exit.smoke, 0.25 * given, accuracy: 1e-9 * given)
+            XCTAssertEqual(c.lobes.first { $0.kind == .trench(side) }!, plain.lobes.first { $0.kind == .trench(side) }!,
+                           "the trench's lobe as without the start smoke")
+        }
+        let field = GroundCloudField(c, at: zero + 1, air: air, deckHeight: deck)
+        XCTAssertFalse(field.primitives.contains { $0.lobe == .startSmoke(1) || $0.lobe == .startSmoke(-1) })
+        for side in [1.0, -1.0] {
+            XCTAssertEqual(field.primitives.filter { $0.lobe == .trench(side) }.reduce(0) { $0 + $1.smoke }, 0.25 * given,
+                           accuracy: 1e-9 * given, "drawn in the trench's cloud")
+        }
+    }
 }

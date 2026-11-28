@@ -138,22 +138,6 @@ public enum LaunchMaterials {
         return m
     }
 
-    /// The deluge's steam: white, forward-scattering, mixing away over a
-    /// minute or two.
-    public static var deluge: ParticleMaterial {
-        var m = ParticleMaterial(name: "p4 deluge steam", renderClass: .smoke)
-        m.albedo = ParticleColor(gray: 0.93)
-        m.opticalDepth = 4.5
-        m.phaseG = 0.7
-        m.fadeIn = 0.02
-        m.fadeOut = 0.5
-        m.dragCoefficient = 0.5
-        m.entrainment = 0.1
-        m.spreadRate = 0.5
-        m.coolingTime = 15
-        return m
-    }
-
     /// Fog off the frosted LOX tank and out of the umbilicals: air chilled
     /// by the cryogenic skin and lines (and the vented vapour), denser than
     /// the air round it, so it sinks along the vehicle and evaporates within
@@ -210,7 +194,7 @@ public enum LaunchMaterials {
 
     /// Every P4 material, in the order `LaunchEffects` registers them.
     public static var all: [ParticleMaterial] {
-        [padExhaust, deluge, coldVapour, iceFlake, iceSlab, trail(0), trail(1), trail(2), groundCloud, startSmoke,
+        [padExhaust, coldVapour, iceFlake, iceSlab, trail(0), trail(1), trail(2), groundCloud, startSmoke,
          ignitionFlash]
     }
 }

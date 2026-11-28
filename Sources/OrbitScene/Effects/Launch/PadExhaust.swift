@@ -101,11 +101,6 @@ public enum PadExhaust {
     /// Exhaust puffs a second out of each trench exit with all five F-1s
     /// at full flow and all of it down the opening.
     public static let trenchPuffRate = 20.0
-    /// Steam puffs a second out of each exit, with the trench's water.
-    public static let trenchSteamRate = 9.0
     /// Exhaust puffs a second spreading over the deck with all of it there.
     public static let deckPuffRate = 45.0
-    /// Steam puffs a second off the deck at its 50,000 gpm, all of the
-    /// exhaust there.
-    public static let deckSteamRate = 32.0
 }

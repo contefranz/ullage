@@ -166,6 +166,121 @@ continuous emitters' counts carry their fractions, so neither the emission
 nor the noise repeats; the eddies' ages are stratified within each slice,
 their positions and radii drawn per particle.
 
+## The launch cloud's medium (look round 2, LR4)
+
+Look round 2 makes the pad's cloud a medium (`docs/m16/look-round-2.md` §3,
+decision 3): the trench jets, the deck's wall jet, the clouds and the start
+smoke are marched, not drawn as puffs. This first part is the scene's side,
+pure Swift in OrbitScene. The pass that marches it, and sprite v2 for the
+flash, the cold vapour and Low, come after LR0's reconstruction. Until then
+P4's sprites still draw the cloud.
+
+**What the clouds carry** (`GroundCloud`, extended). Each lobe also counts
+the soot it carries (`LaunchCloudOptics.sootYield`), the air it entrained
+with that air's vapour, and its last step's feed. The F-1s' start smoke,
+the gas generators' 2.9 % at 887 K from each start command to its
+ignition, feeds three small thermals of its own: half up through the ML's
+opening, a quarter out of each exit (P4's split, L). All three are
+integrated apart, so the trench and deck lobes are exactly as they were,
+and so are P4's sprites. The field draws the exits' two inside their
+trench's cloud once its jet has run through them.
+
+**The field** (`GroundCloudField`). It is built from GroundCloud's state
+alone, so a rebuilt field is the frames' to the bit. It holds at most 12
+similarity primitives, each with a closed-form shape whose integral is one:
+
+| primitive | law | source | grade |
+|---|---|---|---|
+| trench jets | round momentum jets from the deflector: the concentration's e-folding radius λ 0.107 x, λ = 1.19; mass per unit length (1 + λ²) x / (7.0 √M) per kg/s; along the ground at the exits' mid-depth, mirrored in the grade | Fischer et al. 1979, Table 9.1 | H (the law) |
+| deck wall jet | P2's continued from where P2's ends (`WallJetHandover`): its half-thickness there, growing 0.087 a metre, P2's top-hat profile across it; the speed that keeps all its momentum in that layer | Poreh, Tsuei and Cermak 1967; P2 | M |
+| clouds | ring thermals: a Gaussian torus about the cloud's vertical axis (ring 0.35 R, core 0.5 R, stretched 1.2 upward), mirrored in the deck's level, which GroundCloud rests them on | the look of Scorer's thermals | L |
+| stems | pure plumes from each trench jet's end up into its cloud once it has lifted, top-hat α 0.117 | MTT 1956, List 1982 | M |
+| start smoke | its three thermals, as the clouds; the exits' two drawn in their trench's cloud once its jet has run | — | L |
+
+A lobe's exhaust, water, smoke, soot and heat are shared between its jet
+and stem and its cloud. The jet and stem get what is in them at the feed's
+steady flow, at most half the lobe's: a starting jet's head keeps the rest
+(L). The share is one factor for all of them, so their mixture is the
+feed's and the flow is continuous from jet to stem. The deck's wall jet as
+far as P2 draws it is P2's (`inPlume`). So the field's totals are the
+clouds' to rounding, and integrated over space they are within 1 %
+(`GroundCloudFieldTests`).
+
+**Condensate.** It is not carried. At each point, the mixture of what the
+primitives bring there with the air (the cloud's own entrained air, blended
+to the ambient air at its edge) is saturation-adjusted: c_p (T − T*) =
+L(T) q_c (`MoistAir.adjust`). Saturation over water is Wagner and Pruss's
+(IAPWS-95 within 0.01 %, H), Murphy and Koop's below the triple point. This
+replaces P4's "all of the water condensed" (L).
+
+**Humidity** (`LaunchHumidity`, decision 6). TM X-64796's surface
+observation for AS-506 (Table 1, seq. 145): 29.4 °C and 73 % at 10.203
+N/cm², which gives 18.8 g/kg and a dew point of 24.0 °C (M). Through a 1 km
+mixed layer the mixing ratio holds (L); above it the relative humidity
+holds the 97 % it reaches there (L). This is the stated profile until a
+measured dew-point profile for 16 July 1969 is chosen: FER-506's or IGRA v2
+station 74794's, a data decision for Franz.
+
+**What the physics gives.** P4's model boils all of the deluge's water that
+the exhaust's heat can boil, and the heat is ten times what the water can
+take. So the mixture is far from saturation: about 60 K above the air at
+T+10 s, 15 K at T+30 s and 4 K at T+60 s, with 77-92 % humidity. Until
+about T+3 minutes, when the clouds reach 1.2-1.5 km, they hold no
+condensate (`testCondensateIsTheSaturationAdjustments`). Until then they
+show only their soot: at P2's 0.096 %, an optical depth of a few through a
+trench cloud at T+30 s, a grey-brown smoke. The one white part is a trench
+jet once the climb has faded its exhaust: the deluge still runs, and its
+steam condenses. The photographs show white clouds at the pad within
+seconds. By decision 5 that questions these L inputs:
+- the share of the deluge that boils: spray drops that do not boil would
+  whiten the cloud;
+- whether the trench's afterburning is complete;
+- the radiant fraction;
+- the humidity above the mixed layer.
+
+No fit was added for this.
+
+**Turbulence** (`LaunchTurbulence`).
+- The eddies and their lifetimes are LR3's `TurbulenceSpectrum`'s: the
+  largest cell 0.45 of the flow's size, halving, drawn in full from 4 pixel
+  footprints and none below 1.5 (at most 8 octaves at High, 4 at Medium);
+  the largest living the size over the flow's speed, no slower than w* =
+  1.5 m/s (L), octave k 2^(−2k/3) of that.
+- The boundary: a fractal of D = 7/3 (Sreenivasan and Meneveau 1986, H). Its
+  level sets are displaced by octaves of gain 2^(−k(3 − D)), the whole
+  cascade's rms 0.25 of the flow's size (L).
+- The noise: P2's flow noise, in P2's bands of lifetimes, carried in each
+  flow's own coordinates.
+- Measured: the structure function's slope is 1.29 against 4/3, and a
+  frame's change at T+15 s is 1.4 % of the boundary's rms.
+
+**Optics** (`LaunchCloudOptics`).
+- Extinction from mass: droplets of 10 µm (L) at 150 m²/kg, soot at 7.5 m²/g
+  with albedo 0.2 (Bond and Bergstrom 2006, M).
+- The soot yield: P2's implied value, 0.096 % (its soot depth across an F-1
+  exit, less what its flame burns; the plan's study estimated 0.07 %) until
+  decision 4 picks one.
+- The phase: C2's approximate Mie at 20 µm, blended with soot's
+  Henyey-Greenstein at 0.4 (L).
+- Multiple scattering: a two-stream with absorption, C2's exactly at albedo
+  1.
+- Emission: hot soot's blackbody.
+
+`EffectMedium` packs the primitives into Float records for the pass, with
+the box the far field's grids cover (at T+8 s, 1,360 × 685 × 541 m: High's
+cells are 5-11 m) and the air's humidity by `AirProfile` level.
+
+**Open, for the pass:**
+- P2 and P4 split the deck's share differently. At T+8 s P2's jets put 0.33
+  of their flow on the deck and PadExhaust's envelope 0.26. The wall jet's
+  thickness carries on from P2's, but its flow is P4's.
+- The condensate's latent heat warms the adjusted mixture but is not fed
+  back into GroundCloud's buoyancy.
+- Beyond the ML, the wall jet runs on at the deck's level.
+
+The deluge steam material, which nothing emitted, is deleted, and with it
+its lifetimes and PadExhaust's steam rates.
+
 ## Shots
 
 `docs/look/shots/launch.json` (scene goldens, report only): the live count at
