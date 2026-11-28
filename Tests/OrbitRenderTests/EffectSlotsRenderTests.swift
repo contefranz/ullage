@@ -720,6 +720,125 @@ final class EffectSlotsRenderTests: XCTestCase {
         XCTAssertTrue(v[1].x.isFinite)
     }
 
+    /// The downsample's depth attachment, which sprites test against, is
+    /// the farthest depth of each texel's upsample footprint
+    /// (`EffectSlots.footprintFarthest` over `footprintPixels`), gathered
+    /// four pixels at a time, on an odd-sized frame whose edges clamp.
+    func testDepthDownsampleWritesTheFootprintsFarthest() throws {
+        let device = try XCTUnwrap(RenderDevice.shared)
+        let (w, h) = (37, 23)
+        let shaders = ShaderLibrary(device: device)
+        // A scene depth of distinct values: a fullscreen pass writing them.
+        let fill = ShaderModule(name: "DepthFill", headers: [], source: """
+            struct FillOut { float4 position [[position]]; };
+            vertex FillOut fill_vertex(uint vid [[vertex_id]]) {
+                float2 p = float2(float((vid << 1) & 2), float(vid & 2));
+                FillOut o;
+                o.position = float4(p * 2.0 - 1.0, 0.0, 1.0);
+                return o;
+            }
+            struct FillDepth { float depth [[depth(any)]]; };
+            fragment FillDepth fill_fragment(FillOut in [[stage_in]]) {
+                uint2 p = uint2(in.position.xy);
+                FillDepth o;
+                o.depth = 0.05 + 0.9 * float((p.x * 7919u + p.y * 104729u) % 997u) / 997.0;
+                return o;
+            }
+            """)
+        func depthTexture(_ width: Int, _ height: Int) -> MTLTexture? {
+            let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .depth32Float, width: width, height: height,
+                                                             mipmapped: false)
+            d.usage = [.renderTarget, .shaderRead]
+            d.storageMode = .private
+            return device.makeTexture(descriptor: d)
+        }
+        func color(_ format: MTLPixelFormat, _ width: Int, _ height: Int) -> MTLTexture? {
+            let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: format, width: width, height: height, mipmapped: false)
+            d.usage = [.renderTarget, .shaderRead]
+            d.storageMode = .private
+            return device.makeTexture(descriptor: d)
+        }
+        let (tw, th) = EffectSlots.targetSize(width: w, height: h, scale: 2)
+        let scene = try XCTUnwrap(depthTexture(w, h)), test = try XCTUnwrap(depthTexture(tw, th))
+        let depths = try XCTUnwrap(color(HalfResFormats.sceneDepth, tw, th))
+        let pixels = try XCTUnwrap(color(HalfResFormats.pixelDepths, tw, th))
+        let fillLibrary = try shaders.library(fill), library = try shaders.library(.halfResTransparent)
+        let fd = MTLRenderPipelineDescriptor()
+        fd.vertexFunction = fillLibrary.makeFunction(name: "fill_vertex")
+        fd.fragmentFunction = fillLibrary.makeFunction(name: "fill_fragment")
+        fd.depthAttachmentPixelFormat = .depth32Float
+        let fillPipeline = try device.makeRenderPipelineState(descriptor: fd)
+        let dd = MTLRenderPipelineDescriptor()
+        dd.vertexFunction = library.makeFunction(name: "effect_fullscreen_vertex")
+        dd.fragmentFunction = library.makeFunction(name: "effect_depth_fragment")
+        dd.colorAttachments[0].pixelFormat = HalfResFormats.sceneDepth
+        dd.colorAttachments[1].pixelFormat = HalfResFormats.pixelDepths
+        dd.depthAttachmentPixelFormat = HalfResFormats.depth
+        let downsample = try device.makeRenderPipelineState(descriptor: dd)
+        let always = MTLDepthStencilDescriptor()
+        always.depthCompareFunction = .always
+        always.isDepthWriteEnabled = true
+        let write = try XCTUnwrap(device.makeDepthStencilState(descriptor: always))
+        let sd = MTLSamplerDescriptor()
+        sd.minFilter = .linear
+        sd.magFilter = .linear
+        sd.sAddressMode = .clampToEdge
+        sd.tAddressMode = .clampToEdge
+        let sampler = try XCTUnwrap(device.makeSamplerState(descriptor: sd))
+        var u = EffectSlotUniforms(size: RenderSize(width: tw, height: th), scale: 2, layers: [.oit],
+                                   settings: TransparencySettings(), reference: 100)
+
+        let queue = try XCTUnwrap(device.makeCommandQueue()), cb = try XCTUnwrap(queue.makeCommandBuffer())
+        let p1 = MTLRenderPassDescriptor()
+        p1.depthAttachment.texture = scene
+        p1.depthAttachment.loadAction = .clear
+        p1.depthAttachment.storeAction = .store
+        let e1 = try XCTUnwrap(cb.makeRenderCommandEncoder(descriptor: p1))
+        e1.setRenderPipelineState(fillPipeline)
+        e1.setDepthStencilState(write)
+        e1.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
+        e1.endEncoding()
+        let p2 = MTLRenderPassDescriptor()
+        p2.colorAttachments[0].texture = depths
+        p2.colorAttachments[0].storeAction = .store
+        p2.colorAttachments[1].texture = pixels
+        p2.colorAttachments[1].storeAction = .store
+        p2.depthAttachment.texture = test
+        p2.depthAttachment.loadAction = .dontCare
+        p2.depthAttachment.storeAction = .store
+        let e2 = try XCTUnwrap(cb.makeRenderCommandEncoder(descriptor: p2))
+        e2.setRenderPipelineState(downsample)
+        e2.setDepthStencilState(write)
+        e2.setFragmentBytes(&u, length: MemoryLayout<EffectSlotUniforms>.stride, index: HalfResTransparentPass.uniformsIndex)
+        e2.setFragmentSamplerState(sampler, index: Binding.linearClampSampler)
+        e2.setFragmentTexture(scene, index: 0)
+        e2.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
+        e2.endEncoding()
+        let sceneOut = try XCTUnwrap(device.makeBuffer(length: w * h * 4, options: .storageModeShared))
+        let testOut = try XCTUnwrap(device.makeBuffer(length: tw * th * 4, options: .storageModeShared))
+        let blit = try XCTUnwrap(cb.makeBlitCommandEncoder())
+        blit.copy(from: scene, sourceSlice: 0, sourceLevel: 0, sourceOrigin: MTLOrigin(),
+                  sourceSize: MTLSize(width: w, height: h, depth: 1), to: sceneOut, destinationOffset: 0,
+                  destinationBytesPerRow: w * 4, destinationBytesPerImage: w * h * 4)
+        blit.copy(from: test, sourceSlice: 0, sourceLevel: 0, sourceOrigin: MTLOrigin(),
+                  sourceSize: MTLSize(width: tw, height: th, depth: 1), to: testOut, destinationOffset: 0,
+                  destinationBytesPerRow: tw * 4, destinationBytesPerImage: tw * th * 4)
+        blit.endEncoding()
+        cb.commit()
+        cb.waitUntilCompleted()
+        XCTAssertNil(cb.error)
+        let z = sceneOut.contents().bindMemory(to: Float.self, capacity: w * h)
+        let got = testOut.contents().bindMemory(to: Float.self, capacity: tw * th)
+        XCTAssertGreaterThan(Set((0..<(w * h)).map { z[$0] }).count, 400, "distinct depths")
+        for ty in 0..<th {
+            for tx in 0..<tw {
+                let footprint = EffectSlots.footprintPixels(x: tx, y: ty, scale: 2, width: w, height: h)
+                let want = EffectSlots.footprintFarthest(footprint.map { Double(z[$0.y * w + $0.x]) })
+                XCTAssertEqual(Double(got[ty * tw + tx]), want, "texel \(tx), \(ty)")
+            }
+        }
+    }
+
     /// A layer is reconstructed across depths only when every effect that
     /// draws it reports where its effects ended.
     func testReconstructedLayers() {
