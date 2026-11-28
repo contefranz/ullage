@@ -52,6 +52,8 @@ public final class SceneRenderer {
     private let inFlight = DispatchSemaphore(value: SceneRenderer.framesInFlight)
     private var size: RenderSize?
     private var previousViewProjection: simd_float4x4?
+    /// The last frame's index and clock, to tell a frame drawn again.
+    private var lastClock: (Int, Epoch)?
 
     public enum Failure: Error { case noDevice, noResources }
 
@@ -143,6 +145,7 @@ public final class SceneRenderer {
         for _ in 0 ..< Self.framesInFlight { inFlight.signal() }
         history.invalidate()
         previousViewProjection = nil
+        lastClock = nil
         for p in graph.passes { p.startOver() }
     }
 
@@ -184,7 +187,14 @@ public final class SceneRenderer {
             graph.resize(size, device: device)
         }
         pool.beginFrame()
-        if scene.clock.temporalReset { history.invalidate() }
+        // A frame drawn again (the same index and clock: a snapshot's views
+        // and timings, F12's) leaves the history as its frame left it: a
+        // temporal reset there would drop what that frame resolved, which
+        // the redraw does not claim again (CloudPass).
+        let clock = (scene.clock.frameIndex, scene.clock.simTime)
+        let again = lastClock.map { $0.0 == clock.0 && $0.1 == clock.1 } ?? false
+        lastClock = clock
+        if scene.clock.temporalReset, !again { history.invalidate() }
         meshes.update(scene, device: device)
 
         let f = FrameContext(scene: scene, device: device, commandBuffer: cb, output: output, settings: settings,

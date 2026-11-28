@@ -268,6 +268,8 @@ public final class HistoryTargets {
         var width: Int, height: Int, format: MTLPixelFormat
         var valid: Bool
         var touched: Bool
+        /// What each texture was written at (a pass's own: C2's pre-exposure).
+        var currentTag = 0.0, previousTag = 0.0
     }
 
     private let device: MTLDevice
@@ -293,6 +295,26 @@ public final class HistoryTargets {
         return (a, b, false)
     }
 
+    /// The pair for `id` as it stands, without taking it this frame (so
+    /// `endFrame` does not swap it), for a frame drawn again: `current` is
+    /// what the frame it repeats read as its history (and `currentTag` what
+    /// that was written at), `previous` what that frame wrote. Nil when
+    /// there is none of that size and format.
+    public func peek(_ id: ResourceID, descriptor: MTLTextureDescriptor)
+        -> (current: MTLTexture, previous: MTLTexture, currentTag: Double, previousTag: Double)? {
+        guard let p = pairs[id], p.width == descriptor.width, p.height == descriptor.height,
+              p.format == descriptor.pixelFormat else { return nil }
+        return (p.current, p.previous, p.currentTag, p.previousTag)
+    }
+
+    /// What last frame's texture for `id` was written at (its tag), 0 if
+    /// none was set.
+    public func previousTag(_ id: ResourceID) -> Double { pairs[id]?.previousTag ?? 0 }
+
+    /// Tags this frame's texture for `id` with what it is written at; the
+    /// tag moves with the texture when the frame ends.
+    public func setCurrentTag(_ id: ResourceID, _ tag: Double) { pairs[id]?.currentTag = tag }
+
     /// Every history is stale (a temporal reset).
     func invalidate() {
         for id in pairs.keys { pairs[id]!.valid = false }
@@ -304,7 +326,8 @@ public final class HistoryTargets {
     func endFrame() {
         for (id, p) in pairs where p.touched {
             pairs[id] = Pair(current: p.previous, previous: p.current, width: p.width, height: p.height,
-                             format: p.format, valid: true, touched: false)
+                             format: p.format, valid: true, touched: false, currentTag: p.previousTag,
+                             previousTag: p.currentTag)
         }
     }
 }

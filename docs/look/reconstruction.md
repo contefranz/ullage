@@ -113,3 +113,31 @@ its own:
   and its timings are the settled one's.
 
 0, the default, keeps the first frame as before.
+
+**Frames drawn again.** Snapshots draw a frame again with the same index and
+clock: the exposure loop, the debug views, the timed frames, and F12 in the
+app. On such a redraw, C2's clouds:
+- do the frame's work again at the current exposure: the shadow and sky
+  maps, the same quarter's march, and the resolve, so the timings keep the
+  march;
+- move nothing on: no drift, no weather band, no jump, and no history reset
+  even if the frame they repeat had one (SceneRenderer);
+- resolve against the history the frame read (`HistoryTargets.peek`, the
+  pair left unclaimed and unswapped) into targets of their own, so the
+  texels match the frame's and the history moves on no further;
+- rescale the history by the ratio of the current pre-exposure to the one
+  it was resolved at (each history texture is tagged with that), rather than
+  to the last frame drawn.
+
+P3's effects follow the same rule (`EffectSession`'s `again`). Any pass
+that keeps history must too.
+
+**Timings.** A shot's timed frames repeat its frame, and so cost what that
+frame cost:
+- a shot without `settle` repeats its first frame, which has no history, so
+  its timings are a fresh march of every texel (4.7 ms on the pad, against a
+  steady 2.3 ms; clouds.md);
+- a shot with `settle` of 1 or more repeats a frame that reprojects, and times
+  the steady state.
+
+So the cost specs settle: `p2-cost.json`'s shots have `"settle": 1`.

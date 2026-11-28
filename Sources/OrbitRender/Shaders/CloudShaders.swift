@@ -1502,6 +1502,7 @@ struct CloudResolveUniforms {
     float4x4 reprojection;   // camera-relative world now -> last frame's clip
     float4 target;           // xy: size, zw: frame pixels per texel
     float4 checker;          // xy: this frame's texel, z: 1 reprojecting, w: 1 history valid, -1 no march this frame
+    float4 history;          // x: the history's radiance to this frame's pre-exposure (its own pre-exposure's ratio)
 };
 
 // Every texel of the march target: marched this frame, or last frame's at
@@ -1541,8 +1542,8 @@ kernel void cloud_resolve(texture2d<float, access::read> fresh [[texture(10)]],
                 float2 uv = float2(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
                 if (all(uv >= 0.0) && all(uv <= 1.0)) {
                     float4 h = history.sample(linear, uv, level(0.0));
-                    // Last frame's radiance at this frame's pre-exposure.
-                    h.rgb *= frame.exposure.z;
+                    // The history's radiance at this frame's pre-exposure.
+                    h.rgb *= r.history.x;
                     if (abs(h.a - mc.a) < 0.25) { mc = mix(h, mc, 0.5); }
                 }
             }
@@ -1550,7 +1551,16 @@ kernel void cloud_resolve(texture2d<float, access::read> fresh [[texture(10)]],
     } else {
         // This frame's marched texels: this 2x2 block's and the three
         // blocks towards this texel.
-        uint2 own = (gid & ~1u) + uint2(r.checker.xy);
+        // Only marched texels hold this frame's march: the others are what
+        // the target last held (a pool texture's leftovers). So the block's
+        // own is kept inside the target (an odd size's last block takes the
+        // one before), and a neighbour across the edge is the block on the
+        // other side, not one clamped onto an unmarched texel.
+        int2 o = int2((gid & ~1u) + uint2(r.checker.xy));
+        if (o.x >= int(size.x)) { o.x -= 2; }
+        if (o.y >= int(size.y)) { o.y -= 2; }
+        o = max(o, int2(0));
+        uint2 own = uint2(o);
         int2 step = int2(gid.x >= own.x ? 2 : -2, gid.y >= own.y ? 2 : -2);
         float4 n0 = fresh.read(own);
         float4 lo = n0, hi = n0;
@@ -1561,9 +1571,12 @@ kernel void cloud_resolve(texture2d<float, access::read> fresh [[texture(10)]],
         // slot's order of the parts along the checkerboard's rows, lines in
         // the hand-over from orbit.)
         float2 nearest = nd.xz;
-        int2 others[3] = {int2(own) + int2(step.x, 0), int2(own) + int2(0, step.y), int2(own) + step};
+        int2 toward[3] = {int2(step.x, 0), int2(0, step.y), step};
         for (int k = 0; k < 3; k++) {
-            int2 p = clamp(others[k], int2(0), int2(size) - 1);
+            int2 p = o + toward[k];
+            if (p.x < 0 || p.x >= int(size.x)) { p.x = o.x - toward[k].x; }
+            if (p.y < 0 || p.y >= int(size.y)) { p.y = o.y - toward[k].y; }
+            p = clamp(p, int2(0), int2(size) - 1);
             float4 c = fresh.read(uint2(p));
             lo = min(lo, c);
             hi = max(hi, c);
@@ -1583,7 +1596,7 @@ kernel void cloud_resolve(texture2d<float, access::read> fresh [[texture(10)]],
                 float2 uv = float2(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
                 if (all(uv >= 0.0) && all(uv <= 1.0)) {
                     float4 h = history.sample(linear, uv, level(0.0));
-                    h.rgb *= frame.exposure.z;
+                    h.rgb *= r.history.x;
                     float4 margin = (hi - lo) * 0.1;
                     mc = clamp(h, lo - margin, hi + margin);
                     float4 hd = historyDepth.read(min(uint2(uv * r.target.xy), size - 1u));

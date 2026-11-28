@@ -1010,6 +1010,209 @@ final class CloudRenderTests: XCTestCase {
         let run = p.labels[first...].prefix { $0 == "Clouds" }.count
         XCTAssertEqual(run, 4, "\(p.labels)")
     }
+
+    // MARK: A frame drawn again
+
+    /// Frames of one renderer: the pad's sky by default (C2's clouds
+    /// reprojecting), particles (P3 is not byte-deterministic) and plumes
+    /// off, and R3's probe off unless `probe` (it updates its faces in turn,
+    /// a redraw included: two bytes of the frame move). The frames at
+    /// `steps` (frame index and seconds after the shot's epoch), each at the
+    /// manual EV `ev(k)`, the clock running (not paused) with no temporal
+    /// reset after the first frame (a frame drawn again keeps the clock it
+    /// repeats): each frame's pixels, the profile, and the clouds' report
+    /// and drift after it.
+    func drawFrames(_ steps: [(index: Int, seconds: Double)], scenario: String = "as506-first-motion",
+                    camera: SnapshotSpec.CameraSpec = SnapshotSpec.CameraSpec(yaw: -60, pitch: 12, distance: 300, fov: 60),
+                    probe: Bool = false, ev: (Int) -> Double = { _ in 14 }, profiled: Bool = false,
+                    poisonFrame: Int? = nil) throws
+        -> [(pixels: [UInt8], labels: [String], report: CloudPass.Report, drift: [Vec3], resolved: [[Double]])] {
+        let s = try snapper()
+        var shot = SnapshotSpec.Shot(name: "c2-redraw", scenario: scenario, camera: camera)
+        shot.width = 320
+        shot.height = 200
+        shot.showOrbit = false
+        shot.settings.particle.quality = .off
+        shot.settings.plume.quality = .off
+        shot.settings.post.exposure.mode = .manual
+        shot.settings.probe.enabled = probe
+        let prepared = try shot.prepare(system: s.system)
+        let log = RecordingPass.Log()
+        let spy = RecordingPass("spy", .opaque, log: log)
+        var profile: FrameProfile?
+        spy.onEncode = { f in profile = f.profile }
+        let poison = PoolPoison(frame: poisonFrame ?? -1)
+        // The resolve's outputs, after the scene.
+        let capture = Capture()
+        capture.ids = [.cloudLayer, .cloudDepth]
+        let r = try SceneRenderer(device: s.device, outputFormat: .bgra8Unorm_srgb,
+                                  passes: SceneRenderer.defaultPasses(loadsUserTextures: false) + [spy, poison, capture],
+                                  plan: HDRTargetPlan(outputFormat: .bgra8Unorm_srgb, sampleCount: 4))
+        r.setStars(s.stars)
+        poison.clouds = r.graph.pass(named: "Clouds") as? CloudPass
+        if profiled {
+            guard r.profiler.isSupported else { throw XCTSkip("no timestamp counters on this GPU") }
+            r.profiling = true
+            r.profileInterval = 1
+        }
+        let target = try XCTUnwrap(OffscreenTarget(device: s.device, width: shot.width, height: shot.height))
+        let base = shot.scene(prepared)
+        let clouds = try XCTUnwrap(r.graph.pass(named: "Clouds") as? CloudPass)
+        var out: [(pixels: [UInt8], labels: [String], report: CloudPass.Report, drift: [Vec3], resolved: [[Double]])] = []
+        // Each frame's clock; a frame drawn again keeps the one it repeats.
+        var clock: (index: Int, seconds: Double, simDt: Double, reset: Bool)?
+        for (k, step) in steps.enumerated() {
+            if clock?.index != step.index {
+                clock = (step.index, step.seconds, clock.map { step.seconds - $0.seconds } ?? 0, clock == nil)
+            }
+            guard let c = clock else { continue }
+            var scene = base
+            scene.clock.frameIndex = c.index
+            scene.clock.simTime = base.clock.simTime + c.seconds
+            scene.clock.simDt = c.simDt
+            scene.clock.realDt = 1.0 / 60
+            scene.clock.paused = false
+            scene.clock.temporalReset = c.reset
+            if !c.reset { scene.transitions = [] }
+            var settings = shot.settings
+            settings.post.exposure.ev100 = ev(k)
+            r.settings = settings
+            profile = nil
+            XCTAssertNil(try XCTUnwrap(r.renderAndWait(scene, into: target)).error)
+            out.append((target.bytes(), profile?.labels ?? [], clouds.lastFrame, clouds.advection.offsets,
+                        (capture.values(.cloudLayer)?.texels ?? []) + (capture.values(.cloudDepth)?.texels ?? [])))
+        }
+        return out
+    }
+
+    /// After the clouds in P0 of one frame, takes textures of the march
+    /// targets' two formats from the frame's pool and fills them with a
+    /// poison (half's 1000 in the colour, 0 in the depth codes, a metre from
+    /// the camera), so the next frame's march gets them back with it in
+    /// every texel it does not march.
+    final class PoolPoison: RenderPass {
+        let name = "Pool poison"
+        let stage = PassStage.prepare
+        let order = 11
+        let frame: Int
+        weak var clouds: CloudPass?
+
+        init(frame: Int) { self.frame = frame }
+
+        func encode(_ f: FrameContext, _ e: PassEncoding) {
+            guard f.scene.clock.frameIndex == frame, let clouds, clouds.lastFrame.drawn else { return }
+            let size = EffectSlots.targetSize(width: f.size.width, height: f.size.height, scale: clouds.lastFrame.scale)
+            guard let blit = f.makeBlitEncoder() else { return }
+            for (format, bytes) in [(MTLPixelFormat.rgba16Float, 8), (.rgba32Float, 16)] {
+                let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: format, width: size.width, height: size.height,
+                                                                 mipmapped: false)
+                d.usage = [.shaderRead, .shaderWrite]
+                d.storageMode = .private
+                let n = size.width * size.height
+                let words: [UInt16] = format == .rgba16Float ? Array(repeating: Float16(1000).bitPattern, count: 4 * n)
+                                                             : Array(repeating: 0, count: 8 * n)
+                guard let buffer = words.withUnsafeBytes({ f.device.makeBuffer(bytes: $0.baseAddress!, length: n * bytes) })
+                else { continue }
+                for _ in 0..<4 {
+                    guard let t = f.pool.texture(d) else { continue }
+                    blit.copy(from: buffer, sourceOffset: 0, sourceBytesPerRow: size.width * bytes,
+                              sourceBytesPerImage: n * bytes, sourceSize: MTLSize(width: size.width, height: size.height, depth: 1),
+                              to: t, destinationSlice: 0, destinationLevel: 0, destinationOrigin: MTLOrigin())
+                }
+            }
+            blit.endEncoding()
+        }
+    }
+
+    /// The resolve reads only texels the march wrote this frame: with the
+    /// march's targets coming back from the pool poisoned wherever it does
+    /// not march, the reprojecting frame resolves the same clouds and depths
+    /// as without the poison, its edges included (where a neighbour block
+    /// clamped onto the edge used to fall on an unmarched texel), and draws
+    /// the same frame.
+    func testTheResolveReadsOnlyMarchedTexels() throws {
+        let plain = try drawFrames([(1, 0), (2, 1.0 / 60)])
+        let poisoned = try drawFrames([(1, 0), (2, 1.0 / 60)], poisonFrame: 1)
+        XCTAssertTrue(poisoned[1].report.reprojected, "the frame marches one texel in four")
+        XCTAssertFalse(plain[1].resolved.isEmpty)
+        let differ = zip(poisoned[1].resolved, plain[1].resolved).filter { $0 != $1 }.count
+        XCTAssertEqual(differ, 0, "resolved texels that read the poison")
+        XCTAssertEqual(poisoned[1].pixels, plain[1].pixels)
+    }
+
+    /// A frame drawn again (the same index and clock: a snapshot's views,
+    /// its exposure and timed frames, F12's) does the frame's work again:
+    /// its clouds' encoders run as the frame's did, march included, and its
+    /// pixels are the frame's, though the clouds reproject (their history
+    /// is read as the frame read it, not blended into once more).
+    func testARedrawDoesTheFramesWorkAgain() throws {
+        let frames = try drawFrames([(1, 0), (2, 1.0 / 60), (3, 2.0 / 60), (3, 2.0 / 60)], profiled: true)
+        XCTAssertTrue(frames[2].report.reprojected, "the frame reprojects")
+        XCTAssertEqual(frames[3].pixels, frames[2].pixels, "the redraw is the frame")
+        func run(_ labels: [String]) -> Int {
+            guard let first = labels.firstIndex(of: "Clouds") else { return 0 }
+            return labels[first...].prefix { $0 == "Clouds" }.count
+        }
+        XCTAssertEqual(run(frames[3].labels), run(frames[2].labels), "\(frames[3].labels)")
+        XCTAssertEqual(run(frames[3].labels), 4, "the weather and shadow maps, the march and resolve, between blits")
+    }
+
+    /// In a running simulation (F12 in the app) a frame drawn again moves
+    /// nothing on: the clouds' drift, cirrus and detail frames and weather
+    /// bands advance once per frame, so a redraw is its frame, byte for byte
+    /// (30 s a frame: the procedural weather's next band is written then),
+    /// and the frame after it is the frame it would have been without it.
+    /// With the Earth off screen, where the clouds step on for R3's probe
+    /// alone, and at 90 s a frame, where a redraw would also have taken its
+    /// own clock for a jump in time (its epoch the last's) and started the
+    /// drift over.
+    func testARedrawInARunningSimMovesNothing() throws {
+        let dt = 30.0
+        let plain = try drawFrames([(1, 0), (2, dt), (3, 2 * dt)])
+        let redrawn = try drawFrames([(1, 0), (2, dt), (2, dt), (2, dt), (3, 2 * dt)])
+        func d(_ x: [UInt8], _ y: [UInt8]) -> Int { zip(x, y).filter { $0 != $1 }.count }
+        XCTAssertEqual(redrawn[2].pixels, redrawn[1].pixels, "a redraw is its frame")
+        XCTAssertEqual(redrawn[3].pixels, redrawn[1].pixels)
+        XCTAssertEqual(redrawn[4].pixels, plain[2].pixels, "the next frame as without the redraws")
+        XCTAssertEqual(redrawn[4].drift, plain[2].drift)
+        XCTAssertNotEqual(plain[2].drift, plain[0].drift, "the wind moves the clouds")
+        // In orbit, looking up from beneath the vessel: the clouds off
+        // screen, stepping on for the probe.
+        let away = SnapshotSpec.CameraSpec(yaw: 0, pitch: -80, distance: 40, fov: 40), jump = 90.0
+        // Two steps of drift before the redraw, which a jump would lose.
+        let plainAway = try drawFrames([(1, 0), (2, jump), (3, 2 * jump), (4, 3 * jump)],
+                                       scenario: "as506-parking-orbit", camera: away, probe: true)
+        let redrawnAway = try drawFrames([(1, 0), (2, jump), (3, 2 * jump), (3, 2 * jump), (4, 3 * jump)],
+                                         scenario: "as506-parking-orbit", camera: away, probe: true)
+        XCTAssertFalse(plainAway[3].report.drawn, "the clouds are off screen")
+        XCTAssertNotEqual(plainAway[3].drift, plainAway[0].drift, "the wind moves the clouds")
+        XCTAssertEqual(redrawnAway[4].drift, plainAway[3].drift, "the drift as without the redraw")
+    }
+
+    /// A redraw of a frame that reset the history (the first, a cut, a change
+    /// of warp) leaves that frame's history for the next: the renderer does
+    /// not reset it again, so the next frame reprojects as it would have.
+    func testARedrawOfAResetKeepsItsHistory() throws {
+        let plain = try drawFrames([(1, 0), (2, 1.0 / 60)])
+        let redrawn = try drawFrames([(1, 0), (1, 0), (2, 1.0 / 60)])
+        XCTAssertTrue(plain[1].report.reprojected)
+        XCTAssertTrue(redrawn[2].report.reprojected, "the next frame keeps the reset frame's history")
+        XCTAssertEqual(redrawn[2].pixels, plain[1].pixels)
+    }
+
+    /// The history is tagged with the pre-exposure it was resolved at: a
+    /// frame after redraws at another exposure (a snapshot's exposure loop,
+    /// F12 under a changing exposure) rescales its history from the
+    /// exposure that history was resolved at, not from the last frame drawn,
+    /// and is the frame it would have been without them.
+    func testTheHistoryKeepsTheExposureItWasResolvedAt() throws {
+        let plain = try drawFrames([(1, 0), (2, 1.0 / 60), (3, 2.0 / 60)])
+        let evs = [14.0, 14, 10, 10, 14]
+        let redrawn = try drawFrames([(1, 0), (2, 1.0 / 60), (2, 1.0 / 60), (2, 1.0 / 60), (3, 2.0 / 60)], ev: { evs[$0] })
+        XCTAssertTrue(redrawn[4].report.reprojected)
+        XCTAssertNotEqual(redrawn[2].pixels, redrawn[1].pixels, "the redraws are at another exposure")
+        XCTAssertEqual(redrawn[4].pixels, plain[2].pixels)
+    }
 }
 
 /// Track C2's GPU cost (ORBITSIM_CLOUD_COST=1, holding the GPU lock): the
