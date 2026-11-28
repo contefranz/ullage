@@ -119,6 +119,7 @@ On the pad the round adds:
   - billowing boundaries on ballooned plumes.
 
   PR1 also lands `TurbulenceSpectrum.swift` (amplitudes 2^(−k/3), lifetimes τ0·2^(−2k/3), footprint cut-off), and moves P2's far-field smoke onto LR5's scattering function. The 32 steps stay.
+- **PR1b, the smoke move (split from PR1):** P2's smoke onto LR5's `SmokeScattering`, deferred from PR1 because evaluating it per step broke "High ≤ today". Against main 28cf4f8 (PlumeCostTests, High): max-Q 3.7 → 5.2 ms, staging-auto 5.4 → 8.0, S-II 4.9 → 6.0, ML base 6.8 → 7.45. Restricted to mixing jets (the F-1s in air, whose far field becomes the trail and the launch cloud), staging-auto and the S-II returned to before, but max-Q stayed at 5.2. PR1b keeps that split and reads the two-stream from a per-cluster table of `SmokeScattering.streams` built on the CPU, so LR5's header is unchanged. It lands after PR1.
 - **PR2, deferred:** detail octaves from two or three baked, tileable RG16F 128³ volumes, rotated per octave and evaluated only in the edge band. A spike first times one octave at max-Q (est. 0.05-0.1 ms). Octave counts: 1-2 on the pad, 2-3 in a max-Q chase, 6 at a 32× zoom; High caps at 3.
 - **Files:** `OrbitRender/{Shaders/PlumeShaders,Passes/PlumePass,Plumes}.swift`; `OrbitScene/Look/{PlumeTurbulence,PlumeLook,PlumeClusters}.swift`, `OrbitScene/Settings/PlumeSettings.swift`.
 - **After** LR5's header and PR1. **Effort** 4-5 d per PR. **GPU** High ≤ today everywhere (the core skip pays for the edge); Ultra +0.3 ms.
