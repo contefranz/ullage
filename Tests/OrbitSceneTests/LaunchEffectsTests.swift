@@ -76,6 +76,14 @@ final class LaunchEffectsTests: XCTestCase {
         }
 
         func count(_ material: String) -> Int { requests(material).reduce(0) { $0 + $1.count } }
+
+        enum Kind { case trail }
+
+        /// The trail's requests (every palette material's).
+        func requests(_ kind: Kind, in out: EffectFrameOutput? = nil) -> [EmitRequest] {
+            let all = out.map { [$0] } ?? outputs
+            return all.flatMap { o in o.requests.filter { o.materials[$0.material].name.hasPrefix("p4 trail") } }
+        }
     }
 
     /// The particles of `name` the frames emitted that are still alive now,
@@ -208,7 +216,7 @@ final class LaunchEffectsTests: XCTestCase {
         XCTAssertGreaterThan(run.count("p4 ground cloud"), 20, "the jets' clouds")
         XCTAssertGreaterThan(run.count("p4 cold vapour"), 50, "the LOX tank's fog and the umbilicals' trickle")
         XCTAssertGreaterThan(run.count("p4 ice slab") + run.count("p4 ice flake"), 0, "ice shaken off at ignition")
-        XCTAssertEqual(run.count("p4 trail low"), 0, "no trail on the pad")
+        XCTAssertEqual(run.requests(.trail).count, 0, "no trail on the pad")
         // One anchor at the deck, fixed to the Earth.
         XCTAssertEqual(out.anchors.count, 1)
         let anchor = try XCTUnwrap(out.anchors.first?.frame)
@@ -329,13 +337,20 @@ final class LaunchEffectsTests: XCTestCase {
     }
 
     /// The trail's requests in `outputs`, with their anchor frame and air,
-    /// the altitude of their origin and its place in the site frame.
+    /// the altitude of the middle of the piece they were laid along and its
+    /// place in the site frame.
     struct Laid {
         var request: EmitRequest
         var frame: AnchorFrame
         var air: AirProfile
         var altitude: Double
         var site: Vec3
+    }
+
+    /// Where a trail request's puffs began, at its mean age: its origin
+    /// (where a puff of age 0 would have begun) less the chord's motion.
+    static func laidAt(_ r: EmitRequest) -> Vec3 {
+        r.origin - r.sourceVelocity * (0.5 * (r.ages.lowerBound + r.ages.upperBound))
     }
 
     func trail(_ outputs: [EffectFrameOutput], _ run: Run, axes: Mat3) throws -> [Laid] {
@@ -345,8 +360,8 @@ final class LaunchEffectsTests: XCTestCase {
             for r in o.requests where materials.trail.contains(r.material) {
                 let a = try XCTUnwrap(o.anchors.first { $0.id == r.anchor }?.frame)
                 let air = try XCTUnwrap(a.airProfile.map { o.airProfiles[$0] })
-                laid.append(Laid(request: r, frame: a, air: air, altitude: a.altitude(of: r.origin),
-                                 site: axes.transposed * r.origin))
+                let p = Self.laidAt(r)
+                laid.append(Laid(request: r, frame: a, air: air, altitude: a.altitude(of: p), site: axes.transposed * p))
             }
         }
         return laid
@@ -507,20 +522,33 @@ final class LaunchEffectsTests: XCTestCase {
         }
     }
 
-    /// The trail's puffs fade in over P2's plume's fade past the joint at
-    /// any airspeed: a puff laid at the joint, at rest in the air, is at
-    /// least 90 % in (the longest-lived, the slowest) by the time it lies
-    /// the hand-over's window behind it, where the plume has gone. For a
-    /// grid of windows and airspeeds to the S-IC's cutoff (2.4 km/s), and in
-    /// flight from T+10 s to CECO, from the materials the frames set.
-    func testTrailFadesInOverThePlumesFade() throws {
-        func fade(_ share: Double, window w: Double, airspeed v: Double) -> Double {
-            min(1, (w / v) / (share * ExhaustTrail.lifetime.upperBound))
+    /// The trail fades in as P2's plume fades out, on one clock: a puff laid
+    /// at the ramp's start, at rest in the air, lies V a further on at age
+    /// a, and its fade there plus the plume's smoothstep fade-out over the
+    /// hand-over's window sums to one within 3.5 % (the minimax ramp's
+    /// 3.08 %, and the share's 0.5 % steps), for a grid of windows and
+    /// airspeeds to the S-IC's cutoff (2.4 km/s), and in flight from T+10 s
+    /// to CECO, from the materials the frames set (the lifetime one value,
+    /// so the share is its clock).
+    func testTrailFadesInAsThePlumeFadesOut() throws {
+        XCTAssertEqual(ExhaustTrail.lifetime.lowerBound, ExhaustTrail.lifetime.upperBound)
+        func worst(_ share: Double, window w: Double, airspeed v: Double) -> Double {
+            let seconds = share * ExhaustTrail.lifetime.upperBound
+            var e = 0.0
+            for k in 0...400 {
+                let x = -w + 2 * w * Double(k) / 400          // from the window's middle
+                let plume = 1 - PlumeMember.smoothstep(-w, w, x)
+                let age = (x + ExhaustTrail.rampHalfWidth * w) / v
+                let trail = age <= 0 ? 0 : min(1, age / seconds)
+                e = max(e, abs(plume + trail - 1))
+            }
+            return e
         }
-        for w in [7.0, 20, 40, 67] {
-            for v in [50.0, 100, 400, 800, 1_200, 1_460, 1_650, 2_400] {
-                XCTAssertGreaterThanOrEqual(fade(ExhaustTrail.fadeIn(window: w, airspeed: v), window: w, airspeed: v), 0.9,
-                                            "window \(w) m at \(v) m/s")
+        for w in [7.0, 20, 40, 67, 150] {
+            for v in [20.0, 50, 100, 400, 800, 1_200, 1_460, 1_650, 2_400] {
+                let share = ExhaustTrail.fadeIn(window: w, airspeed: v)
+                guard 2 * ExhaustTrail.rampHalfWidth * w / v < ExhaustTrail.longestFadeIn else { continue }
+                XCTAssertLessThan(worst(share, window: w, airspeed: v), 0.035, "window \(w) m at \(v) m/s")
             }
         }
         let (sim, camera) = try open()
@@ -538,11 +566,11 @@ final class LaunchEffectsTests: XCTestCase {
             for id in materials.trail {
                 let share = run.session.materials[id].fadeIn
                 XCTAssertEqual(share, ExhaustTrail.fadeIn(window: head.window, airspeed: v), "T+\(t) s")
-                XCTAssertGreaterThanOrEqual(fade(share, window: head.window, airspeed: v), 0.9, "T+\(t) s")
             }
+            let share = run.session.materials[materials.trail[0]].fadeIn
+            XCTAssertLessThan(worst(share, window: head.window, airspeed: v), 0.035, "T+\(t) s")
             print(String(format: "LaunchEffectsTests: at T+%.0f s the trail fades in over %.0f m at %.0f m/s (%.3f s)",
-                         t, head.window, v, run.session.materials[materials.trail[0]].fadeIn
-                            * ExhaustTrail.lifetime.upperBound))
+                         t, 2 * ExhaustTrail.rampHalfWidth * head.window, v, share * ExhaustTrail.lifetime.upperBound))
             checked += 1
         }
         XCTAssertEqual(checked, 7)

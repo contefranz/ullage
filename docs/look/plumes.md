@@ -271,13 +271,16 @@ field stays on the nozzle, gimbal and all.
     10^-4 to 10^7 cd/m², in sunlight and the dark), so no exposure cuts it
     short of the trail, which ends at 40 km. The visible extents, which size the proxy, are found on the
     field unfaded, so they hold it under any fade.
-  - P4's trail lays its newest puff on the bent path there
+  - P4's trail takes the exhaust over on the bent path there
     (`PlumeAirflow.trailHandover`: the firing F-1s' members through
     `PlumeAirflow.airflow`, the function the cluster uses, so the two
-    agree through an engine's shutdown), and its puffs fade in over the
-    window's half past the joint at the airspeed they recede at
-    (`ExhaustTrail.fadeIn`, at most a second): in where the plume has gone
-    at any speed, no gap, no double (`p2-trail-joint`).
+    agree through an engine's shutdown). The hand-over carries the merged
+    far field's column there, projected side-on and unfaded (its depth,
+    cross-section, soot and albedo), and λ = ṁ/V_air; the trail's puffs
+    carry it on, laid from the window's start and fading in as the plume
+    fades out on the same window at the airspeed they recede at
+    (`ExhaustTrail.fadeIn`), the two summing to one within 3.5 % along it
+    (docs/look/launch.md, the trail).
 - **Continuity** (`PlumeAirflowTests`): sweeps through the angle of attack
   (-10° to 10° every quarter degree), the airspeed to beyond max-Q (every
   5 m/s) and AS-506's ascent (every half second). Each step moves the far

@@ -66,7 +66,7 @@ public final class LaunchEffects: EffectProducer {
                               coldVapour: table.register(LaunchMaterials.coldVapour),
                               iceFlake: table.register(LaunchMaterials.iceFlake),
                               iceSlab: table.register(LaunchMaterials.iceSlab),
-                              trail: (0..<3).map { table.register(LaunchMaterials.trail($0)) },
+                              trail: (0..<ExhaustTrail.palette).map { table.register(LaunchMaterials.trail($0)) },
                               groundCloud: table.register(LaunchMaterials.groundCloud),
                               startSmoke: table.register(LaunchMaterials.startSmoke),
                               ignitionFlash: table.register(LaunchMaterials.ignitionFlash))

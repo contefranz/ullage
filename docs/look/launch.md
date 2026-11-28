@@ -98,6 +98,53 @@ once none does, until first motion is found.
 - The LOX tank's fog and the umbilicals' trickle stream while the count
   holds, as they did on the pad.
 
+## The trail (`ExhaustTrail`)
+
+The S-IC's exhaust left in the air below 40 km, carrying on P2's far field
+where the plume hands it over (look round 2, LR5 PR1; PR2's `TrailColumn`
+replaces the puffs).
+
+- **The column handed over** (`PlumeAirflow.Column`, `trailHandover`): the
+  cluster's merged far field at the hand-over, as P2's march has it there
+  (beyond 1.15 of its merge), unfaded and without its turbulence, projected
+  side-on: τ through the axis, the cross-section C = ∫ τ dy, its soot's and
+  its scattering's shares, P2's g; and λ = ṁ/V_air, the F-1s' flow over
+  the airspeed (at least 1 m/s). Held to a march across P2's own field
+  within 3 % (`ExhaustTrailTests`).
+- **The puffs** carry it on: a line of P3's puffs, each (1 − ρ²/R²)² in
+  depth, has the column (16/15)(R/s) τ0 (1 − y²/R²)^(5/2); its radius is the
+  column's C/((5π/16) τ), its spacing s = (16/15) R τ0/τ at most half a
+  radius, τ0 the deepest of a palette's rows (0.1 to 3.2 by factors of two)
+  that allows it; its albedo is laid between the palette's two columns
+  either side of the column's (0.2 to 0.95). A line's half-maximum width is
+  within 10 % of the field's.
+- **Stratified:** one lattice of strata, `spacing` long, runs along the
+  path from piece to piece; each puff starts in its own stratum where the
+  path was at its age (a source velocity along the chord), at rest in the
+  air. No step from a puff to the next exceeds 2.6 strata (random places
+  along a line, as before, left gaps of five to eight).
+- **The fade:** P3's puffs fade in linearly with age, P2's plume out by a
+  smoothstep over the window x ± w. The puffs are laid at x − 0.79 w and
+  fade in over 1.58 w at the airspeed, the minimax ramp: the two sum to
+  one within 3.08 % (3.5 % with the share's 0.5 % steps), the lifetime one
+  value (480 s) so that the share is a clock, at most 20 s at the pad.
+- **A rebuild** models the column at each piece's height, airspeed and
+  flow (`ExhaustTrail.modelColumn`: the F-1s as the scene gives them,
+  along their axes in the air there), in 250 m bins: within 5 % of the
+  frames' along the flight. A frame at warp does the same away from the
+  vehicle.
+- **Along AS-506's flight** the column goes from depth 1.9 and 36 m wide
+  (T+3 s) through 1.2 and 56 m (T+60 s) to 0.37 and 219 m (T+120 s); its
+  albedo is 0.58 (P2's soot at 0.25 and its condensate at 0.8) until the
+  afterburning fades.
+- **What P2's column does not hold:** it keeps its cross-section from the
+  exit to the hand-over (σ ∝ (r_e/r)²), while the exhaust slows from the
+  jet's 2.6 km/s to the air, so λ grows by u_j/V_air: about 10 at T+60 s.
+  Its soot then implies 0.008 % of the exhaust at T+60 s (at 7.5 m²/g),
+  where at its exit it is 0.39 %, 0.096 % past the afterburning (the
+  study's "P2's implied 0.07 %" estimated this). PR2's extinction from
+  mass takes λ.
+
 ## The ground cloud (`GroundCloud`)
 
 The F-1s' exhaust and the pad's water, the flame deflector's two jets out of
