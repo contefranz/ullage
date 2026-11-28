@@ -178,23 +178,50 @@ after `.sphericalHarmonics`) mirrors it line for line.
   σu σv σw) from its mass, cut off at its 3σ box (99.19 % of the mass).
   Along a ray it is a 1-D Gaussian, so its optical depth over any segment is
   closed form, erf by Abramowitz and Stegun 7.1.26 (|ε| ≤ 1.5e-7; MSL has
-  no erf), and its light is one source at the segment's depth-weighted mean
-  (Condor et al. 2025).
-- **The light** (the source function J, per unit extinction) has one g for
-  all three parts: the Sun's single scattering (Henyey-Greenstein, through
-  the optical depth to the Sun); its multiple scattering, from C2's
-  two-stream with absorption (Meador and Weaver's γ1 = 1 − ω(1 − b), γ2 = ωb
-  at C2's unit diffusivity, b = (1 − g)/2) of the Sun's chord as a slab lit
-  face-on, less the direct beam; and the ambient, R3's SH9 by the same phase,
-  reaching the point through the column around it from both sides.
+  no erf), and so is its inverse (Giles's erfinv, two Newton steps).
+- **Its light:** a chord is shaded in segments of equal optical depth,
+  at most 0.5 each and 16 in all (`segments`, the boundaries by
+  `time(atDepth:)`), each with one source (Condor et al. 2025) at the depth
+  midway between the ones exact for light falling as e^(−τ) from its entry
+  (front-lit) and rising as e^(τ) (back-lit): within 1 % either way at
+  depth 0.5 a segment, against the quadrature of ∫ J σ e^(−τ) dt within
+  1.2 % to depth 5 and 2 % at 10. (One source at the σ-weighted mean was
+  off by 35 % to 2.4× at depth 5.)
+- **The source function J** (per unit extinction) has one g for every part
+  and C2's two-stream for all the light scattered many times:
+  - *the Sun:* its beam enters the chord towards it face-on; the streams
+    there, seen in the eye's direction as C2 sees its own, with the direct
+    beam's share swapped for its single scattering (Henyey-Greenstein,
+    through the optical depth to the Sun);
+  - *the ambient:* R3's SH9 as two fluxes along its dominant axis (E/π
+    facing each way), each entering the chord along the axis from its own
+    side, so a sky lights a column from above and the ground from below as
+    C2's `skyDiffuse` lights its decks; each side's unscattered share is
+    swapped for SH9's in-scatter by the same phase (Funk and Hecke).
+  - At ω = 1 the streams are C2's exactly; an isotropic ambient gives
+    J = L at any depth; a thick column's skylit base and top are C2's
+    (0.571 and 0.429 at τ 10 and g 0.85, 0.308 and 0.692 at 30); a thin
+    smoke scatters the Sun and the sky with its phase, as P2's does.
+- **Absorption** in the streams takes Elsasser's diffusivity 5/3 (the mean
+  slant of a diffuse field), the scattering C2's unit one (so ω = 1 stays
+  C2's): Meador and Weaver's two-stream of a beam with γ1 = D(1 − ω) + ω b,
+  γ2 = ω b, γ3 = b, b = (1 − g)/2, in closed form, its resonance at k = 1
+  (ω 0.49 for g 0.35) cancelled analytically. Against a Monte Carlo slab
+  lit face-on, its diffuse transmission is within 5 % for P2's kerosene
+  smoke (ω 0.58, g 0.35; unit diffusivity was 18 % to 150 % over) and
+  26 % for a condensed column (ω 0.93) at τ 1 to 5; its reflectance stays
+  up to 41 % high, C2's backscatter being too large for a beam entering
+  face-on.
 - **Checks** (`GaussianMediumTests`, `GaussianMediumRenderTests`): the depth
-  against Simpson's rule to 3e-7 of the line's, the mass back from the
-  depths over a plane of rays, the box; at ω = 1 the streams are C2's to
-  1e-12; they solve the two-stream equations, keep R + T + A = 1, reflect
-  γ2/(γ1 + k) when deep and pass the direct beam alone when black; the GPU
-  matches the Swift to Float's reach. `ShaderModule.gaussianMediumCheck`
-  is in `ShaderModule.all`, so a broken header fails the compile tests
-  before it disables the passes that include it.
+  and its inverse against Simpson's rule, the mass back from the depths over
+  a plane of rays (2 g of soot at 7.5 m²/g), the box; the streams against
+  C2's at ω = 1, their own equations (through the series' switch and the
+  resonance), R + T + A = 1, the deep reflectance, the Monte Carlo; the
+  ambient's isotropic, thin and thick limits; the chord's segments against
+  quadrature; the GPU against the Swift to Float's reach.
+  `ShaderModule.gaussianMediumCheck` is in `ShaderModule.all`, so a broken
+  header fails the compile tests before it disables the passes that include
+  it.
 
 ## Shots
 

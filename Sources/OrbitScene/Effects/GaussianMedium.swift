@@ -96,16 +96,39 @@ public struct GaussianMedium: Equatable {
         /// The optical depth along the whole line: peak · width · √(2π).
         public var total: Double { peak * width * (2 * Double.pi).squareRoot() }
 
-        /// The optical-depth-weighted mean t over t0...t1, whose depth is
-        /// `depth`: c + w² (σ(t0) − σ(t1)) / depth, where a primitive's light
-        /// is evaluated (Condor et al.'s constant source per primitive). The
-        /// nearest approach, clamped into t0...t1, where the depth is nil.
-        public func centroid(from t0: Double, to t1: Double, depth: Double) -> Double {
-            guard depth > 1e-12 else { return min(max(centre, t0), t1) }
-            let k = 1 / (2 * width * width)
-            let e0 = exp(-(t0 - centre) * (t0 - centre) * k), e1 = exp(-(t1 - centre) * (t1 - centre) * k)
-            return min(max(centre + width * width * peak * (e0 - e1) / depth, t0), t1)
+        /// The t past t0 where the depth from t0 reaches `tau` (inverting
+        /// `depth`): c + erf⁻¹(erf((t0 − c)k) + τ / P) / k, k = 1/(√2 w),
+        /// P = peak w √(π/2); erf⁻¹ by Giles (2010, single precision) and
+        /// two Newton steps on `GaussianMedium.erf`, as the shader has it.
+        /// Past the line's whole depth, far along it.
+        public func time(atDepth tau: Double, from t0: Double) -> Double {
+            let k = 1 / (2.0.squareRoot() * width), p = peak * width * (0.5 * Double.pi).squareRoot()
+            guard p > 0 else { return t0 }
+            let e = min(max(GaussianMedium.erf((t0 - centre) * k) + max(tau, 0) / p, -1 + 1e-6), 1 - 1e-6)
+            return centre + GaussianMedium.erfInverse(e) / k
         }
+
+        /// Where a segment t0...t1 is shaded with one source: at the depth
+        /// from t0 midway between the one exact for light falling as e^(−τ)
+        /// from its entry (a front-lit primitive), −ln((1 + e^(−T))/2), and
+        /// the one exact for light rising as e^(τ) (back-lit), ln(T/(1 −
+        /// e^(−T))) (T its depth): within 1 % for either on segments of
+        /// depth 0.5 (`segments`), 1.5 % at 0.625.
+        public func shadingTime(from t0: Double, to t1: Double) -> Double {
+            let d = depth(from: t0, to: t1)
+            guard d > 1e-9 else { return min(max(centre, t0), t1) }
+            let front = -log(0.5 * (1 + exp(-d))), back = d < 1e-4 ? 0.5 * d : log(d / (1 - exp(-d)))
+            return min(max(time(atDepth: 0.5 * (front + back), from: t0), t0), t1)
+        }
+    }
+
+    /// A primitive's chord is shaded in this many segments of equal optical
+    /// depth, each with one source at its `shadingTime`: segments of depth
+    /// `segmentDepth` or less, at most `maxSegments`.
+    public static let segmentDepth = 0.5
+    public static let maxSegments = 16
+    public static func segments(depth: Double) -> Int {
+        min(max(Int((max(depth, 0) / segmentDepth).rounded(.up)), 1), maxSegments)
     }
 
     /// The Gaussian along the ray from `origin` in the unit `direction`:
@@ -153,6 +176,28 @@ public struct GaussianMedium: Equatable {
         return (source * a, a)
     }
 
+    /// The inverse error function as the shader has it: Giles's single-
+    /// precision approximation ("Approximating the erfinv function", GPU
+    /// Computing Gems Jade, 2011), then two Newton steps on `erf`.
+    public static func erfInverse(_ x: Double) -> Double {
+        let x = min(max(x, -1 + 1e-7), 1 - 1e-7)
+        var w = -log((1 - x) * (1 + x)), p: Double
+        if w < 5 {
+            w -= 2.5
+            p = 2.81022636e-08
+            for c in [3.43273939e-07, -3.5233877e-06, -4.39150654e-06, 0.00021858087, -0.00125372503, -0.00417768164,
+                      0.246640727, 1.50140941] { p = c + p * w }
+        } else {
+            w = w.squareRoot() - 3
+            p = -0.000200214257
+            for c in [0.000100950558, 0.00134934322, -0.00367342844, 0.00573950773, -0.0076224613, 0.00943887047,
+                      1.00167406, 2.83297682] { p = c + p * w }
+        }
+        var y = p * x
+        for _ in 0..<2 { y -= (erf(y) - x) / (1.128_379_167 * exp(-y * y)) }
+        return y
+    }
+
     /// The error function as the shader has it (MSL has none): Abramowitz
     /// and Stegun 7.1.26, |error| ≤ 1.5e-7, odd.
     public static func erf(_ x: Double) -> Double {
@@ -165,52 +210,94 @@ public struct GaussianMedium: Equatable {
 
 /// How smoke scatters light: the source function J (cd/m², per unit
 /// extinction, so dL/ds = σ (J − L)) at a point of a smoke of
-/// single-scattering albedo ω and asymmetry g. One g for all three parts:
-/// - **the Sun's light scattered once:** ω E⊙ p(cos θ) e^(−τ⊙), with
-///   Henyey and Greenstein's phase (`CloudPhase.henyeyGreenstein`) and τ⊙
-///   the smoke's optical depth from the point towards the Sun;
-/// - **the Sun's light scattered many times:** C2's two-stream
-///   (`CloudLighting.streams`: Bohren 1987's, backscattered fraction
-///   b = (1 − g)/2, unit diffusivity), here with absorption (`streams`), of
-///   the Sun's chord through the point as a slab lit face-on: its diffuse
-///   streams, less the direct beam, seen in the eye's direction as C2 sees
-///   its own (each stream isotropic over its hemisphere, blended by the
-///   direction);
-/// - **the ambient:** R3's SH9 scattered by the same phase (`SH9.inScatter`,
-///   Funk and Hecke), or the caller's stand-in where there is no probe,
-///   reaching the point through the column around it diffusely from both
-///   sides (`ambientShare`): all of it in a conservative smoke, the outer
-///   hemisphere's half at the face of a black one.
+/// single-scattering albedo ω and asymmetry g. One g for every part, and
+/// C2's two-stream (`CloudLighting.streams`: Bohren 1987's, backscattered
+/// fraction b = (1 − g)/2), here with absorption (`streams`), for all the
+/// light scattered many times:
+/// - **the Sun:** its beam enters the chord towards it face-on; the
+///   streams there, seen in the eye's direction as C2 sees its own (each
+///   F/π over its hemisphere, blended by the direction), with the direct
+///   beam's share swapped for its single scattering, E⊙ p(cos θ) e^(−τ⊙)
+///   (Henyey and Greenstein);
+/// - **the ambient:** R3's SH9 as two fluxes along its dominant axis, E(n)/π
+///   facing each way, each entering the chord along the axis from its own
+///   side as a beam does (a sky lights a column from above, the ground from
+///   below, as C2's `skyDiffuse` lights its decks), seen the same way, with each side's
+///   unscattered share swapped for SH9's in-scatter by the same phase
+///   (`SH9.inScatter`, Funk and Hecke) carried through to the point.
 ///
-/// At ω = 1 the streams are C2's exactly, and the ambient is unattenuated,
-/// as P2's smoke has it today.
+/// So at ω = 1 an isotropic ambient gives J = L at any depth, a thick
+/// column's skylit base and top are C2's, and a thin smoke scatters the
+/// Sun and the sky with its phase, as P2's smoke does today.
+///
+/// The streams' absorption has Elsasser's diffusivity 5/3 (the mean slant
+/// of a diffuse field's path), their scattering C2's unit one, so at ω = 1
+/// they are C2's. Against a Monte Carlo slab lit face-on, they hold the
+/// diffuse transmission of P2's kerosene smoke (ω 0.58, g 0.35) within 5 %
+/// at τ 1 to 5 (unit diffusivity: 18 % to 150 % over), and of a condensed
+/// column (ω 0.93) within 26 %; the reflectance up to 41 % high where the
+/// smoke is absorbing, C2's backscatter b = (1 − g)/2 being too large for
+/// a beam entering face-on (`GaussianMediumTests.testStreamsAgainstMonteCarlo`).
 public enum SmokeScattering {
     /// The two-stream backscattered fraction, (1 − g)/2, as C2's.
     public static func backscatter(asymmetry g: Double) -> Double { (1 - g) / 2 }
 
-    /// The two-stream's downward and upward diffuse fluxes at optical depth
-    /// t from the top of a column of optical depth τ, per unit flux entering
-    /// its top and none its bottom, for albedo ω and asymmetry g (Meador and
-    /// Weaver 1980's γ1 = 1 − ω(1 − b), γ2 = ω b at C2's unit diffusivity):
-    /// with k = √(γ1² − γ2²), u = τ − t and E(x) = (1 − e^(−2kx))/k,
-    ///   F↓ = e^(−kt) (1 + e^(−2ku) + γ1 E(u)) / (1 + e^(−2kτ) + γ1 E(τ)),
-    ///   F↑ = e^(−kt) γ2 E(u) / (1 + e^(−2kτ) + γ1 E(τ)).
-    /// At ω = 1 (k = 0, E(x) = 2x) these are C2's 1 − bt/(1 + bτ) and
+    /// The diffusivity of the streams' absorption: Elsasser's (1942) 5/3,
+    /// the mean slant of a diffuse field's path. On absorption only, so that
+    /// at ω = 1 the streams stay C2's (Bohren's unit diffusivity, which C1's
+    /// slab calibrates).
+    public static let diffusivity = 5.0 / 3.0
+
+    /// The two-stream of a beam entering the top of a column of optical
+    /// depth τ face-on, per unit flux, and nothing its bottom: the downward
+    /// flux (the direct beam e^(−t) and the diffuse) and the upward flux at
+    /// optical depth t, for albedo ω and asymmetry g. Meador and Weaver
+    /// (1980) with γ1 = D(1 − ω) + ω b, γ2 = ω b, γ3 = b (b = (1 − g)/2, D
+    /// the `diffusivity`), k = √(γ1² − γ2²):
+    ///   dF↑/dt = γ1 F↑ − γ2 F↓d − ω b e^(−t),  dF↓d/dt = γ2 F↑ − γ1 F↓d + ω (1 − b) e^(−t).
+    /// Its total F↓ = F↓d + e^(−t) obeys the diffuse-incidence two-stream
+    /// with the source c e^(−t), c = (D − 1)(1 − ω): so the solution is
+    /// that one's, with u = τ − t and E(x) = (1 − e^(−2kx))/k,
+    ///   H↓ = e^(−kt) (1 + e^(−2ku) + γ1 E(u)) / (1 + e^(−2kτ) + γ1 E(τ)),
+    ///   H↑ = e^(−kt) γ2 E(u) / (1 + e^(−2kτ) + γ1 E(τ)),
+    /// plus the source's, written so that its resonance at k = 1 (near
+    /// ω 0.49 for kerosene smoke, g 0.35) cancels: with ρ = γ2/(γ1 + k), e1(x) =
+    /// (e^(−x) − e^(−kx))/(k − 1), q = c (γ2 e1(τ) + ρ e^(−kτ))/(k + 1),
+    /// a = ρ e^(−kτ) q / (1 − ρ² e^(−2kτ)) and β = −q − a ρ e^(−kτ),
+    ///   F↓ += c (γ1 + 1) e1(t)/(k + 1) + a e^(−kt) + β ρ e^(−k(τ − t)),
+    ///   F↑ += c (γ2 e1(t) + ρ e^(−kt))/(k + 1) + a ρ e^(−kt) + β e^(−k(τ − t)).
+    /// At ω = 1 (c = 0, k = 0, E(x) = 2x) these are C2's 1 − bt/(1 + bτ) and
     /// b(τ − t)/(1 + bτ); at ω = 0 the direct beam e^(−t) and nothing up.
     public static func streams(depth t: Double, column tau: Double, albedo w: Double, asymmetry g: Double)
         -> (down: Double, up: Double) {
         let tau = max(tau, 0), t = min(max(t, 0), tau), u = tau - t
-        let b = backscatter(asymmetry: g), w = min(max(w, 0), 1)
-        let g1 = 1 - w * (1 - b), g2 = w * b
-        let k = ((1 - w) * (1 - w + 2 * w * b)).squareRoot()
-        // E(x) = (1 − e^(−2kx))/k, its series where 2kx < 1e-2:
-        // 2x (1 − kx + ⅔ (kx)² − ⅓ (kx)³ + 2/15 (kx)⁴), 2x at k = 0.
-        func e(_ x: Double) -> Double {
-            let y = 2 * k * x, q = k * x
-            return y < 1e-2 ? 2 * x * (1 - q * (1 - q * (2.0 / 3.0 - q * (1.0 / 3.0 - 2.0 / 15.0 * q)))) : (1 - exp(-y)) / k
+        let b = backscatter(asymmetry: g), w = min(max(w, 0), 1), a = diffusivity * (1 - w)
+        let g1 = a + w * b, g2 = w * b
+        let k = (a * (a + 2 * w * b)).squareRoot()
+        // (1 − e^(−y))/y, its series where |y| < 1e-2.
+        func phi(_ y: Double) -> Double {
+            abs(y) < 1e-2 ? 1 - y * (0.5 - y * (1.0 / 6.0 - y * (1.0 / 24.0 - y / 120.0))) : (1 - exp(-y)) / y
         }
+        // E(x) = (1 − e^(−2kx))/k = 2x φ(2kx).
+        func e(_ x: Double) -> Double { 2 * x * phi(2 * k * x) }
         let den = 1 + exp(-2 * k * tau) + g1 * e(tau), down0 = exp(-k * t)
-        return (down0 * (1 + exp(-2 * k * u) + g1 * e(u)) / den, down0 * g2 * e(u) / den)
+        var down = down0 * (1 + exp(-2 * k * u) + g1 * e(u)) / den, up = down0 * g2 * e(u) / den
+        // The beam's share past unit diffusivity.
+        let c = (diffusivity - 1) * (1 - w)
+        guard c > 0 else { return (down, up) }
+        // e1(x) = e^(−x) x φ((k − 1) x).
+        func e1(_ x: Double) -> Double {
+            abs((k - 1) * x) < 1e-2 ? exp(-x) * x * phi((k - 1) * x) : (exp(-x) - exp(-k * x)) / (k - 1)
+        }
+        let rho = g2 / (g1 + k), ek = exp(-k * tau)
+        // 1 − ρ² e^(−2kτ) = (1 − ρ e^(−kτ))(1 + ρ e^(−kτ)), 1 − ρ = (a + k)/(γ1 + k).
+        let near = (a + k) / (g1 + k) + rho * k * tau * phi(k * tau)
+        let q = c * (g2 * e1(tau) + rho * ek) / (k + 1)
+        let aa = rho * ek * q / (near * (1 + rho * ek)), beta = -q - aa * rho * ek
+        let ekt = exp(-k * t), eku = exp(-k * u)
+        down += c * (g1 + 1) * e1(t) / (k + 1) + aa * ekt + beta * rho * eku
+        up += c * (g2 * e1(t) + rho * ekt) / (k + 1) + aa * rho * ekt + beta * eku
+        return (down, max(up, 0))
     }
 
     /// The radiance of the two streams going in a direction whose cosine
@@ -233,15 +320,41 @@ public enum SmokeScattering {
         return streamRadiance(down: max(s.down - exp(-t), 0), up: s.up, muUp: -cosView)
     }
 
-    /// The share of the ambient radiance that reaches a point `depth` into
-    /// a column of optical depth `column`, fed diffusely from both sides:
-    /// half the four streams there, ½ (F↓(t) + F↑(t) + F↓(τ − t) + F↑(τ − t)).
-    /// 1 at ω = 1; ½ (1 + e^(−τ)) at the face of a black column.
-    public static func ambientShare(depth t: Double, column tau: Double, albedo w: Double, asymmetry g: Double) -> Double {
-        let tau = max(tau, 0), t = min(max(t, 0), tau)
+    /// The ambient's light scattered towards the eye per unit albedo, cd/m²,
+    /// per channel: the two fluxes along the axis, E/π `up` (from the
+    /// side the axis points to) and `down`, through the chord along the
+    /// axis (the point `depth` from the up side, `column` in all), seen at
+    /// `cosAxis` (the view ray, camera to point, on the axis); each side's
+    /// unscattered share, ½ (1 ± cosAxis) e^(−depth from that side), swapped
+    /// for `inScatter` carried through.
+    public static func ambientDiffuse(depth t: Double, column tau: Double, cosAxis c: Double, albedo w: Double,
+                                      asymmetry g: Double, up: Double, down: Double, inScatter: Double) -> Double {
+        let tau = max(tau, 0), t = min(max(t, 0), tau), c = min(max(c, -1), 1)
         let a = streams(depth: t, column: tau, albedo: w, asymmetry: g)
         let b = streams(depth: tau - t, column: tau, albedo: w, asymmetry: g)
-        return 0.5 * (a.down + a.up + b.down + b.up)
+        let fromUp = exp(-t), fromDown = exp(-(tau - t))
+        // The up side's streams: its "up" runs along the axis, so light
+        // reaching the eye runs at −cosAxis to it; the down side's at +.
+        let sideUp = Double.pi * streamRadiance(down: a.down - fromUp, up: a.up, muUp: -c)
+        let sideDown = Double.pi * streamRadiance(down: b.down - fromDown, up: b.up, muUp: c)
+        let unscattered = 0.5 * (1 + c) * fromUp + 0.5 * (1 - c) * fromDown
+        return up * sideUp + down * sideDown + inScatter * unscattered
+    }
+
+    /// The ambient as the smoke takes it from R3's SH9 (`sh`, the probe's
+    /// radiance): its in-scatter by the smoke's phase along the unit view
+    /// ray `view` (camera to point), and its dominant axis (the first band's
+    /// luminance, towards the light; +z where it has none) with E/π facing
+    /// along it and against it. Without a probe, the stand-in in every
+    /// direction (an isotropic ambient, any axis).
+    public static func ambient(_ sh: SH9?, view: Vec3, asymmetry g: Double, standIn: Spectrum3)
+        -> (inScatter: Spectrum3, up: Spectrum3, down: Spectrum3, axis: Vec3) {
+        guard let sh else { return (standIn, standIn, standIn, .unitZ) }
+        let c = sh.irradianceOverPi
+        func lum(_ x: Spectrum3) -> Double { 0.2126 * x.r + 0.7152 * x.g + 0.0722 * x.b }
+        let dipole = Vec3(lum(c[3]), lum(c[1]), lum(c[2]))
+        let axis = dipole.length > 1e-6 * max(abs(lum(c[0])), 1e-30) ? dipole.normalized : .unitZ
+        return (sh.inScatter(view: view, asymmetry: g), sh.irradianceOverPi(axis), sh.irradianceOverPi(-axis), axis)
     }
 
     /// What the caller knows of the light at the point.
@@ -249,27 +362,33 @@ public enum SmokeScattering {
         /// The Sun's illuminance on the smoke from outside it, lux: after
         /// the air, the planet's and the vessel's shadows, the clouds.
         public var sun: Spectrum3
-        /// The ambient radiance scattered per unit albedo, cd/m²:
-        /// `SH9.inScatter(view:asymmetry:)` with the smoke's g, or a stand-in.
+        /// The ambient (`ambient`): its in-scatter by the smoke's phase,
+        /// cd/m², and E/π along its axis and against it.
         public var ambient: Spectrum3
-        /// The cosine between the view ray (camera to point) and the
-        /// direction to the Sun: 1 is looking at the Sun through the smoke.
+        public var ambientUp: Spectrum3
+        public var ambientDown: Spectrum3
+        /// The cosines of the view ray (camera to point) with the direction
+        /// to the Sun (1 is looking at the Sun through the smoke) and with
+        /// the ambient's axis.
         public var cosView: Double
+        public var cosAxis: Double
         /// The smoke's optical depth from the point to the Sun, and its
         /// whole optical depth along that line through the point.
         public var sunDepth: Double
         public var sunChord: Double
-        /// The point's optical depth into the column the ambient lights,
-        /// and that column's whole optical depth (any chord through the
-        /// point: the view ray's, say).
+        /// The smoke's optical depth from the point along the ambient's axis
+        /// (towards its up side), and its whole depth along that line.
         public var ambientDepth: Double
         public var ambientChord: Double
 
-        public init(sun: Spectrum3, ambient: Spectrum3, cosView: Double, sunDepth: Double, sunChord: Double,
-                    ambientDepth: Double, ambientChord: Double) {
+        public init(sun: Spectrum3, ambient: Spectrum3, ambientUp: Spectrum3, ambientDown: Spectrum3, cosView: Double,
+                    cosAxis: Double, sunDepth: Double, sunChord: Double, ambientDepth: Double, ambientChord: Double) {
             self.sun = sun
             self.ambient = ambient
+            self.ambientUp = ambientUp
+            self.ambientDown = ambientDown
             self.cosView = cosView
+            self.cosAxis = cosAxis
             self.sunDepth = sunDepth
             self.sunChord = sunChord
             self.ambientDepth = ambientDepth
@@ -277,15 +396,18 @@ public enum SmokeScattering {
         }
     }
 
-    /// J, cd/m² per unit extinction, per channel: ω (E⊙ (p e^(−τ⊙) + D⊙) + L_amb A).
+    /// J, cd/m² per unit extinction, per channel:
+    /// ω (E⊙ (p e^(−τ⊙) + D⊙) + `ambientDiffuse`).
     public static func source(albedo: Spectrum3, asymmetry g: Double, light l: Light) -> Spectrum3 {
         let phase = CloudPhase.henyeyGreenstein(l.cosView, g: g), direct = exp(-l.sunDepth)
-        func channel(_ w: Double, _ sun: Double, _ ambient: Double) -> Double {
+        func channel(_ w: Double, _ sun: Double, _ inScatter: Double, _ up: Double, _ down: Double) -> Double {
             let diffuse = sunDiffuse(sunDepth: l.sunDepth, sunChord: l.sunChord, cosView: l.cosView, albedo: w, asymmetry: g)
-            let share = ambientShare(depth: l.ambientDepth, column: l.ambientChord, albedo: w, asymmetry: g)
-            return w * (sun * (phase * direct + diffuse) + ambient * share)
+            let ambient = ambientDiffuse(depth: l.ambientDepth, column: l.ambientChord, cosAxis: l.cosAxis, albedo: w,
+                                         asymmetry: g, up: up, down: down, inScatter: inScatter)
+            return w * (sun * (phase * direct + diffuse) + ambient)
         }
-        return Spectrum3(channel(albedo.r, l.sun.r, l.ambient.r), channel(albedo.g, l.sun.g, l.ambient.g),
-                         channel(albedo.b, l.sun.b, l.ambient.b))
+        return Spectrum3(channel(albedo.r, l.sun.r, l.ambient.r, l.ambientUp.r, l.ambientDown.r),
+                         channel(albedo.g, l.sun.g, l.ambient.g, l.ambientUp.g, l.ambientDown.g),
+                         channel(albedo.b, l.sun.b, l.ambient.b, l.ambientUp.b, l.ambientDown.b))
     }
 }

@@ -79,15 +79,59 @@ inline float orbit_gaussianTotal(GaussianRay r) {
     return r.peak * r.width * 2.50662827;
 }
 
-// The optical-depth-weighted mean t over t0...t1, whose depth is `depth`:
-// c + w^2 (sigma(t0) - sigma(t1)) / depth, where a primitive's light is
-// evaluated (one source per primitive); the nearest approach, clamped,
-// where the depth is nil.
-inline float orbit_gaussianCentroid(GaussianRay r, float t0, float t1, float depth) {
-    if (depth <= 1e-12) { return clamp(r.centre, t0, t1); }
-    float k = 1.0 / (2.0 * r.width * r.width);
-    float e0 = exp(-(t0 - r.centre) * (t0 - r.centre) * k), e1 = exp(-(t1 - r.centre) * (t1 - r.centre) * k);
-    return clamp(r.centre + r.width * r.width * r.peak * (e0 - e1) / depth, t0, t1);
+// The inverse error function: Giles's single-precision approximation
+// (GPU Computing Gems Jade, 2011), then two Newton steps on orbit_erf.
+// GaussianMedium.erfInverse.
+inline float orbit_erfInverse(float x) {
+    x = clamp(x, -1.0 + 1e-6, 1.0 - 1e-6);
+    float w = -log((1.0 - x) * (1.0 + x)), p;
+    if (w < 5.0) {
+        w -= 2.5;
+        p = 2.81022636e-08;
+        p = 3.43273939e-07 + p * w; p = -3.5233877e-06 + p * w; p = -4.39150654e-06 + p * w;
+        p = 0.00021858087 + p * w; p = -0.00125372503 + p * w; p = -0.00417768164 + p * w;
+        p = 0.246640727 + p * w; p = 1.50140941 + p * w;
+    } else {
+        w = sqrt(w) - 3.0;
+        p = -0.000200214257;
+        p = 0.000100950558 + p * w; p = 0.00134934322 + p * w; p = -0.00367342844 + p * w;
+        p = 0.00573950773 + p * w; p = -0.0076224613 + p * w; p = 0.00943887047 + p * w;
+        p = 1.00167406 + p * w; p = 2.83297682 + p * w;
+    }
+    float y = p * x;
+    for (int i = 0; i < 2; i++) { y -= (orbit_erf(y) - x) / (1.128379167 * exp(-y * y)); }
+    return y;
+}
+
+// The t past t0 where the depth from t0 reaches tau (inverting the depth):
+// c + erfinv(erf((t0 - c)k) + tau / P) / k, k = 1/(sqrt2 w), P = peak w sqrt(pi/2).
+inline float orbit_gaussianTimeAtDepth(GaussianRay r, float t0, float tau) {
+    float k = 1.0 / (1.41421356 * r.width), p = r.peak * r.width * 1.25331414;
+    if (p <= 0.0) { return t0; }
+    float e = clamp(orbit_erf((t0 - r.centre) * k) + max(tau, 0.0) / p, -1.0 + 1e-6, 1.0 - 1e-6);
+    return r.centre + orbit_erfInverse(e) / k;
+}
+
+// Where a segment t0...t1 is shaded with one source: midway between the
+// depth exact for light falling as e^-tau from its entry (front-lit),
+// -ln((1 + e^-T)/2), and the one exact for light rising as e^tau
+// (back-lit), ln(T/(1 - e^-T)): within 1 % for either on segments of depth
+// 0.5. GaussianMedium.Ray.shadingTime.
+inline float orbit_gaussianShadingTime(GaussianRay r, float t0, float t1) {
+    float d = orbit_gaussianDepth(r, t0, t1);
+    if (d <= 1e-9) { return clamp(r.centre, t0, t1); }
+    float front = -log(0.5 * (1.0 + exp(-d))), back = d < 1e-4 ? 0.5 * d : log(d / (1.0 - exp(-d)));
+    return clamp(orbit_gaussianTimeAtDepth(r, t0, 0.5 * (front + back)), t0, t1);
+}
+
+// How many segments of equal depth a chord of optical depth `depth` is
+// shaded in: of depth 0.5 or less, at most 16. A caller walks them, each
+// boundary at orbit_gaussianTimeAtDepth(r, t0, depth k / n), each lit with
+// one source at its orbit_gaussianShadingTime.
+#define ORBIT_GAUSSIAN_SEGMENT_DEPTH 0.5
+#define ORBIT_GAUSSIAN_MAX_SEGMENTS 16
+inline int orbit_gaussianSegments(float depth) {
+    return clamp(int(ceil(max(depth, 0.0) / ORBIT_GAUSSIAN_SEGMENT_DEPTH)), 1, ORBIT_GAUSSIAN_MAX_SEGMENTS);
 }
 
 // Where the ray o + t d is inside the box (+-ORBIT_GAUSSIAN_EXTENT sigma
@@ -120,15 +164,16 @@ inline float4 orbit_gaussianLight(float3 source, float tau) {
 
 // ------------------------------------------------------ smoke scattering ---
 // The source function J (cd/m2 per unit extinction, NOT pre-exposed) of a
-// smoke of single-scattering albedo w and asymmetry g, one g for all three
-// parts: the Sun's light scattered once (Henyey-Greenstein, through its
-// optical depth to the Sun), the Sun's light scattered many times (C2's
-// two-stream with absorption, the Sun's chord through the point as a slab
-// lit face-on), and the ambient (R3's SH9 by the same phase, through the
-// column around the point, fed diffusely from both sides).
-// SmokeScattering, line for line.
+// smoke of single-scattering albedo w and asymmetry g, one g for every part
+// and C2's two-stream (with absorption, its diffusivity 5/3 on absorption
+// only) for all the light scattered many times: the Sun's beam entering
+// its chord face-on, its single scattering by Henyey-Greenstein; the
+// ambient as two fluxes along SH9's dominant axis, each entering the chord
+// along it from its own side, its unscattered share swapped for SH9's
+// in-scatter by the same phase. SmokeScattering, line for line.
 
 #define ORBIT_SMOKE_PI 3.14159265
+#define ORBIT_SMOKE_DIFFUSIVITY (5.0 / 3.0)
 
 // Henyey and Greenstein, normalised over the sphere, of the cosine between
 // the view ray (camera to point) and the direction to the Sun.
@@ -137,37 +182,52 @@ inline float orbit_smokePhase(float c, float g) {
     return (1.0 - g * g) / (4.0 * ORBIT_SMOKE_PI * d * sqrt(d));
 }
 
-// E(x) = (1 - e^(-2kx))/k, its series where 2kx < 1e-2:
-// 2x (1 - kx + 2/3 (kx)^2 - 1/3 (kx)^3 + 2/15 (kx)^4), 2x at k = 0.
-inline float3 orbit_smokeE(float3 k, float x) {
-    float3 y = 2.0 * k * x, q = k * x;
-    float3 series = 2.0 * x * (1.0 - q * (1.0 - q * (2.0 / 3.0 - q * (1.0 / 3.0 - (2.0 / 15.0) * q))));
-    return select((1.0 - exp(-y)) / max(k, float3(1e-30)), series, y < 1e-2);
+// (1 - e^-y)/y, its series where |y| < 1e-2.
+inline float3 orbit_smokePhi(float3 y) {
+    float3 series = 1.0 - y * (0.5 - y * (1.0 / 6.0 - y * (1.0 / 24.0 - y / 120.0)));
+    return select((1.0 - exp(-y)) / select(y, float3(1.0), abs(y) < 1e-2), series, abs(y) < 1e-2);
 }
 
 struct SmokeStreams {
-    float3 down;
+    float3 down;   // the downward flux, the direct beam's e^-t and the diffuse
     float3 up;
 };
 
-// The two-stream's diffuse fluxes at optical depth t from the top of a
-// column of optical depth tau, per unit flux entering its top and none its
-// bottom: gamma1 = 1 - w(1 - b), gamma2 = w b, b = (1 - g)/2, k =
-// sqrt(gamma1^2 - gamma2^2), u = tau - t;
-// down = e^(-kt) (1 + e^(-2ku) + gamma1 E(u)) / (1 + e^(-2k tau) + gamma1 E(tau)),
-// up = e^(-kt) gamma2 E(u) / (same). At w = 1 C2's cloud_streams exactly.
+// The two-stream of a beam entering the top of a column of optical depth tau
+// face-on, per unit flux, nothing its bottom, at depth t: Meador and Weaver
+// with gamma1 = D(1 - w) + w b, gamma2 = w b, gamma3 = b, b = (1 - g)/2. The
+// diffuse-incidence solution H, plus the beam's share past unit
+// diffusivity, c = (D - 1)(1 - w), written so that its resonance at k = 1
+// cancels. At w = 1 C2's cloud_streams exactly. SmokeScattering.streams.
 inline SmokeStreams orbit_smokeStreams(float t, float tau, float3 w, float g) {
     tau = max(tau, 0.0);
     t = clamp(t, 0.0, tau);
     float u = tau - t, b = 0.5 * (1.0 - g);
     w = clamp(w, 0.0, 1.0);
-    float3 g1 = 1.0 - w * (1.0 - b), g2 = w * b;
-    float3 k = sqrt((1.0 - w) * (1.0 - w + 2.0 * w * b));
-    float3 den = 1.0 + exp(-2.0 * k * tau) + g1 * orbit_smokeE(k, tau), down0 = exp(-k * t);
-    float3 eu = orbit_smokeE(k, u);
+    float3 a = ORBIT_SMOKE_DIFFUSIVITY * (1.0 - w);
+    float3 g1 = a + w * b, g2 = w * b;
+    float3 k = sqrt(a * (a + 2.0 * w * b));
+    // E(x) = (1 - e^(-2kx))/k = 2x phi(2kx).
+    float3 eTau = 2.0 * tau * orbit_smokePhi(2.0 * k * tau), eU = 2.0 * u * orbit_smokePhi(2.0 * k * u);
+    float3 den = 1.0 + exp(-2.0 * k * tau) + g1 * eTau, down0 = exp(-k * t);
     SmokeStreams s;
-    s.down = down0 * (1.0 + exp(-2.0 * k * u) + g1 * eu) / den;
-    s.up = down0 * g2 * eu / den;
+    s.down = down0 * (1.0 + exp(-2.0 * k * u) + g1 * eU) / den;
+    s.up = down0 * g2 * eU / den;
+    float3 c = (ORBIT_SMOKE_DIFFUSIVITY - 1.0) * (1.0 - w);
+    // e1(x) = (e^-x - e^-kx)/(k - 1) = e^-x x phi((k - 1) x).
+    float3 km1 = k - 1.0;
+    float3 e1t = select((exp(-t) - exp(-k * t)) / select(km1, float3(1.0), abs(km1 * t) < 1e-2),
+                        exp(-t) * t * orbit_smokePhi(km1 * t), abs(km1 * t) < 1e-2);
+    float3 e1tau = select((exp(-tau) - exp(-k * tau)) / select(km1, float3(1.0), abs(km1 * tau) < 1e-2),
+                          exp(-tau) * tau * orbit_smokePhi(km1 * tau), abs(km1 * tau) < 1e-2);
+    float3 rho = g2 / (g1 + k), ek = exp(-k * tau);
+    float3 nearOne = (a + k) / (g1 + k) + rho * k * tau * orbit_smokePhi(k * tau);
+    float3 q = c * (g2 * e1tau + rho * ek) / (k + 1.0);
+    float3 aa = rho * ek * q / max(nearOne * (1.0 + rho * ek), float3(1e-30));
+    float3 beta = -q - aa * rho * ek;
+    float3 ekt = exp(-k * t), eku = exp(-k * u);
+    s.down += c * (g1 + 1.0) * e1t / (k + 1.0) + aa * ekt + beta * rho * eku;
+    s.up = max(s.up + c * (g2 * e1t + rho * ekt) / (k + 1.0) + aa * rho * ekt + beta * eku, float3(0.0));
     return s;
 }
 
@@ -187,42 +247,79 @@ inline float3 orbit_smokeSunDiffuse(float sunDepth, float sunChord, float cosVie
     return orbit_smokeStreamRadiance(max(s.down - exp(-sunDepth), float3(0.0)), s.up, -cosView);
 }
 
-// The share of the ambient radiance reaching a point `depth` into a column
-// of optical depth `column` fed diffusely from both sides: half its four
-// streams. 1 at w = 1; (1 + e^-tau)/2 at the face of a black column.
-inline float3 orbit_smokeAmbientShare(float depth, float column, float3 w, float g) {
+// The ambient's light scattered towards the eye per unit albedo (cd/m2):
+// E/pi `up` (from the side the axis points to) and `down`, through the
+// chord along the axis (the point `depth` from the up side, `column` in
+// all), seen at cosAxis (the view ray, camera to point, on the axis); each
+// side's unscattered share, (1 +- cosAxis)/2 e^-(depth from that side),
+// swapped for `inScatter` carried through. SmokeScattering.ambientDiffuse.
+inline float3 orbit_smokeAmbientDiffuse(float depth, float column, float cosAxis, float3 w, float g, float3 up,
+                                        float3 down, float3 inScatter) {
     column = max(column, 0.0);
     depth = clamp(depth, 0.0, column);
+    float c = clamp(cosAxis, -1.0, 1.0);
     SmokeStreams a = orbit_smokeStreams(depth, column, w, g);
     SmokeStreams b = orbit_smokeStreams(column - depth, column, w, g);
-    return 0.5 * (a.down + a.up + b.down + b.up);
+    float fromUp = exp(-depth), fromDown = exp(-(column - depth));
+    float3 sideUp = ORBIT_SMOKE_PI * orbit_smokeStreamRadiance(a.down - fromUp, a.up, -c);
+    float3 sideDown = ORBIT_SMOKE_PI * orbit_smokeStreamRadiance(b.down - fromDown, b.up, c);
+    float unscattered = 0.5 * (1.0 + c) * fromUp + 0.5 * (1.0 - c) * fromDown;
+    return up * sideUp + down * sideDown + inScatter * unscattered;
 }
 
 // What the caller knows of the light at the point.
 struct SmokeLight {
     float3 sun;          // the Sun's illuminance on the smoke from outside it (lux), every other shadow applied
-    float3 ambient;      // the ambient radiance scattered per unit albedo (cd/m2): orbit_smokeAmbient
-    float cosView;       // cosine between the view ray (camera to point) and the direction to the Sun
+    float3 ambient;      // the ambient's in-scatter by the smoke's phase (cd/m2): orbit_smokeAmbient
+    float3 ambientUp;    // E/pi along the ambient's axis, and against it (cd/m2)
+    float3 ambientDown;
+    float cosView;       // the view ray (camera to point) on the direction to the Sun
+    float cosAxis;       // the view ray on the ambient's axis
     float sunDepth;      // the smoke's optical depth from the point to the Sun
     float sunChord;      // its whole optical depth along that line through the point
-    float ambientDepth;  // the point's optical depth into the column the ambient lights
-    float ambientChord;  // that column's whole optical depth
+    float ambientDepth;  // the smoke's optical depth from the point along the axis (to its up side)
+    float ambientChord;  // its whole optical depth along that line
 };
 
-// J, cd/m2 per unit extinction: w (E (p e^-tauSun + D) + L_amb A).
+// J, cd/m2 per unit extinction: w (E (p e^-tauSun + D) + the ambient's).
 inline float3 orbit_smokeSource(float3 albedo, float g, SmokeLight l) {
     float phase = orbit_smokePhase(l.cosView, g), direct = exp(-l.sunDepth);
     float3 diffuse = orbit_smokeSunDiffuse(l.sunDepth, l.sunChord, l.cosView, albedo, g);
-    float3 share = orbit_smokeAmbientShare(l.ambientDepth, l.ambientChord, albedo, g);
-    return albedo * (l.sun * (phase * direct + diffuse) + l.ambient * share);
+    float3 ambient = orbit_smokeAmbientDiffuse(l.ambientDepth, l.ambientChord, l.cosAxis, albedo, g, l.ambientUp,
+                                               l.ambientDown, l.ambient);
+    return albedo * (l.sun * (phase * direct + diffuse) + ambient);
 }
 
-// The ambient radiance a smoke of asymmetry g scatters toward the eye along
-// the unit view ray v per unit albedo (cd/m2, not pre-exposed): R3's SH9
-// when the probe is drawn (lighting.probe.w), else the caller's stand-in
-// (A2's sky, the earthshine). Needs `.sphericalHarmonics` before this header.
-inline float3 orbit_smokeAmbient(constant LightingUniforms &lighting, float3 v, float g, float3 standIn) {
-    return lighting.probe.w > 0.5 ? orbit_sh9InScatter(lighting, v, g) : standIn;
+// The ambient as smoke takes it: SH9's in-scatter along the unit view ray v
+// by Henyey-Greenstein of g (cd/m2, not pre-exposed), its dominant axis
+// (the first band's luminance, towards the light; +z where it has none) and
+// E/pi along and against it, when the probe is drawn (lighting.probe.w);
+// else the caller's stand-in in every direction. Needs `.sphericalHarmonics`
+// before this header. SmokeScattering.ambient.
+struct SmokeAmbient {
+    float3 inScatter;
+    float3 up;
+    float3 down;
+    float3 axis;
+};
+
+inline SmokeAmbient orbit_smokeAmbient(constant LightingUniforms &lighting, float3 v, float g, float3 standIn) {
+    SmokeAmbient a;
+    if (lighting.probe.w <= 0.5) {
+        a.inScatter = standIn;
+        a.up = standIn;
+        a.down = standIn;
+        a.axis = float3(0.0, 0.0, 1.0);
+        return a;
+    }
+    float3 lum = float3(0.2126, 0.7152, 0.0722);
+    float3 dipole = float3(dot(lighting.sh9[3].rgb, lum), dot(lighting.sh9[1].rgb, lum), dot(lighting.sh9[2].rgb, lum));
+    float l0 = abs(dot(lighting.sh9[0].rgb, lum));
+    a.axis = length(dipole) > 1e-6 * max(l0, 1e-30) ? normalize(dipole) : float3(0.0, 0.0, 1.0);
+    a.inScatter = orbit_sh9InScatter(lighting, v, g);
+    a.up = orbit_sh9Irradiance(lighting, a.axis);
+    a.down = orbit_sh9Irradiance(lighting, -a.axis);
+    return a;
 }
 """#
 
@@ -261,13 +358,15 @@ public struct GaussianMediumGPU: Equatable {
 let gaussianMediumCheckSource = #"""
 struct GaussianMediumCheckCase {
     GaussianMedium medium;
-    float4 origin;      // xyz: the ray's origin (camera-relative, m), w: t0
-    float4 direction;   // xyz: unit, w: t1
-    float4 column;      // x: depth, y: column (optical depths), z: albedo (grey), w: g, for the streams
-    float4 view;        // x: cosView, y: sunDepth, z: sunChord, w: ambientDepth
-    float4 extra;       // x: ambientChord, y: the error function's argument
-    float4 sun;         // rgb: lux
-    float4 ambient;     // rgb: cd/m2, the stand-in
+    float4 origin;       // xyz: the ray's origin (camera-relative, m), w: t0
+    float4 direction;    // xyz: unit, w: t1
+    float4 column;       // x: depth, y: column (optical depths), z: albedo (grey), w: g, for the streams
+    float4 view;         // x: cosView, y: sunDepth, z: sunChord, w: ambientDepth
+    float4 extra;        // x: ambientChord, y: the error function's argument, z: cosAxis, w: a depth to invert
+    float4 sun;          // rgb: lux
+    float4 ambient;      // rgb: the in-scatter (cd/m2), also the stand-in
+    float4 ambientUp;    // rgb: E/pi along the axis
+    float4 ambientDown;  // rgb: E/pi against it
 };
 
 kernel void gaussianMedium_check(device const GaussianMediumCheckCase *cases [[buffer(0)]],
@@ -280,23 +379,31 @@ kernel void gaussianMedium_check(device const GaussianMediumCheckCase *cases [[b
     GaussianRay r = orbit_gaussianRay(c.medium, o, d);
     float depth = orbit_gaussianDepth(r, t0, t1);
     float2 box = orbit_gaussianBox(c.medium, o, d);
-    out[6 * i + 0] = float4(r.centre, r.width, r.peak, depth);
-    out[6 * i + 1] = float4(box, orbit_gaussianBoxDepth(c.medium, o, d, t0, t1), orbit_gaussianCentroid(r, t0, t1, depth));
+    out[7 * i + 0] = float4(r.centre, r.width, r.peak, depth);
+    out[7 * i + 1] = float4(box, orbit_gaussianBoxDepth(c.medium, o, d, t0, t1), orbit_gaussianShadingTime(r, t0, t1));
     SmokeStreams s = orbit_smokeStreams(c.column.x, c.column.y, float3(c.column.z), c.column.w);
-    out[6 * i + 2] = float4(s.down.x, s.up.x, orbit_smokeAmbientShare(c.column.x, c.column.y, float3(c.column.z), c.column.w).x,
+    out[7 * i + 2] = float4(s.down.x, s.up.x,
+                            orbit_smokeAmbientDiffuse(c.column.x, c.column.y, c.extra.z, float3(c.column.z), c.column.w,
+                                                      c.ambientUp.rgb, c.ambientDown.rgb, c.ambient.rgb).x,
                             orbit_smokeSunDiffuse(c.column.x, c.column.y, c.view.x, float3(c.column.z), c.column.w).x);
     SmokeLight l;
     l.sun = c.sun.rgb;
     l.ambient = c.ambient.rgb;
+    l.ambientUp = c.ambientUp.rgb;
+    l.ambientDown = c.ambientDown.rgb;
     l.cosView = c.view.x;
+    l.cosAxis = c.extra.z;
     l.sunDepth = c.view.y;
     l.sunChord = c.view.z;
     l.ambientDepth = c.view.w;
     l.ambientChord = c.extra.x;
     float3 source = orbit_smokeSource(c.medium.optics.rgb, c.medium.optics.w, l);
-    out[6 * i + 3] = float4(source, orbit_erf(c.extra.y));
-    out[6 * i + 4] = orbit_gaussianLight(source, depth);
-    out[6 * i + 5] = float4(orbit_smokeAmbient(lighting, d, c.medium.optics.w, c.ambient.rgb), orbit_gaussianTotal(r));
+    out[7 * i + 3] = float4(source, orbit_erf(c.extra.y));
+    out[7 * i + 4] = orbit_gaussianLight(source, depth);
+    SmokeAmbient a = orbit_smokeAmbient(lighting, d, c.medium.optics.w, c.ambient.rgb);
+    out[7 * i + 5] = float4(a.inScatter.x, a.up.x, a.down.x, orbit_gaussianTotal(r));
+    out[7 * i + 6] = float4(orbit_gaussianTimeAtDepth(r, t0, c.extra.w), orbit_erfInverse(clamp(c.extra.y / 3.5, -0.99, 0.99)),
+                            float(orbit_gaussianSegments(depth)), a.axis.z);
 }
 
 kernel void gaussianMedium_sizes(device uint *out [[buffer(0)]]) {
