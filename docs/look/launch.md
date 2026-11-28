@@ -230,6 +230,88 @@ continuous emitters' counts carry their fractions, so neither the emission
 nor the noise repeats; the eddies' ages are stratified within each slice,
 their positions and radii drawn per particle.
 
+## Smoke media (`GaussianMedium`, `SmokeScattering`)
+
+Look round 2's shared smoke (track LR5's header): the trail (LR5), the
+launch cloud (LR4) and the plumes' far field (LR3) take their primitives
+and their light from it. `OrbitScene/Effects/GaussianMedium.swift` is the
+reference; the shader header `GaussianMediumCommon` (`.gaussianMedium`,
+after `.sphericalHarmonics`) mirrors it line for line.
+
+- **The primitive** is a 3-D Gaussian of extinction, σ0 = κ M / ((2π)^1.5
+  σu σv σw) from its mass, cut off at its 3σ box (99.19 % of the mass).
+  Along a ray it is a 1-D Gaussian, so its optical depth over any segment is
+  closed form, erf by Abramowitz and Stegun 7.1.26 (|ε| ≤ 1.5e-7; MSL has
+  no erf), and so is its inverse (Giles's erfinv, two Newton steps).
+- **Its light:** a chord is shaded in segments 0.25 deep from its entry,
+  at most 16; past depth 3.75 the first 12 stay 0.25 deep and the last 4
+  split the rest evenly (`segments`, `segmentBoundary`, the boundaries by
+  `time(atDepth:)`), since light from behind leaves every depth about
+  alike. Each segment has one source (Condor et al. 2025) at the depth
+  midway between the ones exact for light falling as e^(−τ) from its entry
+  (front-lit) and rising as e^(τ) (back-lit); below depth 0.05 their
+  mean's series. Against the quadrature of ∫ J σ e^(−τ) dt at line depths
+  2 to 100, condensed and sooty:
+  - front-lit within 0.5 %;
+  - side-lit within 2 % for rays through the centre. A ray 1σ to 1.5σ off
+    the centre away from the Sun crosses the shadowed half, where J
+    changes within a segment faster than one source follows: up to 9 %
+    bright condensed, up to 35 % dark sooty (where it is under a tenth of
+    the brightest source), under 3.5 % of the brightest source's either
+    way. Any layout of 16 gives the same; J at the boundaries,
+    interpolated log-linearly, is worse (5-7 % dark through the centre);
+  - back-lit within 1.5 % (condensed at any depth, sooty to depth 6).
+    Thicker sooty smoke lit from behind sends only T e^(−T) of its source's
+    light, from every depth alike, which the last segments cannot hold:
+    its error is under 5e-4 of the brightest source's.
+
+  (One source at the σ-weighted mean was off by 35 % to 2.4× at depth 5.)
+- **The source function J** (per unit extinction) has one g for every part
+  and C2's two-stream for all the light scattered many times:
+  - *the Sun:* its beam enters the chord towards it face-on; the streams
+    there, seen in the eye's direction as C2 sees its own, with the direct
+    beam's share swapped for its single scattering (Henyey-Greenstein,
+    through the optical depth to the Sun);
+  - *the ambient:* R3's SH9 as two fluxes along its dominant axis (E/π
+    facing each way), each entering the chord along the axis from its own
+    side, so a sky lights a column from above and the ground from below as
+    C2's `skyDiffuse` lights its decks; the unscattered light the streams
+    show, each side's flux times ½ (1 ± cos) of the view on the axis, is
+    swapped for SH9's in-scatter by the same phase (Funk and Hecke), shared
+    between the sides in that proportion and carried through from each.
+    The column along the axis is the primitive's own, scaled by its aspect
+    there, min σ over its σ along the axis, where under 1 (`ambientColumn`):
+    an elongated body along the axis (the trail climbing) takes its
+    skylight through its sides (on its centre line, the chord across it),
+    and the scale depends on the body's shape alone, not on the point or
+    on which of equal axes is labelled first.
+  - At ω = 1 the streams are C2's exactly; an isotropic ambient gives
+    J = L at any depth; a thick column's skylit base and top are C2's seen
+    from any angle (to 1e-12 where the in-scatter is C2's own blend; 0.571
+    and 0.429 at τ 10 and g 0.85, 0.308 and 0.692 at 30, seen straight up
+    and down); a thin smoke scatters the Sun and the sky with its phase, as
+    P2's does.
+- **Absorption** in the streams takes Elsasser's diffusivity 5/3 (the mean
+  slant of a diffuse field), the scattering C2's unit one (so ω = 1 stays
+  C2's): Meador and Weaver's two-stream of a beam with γ1 = D(1 − ω) + ω b,
+  γ2 = ω b, γ3 = b, b = (1 − g)/2, in closed form, its resonance at k = 1
+  (ω 0.49 for g 0.35) cancelled analytically. Against a Monte Carlo slab
+  lit face-on, its diffuse transmission is within 5 % for P2's kerosene
+  smoke (ω 0.58, g 0.35; unit diffusivity was 18 % to 150 % over) and
+  26 % for a condensed column (ω 0.93) at τ 1 to 5; its reflectance stays
+  up to 41 % high, C2's backscatter being too large for a beam entering
+  face-on.
+- **Checks** (`GaussianMediumTests`, `GaussianMediumRenderTests`): the depth
+  and its inverse against Simpson's rule, the mass back from the depths over
+  a plane of rays (2 g of soot at 7.5 m²/g), the box; the streams against
+  C2's at ω = 1, their own equations (through the series' switch and the
+  resonance), R + T + A = 1, the deep reflectance, the Monte Carlo; the
+  ambient's isotropic, thin and thick limits; the chord's segments against
+  quadrature; the GPU against the Swift to Float's reach.
+  `ShaderModule.gaussianMediumCheck` is in `ShaderModule.all`, so a broken
+  header fails the compile tests before it disables the passes that include
+  it.
+
 ## Shots
 
 `docs/look/shots/launch.json` (scene goldens, report only): the live count at

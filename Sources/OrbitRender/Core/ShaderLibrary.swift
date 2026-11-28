@@ -36,7 +36,8 @@ public struct ShaderModule {
     /// A track adding a module adds it here.
     public static let all: [ShaderModule] = [.planet, .vessel, .star, .overlay, .plume, .debug, .atmosphere, .cloud,
                                              .particle, .entry, .post, .shadow, .probe,
-                                             .halfResTransparent, .transparentComposite, .effectTest, .planetTiles, .planetTiled]
+                                             .halfResTransparent, .transparentComposite, .effectTest, .planetTiles, .planetTiled,
+                                             .gaussianMediumCheck]
 }
 
 /// Compiles shader modules on first use and keeps the libraries, and the
