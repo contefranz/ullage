@@ -166,6 +166,36 @@ continuous emitters' counts carry their fractions, so neither the emission
 nor the noise repeats; the eddies' ages are stratified within each slice,
 their positions and radii drawn per particle.
 
+## Smoke media (`GaussianMedium`, `SmokeScattering`)
+
+Look round 2's shared smoke (track LR5's header): the trail (LR5), the
+launch cloud (LR4) and the plumes' far field (LR3) take their primitives
+and their light from it. `OrbitScene/Effects/GaussianMedium.swift` is the
+reference; the shader header `GaussianMediumCommon` (`.gaussianMedium`,
+after `.sphericalHarmonics`) mirrors it line for line.
+
+- **The primitive** is a 3-D Gaussian of extinction, σ0 = κ M / ((2π)^1.5
+  σu σv σw) from its mass, cut off at its 3σ box (99.19 % of the mass).
+  Along a ray it is a 1-D Gaussian, so its optical depth over any segment is
+  closed form, erf by Abramowitz and Stegun 7.1.26 (|ε| ≤ 1.5e-7; MSL has
+  no erf), and its light is one source at the segment's depth-weighted mean
+  (Condor et al. 2025).
+- **The light** (the source function J, per unit extinction) has one g for
+  all three parts: the Sun's single scattering (Henyey-Greenstein, through
+  the optical depth to the Sun); its multiple scattering, from C2's
+  two-stream with absorption (Meador and Weaver's γ1 = 1 − ω(1 − b), γ2 = ωb
+  at C2's unit diffusivity, b = (1 − g)/2) of the Sun's chord as a slab lit
+  face-on, less the direct beam; and the ambient, R3's SH9 by the same phase,
+  reaching the point through the column around it from both sides.
+- **Checks** (`GaussianMediumTests`, `GaussianMediumRenderTests`): the depth
+  against Simpson's rule to 3e-7 of the line's, the mass back from the
+  depths over a plane of rays, the box; at ω = 1 the streams are C2's to
+  1e-12; they solve the two-stream equations, keep R + T + A = 1, reflect
+  γ2/(γ1 + k) when deep and pass the direct beam alone when black; the GPU
+  matches the Swift to Float's reach. `ShaderModule.gaussianMediumCheck`
+  is in `ShaderModule.all`, so a broken header fails the compile tests
+  before it disables the passes that include it.
+
 ## Shots
 
 `docs/look/shots/launch.json` (scene goldens, report only): the live count at
