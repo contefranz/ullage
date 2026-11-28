@@ -1502,6 +1502,7 @@ struct CloudResolveUniforms {
     float4x4 reprojection;   // camera-relative world now -> last frame's clip
     float4 target;           // xy: size, zw: frame pixels per texel
     float4 checker;          // xy: this frame's texel, z: 1 reprojecting, w: 1 history valid, -1 no march this frame
+    float4 history;          // x: the history's radiance to this frame's pre-exposure (its own pre-exposure's ratio)
 };
 
 // Every texel of the march target: marched this frame, or last frame's at
@@ -1541,8 +1542,8 @@ kernel void cloud_resolve(texture2d<float, access::read> fresh [[texture(10)]],
                 float2 uv = float2(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
                 if (all(uv >= 0.0) && all(uv <= 1.0)) {
                     float4 h = history.sample(linear, uv, level(0.0));
-                    // Last frame's radiance at this frame's pre-exposure.
-                    h.rgb *= frame.exposure.z;
+                    // The history's radiance at this frame's pre-exposure.
+                    h.rgb *= r.history.x;
                     if (abs(h.a - mc.a) < 0.25) { mc = mix(h, mc, 0.5); }
                 }
             }
@@ -1583,7 +1584,7 @@ kernel void cloud_resolve(texture2d<float, access::read> fresh [[texture(10)]],
                 float2 uv = float2(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
                 if (all(uv >= 0.0) && all(uv <= 1.0)) {
                     float4 h = history.sample(linear, uv, level(0.0));
-                    h.rgb *= frame.exposure.z;
+                    h.rgb *= r.history.x;
                     float4 margin = (hi - lo) * 0.1;
                     mc = clamp(h, lo - margin, hi + margin);
                     float4 hd = historyDepth.read(min(uint2(uv * r.target.xy), size - 1u));

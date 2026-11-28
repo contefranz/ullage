@@ -1010,6 +1010,99 @@ final class CloudRenderTests: XCTestCase {
         let run = p.labels[first...].prefix { $0 == "Clouds" }.count
         XCTAssertEqual(run, 4, "\(p.labels)")
     }
+
+    // MARK: A frame drawn again
+
+    /// The pad's sky (C2's clouds reprojecting) on one renderer, its particles
+    /// (P3 is not byte-deterministic), plumes and probe off, the frames at `steps`
+    /// (frame index and seconds after the shot's epoch), the clock running
+    /// (not paused) and no temporal reset after the first: each frame's
+    /// pixels, the renderer's profile and the clouds' report after it.
+    func drawPad(_ steps: [(index: Int, seconds: Double)], profiled: Bool = false) throws
+        -> [(pixels: [UInt8], labels: [String], report: CloudPass.Report)] {
+        let s = try snapper()
+        var shot = SnapshotSpec.Shot(name: "c2-redraw", scenario: "as506-first-motion",
+                                     camera: SnapshotSpec.CameraSpec(yaw: -60, pitch: 12, distance: 300, fov: 60))
+        shot.width = 320
+        shot.height = 200
+        shot.showOrbit = false
+        shot.settings.particle.quality = .off
+        shot.settings.plume.quality = .off
+        shot.settings.post.exposure.mode = .manual
+        shot.settings.post.exposure.ev100 = 14
+        // R3's probe updates its faces in turn, a redraw included (two
+        // bytes of the frame move): it is not what these tests check.
+        shot.settings.probe.enabled = false
+        let prepared = try shot.prepare(system: s.system)
+        let log = RecordingPass.Log()
+        let spy = RecordingPass("spy", .opaque, log: log)
+        var profile: FrameProfile?
+        spy.onEncode = { f in profile = f.profile }
+        let r = try SceneRenderer(device: s.device, outputFormat: .bgra8Unorm_srgb,
+                                  passes: SceneRenderer.defaultPasses(loadsUserTextures: false) + [spy],
+                                  plan: HDRTargetPlan(outputFormat: .bgra8Unorm_srgb, sampleCount: 4))
+        r.settings = shot.settings
+        r.setStars(s.stars)
+        if profiled {
+            guard r.profiler.isSupported else { throw XCTSkip("no timestamp counters on this GPU") }
+            r.profiling = true
+            r.profileInterval = 1
+        }
+        let target = try XCTUnwrap(OffscreenTarget(device: s.device, width: shot.width, height: shot.height))
+        let base = shot.scene(prepared)
+        let clouds = try XCTUnwrap(r.graph.pass(named: "Clouds") as? CloudPass)
+        var out: [(pixels: [UInt8], labels: [String], report: CloudPass.Report)] = []
+        // Each frame's clock; a frame drawn again keeps the one it repeats.
+        var clock: (index: Int, seconds: Double, simDt: Double, reset: Bool)?
+        for step in steps {
+            if clock?.index != step.index {
+                clock = (step.index, step.seconds, clock.map { step.seconds - $0.seconds } ?? 0, clock == nil)
+            }
+            guard let c = clock else { continue }
+            var scene = base
+            scene.clock.frameIndex = c.index
+            scene.clock.simTime = base.clock.simTime + c.seconds
+            scene.clock.simDt = c.simDt
+            scene.clock.realDt = 1.0 / 60
+            scene.clock.paused = false
+            scene.clock.temporalReset = c.reset
+            if !c.reset { scene.transitions = [] }
+            profile = nil
+            XCTAssertNil(try XCTUnwrap(r.renderAndWait(scene, into: target)).error)
+            out.append((target.bytes(), profile?.labels ?? [], clouds.lastFrame))
+        }
+        return out
+    }
+
+    /// A frame drawn again (the same index and clock: a snapshot's views,
+    /// its exposure and timed frames, F12's) does the frame's work again:
+    /// its clouds' encoders run as the frame's did, march included, and its
+    /// pixels are the frame's, though the clouds reproject (their history
+    /// is read as the frame read it, not blended into once more).
+    func testARedrawDoesTheFramesWorkAgain() throws {
+        let frames = try drawPad([(1, 0), (2, 1.0 / 60), (3, 2.0 / 60), (3, 2.0 / 60)], profiled: true)
+        XCTAssertTrue(frames[2].report.reprojected, "the frame reprojects")
+        XCTAssertEqual(frames[3].pixels, frames[2].pixels, "the redraw is the frame")
+        func run(_ labels: [String]) -> Int {
+            guard let first = labels.firstIndex(of: "Clouds") else { return 0 }
+            return labels[first...].prefix { $0 == "Clouds" }.count
+        }
+        XCTAssertEqual(run(frames[3].labels), run(frames[2].labels), "\(frames[3].labels)")
+        XCTAssertEqual(run(frames[3].labels), 4, "the weather and shadow maps, the march and resolve, between blits")
+    }
+
+    /// In a running simulation (F12 in the app) a frame drawn again moves
+    /// nothing on: the clouds' drift, cirrus and detail frames and weather
+    /// bands advance once per frame, so the frame after a redraw is the frame
+    /// it would have been without it.
+    func testARedrawInARunningSimMovesNothing() throws {
+        let dt = 30.0
+        let plain = try drawPad([(1, 0), (2, dt), (3, 2 * dt)])
+        let redrawn = try drawPad([(1, 0), (2, dt), (2, dt), (2, dt), (3, 2 * dt)])
+        XCTAssertEqual(redrawn[2].pixels, redrawn[1].pixels, "a redraw is its frame")
+        XCTAssertEqual(redrawn[3].pixels, redrawn[1].pixels)
+        XCTAssertEqual(redrawn[4].pixels, plain[2].pixels, "the next frame as without the redraws")
+    }
 }
 
 /// Track C2's GPU cost (ORBITSIM_CLOUD_COST=1, holding the GPU lock): the

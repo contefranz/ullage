@@ -124,9 +124,17 @@ public final class CloudPass: RenderPass, HalfResEffect {
     var weatherOverrideName = "override"
 
     private var previous: CloudFrame?
-    /// The last frame resolved: its index and clock, and its report (for a
-    /// frame drawn again).
-    private var drawn: (frameIndex: Int, simTime: Epoch, report: Report)?
+    /// The last frame resolved, for a frame drawn again: its index and clock,
+    /// its report, and how it resolved (reprojection, history).
+    private var drawn: Drawn?
+    private struct Drawn {
+        var frameIndex: Int
+        var simTime: Epoch
+        var report: Report
+        var reprojection: simd_float4x4
+        var historyValid: Bool
+        var reprojects: Bool
+    }
     private(set) var advection = CloudAdvection(tile: FrameContext.noiseTile)
     private(set) var cirrus = CirrusFrames()
     /// The low layer's detail curl's own frame (CirrusFrame, its wind the
@@ -344,14 +352,22 @@ public final class CloudPass: RenderPass, HalfResEffect {
         // change, a camera cut or a fast turn (temporal resets), which would
         // move every cloud back by its whole drift.
         let clock = f.scene.clock
-        let jump = lastEpoch.map { abs(clock.simTime - $0 - clock.simDt) > 60 } ?? true
-        if clock.frameIndex <= 1 || jump {
-            advection = CloudAdvection(tile: FrameContext.noiseTile)
-            cirrus = CirrusFrames()
-            detailFrames = CirrusFrames()
-            shadowAnchor = nil
+        // A frame drawn again: the same index and clock (the snapshot's
+        // exposure frames, its debug views and timed frames, F12's views).
+        // It does the frame's work again, at this frame's exposure, but moves
+        // nothing on: no jump, no drift, no weather band, no history claimed
+        // (the march and resolve below write targets of their own).
+        let again = drawn.map { $0.frameIndex == clock.frameIndex && $0.simTime == clock.simTime } ?? false
+        if !again {
+            let jump = lastEpoch.map { abs(clock.simTime - $0 - clock.simDt) > 60 } ?? true
+            if clock.frameIndex <= 1 || jump {
+                advection = CloudAdvection(tile: FrameContext.noiseTile)
+                cirrus = CirrusFrames()
+                detailFrames = CirrusFrames()
+                shadowAnchor = nil
+            }
+            lastEpoch = clock.simTime
         }
-        lastEpoch = clock.simTime
 
         // The weather.
         let (weather, mission) = weatherFor(settings, epoch: f.scene.clock.simTime)
@@ -369,7 +385,7 @@ public final class CloudPass: RenderPass, HalfResEffect {
         // another mission, seed or snapshots or a weight moved by 1/500, else
         // the rows of the nodes made this frame.
         var mapRows: Range<Int>?
-        if !settings.skip.contains("weather") {
+        if !again, !settings.skip.contains("weather") {
             let epoch = f.scene.clock.simTime
             if let w = params.procedural {
                 if nodesKey.map({ $0.seed != w.seed || abs(epoch - $0.epoch) > 3_600 }) ?? true {
@@ -412,13 +428,16 @@ public final class CloudPass: RenderPass, HalfResEffect {
         // heights (the procedural weather's as the map was last made).
         let sample = weather.sample(latitude: frame.latitude, longitude: frame.longitude, at: f.scene.clock.simTime,
                                     state: proceduralState, calibrated: false)
-        let dt = f.scene.clock.paused ? 0 : f.scene.clock.simDt
-        advection.advance(frame, winds: [sample.lowWind ?? sample.surfaceWind, sample.midWind, sample.highWind], dt: dt)
-        cirrus.update(frame, streak: Self.streak(frame, wind: sample.highWind), wind: sample.highWind, dt: dt,
-                      realDt: f.scene.clock.realDt, period: Self.shapePeriod)
-        let lowWind = sample.lowWind ?? sample.surfaceWind
-        detailFrames.update(frame, streak: Self.streak(frame, wind: lowWind), wind: lowWind, dt: dt,
-                            realDt: f.scene.clock.realDt, period: Self.shapePeriod)
+        if !again {
+            let dt = f.scene.clock.paused ? 0 : f.scene.clock.simDt
+            advection.advance(frame, winds: [sample.lowWind ?? sample.surfaceWind, sample.midWind, sample.highWind],
+                              dt: dt)
+            cirrus.update(frame, streak: Self.streak(frame, wind: sample.highWind), wind: sample.highWind, dt: dt,
+                          realDt: f.scene.clock.realDt, period: Self.shapePeriod)
+            let lowWind = sample.lowWind ?? sample.surfaceWind
+            detailFrames.update(frame, streak: Self.streak(frame, wind: lowWind), wind: lowWind, dt: dt,
+                                realDt: f.scene.clock.realDt, period: Self.shapePeriod)
+        }
 
         // The uniforms.
         // The march target: R6's half resolution in the near field, half
@@ -467,38 +486,41 @@ public final class CloudPass: RenderPass, HalfResEffect {
                                                               height: marchSize.height, mipmapped: false)
         depthD.usage = [.shaderRead, .shaderWrite]
         depthD.storageMode = .private
-        // A frame drawn again, the same index and clock (a snapshot's debug
-        // views and timed frames, F12's): the clouds it resolved, read back
-        // as they stand. Marched and blended into their history again they
-        // would move on by one more step of the history's mix (a settled
-        // shot's views and timings would not be its frame), and the pairs,
-        // left unclaimed, are not swapped.
-        if let d = drawn, !clock.temporalReset, d.frameIndex == clock.frameIndex, d.simTime == clock.simTime,
-           let color = f.history.last(Self.historyColor, descriptor: colorD),
-           let depth = f.history.last(Self.historyDepth, descriptor: depthD) {
-            let checker: SIMD2<Float> = [SIMD2(0, 0), SIMD2(1, 1), SIMD2(1, 0), SIMD2(0, 1)][clock.frameIndex & 3]
-            u.checker = SIMD4(checker.x, checker.y, d.report.reprojected ? 1 : 0, Float(clock.frameIndex % 64))
-            resolved = (color, depth)
-            uniformsForSlot = u
-            probeState = ProbeState(frame: f, uniforms: u, air: airTables)
-            f.textures[.cloudLayer] = color
-            f.textures[.cloudDepth] = depth
-            lastFrame = d.report
-            return
-        }
-        guard let hc = f.history.pair(Self.historyColor, descriptor: colorD),
-              let hd = f.history.pair(Self.historyDepth, descriptor: depthD),
-              let freshColor = f.pool.texture(colorD), let freshDepth = f.pool.texture(depthD) else {
-            return
-        }
-        let reprojection = reprojectionMatrix(f, frame: frame)
-        let motion = motionPixels(f, frame: frame, reprojection: reprojection)
-        let historyValid = hc.valid && hd.valid && previous != nil && !f.scene.clock.temporalReset
-        // Far away the surface layer takes every texel: no march, nothing to reproject.
+        // The history: this frame's pair, claimed (swapped when the frame
+        // ends); or, drawn again, the pair as the frame it repeats left it,
+        // unclaimed: its `current` is what that frame read, and the resolve
+        // writes targets of this frame's own, so its texels come out the same
+        // (at this frame's exposure) and the history moves on no further.
+        let history: (color: MTLTexture, depth: MTLTexture, valid: Bool, tag: Double)
+        let out: (color: MTLTexture, depth: MTLTexture)
+        let reprojection: simd_float4x4
+        let motion: Double
+        let historyValid: Bool
+        let reprojects: Bool
         let marches = regimes.far < 0.999 || settings.regime == "march"
-        let reprojects = marches && settings.reprojection && historyValid
-            && CloudReprojection.allowed(warp: f.scene.clock.warp, temporalReset: f.scene.clock.temporalReset,
-                                         motionPixels: motion)
+        if again, let d = drawn, let hc = f.history.peek(Self.historyColor, descriptor: colorD),
+           let hd = f.history.peek(Self.historyDepth, descriptor: depthD),
+           let color = f.pool.texture(colorD), let depth = f.pool.texture(depthD) {
+            history = (hc.current, hd.current, d.historyValid, hc.currentTag)
+            out = (color, depth)
+            reprojection = d.reprojection
+            motion = d.report.motionPixels
+            historyValid = d.historyValid
+            reprojects = d.reprojects
+        } else {
+            guard let hc = f.history.pair(Self.historyColor, descriptor: colorD),
+                  let hd = f.history.pair(Self.historyDepth, descriptor: depthD) else { return }
+            history = (hc.previous, hd.previous, hc.valid && hd.valid, f.history.previousTag(Self.historyColor))
+            out = (hc.current, hd.current)
+            reprojection = reprojectionMatrix(f, frame: frame)
+            motion = motionPixels(f, frame: frame, reprojection: reprojection)
+            historyValid = history.valid && previous != nil && !f.scene.clock.temporalReset
+            // Far away the surface layer takes every texel: no march, nothing to reproject.
+            reprojects = marches && settings.reprojection && historyValid
+                && CloudReprojection.allowed(warp: f.scene.clock.warp, temporalReset: f.scene.clock.temporalReset,
+                                             motionPixels: motion)
+        }
+        guard let freshColor = f.pool.texture(colorD), let freshDepth = f.pool.texture(depthD) else { return }
         let k = f.scene.clock.frameIndex & 3
         let checker: SIMD2<Float> = [SIMD2(0, 0), SIMD2(1, 1), SIMD2(1, 0), SIMD2(0, 1)][k]
         u.checker = SIMD4(checker.x, checker.y, reprojects ? 1 : 0, Float(f.scene.clock.frameIndex % 64))
@@ -521,17 +543,23 @@ public final class CloudPass: RenderPass, HalfResEffect {
             enc.dispatchThreads(threads, threadsPerThreadgroup: MTLSize(width: 8, height: 8, depth: 1))
         }
 
+        // The history's radiance at this frame's pre-exposure: the ratio to
+        // the pre-exposure it was resolved at (its tag), not to the last
+        // frame drawn, which a frame drawn again or a frame without clouds
+        // may have been.
+        let preExposure = Double(f.frame.exposure.x)
         var r = CloudResolveUniforms()
         r.reprojection = reprojection
         r.target = SIMD4(Float(marchSize.width), Float(marchSize.height), Float(scale), Float(scale))
         r.checker = SIMD4(checker.x, checker.y, reprojects ? 1 : 0, marches ? (historyValid ? 1 : 0) : -1)
+        r.history = SIMD4(history.tag > 0 ? Float(preExposure / history.tag) : 1, 0, 0, 0)
         enc.setComputePipelineState(p.resolve)
         enc.setTexture(freshColor, index: 10)
         enc.setTexture(freshDepth, index: 11)
-        enc.setTexture(hc.previous, index: 12)
-        enc.setTexture(hd.previous, index: 13)
-        enc.setTexture(hc.current, index: 14)
-        enc.setTexture(hd.current, index: 15)
+        enc.setTexture(history.color, index: 12)
+        enc.setTexture(history.depth, index: 13)
+        enc.setTexture(out.color, index: 14)
+        enc.setTexture(out.depth, index: 15)
         enc.setBytes(&r, length: MemoryLayout<CloudResolveUniforms>.stride, index: 1)
         if !settings.skip.contains("resolve") {
             enc.dispatchThreads(MTLSize(width: marchSize.width, height: marchSize.height, depth: 1),
@@ -540,16 +568,23 @@ public final class CloudPass: RenderPass, HalfResEffect {
         enc.endEncoding()
         breakComputeMerge(f)
 
-        resolved = (hc.current, hd.current)
+        resolved = out
         uniformsForSlot = u
         probeState = ProbeState(frame: f, uniforms: u, air: airTables)
-        f.textures[.cloudLayer] = hc.current
-        f.textures[.cloudDepth] = hd.current
+        f.textures[.cloudLayer] = out.color
+        f.textures[.cloudDepth] = out.depth
+        if again, let d = drawn {
+            lastFrame = d.report
+            return
+        }
+        f.history.setCurrentTag(Self.historyColor, preExposure)
+        f.history.setCurrentTag(Self.historyDepth, preExposure)
         previous = frame
         lastFrame = Report(drawn: true, reprojected: reprojects, motionPixels: motion, mission: mission,
                            regimes: regimes, frame: frame, epoch: f.scene.clock.simTime, sunLight: u.sunLight,
                            scale: scale, footprintAngle: Double(u.footprint.x))
-        drawn = (clock.frameIndex, clock.simTime, lastFrame)
+        drawn = Drawn(frameIndex: clock.frameIndex, simTime: clock.simTime, report: lastFrame, reprojection: reprojection,
+                      historyValid: historyValid, reprojects: reprojects)
     }
 
     /// A one-command blit on each side of the march's encoder. Apple's driver
@@ -1191,6 +1226,9 @@ struct CloudResolveUniforms {
     var reprojection = matrix_identity_float4x4
     var target = SIMD4<Float>.zero
     var checker = SIMD4<Float>.zero
+    /// x: the history's radiance to this frame's pre-exposure (the ratio of
+    /// this frame's to the one it was resolved at).
+    var history = SIMD4<Float>(1, 0, 0, 0)
 }
 
 /// Swift mirror of CloudShaders' `CloudProbeView` (R3's probe faces).

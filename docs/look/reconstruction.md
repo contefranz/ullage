@@ -114,9 +114,19 @@ its own:
 
 0, the default, keeps the first frame as before.
 
-A shot's debug views and timed frames draw its frame again: the same index
-and clock. C2's clouds read that frame's resolved texels back
-(`HistoryTargets.last`, the pair left unswapped) instead of blending them
-into their history once more, so a settled shot's views and timings are its
-frame. P3's effects have the same rule (`EffectSession`'s `again`). A pass
-that keeps history must do likewise.
+**Frames drawn again.** Snapshots draw a frame again with the same index and
+clock: the exposure loop, the debug views, the timed frames, and F12 in the
+app. On such a redraw, C2's clouds:
+- do the frame's work again at the current exposure: the weather and shadow
+  maps, the same quarter's march, and the resolve, so the timings keep the
+  march;
+- move nothing on: no drift, no weather band, no jump;
+- resolve against the history the frame read (`HistoryTargets.peek`, the
+  pair left unclaimed and unswapped) into targets of their own, so the
+  texels match the frame's and the history moves on no further;
+- rescale the history by the ratio of the current pre-exposure to the one
+  it was resolved at (each history texture is tagged with that), rather than
+  to the last frame drawn.
+
+P3's effects follow the same rule (`EffectSession`'s `again`). Any pass
+that keeps history must too.
