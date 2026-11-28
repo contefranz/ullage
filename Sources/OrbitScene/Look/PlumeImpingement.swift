@@ -23,11 +23,12 @@ import OrbitCore
 /// the share of each jet's cross-section at the deck that lands outside
 /// the opening's square.
 ///
-/// The seam with the launch effects: this reads the scene's LC-39A site and
-/// `LC39A`'s opening, nothing of the launch track's. P4's `PadExhaust`
-/// shares its smoke between the deck and the trench by its own model (the
-/// five plumes as one widening envelope against the opening's area), not
-/// by these per-jet shares.
+/// The seam with the launch effects: one model of where the exhaust meets
+/// the pad (look round 2, LR4). P4's `PadExhaust` shares the ground cloud's
+/// exhaust between the deck and the trench by these per-jet shares, and
+/// this wall jet takes PadExhaust's reach: the jets' penetration as a
+/// fountain (`PadExhaust.reaching`), all of the flow while the exits are
+/// below it.
 public struct PlumeImpingement: Equatable {
     /// The deck: a camera-relative point on it (the opening's centre) and
     /// its unit normal (up).
@@ -91,14 +92,17 @@ public struct PlumeImpingement: Equatable {
         return outside / total
     }
 
-    /// `m` meeting this deck: its share and reach set (`deckShare`, the jet
-    /// out to its length or one and a half flame lengths, whichever is
-    /// less); nil where it does not meet it.
+    /// `m` meeting this deck: its share and reach set (`deckShare`, the jet's
+    /// cross-section outside the opening times the share of its flow that
+    /// reaches the pad, `PadExhaust.reaching`; the jet out to its length or
+    /// one and a half flame lengths, whichever is less); nil where it does
+    /// not meet it.
     public func meeting(_ m: PlumeMember) -> PlumeImpingement? {
         guard let h = distance(m), h < m.length else { return nil }
         var i = self
         let hit = m.exit + m.axis * h
         i.deckShare = shareOutside(point: hit, radius: m.radius(atX: h))
+            * PadExhaust.reaching(height: h, flowFraction: max(m.flowFraction, 1e-3))
         let flame = m.flameLength > 0 ? 1.5 * m.flameLength : m.length
         i.reach = max(0, min(m.length, flame) - h)
         guard i.deckShare > 1e-3, i.reach > 0 else { return nil }

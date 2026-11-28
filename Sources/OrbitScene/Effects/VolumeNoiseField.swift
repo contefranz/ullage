@@ -36,7 +36,12 @@ public enum VolumeNoiseField {
 
     /// Texel (x, y, z)'s channel 0 or 1, in 0...1.
     public static func value(_ x: Int, _ y: Int, _ z: Int, channel: Int) -> Double {
-        let p = (Double(x) + 0.5, Double(y) + 0.5, Double(z) + 0.5)
+        value(at: (Double(x) + 0.5, Double(y) + 0.5, Double(z) + 0.5), channel: channel)
+    }
+
+    /// The field the texels sample, at `p` in texels (continuous: what the
+    /// texture holds at its texels' centres, without their interpolation).
+    public static func value(at p: (Double, Double, Double), channel: Int) -> Double {
         let seed = 0x2545_F491 &+ UInt32(channel) &* 0x9E37_79B9
         func at(_ cell: Double) -> (Double, Double, Double) { (p.0 / cell, p.1 / cell, p.2 / cell) }
         let n = 0.6 * gradientNoise(at(16), period: 8, seed: seed) + 0.3 * gradientNoise(at(8), period: 16, seed: seed &+ 1)

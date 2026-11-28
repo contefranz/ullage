@@ -149,23 +149,32 @@ final class LaunchEffectsTests: XCTestCase {
     }
 
     /// Down the opening while the vehicle stands on the pad; onto the deck
-    /// as the envelope outgrows it; faded out by 100-200 m of climb.
+    /// as the jets outgrow it (P2's per-jet geometry); all of it reaching
+    /// the pad until the climb nears the jets' fountain penetration (Turner
+    /// 1966: about 760 m at the rated flow), none from its initial height.
     func testPadExhaustShares() {
         let pad = PadExhaust.shares(exitHeight: PadExhaust.exitHeightOnPad)
         XCTAssertEqual(pad.trench, 1, accuracy: 1e-12)
         XCTAssertEqual(pad.deck, 0, accuracy: 1e-12)
         var last = pad
-        for climb in stride(from: 5.0, through: 500, by: 5) {
+        for climb in stride(from: 5.0, through: 1_500, by: 5) {
             let s = PadExhaust.shares(exitHeight: PadExhaust.exitHeightOnPad + climb)
             XCTAssertLessThanOrEqual(s.total, last.total + 1e-12, "fades with climb")
             XCTAssertLessThanOrEqual(s.trench, last.trench + 1e-12)
             XCTAssert((0...1).contains(s.trench) && (0...1).contains(s.deck))
             last = s
         }
-        XCTAssertGreaterThan(PadExhaust.shares(exitHeight: 30).deck, 0.2, "the deck takes a share at 30 m")
-        XCTAssertLessThan(PadExhaust.shares(exitHeight: 100).total, 0.3)
-        XCTAssertLessThan(PadExhaust.shares(exitHeight: 200).total, 0.06)
-        XCTAssertEqual(PadExhaust.shares(exitHeight: 500).total, 0)
+        // P2's members at that height meet the deck with the same share.
+        for h in [20.0, 40, 65] {
+            let (members, deck) = GroundCloudFieldTests.p2(climb: h - PadExhaust.exitHeightOnPad)
+            let p2 = members.reduce(0.0) { $0 + (deck.meeting($1)?.deckShare ?? 0) } / Double(members.count)
+            XCTAssertEqual(PadExhaust.shares(exitHeight: h).deck, p2, accuracy: 1e-9, "one model at \(h) m")
+        }
+        XCTAssertEqual(PadExhaust.shares(exitHeight: 20).deck, 0, accuracy: 1e-9, "the jets still inside the opening")
+        XCTAssertGreaterThan(PadExhaust.shares(exitHeight: 65).deck, 0.2, "the deck takes a share at 65 m")
+        let zm = PadExhaust.penetration()
+        XCTAssertEqual(PadExhaust.shares(exitHeight: 0.99 * zm).total, 1, accuracy: 1e-12)
+        XCTAssertEqual(PadExhaust.shares(exitHeight: PadExhaust.initialPenetration * zm).total, 0, accuracy: 1e-12)
         XCTAssertEqual(PadExhaust.trenchExits.map(\.direction.x), [1, -1], "north and south")
     }
 

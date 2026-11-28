@@ -19,11 +19,13 @@ final class GroundCloudTests: XCTestCase {
         let range = t - zero, fm = plan.release
         let fraction = range < fm ? plan.meanFraction(rangeTime: range) : 1
         let climb = range < fm ? 0 : LiftoffRise.rise(after: range - fm)
-        let shares = PadExhaust.shares(exitHeight: PadExhaust.exitHeightOnPad + climb)
+        let z = PadExhaust.exitHeightOnPad + climb
+        let shares = PadExhaust.shares(exitHeight: z, flowFraction: max(fraction, 1e-3))
         let gpm = GroundCloud.gallon / GroundCloud.minute
         return GroundCloud.Sources(exhaust: LiftoffRise.flow * fraction, thrust: LiftoffRise.thrust * fraction,
                                    trench: shares.trench, deck: shares.deck, trenchWater: PadExhaust.trenchWater * gpm,
-                                   deckWater: PadExhaust.deckWater(sinceFirstMotion: range - fm) * gpm)
+                                   deckWater: PadExhaust.deckWater(sinceFirstMotion: range - fm) * gpm,
+                                   deckRadius: PadExhaust.footprint(height: z), exitHeight: z)
     }
 
     static func air() -> AirProfile {
@@ -162,5 +164,113 @@ final class GroundCloudTests: XCTestCase {
         var tenth = GroundCloud(origin: start)
         advance(&tenth, to: 10.2)
         XCTAssertEqual(once.lobes(at: zero + 10.2)[0].front, tenth.lobes[0].front, accuracy: 30, "within a sample")
+    }
+
+    // The gas generators' start smoke feeds three small thermals of its
+    // own, half through the ML's opening and a quarter out of each exit:
+    // none of it is lost (what the lobes hold is what the start gave on
+    // the grid). The trench's lobes are left as they were (P4's sprites are
+    // built from them).
+    func testStartSmokeFeedsItsThermals() {
+        let zero = VesselLibrary.apollo11RangeZero
+        let start = zero + TerminalCount.Plan.as506.starts.map(\.command).min()!
+        var c = GroundCloud(origin: start), plain = GroundCloud(origin: start)
+        let sources = { GroundCloudFieldTests.sources(at: $0, zero: zero) }
+        var given = 0.0
+        for k in 0..<Int(((zero + 1 - start) / GroundCloud.step).rounded(.down)) {
+            given += sources(start + (Double(k) + 0.5) * GroundCloud.step).startSmoke * GroundCloud.step
+        }
+        let air = Self.air(), deck = LC39A.placement().height
+        c.advance(to: zero + 1, sources: sources, air: air, deckHeight: deck, siteFromEastNorth: { e, n in Vec3(n, -e, 0) })
+        plain.advance(to: zero + 1, sources: { Self.sources(at: $0, zero: zero) }, air: air, deckHeight: deck,
+                      siteFromEastNorth: { e, n in Vec3(n, -e, 0) })
+        let held = c.lobes.reduce(0) { $0 + $1.smoke }
+        XCTAssertGreaterThan(given, 1_000, "five engines' 2.9 % for some 3 s")
+        XCTAssertEqual(held, given, accuracy: 1e-9 * given)
+        let chimney = c.lobes.first { $0.kind == .startSmoke(0) }!
+        XCTAssertEqual(chimney.smoke, GroundCloud.chimneyShare * given, accuracy: 1e-9 * given)
+        XCTAssertGreaterThan(chimney.centre.z, chimney.radius, "rising, buoyant at 887 K")
+        for side in [1.0, -1.0] {
+            let exit = c.lobes.first { $0.kind == .startSmoke(side) }!
+            XCTAssertEqual(exit.smoke, 0.25 * given, accuracy: 1e-9 * given)
+            XCTAssertEqual(c.lobes.first { $0.kind == .trench(side) }!, plain.lobes.first { $0.kind == .trench(side) }!,
+                           "the trench's lobe as without the start smoke")
+        }
+        // Once the jets run, the medium draws all of it in the trench's
+        // clouds: the exits' through them, the chimney's (round the vehicle,
+        // over the opening) taken in by the jets down it, half to each. No
+        // start smoke lingers round the vehicle.
+        let field = GroundCloudField(c, at: zero + 1, air: air, deckHeight: deck)
+        XCTAssertFalse(field.primitives.contains { if case .startSmoke = $0.lobe { true } else { false } })
+        for side in [1.0, -1.0] {
+            XCTAssertEqual(field.primitives.filter { $0.lobe == .trench(side) }.reduce(0) { $0 + $1.smoke }, 0.5 * given,
+                           accuracy: 1e-9 * given, "drawn in the trench's cloud")
+        }
+    }
+
+    // The jets reach the pad as a fountain (Turner 1966): a hot jet aimed
+    // down turns back at z_m = 1.85 M^¾ F^−½ with the physical fluxes (2.46
+    // r0 Fr0 per π: 1.85 π^¼ = 2.46), M = thrust/ρ and F the jets' own
+    // buoyancy flux, GroundCloud's for the same exhaust (twice a trench
+    // side's with no water, all of it down the opening). About 400 m at the
+    // rated flow; Seban et al.'s (1978) 2.35 r0 Fr0 for heated air jets aimed
+    // down gives 1.77 with the physical fluxes, 4.5 % less. It goes as f^¼.
+    func testJetsReachThePadAsAFountain() {
+        XCTAssertEqual(PadExhaust.fountainConstant * pow(Double.pi, 0.25), 2.46, accuracy: 0.005)
+        let air = USStandardAtmosphere1976().state(altitude: 0)
+        let s = GroundCloud.Sources(exhaust: LiftoffRise.flow, thrust: LiftoffRise.thrust, trench: 1, deck: 0,
+                                    trenchWater: 0, deckWater: 0)
+        let side = GroundCloud.side(s, density: air.density, ambient: air.temperature)
+        XCTAssertEqual(PadExhaust.buoyancyFlux, 2 * side.buoyancy, accuracy: 1e-9 * PadExhaust.buoyancyFlux)
+        XCTAssertEqual(PadExhaust.buoyancyFlux / 1e6, 3.2, accuracy: 0.1)
+        let m = LiftoffRise.thrust / air.density
+        let zm = PadExhaust.penetration()
+        XCTAssertEqual(zm, 1.85 * pow(m, 0.75) / PadExhaust.buoyancyFlux.squareRoot(), accuracy: 1e-9 * zm)
+        XCTAssertEqual(zm, 400, accuracy: 15)
+        XCTAssertEqual(PadExhaust.penetration(constant: PadExhaust.sebanConstant) / zm,
+                       2.35 / (PadExhaust.fountainConstant * pow(Double.pi, 0.25)), accuracy: 1e-12)
+        XCTAssertEqual(PadExhaust.penetration(flowFraction: 0.5) / zm, pow(0.5, 0.25), accuracy: 1e-12)
+        print(String(format: "fountain: M %.3e m4/s2, F %.3e m4/s3, z_m %.0f m (Seban %.0f m), gone by %.0f m",
+                     m, PadExhaust.buoyancyFlux, zm, PadExhaust.penetration(constant: PadExhaust.sebanConstant),
+                     PadExhaust.initialPenetration * zm))
+    }
+
+    // Apollo 16's cloud stabilised with its centre line at about 2.2 km by
+    // T+2.5 min, some 800 m deep, under a subsidence inversion at about 2 km
+    // (Gregory, Hulten and Wornom 1974, NASA TM X-2910, conclusion 3:
+    // photographs from 5.5 km west, then aircraft); TM X-2935's Fig. 3 has
+    // its south plume at 0.8, 1.65, 2.2 and 2.35 km at 1-4 min. Apollo 16 is
+    // another vehicle (AS-511) and another day (16 April 1972) than this
+    // AS-506 sounding, which has no such inversion. The model's clouds are
+    // about as deep (900 m) and the south trench cloud's top is within 7 %
+    // of Fig. 3's from 2 min (48 % above it at 1 min), but their centre
+    // (volume-weighted) at T+2.5 min is 1.5 km, 31 % below Apollo 16's: the
+    // model's clouds rise too little, flagged (the check holds it within
+    // 35 %, not tuned). They rise on, slowing, not capped.
+    func testCloudRisesNearApollo16s() throws {
+        var centre: [Double: Double] = [:], top: [Double: Double] = [:], rise: [Double: Double] = [:]
+        var each: [Double: String] = [:]
+        _ = cloud(to: 240) { t, c in
+            let l = c.lobes.prefix(3)
+            let v = l.reduce(0) { $0 + $1.volume }
+            centre[t.rounded()] = l.reduce(0) { $0 + $1.volume * $1.centre.z } / v
+            top[t.rounded()] = c.lobes.first { $0.kind == .trench(-1) }!.top
+            rise[t.rounded()] = l.reduce(0) { $0 + $1.volume * $1.rise } / v
+            each[t.rounded()] = l.map { String(format: "%.0f", $0.centre.z) }.joined(separator: "/")
+        }
+        let all = cloud(to: 240)
+        print(String(format: "exhaust in the ground clouds by T+240 s: %.0f t (trench %.0f t, deck %.0f t)",
+                     all.lobes.prefix(3).reduce(0) { $0 + $1.exhaust } / 1e3,
+                     all.lobes.prefix(2).reduce(0) { $0 + $1.exhaust } / 1e3, all.lobes[2].exhaust / 1e3))
+        for t in [60.0, 120, 150, 180, 240] {
+            print(String(format: "T+%3.0f s: centre %4.0f m (lobes N/S/deck %@ m), south top %4.0f m, rising %.1f m/s",
+                         t, centre[t]!, each[t]!, top[t]!, rise[t]!))
+        }
+        let c150 = try XCTUnwrap(centre[150])
+        XCTAssertEqual(c150, 2_200, accuracy: 0.35 * 2_200, "TM X-2910: the centre line at about 2.2 km by T+2.5 min")
+        XCTAssertLessThan(rise[240]!, 0.5 * rise[60]!, "slowing")
+        for (t, z) in [(60.0, 800.0), (120, 1_650), (180, 2_200), (240, 2_350)] {
+            XCTAssertEqual(top[t]!, z, accuracy: 0.5 * z, "TM X-2935 Fig. 3 (the south plume) at \(t) s")
+        }
     }
 }

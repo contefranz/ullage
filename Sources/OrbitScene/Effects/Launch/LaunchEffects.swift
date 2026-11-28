@@ -2,7 +2,7 @@ import Foundation
 import OrbitCore
 
 /// Track P4's launch effects, one producer for P3's particles: the pad's
-/// exhaust and deluge steam, the cold vapour off the LOX tank and out of the
+/// exhaust and its clouds, the cold vapour off the LOX tank and out of the
 /// umbilicals, the frost shed on FER Table 20-1's schedule, and the exhaust
 /// trail (`ExhaustTrail`). Everything lives in one body-fixed anchor at
 /// LC-39A's deck: the pad's clouds stay for minutes, the frost and the trail
@@ -28,7 +28,7 @@ public final class LaunchEffects: EffectProducer {
     public let name = "P4 launch effects"
 
     public struct Materials {
-        public var padExhaust, deluge, coldVapour, iceFlake, iceSlab: ParticleMaterialID
+        public var padExhaust, coldVapour, iceFlake, iceSlab: ParticleMaterialID
         public var trail: [ParticleMaterialID]
         public var groundCloud, startSmoke, ignitionFlash: ParticleMaterialID
     }
@@ -62,7 +62,6 @@ public final class LaunchEffects: EffectProducer {
 
     public func registerMaterials(_ table: ParticleMaterialTable) {
         materials = Materials(padExhaust: table.register(LaunchMaterials.padExhaust),
-                              deluge: table.register(LaunchMaterials.deluge),
                               coldVapour: table.register(LaunchMaterials.coldVapour),
                               iceFlake: table.register(LaunchMaterials.iceFlake),
                               iceSlab: table.register(LaunchMaterials.iceSlab),
@@ -230,7 +229,8 @@ public final class LaunchEffects: EffectProducer {
         let climb: Double
         /// The five F-1s' flow over their full flow, from the scene's emitters.
         let flow: Double
-        let clusterRadius: Double
+        /// The exits about their centroid, horizontal (`PadExhaust.pattern`).
+        let pattern: [Vec3]
         /// Where P2's plume hands the exhaust over to the trail, slowed to
         /// the air (`PlumeAirflow.trailHandover`): its distance along the
         /// nozzles' axis and its point from their exits, world axes.
@@ -321,7 +321,7 @@ public final class LaunchEffects: EffectProducer {
         let own = scene.emitters.filter { $0.vesselID == v.id }
         return Vehicle(vessel: v, exits: exits, exitByEngine: byEngine, exitHeight: height,
                        climb: max(0, height - PadExhaust.exitHeightOnPad), flow: flow,
-                       clusterRadius: PadExhaust.clusterRadius(exits: exits),
+                       pattern: PadExhaust.pattern(exits: exits.map(\.centre)),
                        trailHead: PlumeAirflow.trailHandover(own, settings: plumes),
                        airspeed: own.first { $0.name.hasPrefix("S-IC engine") }?.relativeWind.length ?? 0)
     }
@@ -466,13 +466,31 @@ public final class LaunchEffects: EffectProducer {
     /// deluge's water.
     func sources(_ c: Context, _ t: Epoch, previousClimb: Double?) -> GroundCloud.Sources {
         let fraction = flow(c, t)
-        let shares = PadExhaust.shares(exitHeight: PadExhaust.exitHeightOnPad + climb(c, t, previous: previousClimb),
-                                       radius: c.vehicle.clusterRadius)
+        let z = PadExhaust.exitHeightOnPad + climb(c, t, previous: previousClimb)
+        let shares = PadExhaust.shares(exitHeight: z, pattern: c.vehicle.pattern, flowFraction: max(fraction, 1e-3))
         let gpm = GroundCloud.gallon / GroundCloud.minute
         return GroundCloud.Sources(exhaust: LiftoffRise.flow * fraction, thrust: LiftoffRise.thrust * fraction,
                                    trench: shares.trench, deck: shares.deck,
                                    trenchWater: PadExhaust.trenchWater * gpm,
-                                   deckWater: PadExhaust.deckWater(sinceFirstMotion: t - c.firstMotion) * gpm)
+                                   deckWater: PadExhaust.deckWater(sinceFirstMotion: t - c.firstMotion) * gpm,
+                                   startSmoke: Self.startSmokeFlow(c.ignition, at: t),
+                                   deckRadius: PadExhaust.footprint(height: z, pattern: c.vehicle.pattern),
+                                   exitHeight: z)
+    }
+
+    /// The gas generators' turbine exhaust at `t`, kg/s: 2.9 % of an F-1's
+    /// rated flow (`ApolloExhaust.f1`'s film) from each engine's start
+    /// command to its ignition, or to where it was lost before it.
+    static func startSmokeFlow(_ ignition: Ignition, at t: Epoch) -> Double {
+        guard let film = ApolloExhaust.f1.spec.film else { return 0 }
+        let each = film.massFraction * ApolloExhaust.f1.ratedFlow
+        var n = 0
+        for i in ignition.plan.starts.indices {
+            guard let s = ignition.start(i) else { continue }
+            let end = ignition.stop(i).map { min($0, s.ignition) } ?? s.ignition
+            if t >= s.command, t < end { n += 1 }
+        }
+        return Double(n) * each
     }
 
     /// The air at the deck: its density and temperature.
@@ -538,8 +556,7 @@ public final class LaunchEffects: EffectProducer {
             let s = sources(ctx, t, previousClimb: previousClimb)
             guard s.deck > 0, s.exhaust > 0 else { return (0, 0, 0, air.temperature) }
             let z = PadExhaust.exitHeightOnPad + climb(ctx, t, previous: previousClimb)
-            let r0 = max(PadExhaust.envelopeRadius(atDeckFrom: z, radius: ctx.vehicle.clusterRadius),
-                         PadExhaust.openingHalf)
+            let r0 = PadExhaust.footprint(height: z, pattern: ctx.vehicle.pattern)
             let j = Self.deckJet(s, from: r0, density: air.rho, ambient: air.temperature)
             return (j.speed, j.rate, r0, j.temperature)
         }
@@ -632,7 +649,10 @@ public final class LaunchEffects: EffectProducer {
             return (share * Self.cloudFill / pow(Self.cloudEddy, 3), stem, growth, feed)
         }
         func births(_ count: Double, _ l: ClosedRange<Double>) -> Double { 2 * count / (l.lowerBound + l.upperBound) }
+        // The start smoke's own thermals stay the medium's (`GroundCloudField`):
+        // its sprites are `startSmoke`'s.
         for k in state.lobes.indices {
+            if case .startSmoke = state.lobes[k].kind { continue }
             // Each slice from the lobe as it was then (its last sample on a
             // rebuilt history), placed on to now along its motion then.
             func lobe(_ s: Epoch, _ e: Epoch) -> (time: Epoch, lobe: GroundCloud.Lobe) {
@@ -1003,7 +1023,6 @@ public enum ParticleLifetimes {
     public static let startSmoke = 6.0...10.0
     public static let ignitionFlash = 0.2...0.35
     public static let stem = 8.0...14.0
-    public static let deluge = 100.0...180.0
     public static let vapour = 6.0...12.0
     public static let flake = 25.0...45.0
     public static let slab = 40.0...90.0

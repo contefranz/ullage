@@ -35,14 +35,33 @@ import OrbitCore
 ///   (the length over which a buoyant jet forgets its momentum).
 /// - The deck: once the plume outgrows the ML's opening, what strikes the
 ///   deck turns into a radial wall jet with all its momentum (a jet on a
-///   plate), at the same law from the pad's axis: a third cloud, over the
-///   pad, fed as the vehicle climbs.
+///   plate), from the pad's axis: a third cloud, over the pad, fed as the
+///   vehicle climbs. Its layer is P2's, half-thickness δ = R(h)/2 + 0.087 ρ
+///   (`PadExhaust.wallThickness`), at the speed that keeps its momentum in
+///   it (`GroundCloudField.wallSpeed`); its front runs at half that speed,
+///   and its cloud is fed with the layer's own volume flux, 2πρδu0 ∫p.
 /// - The clouds: one Morton-Taylor-Turner (1956) thermal per jet, fed at
 ///   its jet's end with the jet's volume and buoyancy (the deck's centred
 ///   on the pad, its wall jet all round it): dV/dt = 4π R² α |w| +
 ///   Q_jet, d(V w)/dt = B, dB/dt = F − N² V w, α the thermal's 0.25 and N²
 ///   the sounding's stability, drifting on the wind at its height. Resting
 ///   on the ground until it lifts: its centre no lower than its radius.
+///
+/// - What each cloud carries, for its medium (`GroundCloudField`): the
+///   exhaust, the water it boiled, the soot (`LaunchCloudOptics.sootYield`),
+///   the air it entrained and that air's vapour (the launch day's humidity,
+///   `LaunchHumidity`: TM X-64796's surface value, July's RRA aloft), and
+///   the jet's fluxes at the last step, so that the medium is built from
+///   the state alone.
+/// - The F-1s' start (`startSmoke`): from each engine's start command to
+///   its ignition its gas generator's fuel-rich turbine exhaust, 2.9 % of its
+///   rated flow at 887 K (`ApolloExhaust.f1`'s film), falls into the trench
+///   and leaves it: half up through the ML's opening round the vehicle, a
+///   quarter out of each exit (`LaunchEffects`'s split, L). Each share feeds
+///   a small thermal of its own, buoyant with its heat. All three are
+///   integrated apart throughout, so that the trench's lobes (and P4's
+///   sprites) are as they were; the medium takes them into the trench's
+///   clouds as the jets run (`GroundCloudField.sweptBy`).
 ///
 /// Apollo 10's and 16's clouds are the plausibility check, not a fit
 /// (NASA CR-61326, Fig. E-9; TM X-2935, Figs. 3 and 4): two lobes from the
@@ -90,15 +109,28 @@ public struct GroundCloud: Equatable {
     public static let gallon = 3.785411784, minute = 60.0
     /// The cloud's grid step, s.
     public static let step = 0.05
+    /// The start smoke's share up through the ML's opening (the rest out of
+    /// the two exits, half each): `LaunchEffects`'s split (L).
+    public static let chimneyShare = 0.5
+    /// The gas generators' turbine exhaust: its temperature after the heat
+    /// exchanger (`ApolloExhaust.f1`'s film, M) and its soot, 2 % of it (L,
+    /// `LaunchMaterials.generatorSootYield`).
+    public static var smokeTemperature: Double { ApolloExhaust.f1.spec.film?.temperature ?? 887 }
+    public static let smokeSootYield = 0.02
+    /// The F-1 exhaust's specific heat at its exit's γ and molar mass
+    /// (CEA), J/(kg K): the start smoke's too (L, the same gas less burnt).
+    public static var exhaustSpecificHeat: Double {
+        let spec = ApolloExhaust.f1.spec
+        let r = 8.314462618 / spec.molarMass
+        return spec.exitGamma * r / (spec.exitGamma - 1)
+    }
 
     /// The heat a kilogram of F-1 exhaust brings to the air at `ambient` K,
     /// J/kg: its stagnation enthalpy above the air's and its afterburning.
     public static func exhaustHeat(ambient: Double) -> Double {
         let spec = ApolloExhaust.f1.spec
-        let r = 8.314462618 / spec.molarMass
-        let cp = spec.exitGamma * r / (spec.exitGamma - 1)
         let burning = (exhaustCO * combustionCO + exhaustH2 * combustionH2) / spec.molarMass
-        return cp * (spec.chamberTemperature - ambient) + burning
+        return exhaustSpecificHeat * (spec.chamberTemperature - ambient) + burning
     }
 
     // MARK: Sources
@@ -114,30 +146,66 @@ public struct GroundCloud: Equatable {
         /// The deluge's water on the exhaust, kg/s: the trench's and the deck's.
         public var trenchWater: Double
         public var deckWater: Double
+        /// The gas generators' turbine exhaust of the engines starting, kg/s
+        /// (each from its start command to its ignition).
+        public var startSmoke: Double
+        /// Where the deck's wall jet starts, m from the pad's axis: the jets'
+        /// footprint on the deck (`PadExhaust.footprint`), at least the ML's
+        /// opening.
+        public var deckRadius: Double
+        /// The exits' height above the deck (site z): the wall jet's
+        /// thickness follows the jets' radius there (`PadExhaust.wallThickness`).
+        public var exitHeight: Double
 
         public init(exhaust: Double, thrust: Double, trench: Double, deck: Double, trenchWater: Double,
-                    deckWater: Double) {
+                    deckWater: Double, startSmoke: Double = 0, deckRadius: Double = PadExhaust.openingHalf,
+                    exitHeight: Double = PadExhaust.exitHeightOnPad) {
             self.exhaust = exhaust
             self.thrust = thrust
             self.trench = trench
             self.deck = deck
             self.trenchWater = trenchWater
             self.deckWater = deckWater
+            self.startSmoke = startSmoke
+            self.deckRadius = deckRadius
+            self.exitHeight = exitHeight
         }
 
         public static let none = Sources(exhaust: 0, thrust: 0, trench: 0, deck: 0, trenchWater: 0, deckWater: 0)
     }
 
-    /// One cloud's fluxes from `s`, in air of density `rho` at `ambient` K:
-    /// its jet's kinematic momentum flux (m⁴/s²), its buoyancy flux (m⁴/s³)
-    /// and heat (W), the exhaust it carries and the water it boils (kg/s).
+    /// What a cloud is fed a second: its jet's kinematic momentum flux
+    /// (m⁴/s²), its buoyancy flux (m⁴/s³) and heat (W); the exhaust, the
+    /// water boiled, the start smoke and the soot it carries (kg/s); and the
+    /// volume of hot gas it brings with no jet (the start smoke's, m³/s).
+    public struct Flux: Equatable {
+        public var momentum = 0.0
+        public var buoyancy = 0.0
+        public var heat = 0.0
+        public var exhaust = 0.0
+        public var water = 0.0
+        public var smoke = 0.0
+        public var soot = 0.0
+        public var volume = 0.0
+        /// The exits' height above the deck then (site z; `Sources.exitHeight`).
+        public var exitHeight = PadExhaust.exitHeightOnPad
+
+        public init() {}
+
+        public static let none = Flux()
+    }
+
+    /// One cloud's fluxes from `s`, in air of density `rho` at `ambient` K.
     /// Each trench jet takes half the trench's share and its water; the deck
     /// lobe the deck's share, the plume striking the deck turned into a
     /// radial wall jet with all its momentum (a jet on a plate, inviscid),
     /// and the deck's water in that share. The water boils as far as the
-    /// heat goes.
-    public static func fluxes(_ s: Sources, lobe: Lobe.Kind, density rho: Double, ambient: Double)
-        -> (momentum: Double, buoyancy: Double, heat: Double, exhaust: Double, water: Double) {
+    /// heat goes. The soot is `LaunchCloudOptics.sootYield` of the exhaust.
+    /// A start smoke lobe takes its share of the gas generators' gas, hot at
+    /// `smokeTemperature` (its heat c_p ΔT above the air's, at the air's
+    /// pressure and the air's molar mass: L), with no momentum.
+    public static func fluxes(_ s: Sources, lobe: Lobe.Kind, density rho: Double, ambient: Double) -> Flux {
+        var f = Flux()
         let (share, water, momentum): (Double, Double, Double)
         switch lobe {
         case .trench:
@@ -148,19 +216,36 @@ public struct GroundCloud: Equatable {
             share = s.deck
             water = s.deckWater * min(1, s.deck)
             momentum = s.thrust * s.deck / rho
+        case .startSmoke(let outlet):
+            let gas = s.startSmoke * (outlet == 0 ? chimneyShare : 0.5 * (1 - chimneyShare))
+            guard gas > 0 else { return f }
+            let t = smokeTemperature
+            f.smoke = gas
+            f.soot = smokeSootYield * gas
+            f.heat = gas * exhaustSpecificHeat * max(0, t - ambient)
+            f.buoyancy = 9.80665 * f.heat / (rho * airHeat * ambient)
+            f.volume = gas / (rho * ambient / t)
+            return f
         }
-        guard share > 0, s.exhaust > 0 else { return (0, 0, 0, 0, 0) }
+        guard share > 0, s.exhaust > 0 else { return f }
         let exhaust = s.exhaust * share
         let heat = exhaust * exhaustHeat(ambient: ambient) * (1 - radiantFraction)
         let perKg = waterHeat * max(0, 373.15 - ambient) + waterLatent
-        let boiled = min(water, heat / perKg)
-        let left = heat - boiled * perKg
-        return (momentum, 9.80665 * left / (rho * airHeat * ambient), left, exhaust, boiled)
+        // Either the water takes all the heat, or all the water boils:
+        // explicitly, so that no rounding residue is left as heat.
+        let boiled = heat <= water * perKg ? heat / perKg : water
+        let left = heat <= water * perKg ? 0 : heat - water * perKg
+        f.momentum = momentum
+        f.buoyancy = 9.80665 * left / (rho * airHeat * ambient)
+        f.heat = left
+        f.exhaust = exhaust
+        f.water = boiled
+        f.soot = LaunchCloudOptics.sootYield * exhaust
+        return f
     }
 
     /// A trench jet's fluxes (`fluxes(_:lobe:density:ambient:)`).
-    public static func side(_ s: Sources, density rho: Double, ambient: Double)
-        -> (momentum: Double, buoyancy: Double, heat: Double, exhaust: Double, water: Double) {
+    public static func side(_ s: Sources, density rho: Double, ambient: Double) -> Flux {
         fluxes(s, lobe: .trench(1), density: rho, ambient: ambient)
     }
 
@@ -174,6 +259,9 @@ public struct GroundCloud: Equatable {
             /// The deck's radial wall jet, under the vehicle once its plume
             /// outgrows the ML's opening.
             case deck
+            /// The gas generators' start smoke: 0 up through the ML's opening
+            /// round the vehicle, +1 and −1 out of the north and south exits.
+            case startSmoke(Double)
         }
         public var kind: Kind
         /// The jet's front, m from where it starts: the deflector (along
@@ -187,21 +275,54 @@ public struct GroundCloud: Equatable {
         public var buoyancy = 0.0
         public var exhaust = 0.0
         public var water = 0.0
+        /// The start smoke, the soot, the air it entrained (with its vapour)
+        /// and that air's vapour, kg.
+        public var smoke = 0.0
+        public var soot = 0.0
+        public var air = 0.0
+        public var vapour = 0.0
         /// The jet's last fluxes: its momentum flux and buoyancy flux.
         public var jet: (momentum: Double, buoyancy: Double) = (0, 0)
+        /// Everything it was fed at the last step (`fluxes`).
+        public var feed = Flux.none
+        /// Where its jet starts at the last step: the deflector's distance
+        /// to the exit for a trench jet, the deck's wall jet's radius
+        /// (`Sources.deckRadius`), m.
+        public var start = 0.0
         /// How far the wind has carried it, site frame (horizontal).
         public var drift = Vec3.zero
+        /// Its centre's velocity at the last step, site frame: the wind at
+        /// its height and its rise (m/s).
+        public var velocity = Vec3.zero
 
         public var radius: Double { cbrt(3 * volume / (4 * .pi)) }
         public var rise: Double { volume > 0 ? momentum / volume : 0 }
         /// Its top, m above the deck.
         public var top: Double { centre.z + radius }
+        /// What it carries scaled by `k`: its exhaust, water, smoke, soot,
+        /// air, vapour and buoyancy (its shape and motion kept).
+        public mutating func scale(_ k: Double) {
+            exhaust *= k
+            water *= k
+            smoke *= k
+            soot *= k
+            air *= k
+            vapour *= k
+            buoyancy *= k
+        }
+
+        /// Its heat above the air round it (J), in air of density `rho` at
+        /// `ambient` K: ρ c_p T B / g, its buoyancy's (Boussinesq).
+        public func heat(density rho: Double, ambient: Double) -> Double {
+            rho * GroundCloud.airHeat * ambient * buoyancy / 9.80665
+        }
 
         public static func == (a: Lobe, b: Lobe) -> Bool {
             a.kind == b.kind && a.front == b.front && a.centre == b.centre && a.volume == b.volume
                 && a.momentum == b.momentum && a.buoyancy == b.buoyancy && a.exhaust == b.exhaust
-                && a.water == b.water && a.jet.momentum == b.jet.momentum && a.jet.buoyancy == b.jet.buoyancy
-                && a.drift == b.drift
+                && a.water == b.water && a.smoke == b.smoke && a.soot == b.soot && a.air == b.air
+                && a.vapour == b.vapour && a.jet.momentum == b.jet.momentum && a.jet.buoyancy == b.jet.buoyancy
+                && a.feed == b.feed && a.start == b.start && a.drift == b.drift && a.velocity == b.velocity
         }
     }
 
@@ -237,64 +358,104 @@ public struct GroundCloud: Equatable {
         let x = Self.exitDistance
         lobes = [1.0, -1.0].map { Lobe(kind: .trench($0), front: x, centre: Vec3($0 * x, 0, 0)) }
             + [Lobe(kind: .deck, front: PadExhaust.openingHalf, centre: .zero)]
+            + [Lobe(kind: .startSmoke(0), front: 0, centre: .zero)]
+            + [1.0, -1.0].map { Lobe(kind: .startSmoke($0), front: x, centre: Vec3($0 * x, 0, 0)) }
     }
 
     /// Integrates on to the last grid point at or before `epoch`, with the
     /// sources at each step's middle and the air of `air` (the sounding,
     /// nil for the standard 288 K at the deck) at `deckHeight` above sea
-    /// level, its winds turned into the site frame by `siteFromEastNorth`.
+    /// level, its winds turned into the site frame by `siteFromEastNorth`,
+    /// its vapour `humidity`'s.
     public mutating func advance(to epoch: Epoch, sources: (Epoch) -> Sources, air: AirProfile?,
-                                 deckHeight: Double, siteFromEastNorth: (Double, Double) -> Vec3) {
+                                 deckHeight: Double, humidity: LaunchHumidity = .as506,
+                                 siteFromEastNorth: (Double, Double) -> Vec3) {
         let n = Int(((epoch - origin) / Self.step + 1e-9).rounded(.down))
         var k = Int(((time - origin) / Self.step).rounded())
         let every = Int((Self.sampleInterval / Self.step).rounded())
         while k < n {
             if k % every == 0, samples.count == k / every { samples.append(lobes) }
             let mid = origin + (Double(k) + 0.5) * Self.step
-            step(sources(mid), air: air, deckHeight: deckHeight, wind: siteFromEastNorth)
+            step(sources(mid), air: air, deckHeight: deckHeight, humidity: humidity, wind: siteFromEastNorth)
             k += 1
             time = origin + Double(k) * Self.step
         }
     }
 
     /// The air at `z` m above the deck: density, temperature, stability N²
-    /// (s⁻²) and wind (site frame).
+    /// (s⁻²), wind (site frame) and pressure (Pa).
     static func air(_ profile: AirProfile?, at z: Double, deckHeight: Double, wind: (Double, Double) -> Vec3)
-        -> (rho: Double, temperature: Double, n2: Double, wind: Vec3) {
-        guard let p = profile else { return (1.225, 288.15, 0, .zero) }
+        -> (rho: Double, temperature: Double, n2: Double, wind: Vec3, pressure: Double) {
+        guard let p = profile else { return (1.225, 288.15, 0, .zero, 101_325) }
         let h = deckHeight + max(0, z)
         let a = p.sample(altitude: h), above = p.sample(altitude: h + 50)
         // The potential temperature's gradient: N² = (g / θ) dθ/dz.
         let theta = a.temperature * pow(100_000 / a.pressure, ParticlePhysics.adiabaticExponent)
         let thetaAbove = above.temperature * pow(100_000 / above.pressure, ParticlePhysics.adiabaticExponent)
         let n2 = 9.80665 / theta * (thetaAbove - theta) / 50
-        return (a.density, a.temperature, n2, wind(a.windEast, a.windNorth))
+        return (a.density, a.temperature, n2, wind(a.windEast, a.windNorth), a.pressure)
     }
 
-    mutating func step(_ s: Sources, air profile: AirProfile?, deckHeight: Double, wind: (Double, Double) -> Vec3) {
+    mutating func step(_ s: Sources, air profile: AirProfile?, deckHeight: Double, humidity: LaunchHumidity = .as506,
+                       wind: (Double, Double) -> Vec3) {
         let h = Self.step, alpha = Self.thermalEntrainment
         let ground = Self.air(profile, at: 0, deckHeight: deckHeight, wind: wind)
+        let vapour = humidity.profile(profile, surfaceHeight: deckHeight)
+        let groundVapour = vapour.specificHumidity(height: 0, temperature: ground.temperature, pressure: ground.pressure)
         for k in lobes.indices {
             var l = lobes[k]
-            let f = Self.fluxes(s, lobe: l.kind, density: ground.rho, ambient: ground.temperature)
+            var f = Self.fluxes(s, lobe: l.kind, density: ground.rho, ambient: ground.temperature)
+            f.exitHeight = s.exitHeight
             l.jet = (f.momentum, f.buoyancy)
+            l.feed = f
             // The jet's front, at half its centreline speed, out to its runout.
             let m = f.momentum.squareRoot()
             let runout = f.buoyancy > 0 ? Self.jetRunout * pow(f.momentum, 0.75) / f.buoyancy.squareRoot() : .infinity
             let start = l.kind == .deck ? PadExhaust.openingHalf : Self.exitDistance
             let end = max(start, min(runout, 1e5))
             if m > 0, l.front < end {
-                l.front = min(end, l.front + Self.jetFront * Self.jetVelocity * m / l.front * h)
+                // The deck's front at the speed of its own layer, the law the
+                // medium's wall jet carries its fluid at (`GroundCloudField`);
+                // a trench jet's at its round jet's.
+                let speed = l.kind == .deck
+                    ? GroundCloudField.wallSpeed(momentum: f.momentum, rho: l.front,
+                                                 thickness: PadExhaust.wallThickness(rho: l.front, height: s.exitHeight))
+                    : Self.jetVelocity * m / l.front
+                l.front = min(end, l.front + Self.jetFront * speed * h)
+            }
+            switch l.kind {
+            case .trench: l.start = Self.exitDistance
+            case .deck: l.start = s.deckRadius
+            case .startSmoke: l.start = 0
             }
             // The cloud, fed at the jet's end with the jet's volume flux.
-            let feed = m > 0 ? Self.jetVolume * m * l.front : 0
+            // The trench's round jet brings Fischer's 0.25 √(M/ρ) x of volume;
+            // the deck's wall jet its layer's own, 2πρδu0 ∫p.
+            let feed: Double
+            if m <= 0 {
+                feed = 0
+            } else if l.kind == .deck {
+                let delta = PadExhaust.wallThickness(rho: l.front, height: s.exitHeight)
+                feed = 2 * .pi * l.front * delta * GroundCloudField.wallProfileIntegral
+                    * GroundCloudField.wallSpeed(momentum: f.momentum, rho: l.front, thickness: delta)
+            } else {
+                feed = Self.jetVolume * m * l.front
+            }
             let air = Self.air(profile, at: l.centre.z, deckHeight: deckHeight, wind: wind)
             let r = l.radius, w = l.rise
-            l.volume += (4 * .pi * r * r * alpha * abs(w) + feed) * h
+            let entrained = 4 * .pi * r * r * alpha * abs(w)
+            l.volume += (entrained + feed + f.volume) * h
             l.buoyancy += (f.buoyancy - air.n2 * l.volume * w) * h
             l.momentum += l.buoyancy * h
             l.exhaust += f.exhaust * h
             l.water += f.water * h
+            l.smoke += f.smoke * h
+            l.soot += f.soot * h
+            // The air it takes in, and its vapour: round it at its height, and
+            // at the ground where the jet entrains it.
+            let q = vapour.specificHumidity(height: l.centre.z, temperature: air.temperature, pressure: air.pressure)
+            l.air += (air.rho * entrained + ground.rho * feed) * h
+            l.vapour += (q * air.rho * entrained + groundVapour * ground.rho * feed) * h
             // Over the jet's end, drifting on the wind; resting on the ground
             // (it cannot sink) until it lifts.
             l.drift += Vec3(air.wind.x, air.wind.y, 0) * h
@@ -304,10 +465,16 @@ public struct GroundCloud: Equatable {
                 z = radius
                 if l.momentum < 0 { l.momentum = 0 }
             }
+            let was = l.centre
             switch l.kind {
-            case .trench(let side): l.centre = Vec3(side * l.front + l.drift.x, l.drift.y, z)
-            case .deck: l.centre = Vec3(l.drift.x, l.drift.y, z)
+            case .trench(let side):
+                l.centre = Vec3(side * l.front + l.drift.x, l.drift.y, z)
+            case .startSmoke(let side) where side != 0:
+                l.centre = Vec3(side * l.front + l.drift.x, l.drift.y, z)
+            case .deck, .startSmoke:
+                l.centre = Vec3(l.drift.x, l.drift.y, z)
             }
+            l.velocity = (l.centre - was) * (1 / h)
             lobes[k] = l
         }
     }
