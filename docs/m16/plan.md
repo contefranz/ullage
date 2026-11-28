@@ -807,7 +807,7 @@ Defaults are in **bold**; "accept defaults" settles all of them.
 36. **Plume fidelity: ray-marched once on screen at 48 px or more, for the F-1, J-2, solids and SPS, with structure from PlumeModel. The RCS uses impostor puffs. Physical visibility in vacuum, with a "readable plumes" toggle.**
 37. **Plume physics in OrbitCore/Effects, tested on Linux.**
 38. **Flashes held for at least 3 real frames above 10×.**
-39. **Smoke: WBOIT at half resolution; no self-shadowing.**
+39. **Smoke: WBOIT at half resolution; no self-shadowing.** Amended 2026-11-28 (look-round-2.md §5): the pad cloud and the exhaust trail become media (LR4, LR5); sprites stay, as sprite v2, for the flash, the cold vapour and the Low tier.
 40. **Ice slabs: instanced tumbling meshes.**
 41. **Extras in: the exhaust trail, the SM breakup and the CM RCS dump. Deferred: the condensation collar, the S-IVB LOX dump (M2) and the T−8.9 s holddown (M2's T8).**
 42. **CEA: nasa/cea (Apache-2.0) runs outside the repo; only the input decks and the numbers are committed.**
@@ -835,6 +835,8 @@ Defaults are in **bold**; "accept defaults" settles all of them.
     - **1000× in coast within 10% of M1;**
     - **200× or more in powered flight, Release, Smooth;**
     - **the base M1 is estimated only: there is no such hardware to gate on.**
+
+    Amended 2026-11-28 (look-round-2.md §5): the per-pass table is re-baselined to LR0's measured ledger, holding 13.0 ms a frame on the pad.
 
 **Data and licences**
 
