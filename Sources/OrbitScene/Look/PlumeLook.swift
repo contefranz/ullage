@@ -80,8 +80,8 @@ public struct PlumeMember: Equatable {
     /// nil for the last 30 % of its length, none at its length.
     public var fadeStart: Double?
     /// Where it is handed over to P4's trail, the window about the joint
-    /// it fades out over too (m along the axis; nil for none): set by its
-    /// cluster, the same whatever its length (`PlumeClusters.cluster`).
+    /// it fades out over too, linearly (m along the axis; nil for none): set
+    /// by its cluster, the same whatever its length (`PlumeClusters.cluster`).
     public var handoverFade: ClosedRange<Double>?
     /// Its length as built, before the exposure's trim (m): what the
     /// hand-over to the trail is reckoned from, the same at any exposure.
@@ -367,10 +367,13 @@ public struct PlumeMember: Equatable {
         let dilution = (re / rx) * (re / rx) * (1 - v) + sourceOffset * sourceOffset / max(d2, 1e-9) * v
         // Everything fades out over the last 30 % of the length (or from
         // `fadeStart`), and over the window where it is handed over to the
-        // trail.
+        // trail, linearly there, as the trail's puffs fade in (LR5), so that
+        // the two sum to one.
         let start = fadeStart ?? 0.7 * length
         var fade = start < length ? 1 - Self.smoothstep(start, length, x) : 1
-        if let w = handoverFade { fade *= 1 - Self.smoothstep(w.lowerBound, w.upperBound, x) }
+        if let w = handoverFade {
+            fade *= 1 - min(max((x - w.lowerBound) / max(w.upperBound - w.lowerBound, 1e-6), 0), 1)
+        }
         let rho = profile * dilution * fade
         let mixing = x > coreLength ? coreLength / x : 1
         var cells = 1.0
@@ -615,7 +618,7 @@ public enum PlumeLook {
                                          streamAlong: along, streamAcross: across)
             guard state.regime != .off else { return nil }
             m = member(engine.spec, state: state, exit: e.exit, axis: e.axis, exitRadius: e.exitRadius,
-                       ambient: e.ambient, streamAlong: along)
+                       ambient: e.ambient, streamAlong: along, sootScale: settings.sootScale)
         } else {
             m = legacy(exit: e.exit, axis: e.axis, radius: e.exitRadius, family: PlumeFamily(e.style),
                        fraction: e.thrustFraction, pressureRatio: e.pressureRatio, jet: e.isJet)
@@ -657,7 +660,7 @@ public enum PlumeLook {
         return exits.enumerated().map { i, exit in
             var m = settings.model == .physical
                 ? member(engine.spec, state: state, exit: exit, axis: axis, exitRadius: engine.spec.exitRadius,
-                         ambient: air, streamAlong: along)
+                         ambient: air, streamAlong: along, sootScale: settings.sootScale)
                 : legacy(exit: exit, axis: axis, radius: engine.spec.exitRadius,
                          family: PlumeFamily(engine.spec.family), fraction: t.flowFraction,
                          pressureRatio: air.pressure / 101_325, jet: false)
@@ -670,9 +673,11 @@ public enum PlumeLook {
     }
 
     /// The member of an engine of `spec` in `state`, its exit (drawn) at
-    /// `exit` of `exitRadius`, exhausting along `axis`, in `ambient`.
+    /// `exit` of `exitRadius`, exhausting along `axis`, in `ambient`; a
+    /// kerosene engine's soot `sootScale` times P2's (`PlumeSettings.sootScale`).
     public static func member(_ spec: ExhaustSpec, state s: PlumeState, exit: Vec3, axis: Vec3, exitRadius re: Double,
-                              ambient: AtmosphereState, streamAlong along: Double = 0) -> PlumeMember {
+                              ambient: AtmosphereState, streamAlong along: Double = 0,
+                              sootScale: Double = 1) -> PlumeMember {
         let family = PlumeFamily(spec.family)
         var m = PlumeMember(exit: exit, axis: axis, exitRadius: re, family: family)
         let de = 2 * re, f = min(max(s.flowFraction, 0), 1.25)
@@ -743,7 +748,7 @@ public enum PlumeLook {
         m.gasAlbedo = family == .kerosene ? Optics.sootAlbedo : (family == .solid ? 0.5 : 0)
         let gasDepth: Double
         switch family {
-        case .kerosene: gasDepth = Optics.sootDepth * spec.sootIndex
+        case .kerosene: gasDepth = Optics.sootDepth * spec.sootIndex * max(sootScale, 0)
         case .solid: gasDepth = Optics.solidGasDepth
         case .hydrogen, .hypergolic, .coldGas: gasDepth = 0
         }

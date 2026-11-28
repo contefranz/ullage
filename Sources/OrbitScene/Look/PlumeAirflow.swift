@@ -171,6 +171,88 @@ public enum PlumeAirflow {
         public var x: Double
         public var point: Vec3
         public var window: Double
+        /// The path's point at the window's start, x − window along the
+        /// axis (from the cluster's exits, world axes): where the trail
+        /// begins to take the exhaust over.
+        public var start: Vec3
+        /// P2's far field there, projected (`trailHandover` gives it; nil
+        /// from `handover`).
+        public var column: Column?
+
+        public init(x: Double, point: Vec3, window: Double, start: Vec3? = nil, column: Column? = nil) {
+            self.x = x
+            self.point = point
+            self.window = window
+            self.start = start ?? point
+            self.column = column
+        }
+    }
+
+    /// The far field at the hand-over seen side-on, unfaded, its turbulence
+    /// left out (the noise's mean): what P4's trail must carry on (LR5).
+    /// Projected across the column: τ(y) = ∫ σ dz through the cluster's
+    /// merged far field, radially symmetric about its axis.
+    public struct Column: Equatable {
+        /// τ through the axis, side-on.
+        public var depth: Double
+        /// ∫ τ dy across, m: the extinction per metre of column (κ λ for a
+        /// smoke of mass extinction κ).
+        public var crossSection: Double
+        /// The soot's and the scattering's shares of it, m.
+        public var sootCrossSection: Double
+        public var scatteringCrossSection: Double
+        /// The smoke's Henyey-Greenstein g.
+        public var asymmetry: Double
+        /// λ = ṁ / V_air, kg/m: the exhaust left in each metre of air the
+        /// vehicle passes through (the airspeed at least 1 m/s).
+        public var lineDensity: Double
+
+        public init(depth: Double, crossSection: Double, sootCrossSection: Double, scatteringCrossSection: Double,
+                    asymmetry: Double, lineDensity: Double) {
+            self.depth = depth
+            self.crossSection = crossSection
+            self.sootCrossSection = sootCrossSection
+            self.scatteringCrossSection = scatteringCrossSection
+            self.asymmetry = asymmetry
+            self.lineDensity = lineDensity
+        }
+
+        /// The column's single-scattering albedo.
+        public var albedo: Double { crossSection > 0 ? scatteringCrossSection / crossSection : 0 }
+        /// The full width at half maximum of the Gaussian of the same depth
+        /// and cross-section, m: 2√(2 ln 2) C / (τ √(2π)).
+        public var width: Double { depth > 0 ? 2.354_820_045 * crossSection / (depth * (2 * Double.pi).squareRoot()) : 0 }
+        /// The soot's mass fraction of the exhaust it implies, for soot of
+        /// mass extinction `massExtinction` (m²/kg): C_soot = κ Y λ.
+        public func sootYield(massExtinction: Double) -> Double {
+            lineDensity > 0 ? sootCrossSection / (lineDensity * massExtinction) : 0
+        }
+    }
+
+    /// The column of the field `member` at x along its axis (m from its
+    /// exit), unfaded and to any length: τ = 2 ∫ σ dr, C = 2π ∫ σ r dr by
+    /// the midpoint rule over its field's extent; the soot is the field
+    /// without its condensate (the kerosene gas phase).
+    public static func column(_ member: PlumeMember, atX x: Double, lineDensity: Double) -> Column {
+        var m = member
+        m.length = 1e9
+        m.fadeStart = nil
+        m.handoverFade = nil
+        m.visibleExtents = []
+        var soot = m
+        soot.particleExtinction = 0
+        let n = 96, e = m.fieldExtent(atX: x), dr = e / Double(n)
+        var depth = 0.0, c = 0.0, cs = 0.0, cscat = 0.0
+        for i in 0..<n {
+            let r = (Double(i) + 0.5) * dr
+            let s = m.sample(x: x, r: r)
+            depth += 2 * s.extinction * dr
+            c += 2 * Double.pi * s.extinction * r * dr
+            cscat += 2 * Double.pi * s.scattering * r * dr
+            cs += 2 * Double.pi * soot.sample(x: x, r: r).extinction * r * dr
+        }
+        return Column(depth: depth, crossSection: c, sootCrossSection: cs, scatteringCrossSection: cscat,
+                      asymmetry: m.phaseG, lineDensity: lineDensity)
     }
 
     public static func handover(_ members: [PlumeMember], path: [JetPath.Station], axis: Vec3) -> Handover? {
@@ -182,31 +264,49 @@ public enum PlumeAirflow {
             x = min(x, point(path, at: rest).dot(axis))
         }
         guard x > 0 else { return nil }
-        // The path's point at x along the axis.
-        guard let k = path.firstIndex(where: { $0.position.dot(axis) >= x }) else { return nil }
-        let p: Vec3
-        if k == 0 {
-            p = path[0].position
-        } else {
+        // The path's points at x along the axis and at the window's start.
+        func at(_ x: Double) -> Vec3? {
+            guard let k = path.firstIndex(where: { $0.position.dot(axis) >= x }) else { return nil }
+            guard k > 0 else { return path[0].position }
             let a = path[k - 1], b = path[k]
             let xa = a.position.dot(axis), xb = b.position.dot(axis)
-            p = a.position + (b.position - a.position) * ((x - xa) / max(xb - xa, 1e-12))
+            return a.position + (b.position - a.position) * ((x - xa) / max(xb - xa, 1e-12))
         }
-        return Handover(x: x, point: p, window: max(0.15 * x, 2 * lead.exitDiameter))
+        guard let p = at(x) else { return nil }
+        let window = max(0.15 * x, 2 * lead.exitDiameter)
+        return Handover(x: x, point: p, window: window, start: at(max(x - window, 0)) ?? p)
     }
 
     /// The trail's hand-over for a vessel's S-IC: its firing F-1s' members
     /// (not jets), on their cluster's axis, through `airflow` exactly as
     /// P2's cluster reckons it (the built lengths, the same at any
-    /// exposure); the point is from the cluster's origin, world axes. For
-    /// P4's `ExhaustTrail`.
+    /// exposure); the point is from the cluster's origin, world axes. With
+    /// its `column`: the cluster's merged far field there
+    /// (`PlumeClusters.merged`, as P2's march has it beyond 1.15 of its
+    /// merge), or with fewer than three engines the strongest's, as dense as
+    /// all of them; and λ from the engines' flow (`ApolloExhaust`) at the
+    /// lead's airspeed. For P4's `ExhaustTrail`.
     public static func trailHandover(_ emitters: [RenderScene.Emitter],
                                      settings: PlumeSettings = PlumeSettings()) -> Handover? {
-        let members = emitters.filter { $0.name.hasPrefix("S-IC engine") && !$0.isJet }
-            .compactMap { PlumeLook.member($0, settings: settings) }
+        let firing = emitters.filter { $0.name.hasPrefix("S-IC engine") && !$0.isJet }
+        let members = firing.compactMap { PlumeLook.member($0, settings: settings) }
         guard !members.isEmpty else { return nil }
-        let axis = PlumeClusters.frame(members).axis
-        return airflow(members, axis: axis, reach: members.map(\.builtLength).max() ?? 0)?.handover
+        let (origin, axis) = PlumeClusters.frame(members)
+        guard var h = airflow(members, axis: axis, reach: members.map(\.builtLength).max() ?? 0)?.handover,
+              let lead = lead(members) else { return nil }
+        let flow = firing.reduce(0.0) { s, e in
+            s + e.flowFraction * (ApolloExhaust.engine(thruster: e.name, part: e.part)?.ratedFlow ?? 0)
+        }
+        let lambda = flow / max(lead.relativeWind.length, 1)
+        if let merged = PlumeClusters.merged(members, origin: origin, axis: axis) {
+            let x = h.x - (merged.member.exit - origin).dot(axis)
+            h.column = column(merged.member, atX: x, lineDensity: lambda)
+        } else {
+            var m = lead
+            m.densityScale *= members.reduce(0) { $0 + $1.flowFraction } / max(lead.flowFraction, 1e-6)
+            h.column = column(m, atX: h.x - (m.exit - origin).dot(axis), lineDensity: lambda)
+        }
+        return h
     }
 
     /// The point on a path `distance` along it (from its source), m.

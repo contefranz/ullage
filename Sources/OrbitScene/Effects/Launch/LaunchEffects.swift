@@ -66,7 +66,7 @@ public final class LaunchEffects: EffectProducer {
                               coldVapour: table.register(LaunchMaterials.coldVapour),
                               iceFlake: table.register(LaunchMaterials.iceFlake),
                               iceSlab: table.register(LaunchMaterials.iceSlab),
-                              trail: (0..<3).map { table.register(LaunchMaterials.trail($0)) },
+                              trail: (0..<ExhaustTrail.palette).map { table.register(LaunchMaterials.trail($0)) },
                               groundCloud: table.register(LaunchMaterials.groundCloud),
                               startSmoke: table.register(LaunchMaterials.startSmoke),
                               ignitionFlash: table.register(LaunchMaterials.ignitionFlash))
@@ -268,7 +268,7 @@ public final class LaunchEffects: EffectProducer {
         let last = seen
         let open = now - windowStart < Self.window
         guard f.scene.launch != nil || range >= PadIgnition.firstCommand, open || venting,
-              let vehicle = Self.vehicle(in: f.scene, site: site)
+              let vehicle = Self.vehicle(in: f.scene, site: site, plumes: f.plumes)
         else {
             seen = Seen(epoch: now, vessel: nil, climb: 0)
             return
@@ -301,7 +301,7 @@ public final class LaunchEffects: EffectProducer {
 
     /// The vessel carrying the S-IC (the stack until staging), and its
     /// nozzles and flow.
-    static func vehicle(in scene: RenderScene, site: RenderScene.Site) -> Vehicle? {
+    static func vehicle(in scene: RenderScene, site: RenderScene.Site, plumes: PlumeSettings = PlumeSettings()) -> Vehicle? {
         guard let v = scene.vessels.first(where: { $0.geometry.parts.contains { $0.name == "S-IC" } }) else { return nil }
         let toSite = site.orientation.transposed
         var exits: [(centre: Vec3, radius: Double)] = []
@@ -322,7 +322,7 @@ public final class LaunchEffects: EffectProducer {
         return Vehicle(vessel: v, exits: exits, exitByEngine: byEngine, exitHeight: height,
                        climb: max(0, height - PadExhaust.exitHeightOnPad), flow: flow,
                        clusterRadius: PadExhaust.clusterRadius(exits: exits),
-                       trailHead: PlumeAirflow.trailHandover(own),
+                       trailHead: PlumeAirflow.trailHandover(own, settings: plumes),
                        airspeed: own.first { $0.name.hasPrefix("S-IC engine") }?.relativeWind.length ?? 0)
     }
 
@@ -345,11 +345,17 @@ public final class LaunchEffects: EffectProducer {
     /// journal's, and −∞ for each engine the count lost by the release
     /// (after commit): the journal has none for it, as only the release
     /// put the F-1s under the throttle, and it never fired after.
-    func rebuiltCutoffs(_ c: Context) -> [Epoch] {
-        var all = Array(cutoffs.values)
+    func rebuiltCutoffs(_ c: Context) -> [Epoch] { Array(engineCutoffs(c).values) }
+
+    /// Each F-1's cutoff by its name, as `rebuiltCutoffs` reckons them: the
+    /// journal's, and −∞ for one the count lost by the release. What the
+    /// trail's modelled hand-over takes each engine's flow from
+    /// (`ExhaustTrail.engineFlow`).
+    func engineCutoffs(_ c: Context) -> [String: Epoch] {
+        var all = cutoffs
         guard let r = c.ignition.record, let released = r.released else { return all }
-        for (i, s) in r.plan.starts.enumerated() where cutoffs[s.engine] == nil {
-            if let stop = r.stop(i), stop <= released { all.append(Epoch(tdbSecondsPastJ2000: -.infinity)) }
+        for (i, s) in r.plan.starts.enumerated() where all[s.engine] == nil {
+            if let stop = r.stop(i), stop <= released { all[s.engine] = Epoch(tdbSecondsPastJ2000: -.infinity) }
         }
         return all
     }
