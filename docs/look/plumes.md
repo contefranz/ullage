@@ -67,7 +67,8 @@ medium, L low (visual, calibrated or assumed).
    noise, Hillaire's energy-conserving step, stopping under 2 %
    transmittance; the fluctuations (`JetFluctuations`) are drawn until the
    plume in front is 90 % opaque, and a cluster that cannot fluctuate is
-   drawn by a variant of the march compiled without them. A cluster seen more than 30° off its axis is stepped
+   drawn by a variant of the march compiled without them (three: none,
+   the billows alone, all). A cluster seen more than 30° off its axis is stepped
    equiangularly about its axis instead (Kulla and Fajardo 2012: the steps
    as dense as 1/(h² + d²) along the ray, h the ray's closest approach or
    half the members' spread about the axis and their dense radius), so a
@@ -684,26 +685,29 @@ plumes on and off on alternate frames, the difference of the medians, at
 High (32 steps); the plan's budget is 1.5 ms on the pad and 0.5 ms in
 LEO, for the default physical look.
 
-- **The fluctuations** (2026-11-28, look round 2, LR3 PR1), against main
-  b48990b measured back to back, both with the weather fields (main /
-  now, ms, two or three runs each): the ML base at T+5.5 s, LR0's worst pad
-  frame (`p2-cost-pad-base-5s`, new) 6.82-6.96 / 6.73-6.76; max-Q
-  3.74-3.80 / 3.78-3.82; staging 4.71-4.97 / 4.83-4.85 (auto 5.32-5.49 /
-  5.37-5.40); the S-II 10 s after staging 4.84-4.95 / 4.19-4.27. Earlier
-  runs without main's weather: the pad at T+3 s 1.48-1.84 / 1.42-1.59,
-  at T+8 s 2.51-2.62 / 2.33-2.44, the ascent 3.62-4.02 / 3.50-3.88. Three
-  things pay for the fluctuations' own sums (about 0.4 ms at max-Q, spread
-  over every overlapping member's sample, not in any one function):
+- **The fluctuations** (2026-11-28, look round 2, LR3 PR1, after its
+  review), against main 546c8ef measured back to back, both with the
+  weather fields (main / now, ms, three runs each): the ML base at T+5.5 s,
+  LR0's worst pad frame (`p2-cost-pad-base-5s`, new) 6.71-6.87 /
+  6.84-6.99; the pad at T+8 s 2.60-2.66 / 2.42-2.53; the ascent 3.75-3.88 /
+  3.51-3.59; max-Q 3.73-3.77 / 3.64-3.75; staging 4.74-4.92 / 4.84-4.93
+  (auto 5.17-5.58 / 5.47-5.76); the S-II 10 s after staging 4.74-5.01 /
+  4.09-4.36. Run to run a shot moves 0.1-0.4 ms. What pays for the
+  fluctuations' own sums (about 0.4 ms at max-Q, spread over every
+  overlapping member's sample, not in any one function):
   - the noise is read only until the plume in front of the sample is 90 %
     opaque (behind it a few per cent of a pixel's light could move; 0.5 ms
     at max-Q);
   - the field's reach is the mean field's 1.55 R, not the old ragged
     boundary's 1.78 R (proxies and rays shorter);
-  - a cluster none of whose members can fluctuate (an ice fan, a plume in
-    vacuum, a glow; `Plumes.fluctuates`) is drawn by the march's still
-    variant, compiled without the fluctuations (the larger shader's
-    registers cost the S-II's ice 0.8 ms; it is now 0.6 ms cheaper than
-    before).
+  - three variants of the march, each compiled without the fluctuations
+    its clusters cannot have (`Plumes.variant`): none (an ice fan, a
+    plume in vacuum, a glow), the billows alone (the S-IC's retros and the
+    ullage motors at staging), all of them. A fluctuation compiled in but
+    never run still costs its registers: the S-II's ice paid 0.8 ms for
+    it, and staging 0.4 ms for the heat's light;
+  - the shader's E[(n − t)⁺] a polynomial (no exponential), the jet's
+    table one float4 a station, the heat's light a channel at a time.
   The core skip alone saves little where the plume is far: its core is a
   small part of it.
 

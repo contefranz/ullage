@@ -40,8 +40,9 @@ import Foundation
 ///   in ln B, its mean kept over the rectified fluctuation (`heatLight`).
 ///
 /// The march draws them only until the plume in front of a sample is 90 %
-/// opaque, and a cluster that cannot fluctuate with the march's still
-/// variant (PlumeShaders); behind, and there, the field is its mean.
+/// opaque, and each cluster with a variant of the march compiled without
+/// the fluctuations it cannot have (PlumeShaders, `Plumes.variant`); behind,
+/// and there, the field is its mean.
 public enum JetFluctuations {
     // MARK: Dowling and Dimotakis 1990
 

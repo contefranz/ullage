@@ -613,10 +613,12 @@ inline float plume_mixedness(const device PlumeMember &m, float x, float r, floa
     return 1.0 - (1.0 - lateral) * (1.0 - axial);
 }
 
-// One member's field at p, added to s. FLUCTUATES false: its mean alone,
-// the fluctuations compiled out (a cluster none of whose members can
-// fluctuate: an ice fan, a glow in vacuum; the march's still variant).
-template <bool FLUCTUATES>
+// One member's field at p, added to s. MODE 2: every fluctuation; 1: only a
+// ballooned plume's billowing boundary (a cluster none of whose members has
+// a mixing jet: the S-IC's retros, the ullage motors); 0: the mean alone (an
+// ice fan, a glow in vacuum). The march's three variants compile the rest
+// out.
+template <int MODE>
 inline void plume_member_t(thread PlumeSample &s, const device PlumeMember &m, int index, float3 p,
                            constant PlumeFrame &pf, thread PlumeNoiseAt &na, texture3d<float> noise, sampler ns,
                            thread float &sunDepth, float3 sunDir) {
@@ -666,10 +668,11 @@ inline void plume_member_t(thread PlumeSample &s, const device PlumeMember &m, i
         // only where one of them is, faded out where the eddies are under a
         // few texels across (TurbulenceSpectrum's cut-off).
         float jet = 1.0, spread = 0.0, drawn = m.noise.z, jetT = 0.0, jetS = 0.0, jetMu = 1.0;
-        if (FLUCTUATES && drawn > 0.0) {
+        if (MODE > 0 && drawn > 0.0) {
             // The jet's mixing, faded out as the free expansion takes the
             // field over (JetFluctuations.jetShare).
-            float a = v < 0.95 ? plume_mixedness(m, x, r, R, pf) * (1.0 - plume_smoothstep(0.85, 0.95, v)) : 0.0;
+            float a = MODE == 2 && v < 0.95
+                ? plume_mixedness(m, x, r, R, pf) * (1.0 - plume_smoothstep(0.85, 0.95, v)) : 0.0;
             // (Not a clear exhaust's ice fan: JetFluctuations.billows.)
             bool billow = v > 0.0 && m.disk.w > 0.0 && m.condensate.w <= 0.0 && cut > 0.0 && cut < 1.0;
             if (a > 0.0 || billow) {
@@ -679,7 +682,7 @@ inline void plume_member_t(thread PlumeSample &s, const device PlumeMember &m, i
                 if (drawn > 0.0) {
                     float2 nd = plume_noiseAt(na, PlumeAsking{index, x, r, R}, p, pf, noise, ns);
                     drawn *= nd.y;
-                    if (a > 0.0 && drawn > 0.0) {
+                    if (MODE == 2 && a > 0.0 && drawn > 0.0) {
                         float2 th = plume_threshold(pc, pf);
                         jetT = th.x;
                         jetS = a * drawn;
@@ -748,19 +751,20 @@ inline void plume_member_t(thread PlumeSample &s, const device PlumeMember &m, i
             float excess = (1.0 - burning) * max(t - ta, 0.0), sigma = (1.0 - v) * spread;
             float u = 1.0 / max(t, 300.0);
             float green = -(pf.wienA.g + 2.0 * pf.wienC.g * u) * u * u * excess * sigma;
-            if (green > 0.02) {
-                float3 slope = -(pf.wienA.rgb + 2.0 * pf.wienC.rgb * u) * u * u;
-                float sj = (1.0 - v) * jetS, perNoise = slope.b * excess * sj / jetMu;
+            if (MODE == 2 && green > 0.02) {
+                float sj = (1.0 - v) * jetS, u2 = u * u;
+                float perNoise = -(pf.wienA.b + 2.0 * pf.wienC.b * u) * u2 * excess * sj / jetMu;
                 float d = excess * (perNoise > 1.0 ? 1.0 / perNoise : 1.0);
                 float hottest = max(t, max(wall ? m.deckHeat.x : m.gas.z, m.flame.x));
                 float dt = min((1.0 - v) * (jet - 1.0), max(hottest - t, 0.0) / d);
-                float below = plume_normalCDF(jetT);
-                float3 b = slope * d, kappa = b * (sj / jetMu), z = kappa - jetT;
-                float3 e = exp(-kappa * jetT + 0.5 * kappa * kappa);
-                float3 cdf = float3(plume_normalCDF(z.x), plume_normalCDF(z.y), plume_normalCDF(z.z));
-                float3 pdf = 0.39894228 * exp(-0.5 * z * z);
-                float3 mean = (1.0 - sj) * (below + e * cdf) + (sj / jetMu) * e * (z * cdf + pdf);
-                light *= exp(b * (dt + sj)) / mean;
+                // E φ(κ - τ) = φ(τ), the same in every channel; a channel at a
+                // time, few values live.
+                float below = plume_normalCDF(jetT), density = 0.39894228 * exp(-0.5 * jetT * jetT);
+                for (int c = 0; c < 3; c++) {
+                    float b = -(pf.wienA[c] + 2.0 * pf.wienC[c] * u) * u2 * d, kappa = b * sj / jetMu, z = kappa - jetT;
+                    float ecdf = exp(-kappa * jetT + 0.5 * kappa * kappa) * plume_normalCDF(z);
+                    light[c] *= exp(b * (dt + sj)) / ((1.0 - sj) * (below + ecdf) + sj / jetMu * (z * ecdf + density));
+                }
             }
             plume_add(s, m.gas.x * rho * cells * burnt, m.gas.y, light, k);
         }
@@ -826,7 +830,7 @@ inline void plume_member_t(thread PlumeSample &s, const device PlumeMember &m, i
 inline void plume_member(thread PlumeSample &s, const device PlumeMember &m, int index, float3 p,
                          constant PlumeFrame &pf, thread PlumeNoiseAt &na, texture3d<float> noise, sampler ns,
                          thread float &sunDepth, float3 sunDir) {
-    plume_member_t<true>(s, m, index, p, pf, na, noise, ns, sunDepth, sunDir);
+    plume_member_t<2>(s, m, index, p, pf, na, noise, ns, sunDepth, sunDir);
 }
 
 // The radius about the axis at x within which most of a member's field
@@ -922,10 +926,10 @@ inline float3 plume_sh9InScatter(constant LightingUniforms &lighting, float3 v, 
     return lighting.probe.w > 0.5 ? orbit_sh9InScatter(lighting, v, g) : pf.ambient.rgb;
 }
 
-// The march, with the members' fluctuations or (FLUCTUATES false) without:
-// two fragment functions below, a pipeline each (PlumeMarchEffect), so that
-// a still cluster does not pay for the fluctuations' registers.
-template <bool FLUCTUATES>
+// The march, its members in one of plume_member_t's modes: three fragment
+// functions below, a pipeline each (PlumeMarchEffect), so that a cluster
+// does not pay for the registers of fluctuations it cannot have.
+template <int MODE>
 inline EffectVolumeOut plume_march(PlumeProxyOut in, constant FrameUniforms &frame, constant EffectSlotUniforms &e,
                                    constant AtmosphereUniforms &air, constant LightingUniforms &lighting,
                                    constant PlumeFrame &pf, const device PlumeCluster *clusters,
@@ -1158,13 +1162,13 @@ inline EffectVolumeOut plume_march(PlumeProxyOut in, constant FrameUniforms &fra
         PlumeNoiseAt na = {members, first_, count, wm, transmittance < 0.1, float2(0.0)};
         if (wm < 1.0) {
             for (int k = 0; k < count; k++) {
-                plume_member_t<FLUCTUATES>(x, members[first_ + k], k, p, pf, na, noise, ns, sunDepth, sunDir);
+                plume_member_t<MODE>(x, members[first_ + k], k, p, pf, na, noise, ns, sunDepth, sunDir);
             }
         }
         if (wm > 0.0) {
             PlumeSample y = {0.0, 0.0, float3(0.0), 0.0, float3(0.0)};
             float sunY = 0.0;
-            plume_member_t<FLUCTUATES>(y, members[first_ + count], count, p, pf, na, noise, ns, sunY, sunDir);
+            plume_member_t<MODE>(y, members[first_ + count], count, p, pf, na, noise, ns, sunY, sunDir);
             x.absorption = mix(x.absorption, y.absorption, wm);
             x.scattering = mix(x.scattering, y.scattering, wm);
             x.emission = mix(x.emission, y.emission, wm);
@@ -1284,13 +1288,18 @@ inline EffectVolumeOut plume_march(PlumeProxyOut in, constant FrameUniforms &fra
     sampler linear [[sampler(ORBIT_SAMPLER_LINEAR_CLAMP)]], sampler shadowCompare [[sampler(ORBIT_SAMPLER_SHADOW_COMPARE)]]
 
 fragment EffectVolumeOut plume_march_fragment(PLUME_MARCH_ARGUMENTS) {
-    return plume_march<true>(in, frame, e, air, lighting, pf, clusters, members, noise, cloudLayer, cloudDepth,
-                             halfResDepth, shadowAtlas, cloudShadow, froxels, ns, linear, shadowCompare);
+    return plume_march<2>(in, frame, e, air, lighting, pf, clusters, members, noise, cloudLayer, cloudDepth,
+                          halfResDepth, shadowAtlas, cloudShadow, froxels, ns, linear, shadowCompare);
+}
+
+fragment EffectVolumeOut plume_march_billow_fragment(PLUME_MARCH_ARGUMENTS) {
+    return plume_march<1>(in, frame, e, air, lighting, pf, clusters, members, noise, cloudLayer, cloudDepth,
+                          halfResDepth, shadowAtlas, cloudShadow, froxels, ns, linear, shadowCompare);
 }
 
 fragment EffectVolumeOut plume_march_still_fragment(PLUME_MARCH_ARGUMENTS) {
-    return plume_march<false>(in, frame, e, air, lighting, pf, clusters, members, noise, cloudLayer, cloudDepth,
-                              halfResDepth, shadowAtlas, cloudShadow, froxels, ns, linear, shadowCompare);
+    return plume_march<0>(in, frame, e, air, lighting, pf, clusters, members, noise, cloudLayer, cloudDepth,
+                          halfResDepth, shadowAtlas, cloudShadow, froxels, ns, linear, shadowCompare);
 }
 
 // --------------------------------------------------------- the impostors ---

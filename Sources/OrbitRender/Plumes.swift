@@ -139,16 +139,19 @@ enum Plumes {
                      Float(b.offsets[first + 3]))
     }
 
-    /// Whether any of a cluster's members (its merged far field too) can
-    /// fluctuate (`JetFluctuations`): a jet the air mixes with, or a
-    /// smoky ballooned plume's boundary. An ice fan, a plume in vacuum or
-    /// one only its glow shows cannot; the march's still variant draws
-    /// those without the fluctuations' registers.
-    static func fluctuates(_ c: PlumeCluster) -> Bool {
-        (c.members + (c.merged.map { [$0] } ?? [])).contains { m in
-            m.turbulence > 0 && (m.vacuumBlend < 0.95 || (m.vacuumBlend > 0 && m.confinement > 0
-                                                         && JetFluctuations.billows(m)))
-        }
+    /// Which of the march's variants draws a cluster (`JetFluctuations`):
+    /// 2 when a member (its merged far field too) is a jet the air mixes
+    /// with, 1 when the only fluctuation is a smoky ballooned plume's
+    /// billowing boundary (the S-IC's retros, the ullage motors), 0 when
+    /// none can fluctuate (an ice fan, a plume in vacuum, a glow). Each
+    /// variant is compiled without the others' fluctuations and their
+    /// registers.
+    static func variant(_ c: PlumeCluster) -> UInt8 {
+        let all = c.members + (c.merged.map { [$0] } ?? [])
+        if all.contains(where: { $0.turbulence > 0 && $0.vacuumBlend < 0.95 }) { return 2 }
+        if all.contains(where: { $0.turbulence > 0 && $0.vacuumBlend > 0 && $0.confinement > 0
+                                 && JetFluctuations.billows($0) }) { return 1 }
+        return 0
     }
 
     /// How far a marched cluster is for R6's back-to-front order: its
@@ -456,9 +459,8 @@ struct PlumeGlowGPU {
 /// drawn in P3.
 struct PlumeFrameData {
     var marched: [PlumeClusterGPU] = []
-    /// Whether each marched cluster can fluctuate (`Plumes.fluctuates`):
-    /// else it is drawn by the march's still variant.
-    var fluctuates: [Bool] = []
+    /// The march's variant for each marched cluster (`Plumes.variant`).
+    var variants: [UInt8] = []
     var members: [PlumeMemberGPU] = []
     var impostors: [PlumeVertex] = []
     /// The glowing nozzles: vessel, thruster, heat.
@@ -826,7 +828,7 @@ public final class PlumeSystem {
                                                    : max(16, settings.quality.steps / 2))
                 : solid ? max(16, settings.quality.steps / 2) : 0
             let vessel = c.vesselID.flatMap { id in scene.vessels.first { $0.id == id } }
-            data.fluctuates.append(settings.turbulence && Plumes.fluctuates(c))
+            data.variants.append(settings.turbulence ? Plumes.variant(c) : 0)
             data.marched.append(Plumes.gpu(c, memberStart: data.members.count, light: e.light, sunlit: e.sunlit,
                                            steps: steps, ice: ice, caster: vessel.flatMap(Plumes.capsule)))
             let seed = Plumes.noiseSeed(c)
