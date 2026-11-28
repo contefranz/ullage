@@ -94,11 +94,14 @@ public final class SceneRenderer {
     public static func defaultPasses(loadsUserTextures: Bool = true, particles: ParticleSystem? = nil,
                                      plumes: PlumeSystem? = nil) -> [RenderPass] {
         // The effects drawn at half resolution, in order: clouds (C2),
-        // plumes (P2), smoke (P3), then R6's test emitters.
+        // plumes (P2) between the trail's two parts (LR5: beyond its joint
+        // with the plume, and nearer), smoke (P3), then R6's test emitters.
         let clouds = CloudPass()
         let particles = particles ?? ParticleSystem()
         let plumes = plumes ?? PlumeSystem()
-        let slots = HalfResTransparentPass(effects: [clouds, PlumeMarchEffect(system: plumes),
+        let slots = HalfResTransparentPass(effects: [clouds, TrailEffect(particles: particles, part: .beyondJoint),
+                                                     PlumeMarchEffect(system: plumes),
+                                                     TrailEffect(particles: particles, part: .nearerThanJoint),
                                                      ParticleSmokeEffect(system: particles), EffectTestEmitters()])
         let post = PostPass()
         let shadows = ShadowPass()

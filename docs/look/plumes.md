@@ -258,35 +258,38 @@ field stays on the nozzle, gimbal and all.
   air), at most 85 % of its built length. The jet's speed, stream and kind
   are the member's of the most flow, so an engine shutting down does not
   lead the cluster.
-  - The plume fades out linearly over 15 % of that distance on either side
-    of it and ends at the window's end: every member and the merged far field
-    (`PlumeMember.handoverFade`, its own pair of numbers in the shader), so
-    the fade does not move with the exposure or a member's length. Where
-    the exposure's trim (or an engine's own shorter plume) cuts a member
-    short of the window's end, the cut stays, with its own soft end
-    narrowing to none as the cut reaches the window's end: continuous in
-    the cut, and nothing marched beyond what can show (the S-IC's
-    ballooned plume at staging). The F-1's smoke holds 2 % opacity to its
-    built length in every state checked from 0.1 to 38 km (faintest light
-    10^-4 to 10^7 cd/m², in sunlight and the dark), so no exposure cuts it
-    short of the trail, which ends at 40 km. The visible extents, which size the proxy, are found on the
-    field unfaded, so they hold it under any fade.
+  - The trail's nodes fade in linearly over 15 % of that distance on either
+    side of it, each a Gaussian of σ 15 m along the path, so the line they
+    draw ramps as the ramp seen through that σ; the plume fades out as its
+    complement (`PlumeAirflow.trailFade`, closed form in erf; σ in the
+    shader's `deckHeat.w`), every member and the merged far field
+    (`PlumeMember.handoverFade`, `handoverAlong`), and ends 2.5σ past the
+    window's end. The hand-over is at most (built − 2.5σ)/1.15, so that end
+    lies within the plume as built. So the fade does not move with the
+    exposure or a member's length. Where the exposure's trim (or an
+    engine's own shorter plume) cuts a member short of that end, the cut
+    stays, with its own soft end narrowing to none as the cut reaches the
+    end: continuous in the cut, and nothing marched beyond what can show
+    (the S-IC's ballooned plume at staging). The F-1's smoke holds 2 %
+    opacity to its built length in every state checked from 0.1 to 38 km
+    (faintest light 10^-4 to 10^7 cd/m², in sunlight and the dark), so no
+    exposure cuts it short of the trail, which ends at 40 km. The visible
+    extents, which size the proxy, are found on the field unfaded, so they
+    hold it under any fade.
   - P4's trail takes the exhaust over on the bent path there
     (`PlumeAirflow.trailHandover`: the firing F-1s' members through
     `PlumeAirflow.airflow`, the function the cluster uses, so the two
     agree through an engine's shutdown). The hand-over carries the merged
     far field's column there, projected side-on and unfaded (its depth,
-    cross-section, soot and albedo), and λ = ṁ/V_air; the trail's puffs
-    carry it on, laid from the window's start and fading in as the plume
-    fades out, both linearly over the same window, at the rate they recede
-    at (`ExhaustTrail.fadeIn`). The puffs' size and the rising airspeed
-    leave the two within about 13 % of one across the window, side-on
-    (docs/look/launch.md, the trail); LR5's PR2 makes it exact.
+    cross-section, soot and albedo), λ = ṁ/V_air, the jet's state, and the
+    cluster's origin and axis, along which the trail's young nodes take
+    their fade where they are. Side-on the two fades sum to one within
+    0.3-5 % (docs/look/launch.md, the trail).
 - **Continuity** (`PlumeAirflowTests`): sweeps through the angle of attack
   (-10° to 10° every quarter degree), the airspeed to beyond max-Q (every
   5 m/s) and AS-506's ascent (every half second). Each step moves the far
   end, the length and the hand-over by under 5 %, and through the
-  afterburning's end (37 km) by under 25 % a half second, under 1 % a
+  afterburning's end (37 km) by under 26 % a half second, under 1 % a
   frame.
 
 ## The turbulence
@@ -527,7 +530,8 @@ it, they do not set it.
   its temperature, not the soot yield or the band's optical depth; no
   source in hand measures the F-1's soot.
 - **The airflow's choices:** at rest in the air at 2 % of the exit speed,
-  the hand-over at most at 85 % of the built length, its window 15 %, the
+  the hand-over at most at 85 % of the built length (and 2.5σ of the
+  trail's nodes short of its end), its window 15 %, the
   steepest turn drawn 70°; α2 fitted to Pratte and Baines.
 - **The soot left burnt** (25 %), **the kerosene condensate** (depth 3,
   albedo 0.8): no measured column densities.

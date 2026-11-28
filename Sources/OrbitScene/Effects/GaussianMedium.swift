@@ -118,13 +118,16 @@ public struct GaussianMedium: Equatable {
         public func shadingTime(from t0: Double, to t1: Double) -> Double {
             let d = depth(from: t0, to: t1)
             guard d > 1e-9 else { return min(max(centre, t0), t1) }
-            let x: Double
-            if d < 0.05 {
-                x = d * (0.5 - d * (1.0 / 12.0 - d * d / 360.0))
-            } else {
-                x = 0.5 * (-log(0.5 * (1 + exp(-d))) + log(d / (1 - exp(-d))))
-            }
-            return min(max(time(atDepth: x, from: t0), t0), t1)
+            return min(max(time(atDepth: Ray.shadingDepth(d), from: t0), t0), t1)
+        }
+
+        /// The depth into a segment of depth `d` its one source sits at
+        /// (`shadingTime`'s): for a caller that walks the segments by their
+        /// depths and so knows each one's.
+        public static func shadingDepth(_ d: Double) -> Double {
+            guard d > 1e-9 else { return 0 }
+            return d < 0.05 ? d * (0.5 - d * (1.0 / 12.0 - d * d / 360.0))
+                : 0.5 * (-log(0.5 * (1 + exp(-d))) + log(d / (1 - exp(-d))))
         }
     }
 

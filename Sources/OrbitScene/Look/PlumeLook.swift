@@ -79,10 +79,14 @@ public struct PlumeMember: Equatable {
     /// Where it starts to fade out to its length (m), its end's softening;
     /// nil for the last 30 % of its length, none at its length.
     public var fadeStart: Double?
-    /// Where it is handed over to P4's trail, the window about the joint
-    /// it fades out over too, linearly (m along the axis; nil for none): set
-    /// by its cluster, the same whatever its length (`PlumeClusters.cluster`).
+    /// Where it is handed over to P4's trail: the window about the joint
+    /// over which the trail's nodes fade in (m along the axis; nil for
+    /// none), and their σ along the path there (m). It fades out as the
+    /// complement of the trail's fade seen through that σ
+    /// (`PlumeAirflow.trailFade`), so the two sum to one. Set by its
+    /// cluster, the same whatever its length (`PlumeClusters.cluster`).
     public var handoverFade: ClosedRange<Double>?
+    public var handoverAlong = 0.0
     /// Its length as built, before the exposure's trim (m): what the
     /// hand-over to the trail is reckoned from, the same at any exposure.
     public var builtLength = 0.0
@@ -366,14 +370,12 @@ public struct PlumeMember: Equatable {
         let d2 = (x + sourceOffset) * (x + sourceOffset) + r * r
         let dilution = (re / rx) * (re / rx) * (1 - v) + sourceOffset * sourceOffset / max(d2, 1e-9) * v
         // Everything fades out over the last 30 % of the length (or from
-        // `fadeStart`), and over the window where it is handed over to the
-        // trail, linearly there, as the trail's puffs fade in (LR5), so that
-        // the two sum to one.
+        // `fadeStart`), and about the window where it is handed over to the
+        // trail, as the complement of the trail's nodes fading in there
+        // (LR5), so that the two sum to one.
         let start = fadeStart ?? 0.7 * length
         var fade = start < length ? 1 - Self.smoothstep(start, length, x) : 1
-        if let w = handoverFade {
-            fade *= 1 - min(max((x - w.lowerBound) / max(w.upperBound - w.lowerBound, 1e-6), 0), 1)
-        }
+        if let w = handoverFade { fade *= PlumeAirflow.trailFade(x, window: w, along: handoverAlong) }
         let rho = profile * dilution * fade
         let mixing = x > coreLength ? coreLength / x : 1
         var cells = 1.0

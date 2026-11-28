@@ -13,6 +13,23 @@
     {"name": "p4-trail-chase", "scenario": "as506-first-motion", "showOrbit": false, "advance": ["met:75"],
      "camera": {"yaw": 20, "pitch": -8, "distance": 2500, "fov": 50},
      "settings": {"post": {"exposure": {"mode": "manual", "ev100": 15}}, "cloud": {"enabled": false}, "probe": {"enabled": false},
-                  "atmosphere": {"enabled": false}, "transparency": {"testBackdrop": true}}}
+                  "atmosphere": {"enabled": false}, "transparency": {"testBackdrop": true}}},
+    {
+      "name": "p4-trail-tube", "scenario": "leo", "showOrbit": false,
+      "camera": {"yaw": 0, "pitch": 0, "distance": 900, "fov": 45},
+      "settings": {"post": {"exposure": {"mode": "manual", "ev100": 15}}, "cloud": {"enabled": false},
+                   "probe": {"enabled": false}, "atmosphere": {"enabled": false}, "transparency": {"testBackdrop": true},
+                   "particle": {"testTrail": {"kind": "tube", "start": [-800, 0, 0], "direction": [1, 0, 0], "length": 1600,
+                                              "depth": 1.35, "width": 21, "albedo": 0.58, "asymmetry": 0.35}}}
+    },
+    {
+      "name": "p4-trail-joint-studio", "scenario": "leo", "showOrbit": false,
+      "camera": {"yaw": 0, "pitch": 0, "distance": 700, "fov": 45},
+      "settings": {"post": {"exposure": {"mode": "manual", "ev100": 15}}, "cloud": {"enabled": false},
+                   "probe": {"enabled": false}, "atmosphere": {"enabled": false}, "transparency": {"testBackdrop": true},
+                   "plume": {"testEngines": [{"engine": "F-1", "position": [0, 0, 260], "altitude": 6000, "ring": 4,
+                                              "ringRadius": 4.9, "stream": [0, 0, -265]}]},
+                   "particle": {"testTrail": {"kind": "plume", "length": 500}}}
+    }
   ]
 }

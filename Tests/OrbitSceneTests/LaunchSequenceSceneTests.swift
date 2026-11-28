@@ -301,6 +301,55 @@ final class LaunchSequenceSceneTests: XCTestCase {
         XCTAssertFalse(run.requests("p4 cold vapour", in: run.outputs.last!).isEmpty, "it vents on")
     }
 
+    // An F-1 lost after commit and before the release: the journal has no
+    // cutoff for it (only the release put the F-1s under the throttle), so
+    // `engineCutoffs` reckons it −∞ from the count's record, and the
+    // trail's modelled hand-over (the paths no frame saw) carries the four
+    // that burn, as the live emitters do, not five: its cross-section about
+    // 0.8 of five's.
+    func testAnF1LostBeforeTheReleaseLeavesTheTrailsModel() throws {
+        let (sim, camera) = try open()
+        let v = try XCTUnwrap(sim.focus)
+        sim.stage(v)
+        advance(sim, to: 0.1)
+        let count = try XCTUnwrap(sim.terminalCount)
+        XCTAssertNotNil(count.committed)
+        v.thrusters.first { $0.name == "S-IC engine 1" }!.fail()
+        advance(sim, to: 1)
+        XCTAssertNotNil(count.released)
+        let reckoned = LaunchEffects.engineCutoffs(journal: [:], record: count.record)
+        XCTAssertEqual(Set(reckoned.keys), ["S-IC engine 1"])
+        XCTAssertEqual(reckoned["S-IC engine 1"]?.tdb, -.infinity)
+        XCTAssertEqual(LaunchEffects.engineCutoffs(journal: [:], record: nil), [:])
+        let run = LaunchEffectsTests.Run(sim, camera)
+        run.frame()
+        fly(run, step: 0.5, to: 4)
+        let scene = try XCTUnwrap(run.scene)
+        let site = try XCTUnwrap(scene.sites.first { $0.name == LC39A.placement().name })
+        let vehicle = try XCTUnwrap(LaunchEffects.vehicle(in: scene, site: site))
+        let own = scene.emitters.filter { $0.name.hasPrefix("S-IC engine") }
+        XCTAssertEqual(own.filter { !$0.isJet && $0.flowFraction > 0 }.count, 4)
+        let cutoffs = LaunchEffects.engineCutoffs(journal: run.effects.cutoffs, record: count.record)
+        XCTAssertEqual(cutoffs["S-IC engine 1"]?.tdb, -.infinity)
+        let air = try XCTUnwrap(own.first).ambient, now = sim.time
+        func model(_ flow: @escaping (String) -> Double) throws -> PlumeAirflow.Column {
+            try XCTUnwrap(ExhaustTrail.modelColumn(vehicle.vessel, flow: flow, density: air.density,
+                                                   temperature: air.temperature, pressure: air.pressure,
+                                                   airspeed: vehicle.airspeed))
+        }
+        let four = try model { ExhaustTrail.engineFlow($0, at: now, cutoffs: cutoffs) }
+        let five = try model { _ in 1 }
+        print(String(format: "LaunchSequenceSceneTests: an F-1 lost before the release: the model's cross-section %.3f of five's",
+                     four.crossSection / five.crossSection))
+        XCTAssertEqual(four.crossSection / five.crossSection, 0.8, accuracy: 0.04)
+        if let live = PlumeAirflow.trailHandover(own)?.column {
+            XCTAssertEqual(four.crossSection, live.crossSection, accuracy: 0.05 * live.crossSection, "the live four")
+            XCTAssertEqual(four.depth, live.depth, accuracy: 0.05 * live.depth, "the live four")
+        } else {
+            XCTFail("no live hand-over on the rods")
+        }
+    }
+
     // A stack on the rods (one F-1 lost after commit) whose F-1s the
     // throttle shuts down after the release (the pilot's X, a script's
     // `throttle:0`) feeds the trench and the clouds only through their

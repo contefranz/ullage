@@ -77,13 +77,6 @@ final class LaunchEffectsTests: XCTestCase {
 
         func count(_ material: String) -> Int { requests(material).reduce(0) { $0 + $1.count } }
 
-        enum Kind { case trail }
-
-        /// The trail's requests (every palette material's).
-        func requests(_ kind: Kind, in out: EffectFrameOutput? = nil) -> [EmitRequest] {
-            let all = out.map { [$0] } ?? outputs
-            return all.flatMap { o in o.requests.filter { o.materials[$0.material].name.hasPrefix("p4 trail") } }
-        }
     }
 
     /// The particles of `name` the frames emitted that are still alive now,
@@ -216,7 +209,7 @@ final class LaunchEffectsTests: XCTestCase {
         XCTAssertGreaterThan(run.count("p4 ground cloud"), 20, "the jets' clouds")
         XCTAssertGreaterThan(run.count("p4 cold vapour"), 50, "the LOX tank's fog and the umbilicals' trickle")
         XCTAssertGreaterThan(run.count("p4 ice slab") + run.count("p4 ice flake"), 0, "ice shaken off at ignition")
-        XCTAssertEqual(run.requests(.trail).count, 0, "no trail on the pad")
+        XCTAssertTrue(run.effects.trail.chain.nodes.isEmpty, "no trail on the pad")
         // One anchor at the deck, fixed to the Earth.
         XCTAssertEqual(out.anchors.count, 1)
         let anchor = try XCTUnwrap(out.anchors.first?.frame)
@@ -336,49 +329,38 @@ final class LaunchEffectsTests: XCTestCase {
         return body.orientation.icrfToBody * site.orientation
     }
 
-    /// The trail's requests in `outputs`, with their anchor frame and air,
-    /// the altitude of the middle of the piece they were laid along and its
-    /// place in the site frame.
+    /// The trail's nodes in `run` now, with the pad's anchor frame and air,
+    /// the height each was laid at and where in the site frame.
     struct Laid {
-        var request: EmitRequest
+        var node: TrailColumn.Node
         var frame: AnchorFrame
         var air: AirProfile
         var altitude: Double
         var site: Vec3
+        /// Its extinction, P2's column times its spacing (m²).
+        var extinction: Double { node.column.crossSection * node.spacing }
     }
 
-    /// Where a trail request's puffs began, at its mean age: its origin
-    /// (where a puff of age 0 would have begun) less the chord's motion.
-    static func laidAt(_ r: EmitRequest) -> Vec3 {
-        r.origin - r.sourceVelocity * (0.5 * (r.ages.lowerBound + r.ages.upperBound))
-    }
-
-    func trail(_ outputs: [EffectFrameOutput], _ run: Run, axes: Mat3) throws -> [Laid] {
-        let materials = try XCTUnwrap(run.effects.materials)
-        var laid: [Laid] = []
-        for o in outputs {
-            for r in o.requests where materials.trail.contains(r.material) {
-                let a = try XCTUnwrap(o.anchors.first { $0.id == r.anchor }?.frame)
-                let air = try XCTUnwrap(a.airProfile.map { o.airProfiles[$0] })
-                let p = Self.laidAt(r)
-                laid.append(Laid(request: r, frame: a, air: air, altitude: a.altitude(of: p), site: axes.transposed * p))
-            }
+    func trail(_ run: Run, axes: Mat3) throws -> [Laid] {
+        let o = try XCTUnwrap(run.outputs.last), pad = try XCTUnwrap(run.effects.pad)
+        let a = try XCTUnwrap(o.anchors.first { $0.id == pad }?.frame)
+        let air = try XCTUnwrap(a.airProfile.map { o.airProfiles[$0] })
+        return run.effects.trail.chain.nodes.map { n in
+            Laid(node: n, frame: a, air: air, altitude: a.altitude(of: n.position), site: axes.transposed * n.position)
         }
-        return laid
     }
 
     /// The rebuilt trail against the frames': at each height of `heights`
-    /// the count-weighted mean horizontal place of the puffs' origins within
-    /// 500 m of it, apart by less than `tolerance` m, the rebuilt one moving
-    /// away from the pad as it climbs. Returns the largest gap.
+    /// the mean horizontal place where the nodes within 500 m of it were
+    /// laid, apart by less than `tolerance` m, the rebuilt one moving away
+    /// from the pad as it climbs. Returns the largest gap.
     @discardableResult
     func compareTrails(_ framed: [Laid], _ rebuilt: [Laid], heights: [Double], tolerance: Double,
                        _ label: String) throws -> Double {
         func mean(_ l: [Laid], _ h: Double) -> Vec3? {
             let near = l.filter { abs($0.altitude - h) < 500 }
             guard !near.isEmpty else { return nil }
-            let w = near.reduce(0.0) { $0 + Double($1.request.count) }
-            return near.reduce(Vec3.zero) { $0 + Vec3($1.site.x, $1.site.y, 0) * Double($1.request.count) } * (1 / w)
+            return near.reduce(Vec3.zero) { $0 + Vec3($1.site.x, $1.site.y, 0) } * (1 / Double(near.count))
         }
         var away = 0.0, worst = 0.0
         for h in heights {
@@ -400,18 +382,18 @@ final class LaunchEffectsTests: XCTestCase {
     ///   3.5 km downrange); the rebuilt trail lies along the frames' to
     ///   within 100 m at every kilometre of height, moving away from the pad
     ///   as it climbs; the rebuilt frost's last second moves with the vehicle.
-    /// - T+135 s: the trail was laid from the deck to 40 km; a puff laid at
+    /// - T+135 s: the trail was laid from the deck to 40 km; a node laid at
     ///   about 10 km drifts on the launch day's wind there (AS-506's
-    ///   sounding, datasheet §11): advanced two minutes by P3's physics in
-    ///   the pad's anchor and air, it moves with the particles' air
-    ///   (`AirProfile`) within 3 % (a piece of path, up to 100 m and some
-    ///   70 m of height here, gives its puffs one velocity, the wind at its
-    ///   middle), and so with the sounding's wind at its height within 8 % in
-    ///   speed and 4° in direction (the profile's levels are about a
-    ///   kilometre apart there, the sounding's finer); one laid lower drifts
-    ///   differently (the shear).
-    /// - T+170 s, after CECO and OECO: a rebuild has the frames' pad clouds
-    ///   and trail, the S-IC's flow taken from the journal's cutoffs.
+    ///   sounding, datasheet §11): two minutes on, across its line (along
+    ///   it, its jet's drift through the air), it moves with the particles'
+    ///   air (`AirProfile`) within 3 %, its wind the profile's at its
+    ///   height, and so the sounding's within 8 % in speed and 5° in
+    ///   direction (the profile's levels are about a kilometre apart there,
+    ///   the sounding's finer); one laid lower drifts differently (the
+    ///   shear).
+    /// - T+170 s, after CECO and OECO, and on to T+450 s: a rebuild has the
+    ///   frames' pad clouds and trail, the S-IC's flow taken from the
+    ///   journal's cutoffs; the frames' nodes are drawn every frame.
     func testFlightAndRebuiltHistories() throws {
         let (sim, camera) = try open()
         let run = Run(sim, camera)
@@ -436,48 +418,41 @@ final class LaunchEffectsTests: XCTestCase {
         XCTAssertEqual((rebuiltFrost.sourceVelocity - framedFrost.sourceVelocity).length, 0, accuracy: 1,
                        "the vehicle's own velocity, \(framedFrost.sourceVelocity.length) m/s")
         // The rebuilt trail along the frames'.
-        let framed = try trail(run.outputs, run, axes: axes), again = try trail([rebuilt75], at75, axes: axes)
+        let framed = try trail(run, axes: axes), again = try trail(at75, axes: axes)
         try compareTrails(framed, again, heights: Array(stride(from: 1_000.0, through: 9_000, by: 1_000)), tolerance: 100,
                           "T+75 s")
-        let framedCount = framed.reduce(0) { $0 + $1.request.count }, againCount = again.reduce(0) { $0 + $1.request.count }
-        XCTAssertEqual(Double(againCount), Double(framedCount), accuracy: 0.08 * Double(framedCount))
+        XCTAssertEqual(Double(again.count), Double(framed.count), accuracy: 0.05 * Double(framed.count))
 
         // T+135 s: the whole trail, and its drift.
         fly(run, step: 0.5, for: 60, test: self)
         let earth = try XCTUnwrap(sim.system.bodies.first { $0.id == 399 })
         let sounding = try XCTUnwrap(sim.atmosphere(of: earth))
-        let table = run.session.materials
-        let laid = try trail(run.outputs, run, axes: axes)
-        XCTAssertGreaterThan(laid.count, 100)
+        let laid = try trail(run, axes: axes)
+        XCTAssertGreaterThan(laid.count, 1_000)
         let highest = laid.map(\.altitude).max()!
         XCTAssertLessThan(highest, ExhaustTrail.ceiling + 1_000, "nothing laid above 40 km")
         XCTAssertGreaterThan(highest, 38_000, "laid to the ceiling")
         XCTAssertGreaterThan(laid.map(\.altitude).min()!, LC39A.placement().height, "from the deck up")
-        XCTAssertGreaterThan(run.effects.trail.laid, 1_000)
 
         func drift(near h: Double) throws -> (moved: Vec3, wind: Vec3, frame: AnchorFrame) {
             let l = try XCTUnwrap(laid.min { abs($0.altitude - h) < abs($1.altitude - h) })
-            let p = EmitSampler.sample(l.request, index: 0)
-            let m = table[l.request.material]
-            let h = l.frame.altitude(of: p.position)
-            var s = ParticlePhysics.State(position: p.position, velocity: p.velocity, radius: p.radius,
-                                          temperature: l.air.sample(altitude: h).temperature)
-            // Age it to two minutes, in steps, in the anchor's air.
-            let start = s.position
-            for _ in 0..<120 {
-                s = ParticlePhysics.advance(s, material: m.physics, environment: l.frame.environment, dt: 1) {
-                    l.frame.air(at: $0, profile: l.air)
-                }
-            }
+            let n = l.node, h = l.altitude, age = run.sim.time - n.laid
+            // Two minutes on from now.
+            let moved = n.centre(age: age + 120) - n.centre(age: age)
             let w = sounding.wind(altitude: h), a = l.air.sample(altitude: h)
             let profile = l.frame.east * a.windEast + l.frame.north * a.windNorth
-            let flat = (s.position - start) - l.frame.up * (s.position - start).dot(l.frame.up)
-            XCTAssertEqual((flat * (1.0 / 120) - profile).length, 0, accuracy: 0.03 * profile.length,
-                           "with the particles' air at \(Int(h)) m")
-            print(String(format: "LaunchEffectsTests: trail puff at %.0f m: drift %.2f m/s, sounding %.2f m/s, profile %.2f m/s",
-                         h, (s.position - start).length / 120, (w.east * w.east + w.north * w.north).squareRoot(),
+            XCTAssertEqual((n.wind - profile).length, 0, accuracy: 1e-9 * profile.length, "with the particles' air at \(Int(h)) m")
+            // Across the line (its own drift through the air is along it).
+            func flat(_ v: Vec3) -> Vec3 {
+                let level = v - l.frame.up * v.dot(l.frame.up), t = n.tangent - l.frame.up * n.tangent.dot(l.frame.up)
+                return t.length > 1e-6 ? level - t.normalized * level.dot(t.normalized) : level
+            }
+            XCTAssertEqual((flat(moved) * (1.0 / 120) - flat(profile)).length, 0, accuracy: 0.03 * profile.length,
+                           "drifts on the wind at \(Int(h)) m")
+            print(String(format: "LaunchEffectsTests: trail node at %.0f m: drift %.2f m/s, sounding %.2f m/s, profile %.2f m/s",
+                         h, moved.length / 120, (w.east * w.east + w.north * w.north).squareRoot(),
                          (a.windEast * a.windEast + a.windNorth * a.windNorth).squareRoot()))
-            return (s.position - start, l.frame.east * w.east + l.frame.north * w.north, l.frame)
+            return (n.wind * 120, l.frame.east * w.east + l.frame.north * w.north, l.frame)
         }
         let high = try drift(near: 10_000)
         let up = high.frame.up
@@ -485,8 +460,7 @@ final class LaunchEffectsTests: XCTestCase {
         XCTAssertGreaterThan(high.wind.length, 5, "the day had wind at 10 km")
         XCTAssertEqual(horizontal.length / 120, high.wind.length, accuracy: 0.08 * high.wind.length)
         let angle = acos(min(1, horizontal.normalized.dot(high.wind.normalized))) * 180 / Double.pi
-        XCTAssertLessThan(angle, 4)
-        XCTAssertLessThan(abs(high.moved.dot(up)), 0.1 * horizontal.length, "it stays at its height")
+        XCTAssertLessThan(angle, 5)
         let low = try drift(near: 2_000)
         XCTAssertGreaterThan((low.moved - high.moved).length, 120 * 2, "the shear between 2 and 10 km")
 
@@ -505,60 +479,28 @@ final class LaunchEffectsTests: XCTestCase {
             return s + Double(r.count) * min(1, max(0, (life.upperBound - age) / (life.upperBound - life.lowerBound)))
         }
         XCTAssertEqual(rebuiltClouds, framedClouds, accuracy: 0.15 * framedClouds, "the clouds")
-        let framedTrail = try trail(run.outputs, run, axes: axes)
-        let trailFramed = framedTrail.reduce(0) { $0 + $1.request.count }
         let heights = Array(stride(from: 2_000.0, through: 38_000, by: 4_000))
         // After OECO and the S-IC's separation the rebuilt trail ends at the
-        // journal's last cutoff, not at the spent stage, which coasts on.
+        // journal's last cutoff, not at the spent stage, which coasts on;
+        // the frames' nodes live on (`TrailChain.lifetime`), drawn every
+        // frame (`EffectFrameOutput.media`).
         for (seconds, label) in [(0.0, "T+170 s"), (30, "T+200 s"), (100, "T+300 s"), (150, "T+450 s")] {
             if seconds > 0 { fly(run, step: 2, for: seconds, test: self) }
+            let framedTrail = try trail(run, axes: axes)
+            // Drawn every frame, merged far off (`TrailChain.lod`): all of
+            // the nodes' extinction (each fully in by now).
+            let media = try XCTUnwrap(run.outputs.last?.media)
+            let drawn = media.reduce(0.0) { $0 + $1.peakExtinction * pow(2 * Double.pi, 1.5) * $1.sigma.x * $1.sigma.y * $1.sigma.z }
+            let laid = framedTrail.reduce(0.0) { $0 + $1.extinction }
+            XCTAssertEqual(drawn, laid, accuracy: 1e-6 * laid, "\(label): every node drawn")
+            XCTAssertLessThan(media.count, framedTrail.count / 4, "\(label): merged far off")
             let late = Run(sim, camera)
-            let rebuilt = late.frame()
-            let again = try trail([rebuilt], late, axes: axes)
-            let trailAgain = again.reduce(0) { $0 + $1.request.count }
-            print("LaunchEffectsTests: trail puffs at \(label): frames \(trailFramed), rebuilt \(trailAgain)")
-            XCTAssertEqual(Double(trailAgain), Double(trailFramed), accuracy: 0.05 * Double(trailFramed), label)
+            late.frame()
+            let again = try trail(late, axes: axes)
+            print("LaunchEffectsTests: trail nodes at \(label): frames \(framedTrail.count), rebuilt \(again.count)")
+            XCTAssertEqual(Double(again.count), Double(framedTrail.count), accuracy: 0.05 * Double(framedTrail.count), label)
             try compareTrails(framedTrail, again, heights: heights, tolerance: 700, label)
         }
-    }
-
-    /// The puffs' fade-in time, the materials' share of their one lifetime:
-    /// the window's 2w crossed at the airspeed, on a grid of windows and
-    /// airspeeds with no acceleration (to the share's 0.5 % steps), and in
-    /// flight from T+10 s to CECO with the vehicle's, which lengthens it by
-    /// up to a third (T = 4w / (V + √(V² − 4Aw))). The fade's sum with P2's
-    /// as drawn is `ExhaustTrailTests.testJointsAxialProfile`'s.
-    func testTrailFadesInOverP2sWindow() throws {
-        XCTAssertEqual(ExhaustTrail.lifetime.lowerBound, ExhaustTrail.lifetime.upperBound)
-        for w in [7.0, 20, 40, 67, 150] {
-            for v in [20.0, 50, 100, 400, 800, 1_200, 1_460, 1_650, 2_400] {
-                guard 2 * w / v < ExhaustTrail.longestFadeIn else { continue }
-                let seconds = ExhaustTrail.fadeIn(window: w, airspeed: v) * ExhaustTrail.lifetime.upperBound
-                XCTAssertEqual(seconds, 2 * w / v, accuracy: 0.003 * 2 * w / v, "window \(w) m at \(v) m/s")
-            }
-        }
-        let (sim, camera) = try open()
-        let run = Run(sim, camera)
-        run.frame()
-        let zero = LaunchCountdown.epoch(0, in: .apollo11)
-        let materials = try XCTUnwrap(run.effects.materials)
-        var checked = 0
-        for t in [10.0, 30, 60, 90, 110, 125, 135] {
-            fly(run, step: 0.5, for: t - (sim.time - zero), test: self)
-            let scene = try XCTUnwrap(run.scene)
-            let own = scene.emitters.filter { $0.name.hasPrefix("S-IC engine") }
-            let head = try XCTUnwrap(PlumeAirflow.trailHandover(own), "T+\(t) s")
-            let v = try XCTUnwrap(own.first).relativeWind.length
-            let share = run.session.materials[materials.trail[0]].fadeIn
-            for id in materials.trail { XCTAssertEqual(run.session.materials[id].fadeIn, share, "T+\(t) s") }
-            let seconds = share * ExhaustTrail.lifetime.upperBound, steady = 2 * head.window / v
-            XCTAssertGreaterThanOrEqual(seconds, 0.997 * steady, "T+\(t) s")
-            XCTAssertLessThanOrEqual(seconds, 1.34 * steady, "T+\(t) s")
-            print(String(format: "LaunchEffectsTests: at T+%.0f s the trail fades in over %.0f m at %.0f m/s (%.3f s, steady %.3f s)",
-                         t, 2 * head.window, v, seconds, steady))
-            checked += 1
-        }
-        XCTAssertEqual(checked, 7)
     }
 
     /// An outboard F-1 out at range 60 s (`as506-sic-engine1-out`): a
@@ -572,28 +514,22 @@ final class LaunchEffectsTests: XCTestCase {
         // From the count's T−35 s to T+100 s.
         fly(run, step: 0.5, for: 135, test: self)
         let at100 = Run(sim, camera)
-        let rebuilt = at100.frame()
+        at100.frame()
         let failure = try XCTUnwrap(at100.effects.cutoffs["S-IC engine 1"], "the journal's engine out")
         XCTAssertEqual(failure - LaunchCountdown.epoch(0, in: .apollo11), 60, accuracy: 0.1)
         XCTAssertEqual(LaunchEffects.flow(at: sim.time, cutoffs: Array(at100.effects.cutoffs.values), engines: 5), 0.8,
                        accuracy: 1e-12)
-        let framed = try trail(run.outputs, run, axes: axes), again = try trail([rebuilt], at100, axes: axes)
-        let framedCount = framed.reduce(0) { $0 + $1.request.count }, againCount = again.reduce(0) { $0 + $1.request.count }
-        // What carries the flow now is the puffs' depth and size, not their
-        // count: by kilometre of height after the failure (from 10 km, below
-        // the trail's end), the extinction the rebuild lays (each puff's
-        // ∫ τ dA, τ0 π R²/3) is the frames' within 6 %; laid at five engines'
-        // flow it would be some 25 % more.
-        func extinction(_ l: [Laid], _ table: ParticleMaterialTable) -> [Int: Double] {
+        let framed = try trail(run, axes: axes), again = try trail(at100, axes: axes)
+        // By kilometre of height after the failure (from 10 km, below the
+        // trail's end), the extinction the rebuild lays (each node's P2
+        // column times its spacing) is the frames' within 6 %; laid at five
+        // engines' flow it would be some 25 % more.
+        func extinction(_ l: [Laid]) -> [Int: Double] {
             var b: [Int: Double] = [:]
-            for x in l where x.altitude > 10_000 {
-                let r = x.request, radius = 0.5 * (r.radius.lowerBound + r.radius.upperBound)
-                b[Int(x.altitude / 1_000), default: 0] += Double(r.count) * table[r.material].opticalDepth
-                    * Double.pi * radius * radius / 3
-            }
+            for x in l where x.altitude > 10_000 { b[Int(x.altitude / 1_000), default: 0] += x.extinction }
             return b
         }
-        let framedBands = extinction(framed, run.session.materials), againBands = extinction(again, at100.session.materials)
+        let framedBands = extinction(framed), againBands = extinction(again)
         XCTAssertGreaterThan(framedBands.count, 5)
         for band in framedBands.keys.sorted() {
             print(String(format: "LaunchEffectsTests: engine out, %d km: rebuilt %.0f against the frames' %.0f (%.3f)", band,
@@ -605,12 +541,8 @@ final class LaunchEffectsTests: XCTestCase {
         for (band, e) in framedBands where band < top {
             XCTAssertEqual(againBands[band] ?? 0, e, accuracy: 0.06 * e, "\(band) km: the rebuild's extinction after the failure")
         }
-        // The count, which no longer follows the flow, still agrees.
-        let after = zip(run.outputs, run.epochs).filter { $0.1 > failure + LaunchEffects.tailOff }.map(\.0)
-        let laidAfter = try trail(after, run, axes: axes).reduce(0) { $0 + $1.request.count }
-        print("LaunchEffectsTests: engine out at T+100 s: frames \(framedCount) (\(laidAfter) after the failure), rebuilt \(againCount)")
-        XCTAssertEqual(Double(againCount), Double(framedCount), accuracy: 0.03 * Double(framedCount))
-        XCTAssertGreaterThan(Double(laidAfter) * 0.25, 0.06 * Double(framedCount), "the failure's share is measurable")
+        print("LaunchEffectsTests: engine out at T+100 s: frames \(framed.count) nodes, rebuilt \(again.count)")
+        XCTAssertEqual(Double(again.count), Double(framed.count), accuracy: 0.03 * Double(framed.count))
         try compareTrails(framed, again, heights: Array(stride(from: 2_000.0, through: 18_000, by: 2_000)), tolerance: 200,
                           "engine out, T+100 s")
     }

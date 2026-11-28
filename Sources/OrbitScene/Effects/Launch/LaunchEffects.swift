@@ -29,7 +29,6 @@ public final class LaunchEffects: EffectProducer {
 
     public struct Materials {
         public var padExhaust, deluge, coldVapour, iceFlake, iceSlab: ParticleMaterialID
-        public var trail: [ParticleMaterialID]
         public var groundCloud, startSmoke, ignitionFlash: ParticleMaterialID
     }
 
@@ -47,7 +46,7 @@ public final class LaunchEffects: EffectProducer {
     /// The ground cloud's two jets and clouds (`GroundCloud`), from the first
     /// start command.
     private(set) var cloud: GroundCloud?
-    private var pad: EffectAnchorID?
+    private(set) var pad: EffectAnchorID?
     private var carry: [String: Double] = [:]
     private var serial = 0
     /// The S-IC engines' cutoffs the journal recorded (CECO, OECO, an engine
@@ -66,7 +65,6 @@ public final class LaunchEffects: EffectProducer {
                               coldVapour: table.register(LaunchMaterials.coldVapour),
                               iceFlake: table.register(LaunchMaterials.iceFlake),
                               iceSlab: table.register(LaunchMaterials.iceSlab),
-                              trail: (0..<ExhaustTrail.palette).map { table.register(LaunchMaterials.trail($0)) },
                               groundCloud: table.register(LaunchMaterials.groundCloud),
                               startSmoke: table.register(LaunchMaterials.startSmoke),
                               ignitionFlash: table.register(LaunchMaterials.ignitionFlash))
@@ -115,8 +113,8 @@ public final class LaunchEffects: EffectProducer {
     public static let tailOff = 0.66
     /// The producer runs until this long after first motion, s: the S-IC
     /// has stopped laying the trail by OECO and tail-off (161.6 + 0.7 s,
-    /// past its 40 km ceiling), and its puffs live `ExhaustTrail.lifetime`.
-    public static let window = 170 + ExhaustTrail.lifetime.upperBound
+    /// past its 40 km ceiling), and its nodes live `TrailChain.lifetime`.
+    public static let window = 170 + TrailChain.lifetime
 
     /// Everything the frame's emitters need: the site, its anchor, the
     /// vehicle and the time.
@@ -243,6 +241,10 @@ public final class LaunchEffects: EffectProducer {
         guard let m = materials, let site = f.scene.sites.first(where: { $0.name == LC39A.placement().name }),
               let body = f.body(site.bodyID) else { return }
         let now = f.clock.epoch
+        // The trail's nodes, every frame they live (after the S-IC's
+        // cutoff and its staging too), faded in about the live hand-over.
+        var head: PlumeAirflow.Handover?
+        defer { trailMedia(f, head: head) }
         // The pad stands in the simulation's count when it has one (the
         // site's countdown runs on it), else in the historic launch's.
         let countdown = site.countdown(at: now)
@@ -274,6 +276,7 @@ public final class LaunchEffects: EffectProducer {
             return
         }
         seen = Seen(epoch: now, vessel: vehicle.vessel.id, climb: vehicle.climb)
+        head = vehicle.trailHead
         let rebuilt = last == nil
         let from = last.map { min($0.epoch, now) } ?? (ignition.firstCommand.map { min($0, now) } ?? now)
         guard now > from || rebuilt else { return }
@@ -296,7 +299,7 @@ public final class LaunchEffects: EffectProducer {
         }
         guard open else { return }
         frost(&c, m)
-        trail.update(&c, materials: m.trail, owner: self)
+        trail.update(&c, owner: self)
     }
 
     /// The vessel carrying the S-IC (the stack until staging), and its
@@ -351,9 +354,14 @@ public final class LaunchEffects: EffectProducer {
     /// journal's, and −∞ for one the count lost by the release. What the
     /// trail's modelled hand-over takes each engine's flow from
     /// (`ExhaustTrail.engineFlow`).
-    func engineCutoffs(_ c: Context) -> [String: Epoch] {
-        var all = cutoffs
-        guard let r = c.ignition.record, let released = r.released else { return all }
+    func engineCutoffs(_ c: Context) -> [String: Epoch] { Self.engineCutoffs(journal: cutoffs, record: c.ignition.record) }
+
+    /// `engineCutoffs` from the journal's cutoffs by name and the count's
+    /// record: −∞ added for each engine the record stopped by the release
+    /// that the journal has none for.
+    static func engineCutoffs(journal: [String: Epoch], record: TerminalCount.Record?) -> [String: Epoch] {
+        var all = journal
+        guard let r = record, let released = r.released else { return all }
         for (i, s) in r.plan.starts.enumerated() where all[s.engine] == nil {
             if let stop = r.stop(i), stop <= released { all[s.engine] = Epoch(tdbSecondsPastJ2000: -.infinity) }
         }
@@ -416,6 +424,26 @@ public final class LaunchEffects: EffectProducer {
     func nextSeed(_ key: String) -> UInt32 {
         serial += 1
         return ParticleRandom.seed(key, serial)
+    }
+
+    /// The trail's nodes at the frame's epoch as Gaussian media in the
+    /// pad's anchor (`TrailChain.anchorMedia`): the young ones faded in
+    /// about `head`'s window, as P2 fades out about it; where the trail
+    /// joins the plume, the window's middle.
+    func trailMedia(_ f: EffectFrame, head: PlumeAirflow.Handover?) {
+        let now = f.clock.epoch
+        trail.chain.retire(at: now)
+        guard !trail.chain.nodes.isEmpty, let a = pad, let frame = f.anchorFrame(a) else { return }
+        let back = frame.toWorld.transposed
+        var window: TrailChain.Window?, joint: Vec3?
+        if let h = head, let o = h.origin, let axis = h.axis, h.window > 0 {
+            let origin = back * (o - frame.origin), along = back * axis
+            window = TrailChain.Window(origin: origin, axis: along, range: h.fadeWindow)
+            joint = origin + along * h.x
+        }
+        // Merged far from the camera (at the world's origin).
+        let camera = back * (frame.origin * -1)
+        f.addMedia(trail.chain.anchorMedia(at: now, window: window, camera: camera), joint: joint, in: a)
     }
 
     /// The pad's anchor, made on first use.

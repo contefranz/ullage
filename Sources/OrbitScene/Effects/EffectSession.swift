@@ -60,10 +60,25 @@ public struct EffectFrameOutput {
     public var materials: ParticleMaterialTable
     /// Requests dropped this frame (too old, no anchor, over the budget).
     public var dropped: Int
+    /// The frame's Gaussian media (LR5's trail nodes), camera-relative,
+    /// far to near, for the volumes layer (`TrailPass`), and where each
+    /// list joins a vessel's plume (camera-relative; nil for none), which
+    /// splits its draw about P2's: the media farther than it before P2's
+    /// march, the rest after.
+    public var media: [GaussianMedium]
+    public var mediaJoint: Vec3?
+    /// Each medium's line through it, its peak extinction (1/m), for the
+    /// shadows through its column (`TrailChain.Drawn.linePeak`).
+    public var mediaLinePeaks: [Double]
+    /// How the media's anchor is lit (`AnchorFrame.sunlitFraction`,
+    /// `sunAboveAir`): the studio's by the Sun above any air.
+    public var mediaSunlit: Double
+    public var mediaSunAboveAir: Bool
 
     public init(clock: EffectClock, resets: Bool, requests: [EmitRequest], anchors: [(id: EffectAnchorID, frame: AnchorFrame)],
                 airProfiles: [AirProfile], drawn: Set<ParticleRenderClass>, materials: ParticleMaterialTable,
-                dropped: Int = 0) {
+                dropped: Int = 0, media: [GaussianMedium] = [], mediaJoint: Vec3? = nil, mediaLinePeaks: [Double] = [],
+                mediaSunlit: Double = 1, mediaSunAboveAir: Bool = false) {
         self.clock = clock
         self.resets = resets
         self.requests = requests
@@ -72,6 +87,11 @@ public struct EffectFrameOutput {
         self.drawn = drawn
         self.materials = materials
         self.dropped = dropped
+        self.media = media
+        self.mediaJoint = mediaJoint
+        self.mediaLinePeaks = mediaLinePeaks.count == media.count ? mediaLinePeaks : media.map { _ in 0 }
+        self.mediaSunlit = mediaSunlit
+        self.mediaSunAboveAir = mediaSunAboveAir
     }
 }
 
@@ -224,6 +244,14 @@ public final class EffectFrame {
     public func emitContinuous(_ key: String, rate: Double, _ r: EmitRequest, persistsAtHighWarp: Bool = false) {
         session.emitContinuous(key, rate: rate, r, persists: persistsAtHighWarp, frame: self)
     }
+
+    /// This frame's Gaussian media in anchor `id`'s axes, each with its
+    /// line's peak, and where they join a plume (the anchor's axes): drawn
+    /// this frame (and again in a frame drawn again), the anchor kept alive
+    /// while they are given.
+    public func addMedia(_ media: [TrailChain.Drawn], joint: Vec3?, in id: EffectAnchorID) {
+        session.addMedia(media, joint: joint, in: id, frame: self)
+    }
 }
 
 /// The director's state across frames.
@@ -310,7 +338,7 @@ public final class EffectSession {
         if jump { dt = 0 }
         // The studio spawns its bursts afresh on every frame but one drawn
         // again (a snapshot's AOVs and timing frames), which keeps them.
-        let studio = !settings.testBursts.isEmpty
+        let studio = !settings.testBursts.isEmpty || settings.testTrail != nil
         let resets = newSimulation || jump || studio && !again
         if resets { reset(newSimulation: newSimulation) }
         last = (c.frameIndex, c.simTime, vessels)
@@ -324,6 +352,7 @@ public final class EffectSession {
                                 turbulenceDt: turbulenceDt, turbulenceTime: turbulenceTime, frame: frameCount)
         requests = []
         dropped = 0
+        if !again || resets { media = [] }
         propagateAnchors(scene, clock: clock)
         if !again { noteVelocities(scene, clock: clock) }
         let f = EffectFrame(scene: scene, clock: clock, session: self, plumes: plumes)
@@ -333,6 +362,10 @@ public final class EffectSession {
                 for b in settings.testBursts {
                     guard let m = b.resolvedMaterial else { continue }
                     f.emit(b.request(anchor: id, material: materials.register(m)))
+                }
+                if let t = settings.testTrail {
+                    let trail = TrailStudio.media(t, scene: scene, plumes: plumes, at: clock.epoch)
+                    f.addMedia(trail.media, joint: trail.joint, in: id)
                 }
             }
         } else if !again {
@@ -369,8 +402,35 @@ public final class EffectSession {
             if let t = liveUntil[k], clock.epoch < t { drawn.insert(k) }
             if let n = flashFrames[k], clock.frame <= n { drawn.insert(k) }
         }
+        // The media in the frame's world, far to near.
+        var world: [TrailChain.Drawn] = [], joint: Vec3?, lit: (sunlit: Double, aboveAir: Bool)?
+        for m in media {
+            guard let frame = anchors.first(where: { $0.id == m.anchor })?.frame else { continue }
+            if lit == nil { lit = (frame.sunlitFraction, frame.sunAboveAir) }
+            for var d in m.media {
+                d.medium.centre = frame.world(d.medium.centre)
+                d.medium.axisU = frame.toWorld * d.medium.axisU
+                d.medium.axisV = frame.toWorld * d.medium.axisV
+                world.append(d)
+            }
+            if joint == nil, let j = m.joint { joint = frame.world(j) }
+        }
+        world = world.map { ($0, $0.medium.centre.lengthSquared) }.sorted { $0.1 > $1.1 }.map(\.0)
         return EffectFrameOutput(clock: clock, resets: resets, requests: requests, anchors: anchors,
-                                 airProfiles: airProfiles, drawn: drawn, materials: materials, dropped: dropped)
+                                 airProfiles: airProfiles, drawn: drawn, materials: materials, dropped: dropped,
+                                 media: world.map(\.medium), mediaJoint: joint, mediaLinePeaks: world.map(\.linePeak),
+                                 mediaSunlit: lit?.sunlit ?? 1, mediaSunAboveAir: lit?.aboveAir ?? false)
+    }
+
+    /// The frame's media, in their anchors' axes (`EffectFrame.addMedia`).
+    private var media: [(anchor: EffectAnchorID, media: [TrailChain.Drawn], joint: Vec3?)] = []
+
+    func addMedia(_ m: [TrailChain.Drawn], joint: Vec3?, in id: EffectAnchorID, frame f: EffectFrame) {
+        guard var s = slots.indices.contains(id.slot) ? slots[id.slot] : nil, s.generation == id.generation else { return }
+        s.expires = max(s.expires, f.clock.epoch)
+        s.lastUse = f.clock.frame
+        slots[id.slot] = s
+        media.append((id, m, joint))
     }
 
     // MARK: Anchors

@@ -127,7 +127,7 @@ enum Plumes {
             deckAxis: f4(m.impingement?.openingAxis ?? .zero, m.impingement?.openingHalf ?? 0),
             deckHeat: f4(PlumeImpingement.recovered(static: m.coreTemperature, total: m.totalTemperature),
                          m.impingement.map { 0.5 * m.radius(atX: $0.distance(m) ?? 0) } ?? 0,
-                         PlumeImpingement.wallGrowth, 0))
+                         PlumeImpingement.wallGrowth, m.handoverAlong))
     }
 
     /// Four of a bend's offsets from `first` (zero without a bend).

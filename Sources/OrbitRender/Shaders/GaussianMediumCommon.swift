@@ -118,12 +118,19 @@ inline float orbit_gaussianTimeAtDepth(GaussianRay r, float t0, float tau) {
 // (back-lit), ln(T/(1 - e^-T)): within 0.3 % for either on segments of depth
 // 0.25. Below depth 0.05 their mean's series, T/2 - T^2/12 + T^4/360 (the
 // logarithms cancel in Float there). GaussianMedium.Ray.shadingTime.
+// The depth into a segment of depth d its one source sits at (for a
+// caller that walks the segments by their depths and so knows each one's).
+// GaussianMedium.Ray.shadingDepth.
+inline float orbit_gaussianShadingDepth(float d) {
+    if (d <= 1e-9) { return 0.0; }
+    return d < 0.05 ? d * (0.5 - d * (1.0 / 12.0 - d * d / 360.0))
+                    : 0.5 * (-log(0.5 * (1.0 + exp(-d))) + log(d / (1.0 - exp(-d))));
+}
+
 inline float orbit_gaussianShadingTime(GaussianRay r, float t0, float t1) {
     float d = orbit_gaussianDepth(r, t0, t1);
     if (d <= 1e-9) { return clamp(r.centre, t0, t1); }
-    float x = d < 0.05 ? d * (0.5 - d * (1.0 / 12.0 - d * d / 360.0))
-                       : 0.5 * (-log(0.5 * (1.0 + exp(-d))) + log(d / (1.0 - exp(-d))));
-    return clamp(orbit_gaussianTimeAtDepth(r, t0, x), t0, t1);
+    return clamp(orbit_gaussianTimeAtDepth(r, t0, orbit_gaussianShadingDepth(d)), t0, t1);
 }
 
 // How many segments a chord of optical depth `depth` is shaded in: 0.25
