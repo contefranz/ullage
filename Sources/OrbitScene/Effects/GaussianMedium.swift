@@ -130,36 +130,44 @@ public struct GaussianMedium: Equatable {
 
     /// A primitive's chord is shaded in `segments(depth:)` segments, each
     /// with one source at its `shadingTime`: `segmentDepth` deep from the
-    /// entry (`segmentBoundary`), at most `maxSegments`, the last taking
-    /// whatever is left (seen through e^(−0.25 (n − 1)), so its own error
-    /// hardly shows past depth 4).
+    /// entry (`segmentBoundary`), at most `maxSegments`. Past depth 3.75 the
+    /// first `maxSegments − evenSegments` stay 0.25 deep and the last
+    /// `evenSegments` split the rest evenly: lit from behind, light leaves
+    /// every depth about alike, so one thick last segment would carry most
+    /// of it on one source.
     public static let segmentDepth = 0.25
     public static let maxSegments = 16
+    public static let evenSegments = 4
     public static func segments(depth: Double) -> Int {
         min(max(Int((max(depth, 0) / segmentDepth).rounded(.up)), 1), maxSegments)
     }
 
     /// The depth from the chord's entry of segment boundary `k` of `n`
-    /// (0 the entry, n the exit): k × `segmentDepth`, the exit's for the last.
+    /// (0 the entry, n the exit): k × `segmentDepth`, the exit's for the
+    /// last; with `maxSegments`, past the first `maxSegments − evenSegments`
+    /// the rest in equal parts.
     public static func segmentBoundary(_ k: Int, of n: Int, depth: Double) -> Double {
-        k >= n ? depth : min(Double(k) * segmentDepth, depth)
+        if k >= n { return depth }
+        let fixed = n >= maxSegments ? n - evenSegments : n
+        if k <= fixed { return min(Double(k) * segmentDepth, depth) }
+        let start = min(Double(fixed) * segmentDepth, depth)
+        return start + (depth - start) * Double(k - fixed) / Double(n - fixed)
     }
 
     /// The column the ambient lights a point `p` through, along its axis
     /// (unit `axis`, towards its up side): the depth from `p` to the up
-    /// side and the whole chord along the axis through `p`, both scaled
-    /// down to the chord through `p` along the primitive's shortest axis
-    /// where that is shorter. So an elongated body along the axis (the
-    /// trail climbing) takes its skylight through its sides, not its
-    /// length.
+    /// side and the whole chord along the axis through `p`, both scaled by
+    /// the body's own aspect along the axis, min(σ) over the line's width
+    /// (its σ along the axis), where that is under 1. So an elongated body
+    /// along the axis (the trail climbing) takes its skylight through its
+    /// sides, not its length (on its centre line, the chord across it), and
+    /// the scale depends on the body's shape alone: not on `p`, nor on which
+    /// of equal axes is labelled first.
     public func ambientColumn(at p: Vec3, axis: Vec3) -> (depth: Double, chord: Double) {
         let r = ray(origin: p, direction: axis), chord = r.total
         guard chord > 1e-12 else { return (0, 0) }
         let up = r.depth(from: 0, to: r.centre + 10 * r.width + abs(r.centre))
-        let axes = [axisU, axisV, axisW], s = [sigma.x, sigma.y, sigma.z]
-        let shortest = axes[s.firstIndex(of: s.min()!)!]
-        let across = ray(origin: p, direction: shortest).total
-        let scale = min(1, across / chord)
+        let scale = min(1, min(sigma.x, sigma.y, sigma.z) / r.width)
         return (up * scale, chord * scale)
     }
 

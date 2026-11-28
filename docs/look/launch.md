@@ -180,17 +180,28 @@ after `.sphericalHarmonics`) mirrors it line for line.
   closed form, erf by Abramowitz and Stegun 7.1.26 (|ε| ≤ 1.5e-7; MSL has
   no erf), and so is its inverse (Giles's erfinv, two Newton steps).
 - **Its light:** a chord is shaded in segments 0.25 deep from its entry,
-  at most 16, the last taking what is left (`segments`, `segmentBoundary`,
-  the boundaries by `time(atDepth:)`), each with one source (Condor et al.
-  2025) at the depth midway between the ones exact for light falling as
-  e^(−τ) from its entry (front-lit) and rising as e^(τ) (back-lit); below
-  depth 0.05 their mean's series. Against the quadrature of ∫ J σ e^(−τ) dt
-  at line depths 2 to 100, condensed and sooty: front-lit within 0.5 %,
-  side-lit within 2 %, back-lit within 1.5 % (sooty, to depth 5). Sooty
-  smoke thicker than that lit from behind sends only T e^(−T) of its
-  source's light, from every depth alike, which the last segment cannot
-  hold: its error is under 1e-3 of the brightest source's. (One source at
-  the σ-weighted mean was off by 35 % to 2.4× at depth 5.)
+  at most 16; past depth 3.75 the first 12 stay 0.25 deep and the last 4
+  split the rest evenly (`segments`, `segmentBoundary`, the boundaries by
+  `time(atDepth:)`), since light from behind leaves every depth about
+  alike. Each segment has one source (Condor et al. 2025) at the depth
+  midway between the ones exact for light falling as e^(−τ) from its entry
+  (front-lit) and rising as e^(τ) (back-lit); below depth 0.05 their
+  mean's series. Against the quadrature of ∫ J σ e^(−τ) dt at line depths
+  2 to 100, condensed and sooty:
+  - front-lit within 0.5 %;
+  - side-lit within 2 % for rays through the centre. A ray 1σ to 1.5σ off
+    the centre away from the Sun crosses the shadowed half, where J
+    changes within a segment faster than one source follows: up to 9 %
+    bright condensed, up to 35 % dark sooty (where it is under a tenth of
+    the brightest source), under 3.5 % of the brightest source's either
+    way. Any layout of 16 gives the same; J at the boundaries,
+    interpolated log-linearly, is worse (5-7 % dark through the centre);
+  - back-lit within 1.5 % (condensed at any depth, sooty to depth 6).
+    Thicker sooty smoke lit from behind sends only T e^(−T) of its source's
+    light, from every depth alike, which the last segments cannot hold:
+    its error is under 5e-4 of the brightest source's.
+
+  (One source at the σ-weighted mean was off by 35 % to 2.4× at depth 5.)
 - **The source function J** (per unit extinction) has one g for every part
   and C2's two-stream for all the light scattered many times:
   - *the Sun:* its beam enters the chord towards it face-on; the streams
@@ -204,9 +215,12 @@ after `.sphericalHarmonics`) mirrors it line for line.
     show, each side's flux times ½ (1 ± cos) of the view on the axis, is
     swapped for SH9's in-scatter by the same phase (Funk and Hecke), shared
     between the sides in that proportion and carried through from each.
-    The chord along the axis is the primitive's own, no longer than its
-    chord across it (`ambientColumn`), so an elongated body along the axis
-    (the trail climbing) takes its skylight through its sides.
+    The column along the axis is the primitive's own, scaled by its aspect
+    there, min σ over its σ along the axis, where under 1 (`ambientColumn`):
+    an elongated body along the axis (the trail climbing) takes its
+    skylight through its sides (on its centre line, the chord across it),
+    and the scale depends on the body's shape alone, not on the point or
+    on which of equal axes is labelled first.
   - At ω = 1 the streams are C2's exactly; an isotropic ambient gives
     J = L at any depth; a thick column's skylit base and top are C2's seen
     from any angle (to 1e-12 where the in-scatter is C2's own blend; 0.571

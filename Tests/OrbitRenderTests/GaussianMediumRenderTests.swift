@@ -113,9 +113,12 @@ final class GaussianMediumRenderTests: XCTestCase {
         func near(_ a: Float, _ b: Double, _ scale: Double, _ what: String, _ i: Int, rel: Double = 2e-4) {
             XCTAssertEqual(Double(a), b, accuracy: rel * max(abs(b), scale), "case \(i): \(what)")
         }
+        var evenSplits = 0
+        defer { XCTAssertGreaterThan(evenSplits, 5, "cases past depth 3.75, in the even split") }
         for (i, c) in cases.enumerated() {
             let m = c.medium, r = m.ray(origin: c.origin, direction: c.direction)
             let depth = r.depth(from: c.t0, to: c.t1)
+            if GaussianMedium.segments(depth: depth) == GaussianMedium.maxSegments { evenSplits += 1 }
             let row = (0..<8).map { p[8 * i + $0] }
             near(row[0].x, r.centre, r.width, "nearest approach", i)
             near(row[0].y, r.width, 0, "width", i)
@@ -160,8 +163,9 @@ final class GaussianMediumRenderTests: XCTestCase {
             let column = m.ambientColumn(at: c.origin + c.direction * r.centre, axis: axis)
             near(row[7].x, column.depth, 1e-3 * m.peakExtinction * m.sigma.x, "ambient column depth", i, rel: 2e-3)
             near(row[7].y, column.chord, 1e-3 * m.peakExtinction * m.sigma.x, "ambient column chord", i, rel: 2e-3)
-            near(row[7].z, GaussianMedium.segmentBoundary(1, of: GaussianMedium.segments(depth: depth), depth: depth), 1e-3,
-                 "segment boundary", i)
+            // The last inner boundary: past depth 3.75 in the even split.
+            let n = GaussianMedium.segments(depth: depth)
+            near(row[7].z, GaussianMedium.segmentBoundary(n - 1, of: n, depth: depth), 1e-3, "segment boundary", i)
             near(row[7].w, r.shadingTime(from: c.t0, to: c.t0 + 0.02 * r.width), r.width, "faint chord's shading", i, rel: 1e-3)
         }
     }

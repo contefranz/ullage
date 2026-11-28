@@ -352,10 +352,11 @@ final class GaussianMediumTests: XCTestCase {
     }
 
     /// A body elongated along the ambient's axis (a climbing trail) takes
-    /// its skylight through its sides: `ambientColumn` caps the chord along
-    /// the axis by the chord across it, so a condensed node's side seen
-    /// side-on is lit as the column across it would light it (along its
-    /// 10:1 length it would be dark).
+    /// its skylight through its sides: `ambientColumn` scales the chord
+    /// along the axis by the body's aspect there (on its centre line, to
+    /// the chord across it), so a condensed node's side seen side-on is lit
+    /// as the column across it would light it (along its 10:1 length it
+    /// would be dark).
     func testElongatedBodyTakesSkylightThroughItsSides() {
         let m = GaussianMedium(centre: .zero, axisU: .unitZ, axisV: .unitX, sigma: Vec3(100, 10, 10), peakExtinction: 0.12)
         let column = m.ambientColumn(at: .zero, axis: .unitZ)
@@ -377,6 +378,46 @@ final class GaussianMediumTests: XCTestCase {
                        accuracy: 1e-12)
     }
 
+    /// The column's cap is the body's shape alone: a round puff keeps its
+    /// own column at its base and top however its axes are labelled (the
+    /// first smallest σ's chord through the point missed the centre by
+    /// other amounts, 13× apart at the base), a cigar standing on the axis
+    /// is lit alike all round, and a σ changed by 1e-4 changes the column
+    /// by about as much.
+    func testAmbientColumnIsTheBodysOwn() {
+        let tilted = Vec3(cos(Double.pi / 6), 0, sin(Double.pi / 6))
+        let frames: [(Vec3, Vec3)] = [(.unitZ, .unitX), (.unitX, .unitY), (.unitY, .unitZ), (tilted, .unitY)]
+        for z in [-20.0, -10, 0, 10, 20] {
+            let p = Vec3(0, 0, z)
+            for (u, v) in frames {
+                let m = GaussianMedium(centre: .zero, axisU: u, axisV: v, sigma: Vec3(10, 10, 10), peakExtinction: 0.12)
+                let r = m.ray(origin: p, direction: .unitZ), column = m.ambientColumn(at: p, axis: .unitZ)
+                XCTAssertEqual(column.chord, r.total, accuracy: 1e-12, "z \(z): its own chord")
+                XCTAssertEqual(column.depth, r.depth(from: 0, to: 1e3), accuracy: 1e-9, "z \(z): its own depth up")
+            }
+        }
+        // A cigar along the axis, at 1.5σ off it in two azimuths.
+        let cigar = GaussianMedium(centre: .zero, axisU: .unitZ, axisV: .unitX, sigma: Vec3(100, 10, 10), peakExtinction: 0.12)
+        for z in [-100.0, 0, 50] {
+            let a = cigar.ambientColumn(at: Vec3(15, 0, z), axis: .unitZ), b = cigar.ambientColumn(at: Vec3(0, 15, z), axis: .unitZ)
+            let c = cigar.ambientColumn(at: Vec3(15 / 2.0.squareRoot(), 15 / 2.0.squareRoot(), z), axis: .unitZ)
+            for other in [b, c] {
+                XCTAssertEqual(other.depth, a.depth, accuracy: 1e-12, "z \(z)")
+                XCTAssertEqual(other.chord, a.chord, accuracy: 1e-12, "z \(z)")
+            }
+        }
+        // Near-ties: σ by 1 ± 1e-4 in each order.
+        let p = Vec3(3, 0, -20)
+        let base = GaussianMedium(centre: .zero, axisU: .unitX, axisV: .unitY, sigma: Vec3(10, 10, 10), peakExtinction: 0.12)
+            .ambientColumn(at: p, axis: .unitZ)
+        for sigma in [Vec3(10, 10.001, 9.999), Vec3(9.999, 10.001, 10), Vec3(10.001, 9.999, 10), Vec3(9.999, 10, 10.001)] {
+            let m = GaussianMedium(centre: .zero, axisU: .unitX, axisV: .unitY, sigma: sigma, peakExtinction: 0.12)
+            let column = m.ambientColumn(at: p, axis: .unitZ)
+            XCTAssertEqual(column.chord, base.chord, accuracy: 1e-3 * base.chord, "σ \(sigma)")
+            XCTAssertEqual(column.depth, base.depth, accuracy: 1e-3 * base.depth, "σ \(sigma)")
+        }
+    }
+
     /// The ambient from R3's SH9 of a sky (brighter overhead): its axis is
     /// up, E/π along it more than against it; without a probe, the stand-in.
     func testAmbientFromSH9() {
@@ -392,36 +433,52 @@ final class GaussianMediumTests: XCTestCase {
 
     // MARK: The source
 
-    /// A primitive's chord shaded in `segments` (0.25 deep from the entry,
-    /// the last taking the rest past 16), each at its `shadingTime`, against
-    /// the radiance's quadrature ∫ J σ e^(−τ) dt, condensed and sooty, for
-    /// line depths 2 to 100:
+    /// A primitive's chord shaded in `segments` (0.25 deep from the entry;
+    /// past depth 3.75, 12 of those and the rest in 4 equal parts), each at
+    /// its `shadingTime`, against the radiance's quadrature ∫ J σ e^(−τ) dt,
+    /// condensed and sooty, for line depths 2 to 100:
     /// - lit from the front (the Sun behind the camera): within 0.5 %;
     /// - lit from the side (cosView 0; the Sun's chord the line across the
-    ///   primitive through the point, the point halfway into it): within 2 %;
+    ///   primitive through the point): within 2 % through the centre, where
+    ///   every point is halfway into its chord. A ray 1σ or 1.5σ off the
+    ///   centre away from the Sun crosses the shadowed half, where J changes
+    ///   within a segment faster than its one source can follow: condensed
+    ///   it comes out up to 9 % bright, sooty up to 35 % dark (1.5σ off,
+    ///   where it is under a tenth of the brightest source), its error under
+    ///   3.5 % of its brightest source's either way. Any layout of 16 gives
+    ///   the same, and J at the boundaries interpolated log-linearly in depth
+    ///   is worse (5-7 % dark through the centre);
     /// - lit from the back: within 1.5 % (condensed, at any depth; sooty, to
-    ///   depth 5). Thicker sooty smoke lit from behind sends only T e^(−T) of
-    ///   its source's light (under 5e-4 past depth 10), every depth alike,
-    ///   which the last segment's one source cannot hold: there the error is
-    ///   under 1e-3 of its brightest source's.
+    ///   depth 6). Thicker sooty smoke lit from behind sends only T e^(−T) of
+    ///   its source's light (1.5 % at depth 6, under 5e-4 past depth 10),
+    ///   every depth alike, which the last segments' sources cannot hold:
+    ///   there the error is under 5e-4 of its brightest source's.
     /// (One source at the σ-weighted mean was off by 35 % to 2.4× at depth 5.)
     func testSegmentsAgainstQuadrature() {
         let sun = Spectrum3(repeating: 1e5)
+        let lightings: [(String, Double)] = [("front", 0), ("back", 0), ("side", 0), ("side", -1), ("side", -1.5)]
         for (albedo, g) in [(0.93, 0.85), (0.3, 0.6)] {
-            for depth in [2.0, 5, 10, 30, 100] {
-                let w = 10.0, r = GaussianMedium.Ray(centre: 0, width: w, peak: depth / (w * (2 * Double.pi).squareRoot()))
-                let t0 = -5 * w, t1 = 5 * w, total = r.depth(from: t0, to: t1)
-                for lighting in ["front", "back", "side"] {
+            for centralDepth in [2.0, 5, 6, 7, 8, 10, 30, 100] {
+                for (lighting, offset) in lightings {
+                    // The view ray `offset` σ from the centre (towards the
+                    // Sun's side positive), its peak e^(−½ offset²) the
+                    // central ray's.
+                    let w = 10.0, bodyPeak = centralDepth / (w * (2 * Double.pi).squareRoot())
+                    let r = GaussianMedium.Ray(centre: 0, width: w, peak: bodyPeak * exp(-0.5 * offset * offset))
+                    let t0 = -5 * w, t1 = 5 * w, total = r.depth(from: t0, to: t1), depth = total
                     var brightest = 0.0
                     func j(_ t: Double) -> Double {
                         // A round primitive: across it through the point the
-                        // line's depth is σ(t) w √(2π).
-                        let sigma = r.peak * exp(-0.5 * t * t / (w * w)), acrossDepth = sigma * w * (2 * Double.pi).squareRoot()
+                        // line's depth is σ0 e^(−½ (t/w)²) w √(2π), and the
+                        // point lies ½ (1 − erf(offset/√2)) of it from the Sun.
+                        let acrossDepth = bodyPeak * exp(-0.5 * t * t / (w * w)) * w * (2 * Double.pi).squareRoot()
                         let sunDepth: Double, chord: Double, cosView: Double
                         switch lighting {
                         case "front": (sunDepth, chord, cosView) = (r.depth(from: t0, to: t), total, -1)
                         case "back": (sunDepth, chord, cosView) = (r.depth(from: t, to: t1), total, 1)
-                        default: (sunDepth, chord, cosView) = (0.5 * acrossDepth, acrossDepth, 0)
+                        default:
+                            (sunDepth, chord, cosView) = (0.5 * (1 - GaussianMedium.erf(offset / 2.0.squareRoot())) * acrossDepth,
+                                                          acrossDepth, 0)
                         }
                         let l = SmokeScattering.Light(sun: sun, ambient: .zero, ambientUp: .zero, ambientDown: .zero,
                                                       cosView: cosView, cosAxis: 0, sunDepth: sunDepth, sunChord: chord,
@@ -441,16 +498,22 @@ final class GaussianMediumTests: XCTestCase {
                         transmittance *= exp(-d)
                         a = b
                     }
-                    print(String(format: "GaussianMediumTests: ω %.2f depth %3.0f %@-lit, %2d segments: %.4f of the quadrature (%.1e of its brightest source)",
-                                 albedo, depth, lighting, n, radiance / exact, abs(radiance - exact) / brightest))
+                    print(String(format: "GaussianMediumTests: ω %.2f depth %5.1f %@-lit %4.1fσ off, %2d segments: %.4f of the quadrature (%.1e of its brightest source)",
+                                 albedo, depth, lighting, offset, n, radiance / exact, abs(radiance - exact) / brightest))
                     switch lighting {
                     case "front": XCTAssertEqual(radiance, exact, accuracy: 0.005 * exact, "ω \(albedo), depth \(depth), front-lit")
-                    case "side": XCTAssertEqual(radiance, exact, accuracy: 0.02 * exact, "ω \(albedo), depth \(depth), side-lit")
+                    case "side" where offset == 0:
+                        XCTAssertEqual(radiance, exact, accuracy: 0.02 * exact, "ω \(albedo), depth \(depth), side-lit")
+                    case "side":
+                        let what = "ω \(albedo), depth \(depth), side-lit \(offset)σ off"
+                        XCTAssertLessThan(radiance / exact, albedo > 0.5 ? 1.09 : 1.0, what)
+                        XCTAssertGreaterThan(radiance / exact, albedo > 0.5 ? 1.0 : 0.65, what)
+                        XCTAssertLessThan(abs(radiance - exact), 0.035 * brightest, what)
                     default:
-                        if albedo > 0.5 || depth <= 5 {
+                        if albedo > 0.5 || depth <= 6 {
                             XCTAssertEqual(radiance, exact, accuracy: 0.015 * exact, "ω \(albedo), depth \(depth), back-lit")
                         } else {
-                            XCTAssertLessThan(abs(radiance - exact), 1e-3 * brightest, "ω \(albedo), depth \(depth), back-lit")
+                            XCTAssertLessThan(abs(radiance - exact), 5e-4 * brightest, "ω \(albedo), depth \(depth), back-lit")
                         }
                     }
                 }

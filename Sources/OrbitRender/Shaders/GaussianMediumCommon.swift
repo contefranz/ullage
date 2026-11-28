@@ -127,37 +127,42 @@ inline float orbit_gaussianShadingTime(GaussianRay r, float t0, float t1) {
 }
 
 // How many segments a chord of optical depth `depth` is shaded in: 0.25
-// deep from the entry, at most 16, the last taking what is left (seen
-// through e^(-0.25 (n - 1)), so its own error hardly shows past depth 4). A
-// caller walks them, boundary k at orbit_gaussianTimeAtDepth(r, t0,
-// orbit_gaussianSegmentBoundary(k, n, depth)) (the exit t1 for the last),
-// each lit with one source at its orbit_gaussianShadingTime.
+// deep from the entry, at most 16; past depth 3.75 the first 12 stay 0.25
+// deep and the last 4 split the rest evenly (lit from behind, light leaves
+// every depth about alike). A caller walks them, boundary k at
+// orbit_gaussianTimeAtDepth(r, t0, orbit_gaussianSegmentBoundary(k, n,
+// depth)) (the exit t1 for the last), each lit with one source at its
+// orbit_gaussianShadingTime.
 #define ORBIT_GAUSSIAN_SEGMENT_DEPTH 0.25
 #define ORBIT_GAUSSIAN_MAX_SEGMENTS 16
+#define ORBIT_GAUSSIAN_EVEN_SEGMENTS 4
 inline int orbit_gaussianSegments(float depth) {
     return clamp(int(ceil(max(depth, 0.0) / ORBIT_GAUSSIAN_SEGMENT_DEPTH)), 1, ORBIT_GAUSSIAN_MAX_SEGMENTS);
 }
 
-// The depth from the chord's entry of segment boundary k of n.
+// The depth from the chord's entry of segment boundary k of n (with 16,
+// the last 4 in equal parts). GaussianMedium.segmentBoundary.
 inline float orbit_gaussianSegmentBoundary(int k, int n, float depth) {
-    return k >= n ? depth : min(float(k) * ORBIT_GAUSSIAN_SEGMENT_DEPTH, depth);
+    if (k >= n) { return depth; }
+    int fixed = n >= ORBIT_GAUSSIAN_MAX_SEGMENTS ? n - ORBIT_GAUSSIAN_EVEN_SEGMENTS : n;
+    if (k <= fixed) { return min(float(k) * ORBIT_GAUSSIAN_SEGMENT_DEPTH, depth); }
+    float start = min(float(fixed) * ORBIT_GAUSSIAN_SEGMENT_DEPTH, depth);
+    return start + (depth - start) * float(k - fixed) / float(n - fixed);
 }
 
 // The column the ambient lights a point p through along its unit axis
 // (towards its up side): (the depth from p to the up side, the whole chord
-// along the axis through p), both scaled down to the chord through p along
-// the primitive's shortest axis where that is shorter, so an elongated body
-// along the axis takes its skylight through its sides.
+// along the axis through p), both scaled by the body's own aspect along the
+// axis, min(sigma) / the line's width, where under 1: an elongated body
+// along the axis takes its skylight through its sides, and the scale
+// depends on its shape alone, not on p or the axes' labels.
 // GaussianMedium.ambientColumn.
 inline float2 orbit_gaussianAmbientColumn(GaussianMedium g, float3 p, float3 axis) {
     GaussianRay r = orbit_gaussianRay(g, p, axis);
     float chord = orbit_gaussianTotal(r);
     if (chord <= 1e-12) { return float2(0.0); }
     float up = orbit_gaussianDepth(r, 0.0, r.centre + 10.0 * r.width + abs(r.centre));
-    float3 shortest = g.axisU.w <= g.axisV.w ? (g.axisU.w <= g.axisW.w ? g.axisU.xyz : g.axisW.xyz)
-                                             : (g.axisV.w <= g.axisW.w ? g.axisV.xyz : g.axisW.xyz);
-    float across = orbit_gaussianTotal(orbit_gaussianRay(g, p, shortest));
-    float scale = min(1.0, across / chord);
+    float scale = min(1.0, min(g.axisU.w, min(g.axisV.w, g.axisW.w)) / r.width);
     return float2(up, chord) * scale;
 }
 
@@ -437,7 +442,7 @@ kernel void gaussianMedium_check(device const GaussianMediumCheckCase *cases [[b
                             float(orbit_gaussianSegments(depth)), a.axis.z);
     int n = orbit_gaussianSegments(depth);
     out[8 * i + 7] = float4(orbit_gaussianAmbientColumn(c.medium, o + d * r.centre, normalize(c.ambientUp.xyz + float3(0.0, 0.0, 1e-3))),
-                            orbit_gaussianSegmentBoundary(1, n, depth), orbit_gaussianShadingTime(r, t0, t0 + 0.02 * r.width));
+                            orbit_gaussianSegmentBoundary(n - 1, n, depth), orbit_gaussianShadingTime(r, t0, t0 + 0.02 * r.width));
 }
 
 kernel void gaussianMedium_sizes(device uint *out [[buffer(0)]]) {
