@@ -51,4 +51,21 @@ final class KeroseneSootTests: XCTestCase {
             XCTAssertEqual(KeroseneSoot.standardAltitude(pressure: Self.air.state(altitude: h).pressure), h, accuracy: 1e-3)
         }
     }
+
+    /// The exit is 22 g/kg, a fraction (0.022, not a percentage), and the
+    /// setting's default; `surviving(pressure:exit:)` takes another exit
+    /// as `PlumeSettings.sootExit` gives it, decoded with the settings.
+    func testExitAndItsSetting() throws {
+        XCTAssertEqual(KeroseneSoot.exit, 0.022)
+        XCTAssertEqual(PlumeSettings().sootExit, KeroseneSoot.exit)
+        let p = 101_325.0
+        XCTAssertEqual(KeroseneSoot.surviving(pressure: p, exit: 0.000575),
+                       0.000575 * KeroseneSoot.survivingShare(pressure: p), accuracy: 1e-15)
+        XCTAssertEqual(KeroseneSoot.surviving(pressure: p), KeroseneSoot.surviving(pressure: p, exit: 0.022))
+        var settings = PlumeSettings()
+        settings.sootExit = 0.00385
+        let decoded = try JSONDecoder().decode(PlumeSettings.self, from: try JSONEncoder().encode(settings))
+        XCTAssertEqual(decoded.sootExit, 0.00385)
+        XCTAssertEqual(try JSONDecoder().decode(PlumeSettings.self, from: Data("{}".utf8)).sootExit, KeroseneSoot.exit)
+    }
 }
