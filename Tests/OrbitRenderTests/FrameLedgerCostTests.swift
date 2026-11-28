@@ -108,7 +108,7 @@ final class FrameLedgerCostTests: XCTestCase {
             print("FrameLedgerCostTests: \(s)")
             lines.append(s)
         }
-        report("\(GPUFamily.name(device)), \(device.name), \(w)×\(h), user tiles \(UserTiles.installed ? "installed" : "absent")")
+        report("\(GPUFamily.name(device)), \(device.name), \(w)×\(h); \(Inputs.report)")
 
         for frame in Self.frames where only?.contains(frame.name) ?? true {
             var shot = SnapshotSpec.Shot(name: frame.name, scenario: "as506-first-motion", advance: frame.advance,
@@ -261,10 +261,27 @@ final class FrameLedgerCostTests: XCTestCase {
     }
 }
 
-/// Whether the user's Earth tiles (E1) are installed, which the app's frames draw.
-private enum UserTiles {
-    static var installed: Bool {
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        return FileManager.default.fileExists(atPath: support.appendingPathComponent("OrbitSim/Textures").path)
+/// What the frames draw from outside the repository, which changes their
+/// cost: PlanetPass's Earth image (Application Support/OrbitSim/Textures,
+/// earth.jpg), E1's tile store (`PlanetTilePass.defaultDirectory`, or
+/// ORBITSIM_TILES_DIR: its files counted) and C2's gitignored weather fields
+/// (`<mission>.oscloud` in OrbitScene's resources; without them C2 falls
+/// back to the climatology).
+@MainActor
+private enum Inputs {
+    static var report: String {
+        let fm = FileManager.default
+        let support = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let image = fm.fileExists(atPath: support.appendingPathComponent("OrbitSim/Textures/earth.jpg").path)
+        let store = PlanetTilePass.defaultDirectory
+        var tiles = 0
+        if let e = fm.enumerator(at: store, includingPropertiesForKeys: [.isRegularFileKey]) {
+            for case let url as URL in e where (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true {
+                tiles += 1
+            }
+        }
+        let fields = ["apollo11", "apollo8", "apollo7"].filter { OrbitSceneResources.url($0 + ".oscloud") != nil }
+        return "Earth image \(image ? "earth.jpg" : "absent"); E1 tile store \(store.path): \(tiles) files; "
+            + "weather fields: \(fields.isEmpty ? "none (climatology)" : fields.joined(separator: ", "))"
     }
 }

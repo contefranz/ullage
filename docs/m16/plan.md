@@ -987,7 +987,7 @@ M2 adds:
 | Composite (A2) | 0.4 ms | in "others" | in "others" | 0.4 ms |
 | Post (R1) | 1.1 ms | in "others" | in "others" | 1.1 ms |
 | Overlay (F0) | 0.1 ms | in "others" | in "others" | 0.1 ms |
-| *Others, together* | *4.7 ms* | 3.0-4.8 ms | 2.4-2.7 ms | |
+| *Others, together* | *4.7 ms* | 2.9-4.8 ms | 2.4-2.7 ms | |
 | Clouds (C2) | 2.7 ms | 2.2-2.9 ms | 1.5-1.7 ms | 2.0 ms |
 | Effect slots and composite (R6) | 1.0 ms | 0.9-1.0 ms | 0.8 ms | |
 | Plumes (P2) | 2.1 ms | 0-2.1 ms; 6.8-7.2 ms at the ML base, T+4.9-7 s | 3.8-3.9 ms | 0.5 ms |

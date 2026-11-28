@@ -11,8 +11,12 @@ same code as b48990b.
 `FrameLedgerCostTests` (`ORBITSIM_TIMINGS=1`, GPU lock held) on the M3 Pro
 at 3024×1964 (point scale 2):
 - every default pass, with the app's default settings (High; the weather
-  "auto", with the gitignored `*.oscloud` fields present; the user's Earth
-  tiles installed);
+  "auto", with the gitignored `*.oscloud` fields present);
+- the Earth drawn from PlanetPass's `earth.jpg` (Application
+  Support/OrbitSim/Textures). E1's tile store (OrbitSim/Tiles) is not
+  installed on this Mac, so the planet takes E1's fallback, as the app does
+  here; on a Mac with tiles "others" may cost more. The run's first line
+  reports all three inputs;
 - three frames in flight, as in the app.
 
 AS-506's launch (`as506-first-motion`) gives six frames:
@@ -89,13 +93,19 @@ percentile and largest):
 The staging flight passes the retros' 0.64 s within its first 0.5 s, so the
 flown frames are after them.
 
+**Held or flown.** The ledger table quotes held frames: one instant, steady.
+The app flies, and its dropped frames are the flown rows' 90th percentile
+and largest. At the ML base from T+3 s those reach 16-17 ms and 19.7-20.5
+ms, because the flight crosses the step below. Size a cap for 60 fps by the
+flown 90th percentile, and a per-pass share by the held frames.
+
 **The ML base from T+4.9 s.** At P2's 62 m base camera the frame steps from
 about 10 ms to 16-19 ms at T+4.9 s. It decays to about 12 ms by T+9 s
 (`ORBITSIM_LEDGER_SERIES=1` prints each frame).
 - The step is the plume march: with the plumes off the same flight holds
   7.4 ms throughout. With the clouds or the particles off the step remains.
 - This is the one pad frame over 13.0 ms, by 2.6-3.5 ms. It is P2's
-  (plan §6: plumes 1.8-3.5× over budget, R7 to cut them). LR3 PR1's
+  (`look-round-2.md` §6: plumes over their 2.1 ms line, R7 to cut them). LR3 PR1's
   core skip and R7's Medium plumes (16 steps) are the levers.
 
 **P4's launch effects** (`LaunchEffectsCostTests`, 200 rounds, the particles
