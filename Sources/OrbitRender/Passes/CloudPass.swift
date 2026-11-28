@@ -298,6 +298,9 @@ public final class CloudPass: RenderPass, HalfResEffect {
     /// shadow and sky maps are prepared, and the march and the slot are not.
     public func isActive(in f: FrameContext) -> Bool { earth(f) != nil || probeEarth(f) != nil }
 
+    /// The reconstruction's codes (LR0): its slot copy writes clip codes.
+    public var reconstructedLayers: HalfResLayers { [.clouds] }
+
     /// Asked before P0 has run (R6 plans its frame first): the same test
     /// as `isActive`, not this frame's results.
     public func halfResLayers(in f: FrameContext) -> HalfResLayers {

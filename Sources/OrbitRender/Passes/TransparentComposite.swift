@@ -3,8 +3,12 @@ import Metal
 import OrbitScene
 
 /// The effect slots' composite (P3, after the volumes and before the
-/// full-resolution additive passes). It upsamples the half-resolution
-/// layers to the frame by depth (`EffectSlots.upsampleWeights`), orders
+/// full-resolution additive passes). It reconstructs the half-resolution
+/// layers at the frame's resolution (`EffectSlots.upsampleWeights`, LR0):
+/// bilinear where every texel matches the pixel, by depth or because its
+/// effects ended in front of both scene depths (the writers' back and clip
+/// codes); renormalised over the matching texels otherwise (Kopf et al.
+/// 2007); the texel nearest in depth where none matches. It orders
 /// clouds, volumes and OIT pixel by pixel by their fronts
 /// (`EffectSlots.composite`), and blends them, premultiplied, over the
 /// scene in the scene's own encoder.
@@ -17,7 +21,7 @@ public final class TransparentCompositePass: RenderPass {
     public let name = "Transparent composite"
     public let stage = PassStage.transparent
     public let order = 35
-    public var reads: Set<ResourceID> { [.halfResDepth, .halfResPixelDepths, .halfResFronts] }
+    public var reads: Set<ResourceID> { [.halfResDepth, .halfResPixelDepths, .halfResFronts, .halfResClips] }
 
     let slots: HalfResTransparentPass
     private var pipeline: MTLRenderPipelineState?
@@ -47,18 +51,21 @@ public final class TransparentCompositePass: RenderPass {
         enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
     }
 
-    /// The layers at textures 0-4; a layer not drawn this frame gets a
-    /// stand-in the shader does not read (`EffectSlotUniforms.scale.w`).
+    /// The layers at textures 0-4 and the clip codes at 6; a layer not
+    /// drawn this frame gets a stand-in the shader does not read
+    /// (`EffectSlotUniforms.scale.w`).
     static func bindLayers(_ enc: MTLRenderCommandEncoder, _ f: FrameContext, fronts: MTLTexture, standIn: MTLTexture) {
         let ids: [ResourceID] = [.halfResClouds, .halfResTransparent, .oitAccumulation, .oitRevealage]
         for (i, id) in ids.enumerated() { enc.setFragmentTexture(f.textures[id] ?? standIn, index: i) }
         enc.setFragmentTexture(fronts, index: 4)
+        enc.setFragmentTexture(f.textures[.halfResClips] ?? standIn, index: 6)
     }
 }
 
 /// F9's views of the effect slots (P4, over the output, as the render
 /// foundation's debug views): the half-resolution test depth, each layer's
-/// coverage, the nearest front. Black on a frame no effect draws in.
+/// coverage, the nearest front, the reconstruction. Black on a frame no
+/// effect draws in.
 @MainActor
 public final class EffectDebugViewPass: RenderPass {
     public let name = "Effect slots debug view"
@@ -67,7 +74,8 @@ public final class EffectDebugViewPass: RenderPass {
     public var reads: Set<ResourceID> { [.halfResDepth] }
 
     /// The views this pass draws, and their index in the shader.
-    static let views: [DebugView: Float] = [.effectDepth: 1, .effectLayers: 2, .effectFront: 3]
+    static let views: [DebugView: Float] = [.effectDepth: 1, .effectLayers: 2, .effectFront: 3,
+                                            .effectReconstruction: 4]
 
     let slots: HalfResTransparentPass
     private var pipeline: MTLRenderPipelineState?
@@ -95,13 +103,14 @@ public final class EffectDebugViewPass: RenderPass {
         guard let enc = f.makeRenderEncoder(d) else { return }
         defer { enc.endEncoding() }
         guard let u = slots.uniformsBuffer, let depths = f.textures[.halfResDepth],
-              let fronts = f.textures[.halfResFronts] else { return }
+              let fronts = f.textures[.halfResFronts], let pixelDepths = f.textures[.halfResPixelDepths] else { return }
         enc.setRenderPipelineState(pipeline)
         var params = SIMD4<Float>(view, 0, 0, 0)
         enc.setFragmentBytes(&params, length: MemoryLayout<SIMD4<Float>>.stride, index: 0)
         enc.setFragmentBuffer(u.buffer, offset: u.offset, index: HalfResTransparentPass.uniformsIndex)
         enc.setFragmentTexture(depths, index: HalfResTransparentPass.sceneDepthIndex)
         TransparentCompositePass.bindLayers(enc, f, fronts: fronts, standIn: depths)
+        enc.setFragmentTexture(pixelDepths, index: 5)
         enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
     }
 }

@@ -1,8 +1,10 @@
 // The effect slots' depth downsample (track R6 owns this module): the scene
 // depth to the half-resolution test depth, a checkerboard of each quad's
-// nearest and farthest (EffectSlots.halfResDepth), and the frame's depth
-// pixel by pixel, four to a texel, for the composite: inside the resumed
-// scene the plan resolves into the scene depth, so it cannot be read there.
+// nearest and farthest (EffectSlots.halfResDepth); the frame's depth pixel
+// by pixel, four to a texel, for the composite (inside the resumed scene the
+// plan resolves into the scene depth, so it cannot be read there); and the
+// farthest depth of the texel's upsample footprint, which sprites test
+// against (EffectSlots.footprintFarthest).
 let halfResTransparentShaderSource = #"""
 // ---------------------------------------------------- half-res depth ---
 
@@ -20,11 +22,13 @@ vertex EffectFullscreenOut effect_fullscreen_vertex(uint vid [[vertex_id]]) {
 struct EffectDepthOut {
     float4 depths [[color(0)]];        // x: test depth, y: the quad's other extreme
     float4 pixels [[color(1)]];        // the quad's pixels: x (0,0), y (1,0), z (0,1), w (1,1); 0 off the frame
-    float depth [[depth(any)]];        // the test depth, for the effects' depth test
+    float depth [[depth(any)]];        // the footprint's farthest, for the sprites' depth test
 };
 
 // Each texel reads the frame pixels it covers (scale × scale, fewer at the
 // edge): the nearest on even texels ((x + y) even), the farthest on odd.
+// At half resolution it also reads the ring of pixels around its quad, its
+// upsample footprint (EffectSlots.footprintPixels), for the farthest of all.
 fragment EffectDepthOut effect_depth_fragment(EffectFullscreenOut in [[stage_in]],
                                               constant EffectSlotUniforms &e [[buffer(ORBIT_EFFECT_BUFFER_SLOTS)]],
                                               depth2d<float> scene [[texture(0)]]) {
@@ -45,11 +49,24 @@ fragment EffectDepthOut effect_depth_fragment(EffectFullscreenOut in [[stage_in]
         }
     }
     farthest = min(farthest, nearest);
+    float footprint = farthest;
+    if (s == 2u) {
+        int2 base = int2(t * 2u);
+        for (int dy = -1; dy <= 2; dy++) {
+            for (int dx = -1; dx <= 2; dx++) {
+                if (dx >= 0 && dx <= 1 && dy >= 0 && dy <= 1) { continue; }
+                int2 p = base + int2(dx, dy);
+                if (p.x >= 0 && p.y >= 0 && p.x < int(size.x) && p.y < int(size.y)) {
+                    footprint = min(footprint, scene.read(uint2(p)));
+                }
+            }
+        }
+    }
     bool even = ((t.x + t.y) & 1u) == 0u;
     EffectDepthOut o;
     o.depths = float4(even ? nearest : farthest, even ? farthest : nearest, 0.0, 0.0);
     o.pixels = float4(pixels[0], pixels[1], pixels[2], pixels[3]);
-    o.depth = o.depths.x;
+    o.depth = footprint;
     return o;
 }
 """#

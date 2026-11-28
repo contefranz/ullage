@@ -27,11 +27,19 @@ import OrbitScene
 //      front.
 //    - OIT fragments (smoke) return `orbit_oitOutput`, in any order; each
 //      reports its front if it is visible on its own.
+//    - Where its effect ended (the reconstruction, LR0): a volume writes
+//      `orbit_backCode` into the front's a (the farthest visible step, or
+//      cut where its proxy goes on behind the texel's scene, which then
+//      draws rather than discards a proxy wholly behind it); clouds and
+//      OIT write `orbit_clipCode` into the clip attachment. An effect that
+//      does lists those layers in `reconstructedLayers`; a layer is
+//      reconstructed on a frame only when every effect drawing it does.
 //    - Depth: a proxy that marches clamps its march at
 //      `orbit_effectSceneDistance` (texture 18) and draws with no depth
 //      test (`HalfResSlots.noDepth`), back faces only. Sprites test
-//      against the test depth (`HalfResSlots.depthTest`) and fade softly
-//      on texture 18.
+//      against the footprint's farthest depth (`HalfResSlots.depthTest`)
+//      and fade softly on texture 18.
+//    - Jitter: `orbit_effectJitter`, R1's blue noise rotated each frame.
 // 4. The scene's depth around a break: a pass on the command buffer reads
 //    `f.textures[.sceneDepth]`, resolved as far as the scene has gone. In
 //    the resumed scene that texture is the encoder's own resolve target, so
@@ -80,6 +88,14 @@ public protocol HalfResEffect: AnyObject {
     /// Within a layer it sorts its own items: over is order-dependent, OIT
     /// is not.
     func encodeHalfRes(_ f: FrameContext, _ slots: HalfResSlots, _ enc: MTLRenderCommandEncoder)
+    /// The layers whose back or clip codes it writes (this file's header):
+    /// the composite reconstructs a layer across depths only when every
+    /// effect drawing it does. None by default.
+    var reconstructedLayers: HalfResLayers { get }
+}
+
+extension HalfResEffect {
+    public var reconstructedLayers: HalfResLayers { [] }
 }
 
 /// The resources the slots add to F0's reserved names (`halfResDepth`,
@@ -87,8 +103,11 @@ public protocol HalfResEffect: AnyObject {
 extension ResourceID {
     /// The clouds layer (rgba16Float, premultiplied).
     public static let halfResClouds = ResourceID("halfResClouds")
-    /// The layers' fronts (rgba16Float front codes: r clouds, g volumes, b OIT).
+    /// The layers' fronts (rgba16Float front codes: r clouds, g volumes, b
+    /// OIT; a the volumes' back code).
     public static let halfResFronts = ResourceID("halfResFronts")
+    /// The clouds' and OIT's clip codes (rg8Unorm: r clouds, g OIT).
+    public static let halfResClips = ResourceID("halfResClips")
     /// The frame's depth pixel by pixel, four to a texel (rgba32Float,
     /// reversed-Z: x (0,0), y (1,0), z (0,1), w (1,1) of each quad; x alone
     /// at full resolution). Inside the resumed scene the plan resolves into
@@ -99,13 +118,15 @@ extension ResourceID {
 /// The half-resolution targets' formats, by colour attachment
 /// (EffectSlotsCommon's ORBIT_EFFECT_*), and the depth's.
 public enum HalfResFormats {
-    public static let color: [MTLPixelFormat] = [.rgba16Float, .rgba16Float, .rgba16Float, .r16Float, .rgba16Float]
+    public static let color: [MTLPixelFormat] = [.rgba16Float, .rgba16Float, .rgba16Float, .r16Float, .rgba16Float,
+                                                 .rg8Unorm]
+    /// The footprint's farthest depth, which sprites test against.
     public static let depth = MTLPixelFormat.depth32Float
     /// The downsample's min/max target, which texture 18 binds.
     public static let sceneDepth = MTLPixelFormat.rg32Float
     /// The frame's depth, four pixels to a texel (`.halfResPixelDepths`).
     public static let pixelDepths = MTLPixelFormat.rgba32Float
-    static let clouds = 0, volumes = 1, oitAccumulation = 2, oitRevealage = 3, fronts = 4
+    static let clouds = 0, volumes = 1, oitAccumulation = 2, oitRevealage = 3, fronts = 4, clips = 5
 }
 
 /// What an effect gets once, to build its pipelines.
@@ -121,7 +142,9 @@ public struct HalfResSetup {
     /// - clouds and volumes premultiplied over, into their own attachment;
     /// - OIT added into the accumulation, with the revealage multiplied by
     ///   1 − a;
-    /// - the layer's front channel taken with min.
+    /// - the layer's front channel taken with min;
+    /// - the volumes' back code (the fronts' a) taken with max, the clouds'
+    ///   and OIT's clip codes (r and g of the clip attachment) with min.
     /// The other attachments are left untouched. `configure` may change
     /// the rest (vertex descriptor, culling is the encoder's).
     public func pipeline(_ library: MTLLibrary, vertex: String, fragment: String, layer: EffectSlots.Layer,
@@ -139,12 +162,12 @@ public struct HalfResSetup {
             d.colorAttachments[i].writeMask = []
         }
         func blend(_ i: Int, _ src: MTLBlendFactor, _ dst: MTLBlendFactor, op: MTLBlendOperation = .add,
-                   mask: MTLColorWriteMask = .all) {
+                   alphaOp: MTLBlendOperation? = nil, mask: MTLColorWriteMask = .all) {
             let c = d.colorAttachments[i]!
             c.writeMask = mask
             c.isBlendingEnabled = true
             c.rgbBlendOperation = op
-            c.alphaBlendOperation = op
+            c.alphaBlendOperation = alphaOp ?? op
             c.sourceRGBBlendFactor = src
             c.sourceAlphaBlendFactor = src
             c.destinationRGBBlendFactor = dst
@@ -154,13 +177,15 @@ public struct HalfResSetup {
         case .clouds:
             blend(HalfResFormats.clouds, .one, .oneMinusSourceAlpha)
             blend(HalfResFormats.fronts, .one, .one, op: .min, mask: .red)
+            blend(HalfResFormats.clips, .one, .one, op: .min, mask: .red)
         case .volumes:
             blend(HalfResFormats.volumes, .one, .oneMinusSourceAlpha)
-            blend(HalfResFormats.fronts, .one, .one, op: .min, mask: .green)
+            blend(HalfResFormats.fronts, .one, .one, op: .min, alphaOp: .max, mask: [.green, .alpha])
         case .oit:
             blend(HalfResFormats.oitAccumulation, .one, .one)
             blend(HalfResFormats.oitRevealage, .zero, .oneMinusSourceColor, mask: .red)
             blend(HalfResFormats.fronts, .one, .one, op: .min, mask: .blue)
+            blend(HalfResFormats.clips, .one, .one, op: .min, mask: .green)
         }
         configure?(d)
         return try device.makeRenderPipelineState(descriptor: d)
@@ -177,7 +202,8 @@ public struct HalfResSlots {
     /// Frame pixels per texel (2 at half resolution, 1 at full).
     public let scale: Int
     public let uniforms: EffectSlotUniforms
-    /// Read-only greater-equal against the test depth, for sprites.
+    /// Read-only greater-equal against the footprint's farthest depth
+    /// (`EffectSlots.footprintFarthest`), for sprites.
     public let depthTest: MTLDepthStencilState
     /// No depth test, for proxies that clamp their march in the shader.
     public let noDepth: MTLDepthStencilState
@@ -199,11 +225,17 @@ public struct EffectSlotUniforms {
     /// x: the front opacity, y: the most a fragment adds to an
     /// accumulation channel, z: the front radiance (pre-exposed).
     public var front = SIMD4<Float>.zero
+    /// x: the layers reconstructed across depths (`HalfResLayers.rawValue`:
+    /// their writers report where their effects ended), y: the jitter's
+    /// rotation this frame (`EffectSlots.jitterRotation`).
+    public var reconstruction = SIMD4<Float>.zero
 
     public init() {}
 
-    /// The frame's: `layers` drawn into targets of `size` at `scale`.
-    public init(size: RenderSize, scale: Int, layers: HalfResLayers, settings: TransparencySettings, reference: Double) {
+    /// The frame's: `layers` drawn into targets of `size` at `scale`, of
+    /// which `reconstructed` report where their effects ended.
+    public init(size: RenderSize, scale: Int, layers: HalfResLayers, settings: TransparencySettings, reference: Double,
+                reconstructed: HalfResLayers = [], frameIndex: Int = 0) {
         let w = Float(size.width), h = Float(size.height)
         target = SIMD4(w, h, 1 / w, 1 / h)
         self.scale = SIMD4(Float(scale), 1 / Float(scale), Float(log2(1 + settings.upsampleTolerance)),
@@ -212,13 +244,16 @@ public struct EffectSlotUniforms {
                     Float(EffectSlots.oitWeightRange.min), Float(EffectSlots.oitWeightRange.max))
         front = SIMD4(Float(EffectSlots.frontOpacity), Float(EffectSlots.oitMaxAccumulation),
                       Float(EffectSlots.frontRadiance), 0)
+        reconstruction = SIMD4(Float(reconstructed.intersection(layers).rawValue),
+                               Float(EffectSlots.jitterRotation(frameIndex: frameIndex)), 0, 0)
     }
 }
 
 /// The scene depth to half resolution, then the effects into the
 /// half-resolution layers (P3, first, on encoders of its own). Its
 /// targets are `.halfResDepth`, `.halfResClouds`, `.halfResTransparent`
-/// (volumes), `.oitAccumulation`, `.oitRevealage` and `.halfResFronts`.
+/// (volumes), `.oitAccumulation`, `.oitRevealage`, `.halfResFronts` and
+/// `.halfResClips`.
 /// It runs only on frames when an effect draws.
 @MainActor
 public final class HalfResTransparentPass: RenderPass {
@@ -231,7 +266,7 @@ public final class HalfResTransparentPass: RenderPass {
     public var reads: Set<ResourceID> { [.sceneDepth] }
     public var writes: Set<ResourceID> {
         [.halfResDepth, .halfResPixelDepths, .halfResClouds, .halfResTransparent, .oitAccumulation, .oitRevealage,
-         .halfResFronts]
+         .halfResFronts, .halfResClips]
     }
 
     /// The effects, in the order they draw.
@@ -240,6 +275,9 @@ public final class HalfResTransparentPass: RenderPass {
     public private(set) var effectFailures: [String: String] = [:]
     /// The layers drawn this frame, once it has encoded.
     public private(set) var layers: HalfResLayers = []
+    /// Those reconstructed across depths this frame (every effect drawing
+    /// them reports where its effects ended).
+    public private(set) var reconstructed: HalfResLayers = []
     /// This frame's uniforms, in the arena, for the composite and the debug view.
     private(set) var uniformsBuffer: (buffer: MTLBuffer, offset: Int)?
 
@@ -303,11 +341,13 @@ public final class HalfResTransparentPass: RenderPass {
 
     public func encode(_ f: FrameContext, _ e: PassEncoding) {
         layers = []
+        reconstructed = []
         uniformsBuffer = nil
         let drawing = drawing(in: f)
         guard case .commandBuffer = e, !drawing.isEmpty, let depthPipeline, let depthWrite, let depthTest,
               let noDepth, let sceneDepth = f.textures[.sceneDepth] else { return }
         let used = drawing.reduce(HalfResLayers()) { $0.union($1.layers) }
+        let reconstructs = Self.reconstructed(drawing.map { ($0.layers, $0.effect.reconstructedLayers) })
         let scale = f.settings.transparency.resolution.scale
         let t = EffectSlots.targetSize(width: f.size.width, height: f.size.height, scale: scale)
         let size = RenderSize(width: t.width, height: t.height)
@@ -320,8 +360,10 @@ public final class HalfResTransparentPass: RenderPass {
         }
         guard let depths = target(HalfResFormats.sceneDepth), let pixelDepths = target(HalfResFormats.pixelDepths),
               let testDepth = target(HalfResFormats.depth, .renderTarget), let idle = idleTargets(size) else { return }
-        let ids: [ResourceID] = [.halfResClouds, .halfResTransparent, .oitAccumulation, .oitRevealage, .halfResFronts]
-        let usedAt: [Bool] = [used.contains(.clouds), used.contains(.volumes), used.contains(.oit), used.contains(.oit), true]
+        let ids: [ResourceID] = [.halfResClouds, .halfResTransparent, .oitAccumulation, .oitRevealage, .halfResFronts,
+                                 .halfResClips]
+        let usedAt: [Bool] = [used.contains(.clouds), used.contains(.volumes), used.contains(.oit), used.contains(.oit), true,
+                              !used.isDisjoint(with: [.clouds, .oit])]
         var colors: [MTLTexture] = []
         for i in 0..<ids.count {
             guard let c = usedAt[i] ? target(HalfResFormats.color[i]) : idle[i] else { return }
@@ -330,10 +372,12 @@ public final class HalfResTransparentPass: RenderPass {
 
         let reference = EffectTargetFrame(scene: f.scene).distance
         let uniforms = EffectSlotUniforms(size: size, scale: scale, layers: used, settings: f.settings.transparency,
-                                          reference: reference)
+                                          reference: reference, reconstructed: reconstructs,
+                                          frameIndex: f.scene.clock.frameIndex)
         guard let u = f.arena.push(value: uniforms) else { return }
 
-        // The scene depth to the test depth and its min/max.
+        // The scene depth to the test depth, its quad's other extreme, the
+        // pixels, and the footprint's farthest (the depth attachment).
         let dp = MTLRenderPassDescriptor()
         dp.colorAttachments[0].texture = depths
         dp.colorAttachments[0].loadAction = .dontCare
@@ -359,7 +403,8 @@ public final class HalfResTransparentPass: RenderPass {
         let clears: [MTLClearColor] = [MTLClearColor(), MTLClearColor(), MTLClearColor(),
                                        MTLClearColor(red: 1, green: 1, blue: 1, alpha: 1),
                                        MTLClearColor(red: EffectSlots.noFront, green: EffectSlots.noFront,
-                                                     blue: EffectSlots.noFront, alpha: EffectSlots.noFront)]
+                                                     blue: EffectSlots.noFront, alpha: EffectSlots.noBack),
+                                       MTLClearColor(red: 1, green: 1, blue: 1, alpha: 1)]
         let pass = f.currentPass
         defer { f.currentPass = pass }
         let groups = f.splitsEncoders ? drawing.map { [$0] } : [drawing]
@@ -392,7 +437,20 @@ public final class HalfResTransparentPass: RenderPass {
         f.textures[.halfResPixelDepths] = pixelDepths
         for (i, id) in ids.enumerated() where usedAt[i] { f.textures[id] = colors[i] }
         layers = used
+        reconstructed = reconstructs.intersection(used)
         uniformsBuffer = (u.buffer, u.offset)
+    }
+
+    /// The layers reconstructed across depths, from what each drawing
+    /// effect draws and reports: a layer is when every effect drawing it
+    /// writes its codes.
+    static func reconstructed(_ effects: [(draws: HalfResLayers, reports: HalfResLayers)]) -> HalfResLayers {
+        var out = HalfResLayers()
+        for layer in [HalfResLayers.clouds, .volumes, .oit] {
+            let drawers = effects.filter { $0.draws.contains(layer) }
+            if !drawers.isEmpty && drawers.allSatisfy({ $0.reports.contains(layer) }) { out.insert(layer) }
+        }
+        return out
     }
 
     /// EffectSlotsCommon's ORBIT_EFFECT_BUFFER_SLOTS and _TEXTURE_HALFRES_DEPTH.

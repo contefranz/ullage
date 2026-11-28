@@ -15,6 +15,18 @@
        {"kind": "slab", "size": 70},
        {"kind": "sprites", "position": [-30, 20, 25], "size": 20, "count": 12},
        {"kind": "sparks", "position": [-30, 20, 20], "size": 30, "axis": [0, 0, 1], "count": 30}]}},
-     "aovs": ["effectDepth", "effectLayers", "effectFront"]}
+     "aovs": ["effectDepth", "effectLayers", "effectFront"]},
+    {"name": "r6-edge-horizon", "scenario": "leo", "showOrbit": false,
+     "reference": "LR0: the composite over a floor's ramp to the horizon and round a column, no stairs or row stripes",
+     "camera": {"yaw": 30, "pitch": 3, "distance": 150, "fov": 40},
+     "settings": {"post": {"exposure": {"mode": "manual", "ev100": 15}},
+                  "transparency": {"testBackdrop": true, "testEmitters": [
+       {"kind": "floor", "position": [0, 0, -6], "size": 20000},
+       {"kind": "column", "position": [25, 35, -6], "size": 40},
+       {"kind": "slab", "position": [-500, -600, 16], "size": 200, "opticalDepth": 0.05},
+       {"kind": "slab", "position": [0, 0, 0], "size": 20},
+       {"kind": "cone", "position": [-30, 35, 2], "size": 30, "axis": [1, 0, 0]},
+       {"kind": "sprites", "position": [10, -10, 5], "size": 6, "count": 8}]}},
+     "aovs": ["effectReconstruction", "effectLayers"]}
   ]
 }

@@ -6,9 +6,9 @@ import Foundation
 public struct TransparencySettings: Codable, Equatable {
     /// The effect targets' resolution (R7's tiers choose it).
     public var resolution = EffectResolution.half
-    /// The upsample's depth tolerance, relative in linear depth: bilinear
-    /// where the four texels are within it of the pixel, nearest-depth
-    /// beyond (`EffectSlots.upsampleWeights`).
+    /// The reconstruction's depth tolerance, relative in linear depth: a
+    /// texel within it of the pixel matches it, as does one whose effects
+    /// ended in front of both depths (`EffectSlots.upsampleWeights`).
     public var upsampleTolerance = 0.1
     /// Shapes drawn through the slots, to prove and inspect them: none
     /// unless a shot or a test asks.
@@ -58,6 +58,10 @@ public struct EffectTestEmitter: Codable, Equatable {
         /// An opaque grey column drawn in P1: something for the slots to
         /// pass behind and in front of.
         case column
+        /// An opaque level square drawn in P1, its half-width `size`: from a
+        /// low camera its depth ramps steeply from row to row, as the ocean
+        /// does toward the horizon (LR0's reconstruction tests).
+        case floor
     }
 
     public var kind: Kind
@@ -67,7 +71,7 @@ public struct EffectTestEmitter: Codable, Equatable {
     /// Its size, m: the slab's half-width (it is 0.2 of that thick), the
     /// cone's length (its base radius is 0.25 of it), the radius of the
     /// sprites' and sparks' cloud, the column's height (its radius is 0.04
-    /// of it).
+    /// of it), the floor's half-width.
     public var size = 50.0
     /// The cone's axis, apex to base, and the sparks' flight: east, north,
     /// up. Down by default.

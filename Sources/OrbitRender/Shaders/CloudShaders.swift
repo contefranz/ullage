@@ -1857,13 +1857,28 @@ inline CloudResult cloud_compose(CloudResult m, CloudResult farMid, CloudResult 
     return result;
 }
 
+// The linear depth (m) to the ground along the ray through frame pixel px,
+// 1e30 where it meets none: for the slot's clip code over its footprint.
+inline float cloud_groundDepth(float2 px, constant CloudUniforms &u, constant FrameUniforms &frame) {
+    float3 vr = orbit_viewRay(px, frame);
+    float3 w = normalize((frame.viewToWorld * float4(vr, 0.0)).xyz);
+    float3 d = normalize((u.worldToBody * float4(w, 0.0)).xyz);
+    float2 g = cloud_shell(u.cameraFigure.xyz, cloud_figureDir(d, u), u.shell.x);
+    return g.x >= 0.0 ? g.x / length(vr) : 1e30;
+}
+
 // The frame's clouds at this texel of R6's targets: the march's (its
 // target filtered when coarser: colour bilinear, depths the nearest of the
 // four texels around), the far layers by their weight, and the cirrus, at
 // R6's resolution, in order of distance; cut where the scene's depth (R6's
 // test depth) lies in front of or within them: the optical depth before
 // the scene, as a fraction of the way from the cloud's entry to twice its
-// mean depth beyond it. Its front for R6's composite, where it has one.
+// mean depth beyond it. Its front for R6's composite, where it has one, and
+// its clip code (orbit_clipCode, LR0): cut where the scene cut it, else from
+// its back estimate, or over its own ground from the nearest ground of the
+// texel's upsample footprint (the clouds are never inside the ground, so a
+// pixel there sees them whole). Clouds the scene hides wholly are written,
+// with no light and a cut code, not discarded.
 fragment EffectCloudOut cloud_slot_fragment(CloudSlotOut in [[stage_in]],
                                             constant FrameUniforms &frame [[buffer(ORBIT_BUFFER_FRAME)]],
                                             constant EffectSlotUniforms &e [[buffer(ORBIT_EFFECT_BUFFER_SLOTS)]],
@@ -1956,7 +1971,13 @@ fragment EffectCloudOut cloud_slot_fragment(CloudSlotOut in [[stage_in]],
     float front = result.front * k, mean = result.mean * k, entry = min(result.entry, result.front) * k;
     float scene = orbit_effectSceneDistance(texel, halfResDepth, frame);
     float back = entry + 2.0 * max(mean - entry, 0.0);
-    if (scene <= entry) { discard_fragment(); }
+    if (scene <= entry) {
+        EffectCloudOut hidden;
+        hidden.color = float4(0.0);
+        hidden.front = float4(ORBIT_EFFECT_NO_FRONT);
+        hidden.clip = float4(0.0);
+        return hidden;
+    }
     // The ground under the clouds is never inside them: where the scene is
     // this texel's ground (its ray's ground hit, within the spread of depths
     // a half-resolution texel has at that angle), no cut. A deck within a
@@ -1964,10 +1985,27 @@ fragment EffectCloudOut cloud_slot_fragment(CloudSlotOut in [[stage_in]],
     // and the cut flickered along the depths' contours (rings of dashes from
     // orbit).
     bool ground = false;
+    float spread = 1.0;
     if (ray.ground < 1e29) {
         float3 pg = cloud_figure(ray.d * ray.ground, u);
         float muG = abs(dot(ray.d, normalize(float3(pg.x, pg.y, pg.z * u.cameraFigure.w))));
-        ground = scene >= ray.ground * k * (1.0 - 2.0 * u.footprint.x / max(muG, 0.01) - 1e-3);
+        spread = 1.0 - 2.0 * u.footprint.x / max(muG, 0.01) - 1e-3;
+        ground = scene >= ray.ground * k * spread;
+    }
+    float clip = 0.0;
+    if (!(scene < back && !ground)) {
+        float endsAt = back;
+        if (ground) {
+            // The footprint's nearest ground, from its four corner rays.
+            float2 centre = in.position.xy * e.scale.x;
+            float r = e.scale.x > 1.5 ? 1.5 : 0.5, nearest = 1e30;
+            for (int i = 0; i < 4; i++) {
+                float2 corner = centre + float2((i & 1) != 0 ? r : -r, (i & 2) != 0 ? r : -r);
+                nearest = min(nearest, cloud_groundDepth(corner, u, frame));
+            }
+            endsAt = min(back, nearest * spread);
+        }
+        clip = orbit_clipCode(endsAt, scene);
     }
     if (scene < back && !ground) {
         float f = (scene - entry) / max(back - entry, 1e-3);
@@ -1979,6 +2017,7 @@ fragment EffectCloudOut cloud_slot_fragment(CloudSlotOut in [[stage_in]],
     EffectCloudOut o;
     o.color = c;
     o.front = float4(front < 1e20 && front < scene ? orbit_frontCode(front) : ORBIT_EFFECT_NO_FRONT);
+    o.clip = float4(clip);
     return o;
 }
 

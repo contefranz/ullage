@@ -57,7 +57,7 @@ public final class SnapshotRenderer {
         var shot = shot
         shot.settings.planetTile.synchronous = true
         let prepared = try shot.prepare(system: system)
-        let scene = shot.scene(prepared)
+        var scene = shot.scene(prepared)
         let r = try renderer(userTextures: shot.userTextures)
         guard let target = OffscreenTarget(device: device, width: shot.width, height: shot.height) else {
             throw SceneRenderer.Failure.noResources
@@ -90,6 +90,21 @@ public final class SnapshotRenderer {
                 if i > ExposureControl.snapCount, abs(post.control.ev100 - previous) < 0.005 { break }
                 previous = post.control.ev100
             }
+        }
+        // Settle mode: the shot's settling frames, the frame index stepping
+        // (temporal history and the slots' jitter move on, the effects'
+        // clocks stand); the shot's frame, its views and its timings are
+        // the next one's.
+        if shot.settle > 0 {
+            var settling = scene
+            settling.clock.temporalReset = false
+            r.settings = shot.settings
+            for k in 1...shot.settle {
+                settling.clock.frameIndex = scene.clock.frameIndex + k
+                r.renderAndWait(settling, into: target)
+            }
+            settling.clock.frameIndex = scene.clock.frameIndex + shot.settle + 1
+            scene = settling
         }
         post?.capturesLight = true
         let pixels = frame(shot.settings)

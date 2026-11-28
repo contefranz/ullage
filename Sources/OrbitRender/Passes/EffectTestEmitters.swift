@@ -78,6 +78,9 @@ public final class EffectTestEmitters: HalfResEffect {
                                  layer: .oit)
     }
 
+    /// The reconstruction's codes (LR0): the slab and sprites write clip codes, the cone back codes.
+    public var reconstructedLayers: HalfResLayers { [.clouds, .volumes, .oit] }
+
     public func halfResLayers(in f: FrameContext) -> HalfResLayers {
         var l = HalfResLayers()
         for e in f.settings.transparency.testEmitters {
@@ -134,7 +137,7 @@ public final class EffectTestEmitters: HalfResEffect {
                 enc.setVertexBuffer(b.buffer, offset: b.offset, index: 1)
                 enc.setFragmentBytes(&u, length: MemoryLayout<EffectTestUniforms>.stride, index: 0)
                 enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6, instanceCount: list.count)
-            case .sparks, .column:
+            case .sparks, .column, .floor:
                 break
             }
         }
@@ -172,8 +175,8 @@ public final class EffectTestEmitters: HalfResEffect {
     }
 }
 
-/// The test column and the look-dev backdrop, opaque (P1, after the scene's
-/// own opaque passes).
+/// The test column and floor and the look-dev backdrop, opaque (P1, after
+/// the scene's own opaque passes).
 @MainActor
 public final class EffectTestOpaquePass: RenderPass {
     public let name = "Effect test opaque"
@@ -188,7 +191,8 @@ public final class EffectTestOpaquePass: RenderPass {
     public init() {}
 
     public func isActive(in f: FrameContext) -> Bool {
-        f.settings.transparency.testBackdrop || f.settings.transparency.testEmitters.contains { $0.kind == .column }
+        f.settings.transparency.testBackdrop
+            || f.settings.transparency.testEmitters.contains { $0.kind == .column || $0.kind == .floor }
     }
 
     public func setUp(_ s: PassSetup) throws {
@@ -214,14 +218,26 @@ public final class EffectTestOpaquePass: RenderPass {
             enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
         }
         let frame = EffectTargetFrame(scene: f.scene)
-        let vertices = f.settings.transparency.testEmitters.filter { $0.kind == .column }
-            .flatMap { Self.columnMesh(EffectTestScene.column($0, in: frame)) }
-        guard let b = f.arena.push(vertices) else { return }
+        let vertices = f.settings.transparency.testEmitters.flatMap { e -> [SIMD4<Float>] in
+            switch e.kind {
+            case .column: return Self.columnMesh(EffectTestScene.column(e, in: frame))
+            case .floor: return Self.floorMesh(EffectTestScene.floor(e, in: frame))
+            default: return []
+            }
+        }
+        guard !vertices.isEmpty, let b = f.arena.push(vertices) else { return }
         enc.setRenderPipelineState(column)
         enc.setDepthStencilState(f.states.depthWrite)
         enc.setVertexBuffer(b.buffer, offset: b.offset, index: 1)
         enc.setFragmentBytes(&u, length: MemoryLayout<EffectTestUniforms>.stride, index: 0)
         enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: vertices.count / 2)
+    }
+
+    /// The floor's two triangles, as (position, normal) pairs, camera-relative.
+    static func floorMesh(_ c: EffectTestScene.Floor) -> [SIMD4<Float>] {
+        let e = c.east * c.halfWidth, n = c.north * c.halfWidth
+        let corners = [c.center - e - n, c.center + e - n, c.center + e + n, c.center - e + n]
+        return [0, 1, 2, 0, 2, 3].flatMap { [SIMD4(corners[$0], 1), SIMD4(c.up, 0)] }
     }
 
     /// The column's sides and top, as (position, normal) pairs, camera-relative.
