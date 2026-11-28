@@ -38,10 +38,18 @@ public struct PlumeSettings: Codable, Equatable {
     /// the scene's (whose emitters are then ignored), the same every frame.
     public var testEngines: [PlumeTestEngine] = []
 
+    /// The kerosene exhaust's soot at the exit over P2's photo fit (its
+    /// optical depth across the exit, `PlumeLook.Optics.sootDepth` per soot
+    /// index): 1 keeps P2's, which implies 0.39 % of the exhaust at the
+    /// exit and 0.096 % past the afterburning. For decision 4's renders (look
+    /// round 2); P4's trail takes the far field over with it.
+    public var sootScale = 1.0
+
     public init() {}
 
     private enum CodingKeys: String, CodingKey {
-        case enabled, quality, readable, model, nozzleGlow, turbulence, marchPixels, impostorPixels, jetMarchDistance, testEngines
+        case enabled, quality, readable, model, nozzleGlow, turbulence, marchPixels, impostorPixels, jetMarchDistance, testEngines,
+             sootScale
     }
 
     public init(from decoder: Decoder) throws {
@@ -57,6 +65,7 @@ public struct PlumeSettings: Codable, Equatable {
         impostorPixels = try c.decodeIfPresent(Double.self, forKey: .impostorPixels) ?? d.impostorPixels
         jetMarchDistance = try c.decodeIfPresent(Double.self, forKey: .jetMarchDistance) ?? d.jetMarchDistance
         testEngines = try c.decodeIfPresent([PlumeTestEngine].self, forKey: .testEngines) ?? []
+        sootScale = try c.decodeIfPresent(Double.self, forKey: .sootScale) ?? d.sootScale
     }
 }
 

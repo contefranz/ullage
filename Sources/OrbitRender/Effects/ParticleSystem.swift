@@ -236,7 +236,7 @@ public final class ParticleSystem {
         let want = settings.quality.capacity
         if want == 0 { return nil }
         if want != capacity || particles == nil { guard allocate(want) else { return nil } }
-        plan = makePlan(director.frame(f.scene, settings: settings), settings: settings)
+        plan = makePlan(director.frame(f.scene, settings: settings, plumes: f.settings.plume), settings: settings)
         return plan
     }
 

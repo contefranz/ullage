@@ -174,20 +174,24 @@ public enum LaunchMaterials {
     }
 
     /// The exhaust trail: soot and condensate left in the air, drifting on
-    /// the wind and spreading over minutes. Three bands, thinner with height
-    /// as the vehicle spreads the same flow over more metres a second
-    /// (`ExhaustTrail.band`): dense and brownish grey near the ground,
-    /// whiter condensate above.
-    public static func trail(_ band: Int) -> ParticleMaterial {
-        var m = ParticleMaterial(name: "p4 trail \(["low", "mid", "high"][band])", renderClass: .smoke)
-        m.albedo = [ParticleColor(0.6, 0.56, 0.52), ParticleColor(0.8, 0.78, 0.76), ParticleColor(gray: 0.88)][band]
-        m.opticalDepth = [1.4, 0.9, 0.4][band]
-        m.phaseG = [0.5, 0.6, 0.7][band]
-        // Of a life of minutes: a puff appears within a tenth of a second,
-        // or in flight over P2's plume's fade past the joint at the airspeed
-        // (`ExhaustTrail.fadeIn`, set each frame).
+    /// the wind and spreading over minutes. A palette (`ExhaustTrail.palette`,
+    /// row-major): rows of optical depth through a puff's centre
+    /// (`ExhaustTrail.depthLevels`), columns of albedo
+    /// (`ExhaustTrail.albedoLevels`), so a piece of trail takes the column
+    /// P2's far field hands over, its depth by spacing and its albedo
+    /// between two columns (`ExhaustTrail.puffs`); grey, P2's kerosene
+    /// smoke's g. Of a life of minutes: a puff fades in over the plume's
+    /// fade past the joint at the airspeed (`ExhaustTrail.fadeIn`, set each
+    /// frame).
+    public static func trail(_ index: Int) -> ParticleMaterial {
+        let k = ExhaustTrail.albedoLevels.count
+        let depth = ExhaustTrail.depthLevels[index / k], albedo = ExhaustTrail.albedoLevels[index % k]
+        var m = ParticleMaterial(name: String(format: "p4 trail %.1f %.2f", depth, albedo), renderClass: .smoke)
+        m.albedo = ParticleColor(gray: albedo)
+        m.opticalDepth = depth
+        m.phaseG = PlumeLook.Optics.phaseG(.kerosene)
         m.fadeIn = 0.0002
-        m.fadeOut = 0.5
+        m.fadeOut = 0.55
         m.dragCoefficient = 0.5
         m.spreadRate = 0.25
         m.coolingTime = 10
@@ -196,7 +200,7 @@ public enum LaunchMaterials {
 
     /// Every P4 material, in the order `LaunchEffects` registers them.
     public static var all: [ParticleMaterial] {
-        [padExhaust, coldVapour, iceFlake, iceSlab, trail(0), trail(1), trail(2), groundCloud, startSmoke,
-         ignitionFlash]
+        [padExhaust, coldVapour, iceFlake, iceSlab] + (0..<ExhaustTrail.palette).map(trail)
+            + [groundCloud, startSmoke, ignitionFlash]
     }
 }
