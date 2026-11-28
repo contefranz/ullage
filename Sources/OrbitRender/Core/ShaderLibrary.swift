@@ -37,7 +37,7 @@ public struct ShaderModule {
     public static let all: [ShaderModule] = [.planet, .vessel, .star, .overlay, .plume, .debug, .atmosphere, .cloud,
                                              .particle, .entry, .post, .shadow, .probe,
                                              .halfResTransparent, .transparentComposite, .effectTest, .planetTiles, .planetTiled,
-                                             .gaussianMediumCheck]
+                                             .gaussianMediumCheck, .trail]
 }
 
 /// Compiles shader modules on first use and keeps the libraries, and the

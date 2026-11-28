@@ -178,13 +178,38 @@ public enum PlumeAirflow {
         /// P2's far field there, projected (`trailHandover` gives it; nil
         /// from `handover`).
         public var column: Column?
+        /// The jet there as `JetPath` has it: its top-hat half-width (m), its
+        /// speed relative to the air (m/s) and the air's past the vehicle
+        /// (m/s), for the trail's coflow growth (`TrailColumn.Coflow`).
+        public var jet: (halfWidth: Double, excess: Double, airspeed: Double)?
+        /// The cluster's origin (camera-relative) and axis x is reckoned
+        /// along, as P2's fade reckons it (`trailHandover` gives them; nil
+        /// from `handover`): where the trail's young nodes take their fade
+        /// (`TrailChain.media`).
+        public var origin: Vec3?
+        public var axis: Vec3?
 
-        public init(x: Double, point: Vec3, window: Double, start: Vec3? = nil, column: Column? = nil) {
+        public init(x: Double, point: Vec3, window: Double, start: Vec3? = nil, column: Column? = nil,
+                    jet: (halfWidth: Double, excess: Double, airspeed: Double)? = nil, origin: Vec3? = nil,
+                    axis: Vec3? = nil) {
             self.x = x
             self.point = point
             self.window = window
             self.start = start ?? point
             self.column = column
+            self.jet = jet
+            self.origin = origin
+            self.axis = axis
+        }
+
+        /// The window along the axis the trail's nodes fade in over and P2
+        /// fades out about (`PlumeAirflow.trailFade`), m from the origin.
+        public var fadeWindow: ClosedRange<Double> { max(x - window, 0)...(x + window) }
+
+        public static func == (a: Handover, b: Handover) -> Bool {
+            a.x == b.x && a.point == b.point && a.window == b.window && a.start == b.start && a.column == b.column
+                && a.jet?.halfWidth == b.jet?.halfWidth && a.jet?.excess == b.jet?.excess
+                && a.jet?.airspeed == b.jet?.airspeed && a.origin == b.origin && a.axis == b.axis
         }
     }
 
@@ -233,6 +258,29 @@ public enum PlumeAirflow {
     /// exit), unfaded and to any length: τ = 2 ∫ σ dr, C = 2π ∫ σ r dr by
     /// the midpoint rule over its field's extent; the soot is the field
     /// without its condensate (the kerosene gas phase).
+    /// P2's hand-over fade at `x` along its axis (m): the complement of the
+    /// trail's line seen side-on, whose nodes fade in linearly over
+    /// `window` (a...b, `TrailColumn.Node.fade`), each a Gaussian of σ
+    /// `along` along the path. That line is the ramp convolved with the
+    /// Gaussian, R = (g(x − a) − g(x − b)) / (b − a), g(z) = z Φ(z/σ) +
+    /// σ φ(z/σ), so P2's 1 − R and the trail's R sum to one at every x.
+    /// 2.5σ before a and past b it is within 2e-3 σ/(b − a) of 1 and 0
+    /// (φ(2.5) − 2.5 (1 − Φ(2.5))); with σ 0 it is the ramp's complement.
+    public static func trailFade(_ x: Double, window w: ClosedRange<Double>, along sigma: Double) -> Double {
+        let a = w.lowerBound, b = max(w.upperBound, a + 1e-6)
+        guard sigma > 1e-9 else { return 1 - min(max((x - a) / (b - a), 0), 1) }
+        func g(_ z: Double) -> Double {
+            let u = z / sigma
+            return z * 0.5 * (1 + GaussianMedium.erf(u / 2.0.squareRoot())) + sigma * exp(-0.5 * u * u) / (2 * Double.pi).squareRoot()
+        }
+        return min(max(1 - (g(x - a) - g(x - b)) / (b - a), 0), 1)
+    }
+
+    /// How far past the window's end P2's fade reaches, in σ along the
+    /// path: there it is 2e-3 σ/(b − a) (under 1e-3 for any window over
+    /// 2σ).
+    public static let trailFadeReach = 2.5
+
     public static func column(_ member: PlumeMember, atX x: Double, lineDensity: Double) -> Column {
         var m = member
         m.length = 1e9
@@ -272,9 +320,29 @@ public enum PlumeAirflow {
             let xa = a.position.dot(axis), xb = b.position.dot(axis)
             return a.position + (b.position - a.position) * ((x - xa) / max(xb - xa, 1e-12))
         }
-        guard let p = at(x) else { return nil }
-        let window = max(0.15 * x, 2 * lead.exitDiameter)
-        return Handover(x: x, point: p, window: window, start: at(max(x - window, 0)) ?? p)
+        // P2 fades out as the complement of the trail's nodes fading in
+        // (`trailFade`), to `trailFadeReach` σ past the window's end, which
+        // must lie within the plume as built: so the window ends that much
+        // before the built length's end.
+        let reach = trailFadeReach * TrailChain.jointAlong
+        var window = max(0.15 * x, 2 * lead.exitDiameter)
+        if x + window + reach > built {
+            x = max((built - reach) / 1.15, 0)
+            window = max(0.15 * x, 2 * lead.exitDiameter)
+            x = min(x, built - reach - window)
+        }
+        guard x > 0, let p = at(x) else { return nil }
+        // The jet's top-hat state there, between the stations either side.
+        var jet: (halfWidth: Double, excess: Double, airspeed: Double)?
+        if let k = path.firstIndex(where: { $0.position.dot(axis) >= x }) {
+            let a = path[max(k - 1, 0)], b = path[k]
+            let xa = a.position.dot(axis), xb = b.position.dot(axis)
+            let f = k > 0 ? min(max((x - xa) / max(xb - xa, 1e-12), 0), 1) : 0
+            let stream = lead.relativeWind
+            let ea = (a.velocity - stream).length, eb = (b.velocity - stream).length
+            jet = (a.halfWidth + (b.halfWidth - a.halfWidth) * f, ea + (eb - ea) * f, stream.length)
+        }
+        return Handover(x: x, point: p, window: window, start: at(max(x - window, 0)) ?? p, jet: jet)
     }
 
     /// The trail's hand-over for a vessel's S-IC: its firing F-1s' members
@@ -298,6 +366,8 @@ public enum PlumeAirflow {
             s + e.flowFraction * (ApolloExhaust.engine(thruster: e.name, part: e.part)?.ratedFlow ?? 0)
         }
         let lambda = flow / max(lead.relativeWind.length, 1)
+        h.origin = origin
+        h.axis = axis
         if let merged = PlumeClusters.merged(members, origin: origin, axis: axis) {
             let x = h.x - (merged.member.exit - origin).dot(axis)
             h.column = column(merged.member, atX: x, lineDensity: lambda)

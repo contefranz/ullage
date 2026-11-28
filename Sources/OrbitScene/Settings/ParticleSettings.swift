@@ -11,22 +11,65 @@ public struct ParticleSettings: Codable, Equatable {
     /// the camera's target, at their ages, in place of the effects. A shot
     /// with them is the same every frame and in every scenario.
     public var testBursts: [ParticleTestBurst] = []
+    /// Look-dev: LR5's trail in the studio anchor, drawn as the launch's is
+    /// (TrailPass), in place of the effects (`TrailStudio`).
+    public var testTrail: ParticleTestTrail?
     /// The studio's gravity and air.
     public var studio = ParticleStudio()
     /// Particles outside the view, or streaks too faint to see, are not
     /// drawn (they still move). Off only to check that this changes nothing.
     public var culls = true
+    /// LR5's trail is drawn (TrailPass); off only to time it.
+    public var trail = true
 
     public init() {}
 
-    private enum CodingKeys: String, CodingKey { case quality, testBursts, studio, culls }
+    private enum CodingKeys: String, CodingKey { case quality, testBursts, testTrail, studio, culls, trail }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         quality = try c.decodeIfPresent(ParticleQuality.self, forKey: .quality) ?? .high
         testBursts = try c.decodeIfPresent([ParticleTestBurst].self, forKey: .testBursts) ?? []
+        testTrail = try c.decodeIfPresent(ParticleTestTrail.self, forKey: .testTrail)
         studio = try c.decodeIfPresent(ParticleStudio.self, forKey: .studio) ?? ParticleStudio()
         culls = try c.decodeIfPresent(Bool.self, forKey: .culls) ?? true
+        trail = try c.decodeIfPresent(Bool.self, forKey: .trail) ?? true
+    }
+}
+
+/// A look-dev trail (`TrailStudio`): a straight tube of nodes of a given
+/// column, or the chain the plume's test engines (`PlumeSettings
+/// .testEngines`) hand their exhaust over to, laid in their stream.
+public struct ParticleTestTrail: Codable, Equatable {
+    public enum Kind: String, Codable { case tube, plume }
+    public var kind = Kind.tube
+    /// The tube's start (m east, north and up of the camera's target) and
+    /// direction.
+    public var start = [0.0, 0.0, 0.0]
+    public var direction = [1.0, 0.0, 0.0]
+    /// Its length, or the plume's trail's behind its hand-over window, m.
+    public var length = 1_000.0
+    /// The tube's column: its optical depth through the axis, its Gaussian
+    /// width σ (m), its albedo and asymmetry.
+    public var depth = 1.0
+    public var width = 20.0
+    public var albedo = 0.58
+    public var asymmetry = 0.35
+
+    public init() {}
+
+    private enum CodingKeys: String, CodingKey { case kind, start, direction, length, depth, width, albedo, asymmetry }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        kind = try c.decodeIfPresent(Kind.self, forKey: .kind) ?? .tube
+        start = try c.decodeIfPresent([Double].self, forKey: .start) ?? [0, 0, 0]
+        direction = try c.decodeIfPresent([Double].self, forKey: .direction) ?? [1, 0, 0]
+        length = try c.decodeIfPresent(Double.self, forKey: .length) ?? 1_000
+        depth = try c.decodeIfPresent(Double.self, forKey: .depth) ?? 1
+        width = try c.decodeIfPresent(Double.self, forKey: .width) ?? 20
+        albedo = try c.decodeIfPresent(Double.self, forKey: .albedo) ?? 0.58
+        asymmetry = try c.decodeIfPresent(Double.self, forKey: .asymmetry) ?? 0.35
     }
 }
 

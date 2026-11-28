@@ -98,11 +98,12 @@ once none does, until first motion is found.
 - The LOX tank's fog and the umbilicals' trickle stream while the count
   holds, as they did on the pad.
 
-## The trail (`ExhaustTrail`)
+## The trail (`ExhaustTrail`, `TrailChain`, `TrailColumn`, `TrailPass`)
 
 The S-IC's exhaust left in the air below 40 km, carrying on P2's far field
-where the plume hands it over (look round 2, LR5 PR1; PR2's `TrailColumn`
-replaces the puffs).
+where the plume hands it over (look round 2, LR5): a column of Gaussian
+nodes, each closed form in its age, drawn as Gaussian media (the smoke
+media above) in R6's volumes layer. PR1's puffs are retired.
 
 - **The column handed over** (`PlumeAirflow.Column`, `trailHandover`): the
   cluster's merged far field at the hand-over, as P2's march has it there
@@ -110,57 +111,110 @@ replaces the puffs).
   side-on: τ through the axis, the cross-section C = ∫ τ dy, its soot's and
   its scattering's shares, P2's g; and λ = ṁ/V_air, the F-1s' flow over
   the airspeed (at least 1 m/s). Held to a march across P2's own field
-  within 3 % (`ExhaustTrailTests`).
-- **The puffs** carry it on: a line of P3's puffs, each (1 − ρ²/R²)² in
-  depth, has the column (16/15)(R/s) τ0 (1 − y²/R²)^(5/2); its radius is the
-  column's C/((5π/16) τ), its spacing s = (16/15) R τ0/τ at most half a
-  radius, τ0 the deepest of a palette's rows (0.1 to 3.2 by factors of two)
-  that allows it; its albedo is laid between the palette's two columns
-  either side of the column's (0.2 to 0.95). A line's half-maximum width is
-  within 10 % of the field's.
-- **Stratified:** one lattice of strata, `spacing` long, runs along the
-  path from piece to piece; each puff starts in its own stratum where the
-  path was at its age (a source velocity along the chord), at rest in the
-  air. No step from a puff to the next exceeds 2.6 strata (random places
-  along a line, as before, left gaps of five to eight). A stratum still
-  within the fade when laid gets its own request, its puff at the
-  stratum's newer end, so it spawns faded out rather than jittered up to a
-  stratum into the fade. The spacing is per metre of ground path, so the
-  line's depth in the air is the column's times |V_ground| / |V_air| (the
-  wind's share; PR2's nodes are per metre of air).
-- **The fade:** P3's puffs fade in linearly with age, and P2's plume fades
-  out linearly over the window x ± w (it was a smoothstep). The puffs are
-  laid at x − w and fade in over the time T a puff at rest in the air takes
-  to recede the window's 2w while the airspeed V grows at A (V T − ½ A T² =
-  2w), so the one crossing it now is wholly in; the lifetime is one value
-  (480 s) so that the share is a clock, at most 20 s at the pad. The two
-  would sum to one for point puffs at a steady airspeed. As drawn they do
-  not: each puff's billboard spreads its depth ±R along the axis (R about
-  1.3-1.6 w), and the airspeed still rises while the puffs cross. Seen
-  side-on, P2's faded field and the laid puffs together come to 1.006-1.134
-  of P2's unfaded field across the window at T+15 s, 0.988-1.105 at 30 s,
-  0.875-1.098 at 60 s and 0.912-1.073 at 120 s
-  (`ExhaustTrailTests.testJointsAxialProfile`). PR2's Gaussian nodes,
-  fading by the distance each has gone, make it exact.
-- **A rebuild** models the column at each piece's height, airspeed and
-  flow (`ExhaustTrail.modelColumn`: the F-1s as the scene gives them,
-  along their axes in the air there, each at its own flow from
-  `LaunchEffects.engineCutoffs`, the journal's cutoffs and any engine the
-  count lost by the release), in 250 m bins: within 5 % of the frames'
-  along the flight. A frame at warp does the same away from the vehicle.
-  After an engine out the rebuild lays the frames' extinction per
-  kilometre of height within 6 %.
+  within 3 % (`ExhaustTrailTests`); a Gaussian line with its τ and C is as
+  wide at half its depth as the field within 15 % (12 % narrower at T+120
+  s, where P2's field is flatter than a Gaussian).
+- **The path:** `ExhaustTrail` follows the window's start, x − w along P2's
+  axis, between frames as the cubic through both frames' positions and
+  velocities, after a reset as the rebuilt climb; `TrailChain` lays the
+  nodes along it. So a frame, a rebuild and any warp lay the same nodes at
+  the same epochs.
+- **The nodes** (`TrailChain.lay`): one every 25 m of the jet at the joint.
+  The jet still runs u over the air there (148 m/s over 37 m/s at T+15 s),
+  so that is every 25 V/(V + u) m of the path through the air (the ground
+  chord less the wind's drift); as the jet slows they close up, as the
+  exhaust does. Each carries P2's column over 25 m, the jet's top-hat state
+  and its heat (λ times the exhaust's heat less what the flames radiate),
+  and the air at its height: N from the sounding's lapse, the wind's shear
+  across the path, the mixed layer's top (1 km, w* 1.5 m/s: L, a July
+  morning on the coast). Its hand-over is the frame's within 500 m of the
+  vehicle's height, else the model's (`ExhaustTrail.modelHead`, in 250 m
+  bins): the F-1s as the scene gives them, each at its own flow from
+  `LaunchEffects.engineCutoffs` (the journal's cutoffs, and any engine the
+  count lost by the release). Nodes are laid above the deck, below 40 km,
+  and live 600 s.
+- **A node in its age** (`TrailColumn.Node`), closed form:
+  - *coflow:* the jet's half-width and drift as it slows to the air,
+    re-derived from `JetPath`'s shear-layer entrainment (held to
+    `JetPath.path` within 0.002 %);
+  - *line thermal:* the bent-over line thermal (Briggs: z³ = 3B(1 −
+    cos Nt)/(πβ²N²), β 0.6, held past Nt = π; within 1-2 % of Briggs's
+    neutral and stable rises), its buoyancy and stratification across the
+    line only, B cos θ and N cos θ for a line climbing at θ (along a uniform
+    column buoyancy drives a flow that shows nowhere: standing upright a
+    line does not rise along itself);
+  - *spread:* below the mixed layer's top K = κw*z(1 − z/z_i)² (Troen and
+    Mahrt 1986), above it Schumann's (2012) plume diffusivities in the
+    wind's shear (Konopka's sheared covariance, closed form; to 1e-6 of a
+    thousand small steps), on top of the coflow's growth and the thermal's
+    entrainment;
+  - *its fade:* linear in how far it is behind the window's start: U a +
+    ½ A a² + its drift, A the airspeed's rate where laid.
+- **Drawn** (`TrailChain.anchorMedia`): each node a Gaussian medium, σ 15 m
+  along the path (0.6 of the spacing: a line of them smooth to 0.2 %) at
+  every age, its cross-section's covariance across, its extinction its
+  column times 25 m; with its line's peak, C/(2π σv σw), for the shadows.
+  Young nodes in a frame with a live hand-over fade by where their centre
+  is in P2's window along P2's axis (exact whatever the vehicle's turning,
+  climbing or speeding up does to the window), older ones by their age.
+- **The joint:** P2 fades out as the complement of the line the nodes
+  draw: a linear ramp over the window seen through their σ along it, R =
+  (g(x − a) − g(x − b))/(b − a), g(z) = z Φ(z/σ) + σ φ(z/σ)
+  (`PlumeAirflow.trailFade`), to 2.5σ past the window's end (2e-3 σ/2w of
+  it left). For that to lie within the plume as built, the hand-over's x is
+  at most (built − 2.5σ)/1.15: some 30 m nearer the vehicle from T+3 to
+  75 s. Side-on along the axis (`TrailChainTests.testJointsFadesSumToOneSideOn`),
+  P2's 1 − R and the trail's realised weight sum to one within 4.9 % at
+  T+15 s (a 40 m window), 2.1 % at 30 s, 1.1 % at 60 s and 0.27 % at 120 s:
+  what is left is σ² f′ τ′/τ, the nodes widening across a short window. The
+  trail's column at the window's middle is 0.87-0.96 of P2's there: P2's
+  far field spreads faster than the coflow (see below).
+- **Level of detail** (`TrailChain.lod`): runs of nodes, a power of two
+  aligned on their serials, are drawn as one Gaussian (their extinction,
+  centre, cross covariance with their centres' scatter, albedo and
+  asymmetry by extinction and scattering), split in halves until even the
+  most demanding member allows the run: no longer than 0.25 of its distance
+  (a ray down the trail crosses four runs a doubling of the distance, at
+  most 40 in all from 100 m to 30 km) and, seen across the view, no longer
+  than two of the trail's widths (side-on, nothing is merged that shows),
+  at most 256 nodes. A run's σ along is 0.6 of the span allowed at its
+  centre, which changes smoothly where the runs double (a σ doubling from
+  one run to the next bumps the line ±16 %): side-on the merged line is the
+  nodes' within 0.6 %.
+- **`TrailPass`** (`TrailEffect`, TrailShaders): each medium an instanced
+  3σ box, back faces only, its chord shaded in closed form through the
+  header's segments, each segment's source at its shading depth (one
+  inverse each for its end and its source); lit by the Sun through the
+  trail's line at the point (the column's own chord, its neighbours'
+  included), C2's cloud shadow and the ambient (R3's SH9, or the stand-in);
+  A2's air in front. The media come far to near; two effects draw them
+  about P2's march, those beyond the joint before it and the rest after
+  (R6's volumes layer composites over, so its effects must be ordered).
+  Back codes for LR0's reconstruction. The media come from the effects'
+  director, which runs with the particles: at their Off tier there is no
+  trail.
+- **Rebuilds and warp:** the nodes at T+75 s from frames at 2 Hz, from
+  1000× warp's frames and rebuilt agree in count within 3 % and in
+  extinction per 2 km of height within 8 %; after an engine out the
+  rebuild lays the frames' extinction per kilometre within 6 %, and an F-1
+  lost before the release leaves the model's column 0.80 of five engines'.
 - **Along AS-506's flight** the column goes from depth 1.9 and 36 m wide
   (T+3 s) through 1.2 and 56 m (T+60 s) to 0.37 and 219 m (T+120 s); its
   albedo is 0.58 (P2's soot at 0.25 and its condensate at 0.8) until the
   afterburning fades.
+- **Looks** (`TrailLookTests`): in `p4-trail-chase` the line nowhere
+  narrows below 0.963 of its widest before (the puffs narrowed to 0.43 of
+  the plume); `p4-trail-tube` (a studio tube) has no beads (0.5 % about its
+  smooth trend); `p4-trail-joint-studio` (P2's F-1 cluster at 6 km and the
+  chain it hands over to, `TrailStudio`) changes width by at most 6 % a
+  station through the joint.
 - **What P2's column does not hold:** it keeps its cross-section from the
   exit to the hand-over (σ ∝ (r_e/r)²), while the exhaust slows from the
   jet's 2.6 km/s to the air, so λ grows by u_j/V_air: about 10 at T+60 s.
   Its soot then implies 0.008 % of the exhaust at T+60 s (at 7.5 m²/g),
-  where at its exit it is 0.39 %, 0.096 % past the afterburning (the
-  study's "P2's implied 0.07 %" estimated this). PR2's extinction from
-  mass takes λ.
+  where at its exit it is 0.39 %, 0.096 % past the afterburning. The
+  trail keeps continuity with P2's column; extinction from mass (λ for P2
+  and the trail together) is a follow-up.
 
 ## The ground cloud (`GroundCloud`)
 

@@ -64,8 +64,21 @@ struct PlumeMember {
     float4 deckCentre;  // the ground it meets: xyz the opening's centre, w the deck's share of the flow
     float4 deckNormal;  // xyz the deck's normal, w the wall jet's reach (0: none)
     float4 deckAxis;    // xyz the opening's axis, w its half side
-    float4 deckHeat;    // x the recovered core temperature (K), y the wall jet's thickness at the impact, z its growth
+    float4 deckHeat;    // x the recovered core temperature (K), y the wall jet's thickness at the impact, z its growth,
+                        // w the trail nodes' sigma along the path at the hand-over (m)
 };
+
+// P2's hand-over fade at x: the complement of the trail's nodes fading in
+// linearly over a...b, seen through their Gaussian of sigma along the path
+// (PlumeAirflow.trailFade).
+inline float plume_trailFade(float x, float a, float b, float sigma) {
+    b = max(b, a + 1e-6);
+    if (sigma <= 1e-9) { return 1.0 - clamp((x - a) / (b - a), 0.0, 1.0); }
+    float ua = (x - a) / sigma, ub = (x - b) / sigma;
+    float ga = (x - a) * 0.5 * (1.0 + orbit_erf(ua * M_SQRT1_2_F)) + sigma * exp(-0.5 * ua * ua) * 0.3989422804;
+    float gb = (x - b) * 0.5 * (1.0 + orbit_erf(ub * M_SQRT1_2_F)) + sigma * exp(-0.5 * ub * ub) * 0.3989422804;
+    return clamp(1.0 - (ga - gb) / (b - a), 0.0, 1.0);
+}
 
 // The jet's radius at x (PlumeMember.radius).
 inline float plume_jetRadius(const device PlumeMember &m, float x) {
@@ -609,9 +622,9 @@ inline void plume_member(thread PlumeSample &s, const device PlumeMember &m, int
         }
         float fadeFrom = m.bendSpan.y >= 0.0 ? m.bendSpan.y : 0.7 * length_;
         float fade = fadeFrom < length_ ? 1.0 - plume_smoothstep(fadeFrom, length_, x) : 1.0;
-        // The hand-over to P4's trail: a linear ramp, as the trail's puffs fade
-        // in (LR5), so that the two sum to one.
-        if (m.bendSpan.w > 0.0) { fade *= 1.0 - clamp((x - m.bendDirection.w) / max(m.bendSpan.w - m.bendDirection.w, 1e-6), 0.0, 1.0); }
+        // The hand-over to P4's trail: the complement of its nodes fading in
+        // (LR5), so that the two sum to one.
+        if (m.bendSpan.w > 0.0) { fade *= plume_trailFade(x, m.bendDirection.w, m.bendSpan.w, m.deckHeat.w); }
         float rho = profile * dilution * fade;
         float mixing = x > m.shape.w ? m.shape.w / x : 1.0;
         float cells = 1.0;
@@ -1300,6 +1313,6 @@ fragment float4 plume_glow_fragment(PlumeGlowOut in [[stage_in]],
 extension ShaderModule {
     public static let plume = ShaderModule(name: "Plume",
                                            headers: [.effectSlots, .atmosphereCommon, .shadowCommon, .cloudShadow,
-                                                     .sphericalHarmonics],
+                                                     .sphericalHarmonics, .gaussianMedium],
                                            source: plumeShaderSource)
 }

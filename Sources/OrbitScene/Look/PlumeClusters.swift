@@ -135,9 +135,9 @@ public enum PlumeClusters {
         // cluster's path bends every member's centreline into it; past where
         // it turns back (a retro's into the oncoming air) the plumes end;
         // and where a kerosene cluster's exhaust has slowed to the air they
-        // fade out, handed over to P4's trail: over the window about the
+        // fade out, handed over to P4's trail: about the window at the
         // joint, the same whatever a member's length (as the trail's head
-        // is), ending at the window's end. A member the exposure's trim (or
+        // is), ending 2.5σ of the trail's nodes past the window's end. A member the exposure's trim (or
         // its own shorter plume) cuts short of that end keeps its cut, its
         // own soft end narrowing to none as the cut reaches the window's
         // end: continuous in the cut, and nothing marched beyond what can
@@ -151,12 +151,17 @@ public enum PlumeClusters {
                 members[i].bend = air.bend
                 if let end = air.end { members[i].length = min(members[i].length, max(end, members[i].exitDiameter)) }
                 if let h = air.handover {
-                    let start = max(h.x - h.window, 0), end = h.x + h.window
+                    // The trail's nodes fade in over the window; P2 fades
+                    // out as its complement (`PlumeAirflow.trailFade`), to
+                    // `trailFadeReach` σ past the window's end.
+                    let start = max(h.x - h.window, 0), along = TrailChain.jointAlong
+                    let end = h.x + h.window + PlumeAirflow.trailFadeReach * along
                     let length = members[i].length
                     let soft = min(0.3 * length, max(end - length, 0))
                     members[i].length = min(length, end)
                     members[i].fadeStart = members[i].length - soft
-                    members[i].handoverFade = start...end
+                    members[i].handoverFade = start...(h.x + h.window)
+                    members[i].handoverAlong = along
                 }
             }
         }

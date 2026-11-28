@@ -94,8 +94,10 @@ final class PlumeAirflowTests: XCTestCase {
     // continuously. Each step moves its far end (90 % of its length), its
     // length and the trail's hand-over by under 5 % of themselves; through
     // the afterburning's end (T+120 to 128 s, 37 km, where P1's luminous
-    // length fades by the cooling flame's luminance: M1) by under 25 %, a
-    // shrink of under 1 % a frame over about 2 s.
+    // length fades by the cooling flame's luminance: M1) by under 26 %, a
+    // shrink of under 1 % a frame over about 2 s (the hand-over, held 2.5σ
+    // of the trail's nodes before the built length's end, steps by that
+    // much more of itself).
     func testThroughThePitchProgram() throws {
         let scenario = try XCTUnwrap(Scenario.named("as506-first-motion"))
         let sim = scenario.build(Self.system)
@@ -140,7 +142,7 @@ final class PlumeAirflowTests: XCTestCase {
         XCTAssertLessThan(worst.end, 0.05)
         XCTAssertLessThan(worst.length, 0.05)
         XCTAssertLessThan(worst.handover, 0.05)
-        XCTAssertLessThan(worstFade, 0.25)
+        XCTAssertLessThan(worstFade, 0.26)
         XCTAssertGreaterThan(largest, 0, "the plume bends at some point of the ascent")
     }
 
@@ -170,8 +172,9 @@ final class PlumeAirflowTests: XCTestCase {
     // it. Through exposures from night to bright day (every 5 %), in
     // sunlight and in the dark (the F-1's smoke holds 2 % opacity to its
     // built length, so none trims it in these states), every member and
-    // the merged far field fade over the same window about the joint and
-    // end at its end, the trail's head is the same and the drawn field
+    // the merged far field fade about the same window at the joint and
+    // end 2.5σ of the trail's nodes past its end (`PlumeAirflow.trailFade`),
+    // the trail's head is the same and the drawn field
     // does not change. With the members cut anywhere from 30 % of their
     // built length to all of it (as a trim, or an engine's own shorter
     // plume, would cut them), through the window's start, where the old
@@ -179,18 +182,19 @@ final class PlumeAirflowTests: XCTestCase {
     // they fade over the same window, the field drawn along the merged far
     // field grows with the cut, by under 3 % of the uncut field a step of
     // 1 %, and the cut
-    // keeps a soft end until it reaches the window's end.
+    // keeps a soft end until it reaches that end.
     func testHandoverFadeIndependentOfTheTrim() throws {
         let deg = Double.pi / 180
         let built = five(altitude: 1_000, speed: 100, alpha: 3 * deg)
         let h = try XCTUnwrap(built.handover)
         let window = max(h.x - h.window, 0)...(h.x + h.window)
+        let end = window.upperBound + PlumeAirflow.trailFadeReach * TrailChain.jointAlong
         func cluster(_ members: [PlumeMember], _ label: String) throws -> (PlumeCluster, PlumeMember) {
             let c = PlumeClusters.cluster(members)
             XCTAssertEqual(c.handover, h, "the joint, \(label)")
             for m in c.members + (c.merged.map { [$0] } ?? []) {
                 XCTAssertEqual(m.handoverFade, window, label)
-                XCTAssertLessThanOrEqual(m.length, window.upperBound + 1e-9, label)
+                XCTAssertLessThanOrEqual(m.length, end + 1e-9, label)
             }
             return (c, try XCTUnwrap(c.merged))
         }
@@ -203,9 +207,9 @@ final class PlumeAirflowTests: XCTestCase {
             return t
         }
         // The field along the merged far field, from a fifth of the joint's
-        // distance to the window's end.
+        // distance to the fade's end.
         func drawn(_ far: PlumeMember) -> Double {
-            stride(from: 0.2 * h.x, through: window.upperBound, by: 0.01 * h.x).reduce(0) {
+            stride(from: 0.2 * h.x, through: end, by: 0.01 * h.x).reduce(0) {
                 $0 + far.sample(at: far.centre(atX: $1)).extinction
             }
         }
@@ -220,7 +224,7 @@ final class PlumeAirflowTests: XCTestCase {
                 }
                 XCTAssertEqual(members.count, 5)
                 let (c, far) = try cluster(members, "faintest \(faintest), sun \(sun)")
-                for m in c.members { XCTAssertEqual(m.length, window.upperBound, accuracy: 1e-9) }
+                for m in c.members { XCTAssertEqual(m.length, end, accuracy: 1e-9) }
                 let d = drawn(far)
                 if let reference { XCTAssertEqual(d, reference, accuracy: 1e-9 * reference) }
                 reference = d
@@ -240,7 +244,7 @@ final class PlumeAirflowTests: XCTestCase {
                 return t
             }, "cut at \(cut) m")
             let m = c.members[0]
-            if cut < window.upperBound {
+            if cut < end {
                 XCTAssertLessThan(m.fadeStart ?? m.length, m.length, "a soft end, cut at \(cut) m")
             }
             let d = drawn(far)
