@@ -1013,10 +1013,23 @@ final class CloudRenderTests: XCTestCase {
 
     // MARK: A frame drawn again
 
+    /// A frame `drawFrames` drew: its pixels, the profile's encoder labels,
+    /// the clouds' report and drift, their resolved colour and depth codes
+    /// (the march target's size), and the faces R3's probe drew.
+    struct Drawn {
+        var pixels: [UInt8]
+        var labels: [String]
+        var report: CloudPass.Report
+        var drift: [Vec3]
+        var layer: [[Double]]
+        var depth: [[Double]]
+        var march: (width: Int, height: Int)
+        var probeFaces: [Int]
+    }
+
     /// Frames of one renderer: the pad's sky by default (C2's clouds
     /// reprojecting), particles (P3 is not byte-deterministic) and plumes
-    /// off, and R3's probe off unless `probe` (it updates its faces in turn,
-    /// a redraw included: two bytes of the frame move). The frames at
+    /// off, and R3's probe off unless `probe`. The frames at
     /// `steps` (frame index and seconds after the shot's epoch), each at the
     /// manual EV `ev(k)`, the clock running (not paused) with no temporal
     /// reset after the first frame (a frame drawn again keeps the clock it
@@ -1025,12 +1038,11 @@ final class CloudRenderTests: XCTestCase {
     func drawFrames(_ steps: [(index: Int, seconds: Double)], scenario: String = "as506-first-motion",
                     camera: SnapshotSpec.CameraSpec = SnapshotSpec.CameraSpec(yaw: -60, pitch: 12, distance: 300, fov: 60),
                     probe: Bool = false, ev: (Int) -> Double = { _ in 14 }, profiled: Bool = false,
-                    poisonFrame: Int? = nil) throws
-        -> [(pixels: [UInt8], labels: [String], report: CloudPass.Report, drift: [Vec3], resolved: [[Double]])] {
+                    poisonFrame: Int? = nil, width: Int = 320, height: Int = 200) throws -> [Drawn] {
         let s = try snapper()
         var shot = SnapshotSpec.Shot(name: "c2-redraw", scenario: scenario, camera: camera)
-        shot.width = 320
-        shot.height = 200
+        shot.width = width
+        shot.height = height
         shot.showOrbit = false
         shot.settings.particle.quality = .off
         shot.settings.plume.quality = .off
@@ -1058,7 +1070,7 @@ final class CloudRenderTests: XCTestCase {
         let target = try XCTUnwrap(OffscreenTarget(device: s.device, width: shot.width, height: shot.height))
         let base = shot.scene(prepared)
         let clouds = try XCTUnwrap(r.graph.pass(named: "Clouds") as? CloudPass)
-        var out: [(pixels: [UInt8], labels: [String], report: CloudPass.Report, drift: [Vec3], resolved: [[Double]])] = []
+        var out: [Drawn] = []
         // Each frame's clock; a frame drawn again keeps the one it repeats.
         var clock: (index: Int, seconds: Double, simDt: Double, reset: Bool)?
         for (k, step) in steps.enumerated() {
@@ -1079,8 +1091,11 @@ final class CloudRenderTests: XCTestCase {
             r.settings = settings
             profile = nil
             XCTAssertNil(try XCTUnwrap(r.renderAndWait(scene, into: target)).error)
-            out.append((target.bytes(), profile?.labels ?? [], clouds.lastFrame, clouds.advection.offsets,
-                        (capture.values(.cloudLayer)?.texels ?? []) + (capture.values(.cloudDepth)?.texels ?? [])))
+            let depth = capture.values(.cloudDepth)
+            out.append(Drawn(pixels: target.bytes(), labels: profile?.labels ?? [], report: clouds.lastFrame,
+                             drift: clouds.advection.offsets, layer: capture.values(.cloudLayer)?.texels ?? [],
+                             depth: depth?.texels ?? [], march: (depth?.width ?? 0, depth?.height ?? 0),
+                             probeFaces: (r.graph.pass(named: "Environment probe") as? EnvironmentProbePass)?.lastFrame.faces ?? []))
         }
         return out
     }
@@ -1134,10 +1149,79 @@ final class CloudRenderTests: XCTestCase {
         let plain = try drawFrames([(1, 0), (2, 1.0 / 60)])
         let poisoned = try drawFrames([(1, 0), (2, 1.0 / 60)], poisonFrame: 1)
         XCTAssertTrue(poisoned[1].report.reprojected, "the frame marches one texel in four")
-        XCTAssertFalse(plain[1].resolved.isEmpty)
-        let differ = zip(poisoned[1].resolved, plain[1].resolved).filter { $0 != $1 }.count
+        XCTAssertFalse(plain[1].depth.isEmpty)
+        let differ = zip(poisoned[1].layer + poisoned[1].depth, plain[1].layer + plain[1].depth).filter { $0 != $1 }.count
         XCTAssertEqual(differ, 0, "resolved texels that read the poison")
         XCTAssertEqual(poisoned[1].pixels, plain[1].pixels)
+    }
+
+    /// The resolve's box for an unmarched texel, as cloud_resolve indexes
+    /// it: its block's marched texel (kept inside the target: an odd size's
+    /// last block takes the one before) and the marched texels of the three
+    /// blocks towards it (across the target's edge, the block on the other
+    /// side).
+    static func resolveBox(x: Int, y: Int, checker: (Int, Int), width w: Int, height h: Int) -> [(x: Int, y: Int)] {
+        var ox = (x & ~1) + checker.0, oy = (y & ~1) + checker.1
+        if ox >= w { ox -= 2 }
+        if oy >= h { oy -= 2 }
+        ox = max(ox, 0)
+        oy = max(oy, 0)
+        let sx = x >= ox ? 2 : -2, sy = y >= oy ? 2 : -2
+        var box = [(x: ox, y: oy)]
+        for (dx, dy) in [(sx, 0), (0, sy), (sx, sy)] {
+            var px = ox + dx, py = oy + dy
+            if px < 0 || px >= w { px = ox - dx }
+            if py < 0 || py >= h { py = oy - dy }
+            box.append((min(max(px, 0), w - 1), min(max(py, 0), h - 1)))
+        }
+        return box
+    }
+
+    /// On an odd-sized march target (318×198 frames: 159×99 at the pad) the
+    /// resolve's boxes hold only marched texels inside the target, its last
+    /// column and row included, in both checker phases that leave them
+    /// unmarched ((1,0) on frame 2, (0,1) on frame 3); and the GPU's
+    /// resolved depth codes at every unmarched texel are its block's own or
+    /// the least of its box (what the resolve takes, without history or with
+    /// it), so the shader indexes as the mirror does.
+    func testTheResolveBoxesStayInsideAnOddTarget() throws {
+        let frames = try drawFrames([(1, 0), (2, 1.0 / 60), (3, 2.0 / 60)], width: 318, height: 198)
+        for (k, checker) in [(1, (1, 0)), (2, (0, 1))] {
+            let f = frames[k]
+            XCTAssertTrue(f.report.reprojected)
+            let (w, h) = f.march
+            XCTAssertEqual(w % 2, 1, "an odd width")
+            XCTAssertEqual(h % 2, 1, "an odd height")
+            func marched(_ x: Int, _ y: Int) -> Bool { (x & 1) == checker.0 && (y & 1) == checker.1 }
+            var edges = 0, off = 0
+            for y in 0..<h {
+                for x in 0..<w where !marched(x, y) {
+                    let box = Self.resolveBox(x: x, y: y, checker: checker, width: w, height: h)
+                    for t in box {
+                        XCTAssertTrue(t.x >= 0 && t.x < w && t.y >= 0 && t.y < h && marched(t.x, t.y),
+                                      "\(x), \(y): box texel \(t.x), \(t.y)")
+                    }
+                    let codes = box.map { f.depth[$0.y * w + $0.x][0] }
+                    let code = f.depth[y * w + x][0]
+                    if code != codes[0] && code != codes.min()! { off += 1 }
+                    if x == w - 1 || y == h - 1 { edges += 1 }
+                }
+            }
+            XCTAssertGreaterThan(edges, 100, "the last column and row are checked")
+            XCTAssertEqual(off, 0, "unmarched texels whose front is neither their block's nor their box's least")
+        }
+    }
+
+    /// R3's probe follows the redraw rule too: a frame drawn again draws the
+    /// faces its frame drew (not all six, as a frame that did not follow the
+    /// last), so the redraw costs and shows what the frame did.
+    func testARedrawKeepsTheProbesFaces() throws {
+        let frames = try drawFrames([(1, 0), (2, 1.0 / 60), (3, 2.0 / 60), (3, 2.0 / 60), (3, 2.0 / 60)], probe: true)
+        XCTAssertLessThan(frames[2].probeFaces.count, 6, "a steady frame draws some faces")
+        XCTAssertEqual(frames[3].probeFaces, frames[2].probeFaces)
+        XCTAssertEqual(frames[4].probeFaces, frames[2].probeFaces)
+        XCTAssertEqual(frames[3].pixels, frames[2].pixels, "the redraw is its frame, the probe on")
+        XCTAssertEqual(frames[4].pixels, frames[2].pixels)
     }
 
     /// A frame drawn again (the same index and clock: a snapshot's views,

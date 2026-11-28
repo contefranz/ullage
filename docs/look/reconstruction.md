@@ -129,8 +129,12 @@ app. On such a redraw, C2's clouds:
   it was resolved at (each history texture is tagged with that), rather than
   to the last frame drawn.
 
-P3's effects follow the same rule (`EffectSession`'s `again`). Any pass
-that keeps history must too.
+Other passes follow the same rule:
+- P3's effects (`EffectSession`'s `again`);
+- R3's probe, which draws the faces its frame drew rather than all six,
+  and leaves its face schedule where that frame left it.
+
+Any pass that keeps history or a schedule across frames must too.
 
 **Timings.** A shot's timed frames repeat its frame, and so cost what that
 frame cost:

@@ -186,6 +186,10 @@ public final class EnvironmentProbePass: RenderPass {
     enum Update { case full, moving, steady }
     private var lastFaces: FaceState?
     private var schedule = FaceSchedule()
+    /// The last frame's index and clock and the faces it drew: a frame drawn
+    /// again (the same index and clock: a snapshot's views and timed frames,
+    /// F12's) draws those faces again, and the schedule moves on no further.
+    private var drawnFaces: (frameIndex: Int, simTime: Epoch, faces: [Int])?
 
     /// A new sequence (`SceneRenderer.startOver`): the next frame draws every
     /// face, as a fresh pass's first does. Else a shot whose frame index
@@ -194,6 +198,7 @@ public final class EnvironmentProbePass: RenderPass {
     public func startOver() {
         lastFaces = nil
         schedule = FaceSchedule()
+        drawnFaces = nil
     }
 
     /// How this frame's faces are drawn:
@@ -309,14 +314,21 @@ public final class EnvironmentProbePass: RenderPass {
         let tiles = planets?.tiles?.layer(.albedo)?.residency.residentCount ?? -1
         let skyFromCentre = !(sky?.probeReadsSkyView(f, center: center) ?? false)
         let state = FaceState(f.scene, center: center, settings: f.settings, tiles: tiles, skyFromCentre: skyFromCentre)
-        let update = Self.update(state, after: lastFaces, clock: f.scene.clock, size: maps.size)
+        // A frame drawn again: its frame's faces, the state and schedule left
+        // as that frame left them, so it costs and shows what the frame did.
+        let clock = f.scene.clock
+        let again = drawnFaces.flatMap { $0.frameIndex == clock.frameIndex && $0.simTime == clock.simTime ? $0.faces : nil }
+        let update = Self.update(state, after: lastFaces, clock: clock, size: maps.size)
         let tilesChanged = lastFaces.map { $0.tiles != tiles } ?? false
-        lastFaces = state
+        if again == nil { lastFaces = state }
         var drawn: [Int] = []
         switch settings.environment {
         case .scene:
-            drawn = schedule.next(update, paused: f.scene.clock.paused, steady: settings.facesPerFrame,
-                                  tilesChanged: tilesChanged)
+            if let again {
+                drawn = again
+            } else {
+                drawn = schedule.next(update, paused: clock.paused, steady: settings.facesPerFrame, tilesChanged: tilesChanged)
+            }
             if !drawn.isEmpty {
                 drawFaces(f, maps: maps, center: center, settings: settings, skyFromCentre: skyFromCentre,
                           faces: drawn.compactMap { EnvironmentProbe.Face(rawValue: $0) })
@@ -340,6 +352,7 @@ public final class EnvironmentProbePass: RenderPass {
             Self.dispatch(enc, pipelines.lookDev, width: maps.size, height: maps.size, depth: 6)
             enc.endEncoding()
         }
+        drawnFaces = (clock.frameIndex, clock.simTime, drawn)
 
         // The derived maps are current while no face was drawn.
         if !drawn.isEmpty { encodeDerivedMaps(f, maps: maps, settings: settings, pipelines: pipelines,
