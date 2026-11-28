@@ -240,6 +240,36 @@ final class SnapshotToolTests: XCTestCase {
         XCTAssertNotEqual(settled.pixels, first.pixels, "the settled frame is a later one")
     }
 
+    /// A settled shot's debug views and timed frames are its frame drawn
+    /// again: C2's clouds, which reproject at the pad, are read back as the
+    /// frame resolved them, not blended into their history once more per
+    /// redraw. A view drawn after another is the same image; the timed frame
+    /// is the image to a step (`testProfilingKeepsThePixels`: a split frame
+    /// keeps the scene's samples across R6's break).
+    func testSettledRedrawsAreTheSettledFrame() throws {
+        let s = try snapper()
+        var shot = SnapshotSpec.Shot(name: "settled-clouds", scenario: "as506-first-motion",
+                                     camera: SnapshotSpec.CameraSpec(yaw: -60, pitch: 12, distance: 300, fov: 60))
+        shot.width = 320
+        shot.height = 200
+        shot.showOrbit = false
+        shot.settle = 4
+        // P3's particles are not byte-deterministic.
+        shot.settings.particle.quality = .off
+        shot.aovs = [.effectLayers]
+        let one = try s.render(shot, timingFrames: 2)
+        let clouds = try XCTUnwrap(try s.renderer(userTextures: false).graph.passes.compactMap { $0 as? CloudPass }.first)
+        XCTAssertTrue(clouds.lastFrame.reprojected, "the settled frame blends the clouds' history")
+        shot.aovs = [.depth, .effectLayers]
+        let two = try s.render(shot)
+        XCTAssertEqual(two.pixels, one.pixels)
+        XCTAssertEqual(two.aovs[1].pixels, one.aovs[0].pixels, "the clouds' coverage, one redraw later")
+        let profiled = try XCTUnwrap(one.profiledPixels)
+        let steps = zip(profiled, one.pixels).map { abs(Int($0) - Int($1)) }
+        XCTAssertLessThanOrEqual(steps.max() ?? 2, 1, "the timed frame is the settled one, to a step")
+        XCTAssertGreaterThan(steps.filter { $0 == 0 }.count, steps.count * 9 / 10)
+    }
+
     /// PNGs round-trip exactly; PFMs hold the linear light.
     func testImageFilesRoundTrip() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("orbitsim-image-files")

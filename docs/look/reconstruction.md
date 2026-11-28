@@ -113,3 +113,10 @@ its own:
   and its timings are the settled one's.
 
 0, the default, keeps the first frame as before.
+
+A shot's debug views and timed frames draw its frame again: the same index
+and clock. C2's clouds read that frame's resolved texels back
+(`HistoryTargets.last`, the pair left unswapped) instead of blending them
+into their history once more, so a settled shot's views and timings are its
+frame. P3's effects have the same rule (`EffectSession`'s `again`). A pass
+that keeps history must do likewise.

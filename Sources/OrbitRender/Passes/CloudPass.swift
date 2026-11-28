@@ -124,6 +124,9 @@ public final class CloudPass: RenderPass, HalfResEffect {
     var weatherOverrideName = "override"
 
     private var previous: CloudFrame?
+    /// The last frame resolved: its index and clock, and its report (for a
+    /// frame drawn again).
+    private var drawn: (frameIndex: Int, simTime: Epoch, report: Report)?
     private(set) var advection = CloudAdvection(tile: FrameContext.noiseTile)
     private(set) var cirrus = CirrusFrames()
     /// The low layer's detail curl's own frame (CirrusFrame, its wind the
@@ -315,6 +318,7 @@ public final class CloudPass: RenderPass, HalfResEffect {
     public func startOver() {
         lastEpoch = nil
         previous = nil
+        drawn = nil
         lastWeather = nil
         proceduralState = nil
         sweep = nil
@@ -463,6 +467,25 @@ public final class CloudPass: RenderPass, HalfResEffect {
                                                               height: marchSize.height, mipmapped: false)
         depthD.usage = [.shaderRead, .shaderWrite]
         depthD.storageMode = .private
+        // A frame drawn again, the same index and clock (a snapshot's debug
+        // views and timed frames, F12's): the clouds it resolved, read back
+        // as they stand. Marched and blended into their history again they
+        // would move on by one more step of the history's mix (a settled
+        // shot's views and timings would not be its frame), and the pairs,
+        // left unclaimed, are not swapped.
+        if let d = drawn, !clock.temporalReset, d.frameIndex == clock.frameIndex, d.simTime == clock.simTime,
+           let color = f.history.last(Self.historyColor, descriptor: colorD),
+           let depth = f.history.last(Self.historyDepth, descriptor: depthD) {
+            let checker: SIMD2<Float> = [SIMD2(0, 0), SIMD2(1, 1), SIMD2(1, 0), SIMD2(0, 1)][clock.frameIndex & 3]
+            u.checker = SIMD4(checker.x, checker.y, d.report.reprojected ? 1 : 0, Float(clock.frameIndex % 64))
+            resolved = (color, depth)
+            uniformsForSlot = u
+            probeState = ProbeState(frame: f, uniforms: u, air: airTables)
+            f.textures[.cloudLayer] = color
+            f.textures[.cloudDepth] = depth
+            lastFrame = d.report
+            return
+        }
         guard let hc = f.history.pair(Self.historyColor, descriptor: colorD),
               let hd = f.history.pair(Self.historyDepth, descriptor: depthD),
               let freshColor = f.pool.texture(colorD), let freshDepth = f.pool.texture(depthD) else {
@@ -526,6 +549,7 @@ public final class CloudPass: RenderPass, HalfResEffect {
         lastFrame = Report(drawn: true, reprojected: reprojects, motionPixels: motion, mission: mission,
                            regimes: regimes, frame: frame, epoch: f.scene.clock.simTime, sunLight: u.sunLight,
                            scale: scale, footprintAngle: Double(u.footprint.x))
+        drawn = (clock.frameIndex, clock.simTime, lastFrame)
     }
 
     /// A one-command blit on each side of the march's encoder. Apple's driver

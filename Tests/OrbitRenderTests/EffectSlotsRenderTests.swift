@@ -185,17 +185,29 @@ final class EffectSlotsRenderTests: XCTestCase {
 
     // MARK: Composite
 
-    /// The texels' ends as the composite reads them (`EffectSlots.texelEnded`)
-    /// for pixel (x, y) of `f`, every layer drawn and reconstructed.
-    static func ended(_ f: Frame, texels index: [Int], pixel z: Double) throws -> [Bool] {
-        let depth = try XCTUnwrap(f.capture.values(.halfResDepth)), fronts = try XCTUnwrap(f.capture.values(.halfResFronts))
-        let clips = try XCTUnwrap(f.capture.values(.halfResClips))
-        let near = f.scene.camera.near
-        return index.map { i in
-            EffectSlots.texelEnded(back: fronts.texels[i][3], clouds: Int(clips.texels[i][0]), oit: Int(clips.texels[i][1]),
-                                   texel: EffectSlots.linearDepth(reversedZ: depth.texels[i][0], near: near, pixel: false),
-                                   pixel: EffectSlots.linearDepth(reversedZ: z, near: near, pixel: true),
-                                   drawn: [.clouds, .volumes, .oit], reconstructed: [.clouds, .volumes, .oit])
+    /// What the composite reads of a frame's texels to tell where their
+    /// effects ended, decoded once per frame.
+    struct Ends {
+        let depth: [[Double]], fronts: [[Double]], clips: [[Double]]
+        let near: Double
+
+        @MainActor init(_ f: Frame) throws {
+            depth = try XCTUnwrap(f.capture.values(.halfResDepth)).texels
+            fronts = try XCTUnwrap(f.capture.values(.halfResFronts)).texels
+            clips = try XCTUnwrap(f.capture.values(.halfResClips)).texels
+            near = f.scene.camera.near
+        }
+
+        /// The texels' ends as the composite reads them
+        /// (`EffectSlots.texelEnded`) for a pixel of reversed-Z depth z,
+        /// every layer drawn and reconstructed.
+        func ended(texels index: [Int], pixel z: Double) -> [Bool] {
+            index.map { i in
+                EffectSlots.texelEnded(back: fronts[i][3], clouds: Int(clips[i][0]), oit: Int(clips[i][1]),
+                                       texel: EffectSlots.linearDepth(reversedZ: depth[i][0], near: near, pixel: false),
+                                       pixel: EffectSlots.linearDepth(reversedZ: z, near: near, pixel: true),
+                                       drawn: [.clouds, .volumes, .oit], reconstructed: [.clouds, .volumes, .oit])
+            }
         }
     }
 
@@ -221,6 +233,7 @@ final class EffectSlotsRenderTests: XCTestCase {
         let accumulation = try XCTUnwrap(c.values(.oitAccumulation)), revealage = try XCTUnwrap(c.values(.oitRevealage))
         let fronts = try XCTUnwrap(c.values(.halfResFronts))
         func p(_ v: [Double]) -> EffectSlots.Premultiplied { .init(v[0], v[1], v[2], v[3]) }
+        let ends = try Ends(f)
         var out = CompositeReport()
         for y in 0..<height {
             for x in 0..<width {
@@ -229,7 +242,7 @@ final class EffectSlotsRenderTests: XCTestCase {
                 let index = fp.texels.map { $0.y * depth.width + $0.x }
                 let z = scene.texels[y * width + x][0], depths = index.map { depth.texels[$0][0] }
                 let r = EffectSlots.reconstruction(bilinear: fp.bilinear, depths: depths, depth: z, tolerance: 0.1,
-                                                   ended: try Self.ended(f, texels: index, pixel: z))
+                                                   ended: ends.ended(texels: index, pixel: z))
                 let texels = index.map { i in
                     EffectSlots.Texel(clouds: p(clouds.texels[i]), volumes: p(volumes.texels[i]),
                                       accumulation: p(accumulation.texels[i]), revealage: revealage.texels[i][0],

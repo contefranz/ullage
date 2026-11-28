@@ -293,6 +293,15 @@ public final class HistoryTargets {
         return (a, b, false)
     }
 
+    /// Last frame's texture for `id` as it stands, without taking the pair
+    /// this frame (so `endFrame` does not swap it): what a frame drawn again
+    /// reads back. Nil when there is none valid of that size and format.
+    public func last(_ id: ResourceID, descriptor: MTLTextureDescriptor) -> MTLTexture? {
+        guard let p = pairs[id], p.valid, p.width == descriptor.width, p.height == descriptor.height,
+              p.format == descriptor.pixelFormat else { return nil }
+        return p.previous
+    }
+
     /// Every history is stale (a temporal reset).
     func invalidate() {
         for id in pairs.keys { pairs[id]!.valid = false }
