@@ -205,8 +205,9 @@ public struct PlumeMember: Equatable {
     // Turbulence (`PlumeTurbulence`): the eddies' size at the lip (m) and
     // its growth downstream (dℓ/dx, the mixing layer's), the exhaust's
     // speed relative to the nozzle that carries them (m/s: the fully
-    // expanded jet's in air, the limiting speed in vacuum), the noise's
-    // depth (0-1).
+    // expanded jet's in air, the limiting speed in vacuum), and the share
+    // of the measured fluctuations drawn (`JetFluctuations`, 0-1: as much
+    // as the air bounds the jet, none in vacuum).
     public var eddySize = 1.0
     public var eddyGrowth = 0.0
     public var exhaustSpeed = 2_500.0
@@ -255,19 +256,14 @@ public struct PlumeMember: Equatable {
         return min(limitingAngle, 2 * limitingAngle / Double.pi * acos(min(1, c)))
     }
 
-    /// How far out the eddies may carry the jet's boundary, over R(x): the
-    /// shader's ragged boundary is bounded to it, and the proxy and the
-    /// early reject hold it.
-    public static let turbulentReach = 1.15
-
     /// The radius (m) beyond which the field is negligible at x: what the
-    /// proxy holds and the shader rejects beyond, the turbulence's reach
-    /// included; for a member only its glow shows, the glow's.
+    /// proxy holds and the shader rejects beyond (the fluctuations stay
+    /// within the mean field, `JetFluctuations`); for a member only its glow
+    /// shows, the glow's.
     public func extent(atX x: Double) -> Double {
         if x < 0 { return baseExtinction > 0 && x >= -upstream ? 1.6 * exitRadius : exitRadius }
-        // Only the glow shows: it lies within the jet, as far as the eddies
-        // carry its edge.
-        if glowOnly { return PlumeMember.turbulentReach * radius(atX: x) }
+        // Only the glow shows: it lies within the jet.
+        if glowOnly { return radius(atX: x) }
         let e = fieldExtent(atX: x)
         let span = visibleExtentsLength > 0 ? visibleExtentsLength : length
         guard visibleExtents.count == PlumeMember.visibleStations, span > 0 else { return e }
@@ -280,7 +276,8 @@ public struct PlumeMember: Equatable {
     /// The radius (m) beyond which the field itself is negligible at x
     /// (x ≥ 0), however bright the frame shows it.
     public func fieldExtent(atX x: Double) -> Double {
-        var e = 1.55 * PlumeMember.turbulentReach * radius(atX: x)
+        // The jet's edge, out to 1.5 R in the far field, with a margin.
+        var e = 1.55 * radius(atX: x)
         if vacuumBlend > 0.02 && confinement < 0.98 {
             let theta = min(simonsAngle(fraction: extentFraction), 85 * Double.pi / 180)
             e = max(e, (x + sourceOffset) * tan(theta))
@@ -329,12 +326,14 @@ public struct PlumeMember: Equatable {
         return t * t * (3 - 2 * t)
     }
 
-    /// The field at x along the axis and r off it (m), its turbulence
-    /// left out (the noise's mean): the shader's `plume_sample`, line by line.
-    public func sample(x: Double, r: Double) -> Sample {
+    /// The field at x along the axis and r off it (m): its mean without
+    /// `noise`, else fluctuating on it (`JetFluctuations`); the shader's
+    /// `plume_member`, line by line.
+    public func sample(x: Double, r: Double, noise: JetFluctuations.Noise? = nil) -> Sample {
         var s = Sample()
         let de = exitDiameter, re = exitRadius
-        func add(_ sigma0: Double, albedo: Double, temperature: Double, tint: Photometry.RGB = Photometry.RGB(1, 1, 1)) {
+        func add(_ sigma0: Double, albedo: Double, temperature: Double, tint: Photometry.RGB = Photometry.RGB(1, 1, 1),
+                 lightMean k: Photometry.RGB = Photometry.RGB(1, 1, 1)) {
             let sigma = sigma0 * densityScale
             guard sigma > 0 else { return }
             let a = sigma * (1 - albedo)
@@ -345,7 +344,8 @@ public struct PlumeMember: Equatable {
                                                 s.tintedScattering.b + sigma * albedo * tint.b)
             if temperature > 0 {
                 let b = PlumeLook.blackbody(temperature)
-                s.emission = Photometry.RGB(s.emission.r + a * b.r, s.emission.g + a * b.g, s.emission.b + a * b.b)
+                s.emission = Photometry.RGB(s.emission.r + a * b.r / k.r, s.emission.g + a * b.g / k.g,
+                                            s.emission.b + a * b.b / k.b)
             }
         }
         // The base's recirculation, upstream of the exit too.
@@ -359,10 +359,39 @@ public struct PlumeMember: Equatable {
         let w = min(max(0.06 + 0.45 * x / (x + 6 * de), 0.06), 0.5)
         let pc = 1 - Self.smoothstep(1 - w, 1 + w, q)
         let theta = atan2(r, x + sourceOffset)
-        let confine = 1 - confinement * Self.smoothstep(1, 1.5, q)
-        let pv = theta < limitingAngle ? pow(cos(0.5 * Double.pi * theta / limitingAngle), simonsExponent) * confine : 0
         let v = vacuumBlend
-        let profile = pc + (pv - pc) * v
+        // The free expansion's field is cut at the jet's boundary as much as
+        // the air confines it.
+        let cut = Self.smoothstep(1, 1.5, q)
+        var confine = 1 - confinement * cut
+        let meanConfine = confine
+        // The fluctuations (`JetFluctuations`): the jet's mixed fluid by its
+        // factor, a ballooned plume's boundary billowing; nothing in the
+        // potential core or the free expansion within the boundary.
+        var jet = 1.0, spread = 0.0
+        if let n = noise, turbulence > 0, n.weight > 0 {
+            let drawn = turbulence * n.weight
+            if v < 0.95 {
+                let a = drawn * JetFluctuations.mixedness(self, x: x, r: r, radius: rx) * JetFluctuations.jetShare(v)
+                if a > 0 {
+                    jet = JetFluctuations.factor(noise: n.value, threshold: JetFluctuations.threshold(meanShare: pc),
+                                                 strength: a)
+                    spread = a * JetFluctuations.spread(meanShare: pc)
+                }
+            }
+            if v > 0 && confinement > 0 && JetFluctuations.billows(self) && cut > 0 && cut < 1 {
+                // The expansion's gas is there the boundary's share of the time.
+                let gamma = 1 - cut
+                confine = 1 - confinement + confinement * gamma
+                    * JetFluctuations.factor(noise: n.value, threshold: JetFluctuations.threshold(presence: gamma),
+                                             strength: drawn)
+            }
+        }
+        let simons = theta < limitingAngle ? pow(cos(0.5 * Double.pi * theta / limitingAngle), simonsExponent) : 0
+        let pv = simons * confine
+        let pcf = pc * jet
+        let profile = pcf + (pv - pcf) * v
+        let meanProfile = pc + (simons * meanConfine - pc) * v
         let d2 = (x + sourceOffset) * (x + sourceOffset) + r * r
         let dilution = (re / rx) * (re / rx) * (1 - v) + sourceOffset * sourceOffset / max(d2, 1e-9) * v
         // Everything fades out over the last 30 % of the length (or from
@@ -387,6 +416,9 @@ public struct PlumeMember: Equatable {
             let tCore = ambientTemperature + (coreTemperature - ambientTemperature) * mixing
                 * pow(max(dilution, 1e-12), expansionCooling)
             var t = tCore * cells
+            // How much of the heat is the burning flame's own (its
+            // temperature, not the mixture's), to its tip and fading beyond.
+            var burning = 0.0
             if flameTemperature > 0 && afterburning > 0 {
                 let fx = Self.smoothstep(flameStart - 0.25 * de, flameStart + 0.25 * de, x)
                 let qf = 0.85 * max(0, 1 - x / max(coreLength, de))
@@ -394,33 +426,46 @@ public struct PlumeMember: Equatable {
                 let hold = x > flameLength ? flameLength / x : 1
                 let tFlame = ambientTemperature + (flameTemperature - ambientTemperature) * hold
                 t += (max(t, tFlame) - t) * afterburning * fx * fr
+                burning = afterburning * fx * fr * hold
             }
             var burnt = 1.0
             if sootBurnout > 0 {
                 burnt -= (1 - PlumeLook.Optics.burntSoot) * afterburning
                     * Self.smoothstep(sootBurnout, 1.5 * sootBurnout, x)
             }
-            add(gasExtinction * rho * cells * burnt, albedo: gasAlbedo, temperature: t)
+            // The mixed heat's excess over the air follows the exhaust's
+            // share, its light's mean kept.
+            var lightMean = Photometry.RGB(1, 1, 1)
+            if spread > 0 {
+                let excess = (1 - burning) * max(t - ambientTemperature, 0)
+                let k = JetFluctuations.lightMean(temperature: t, excess: excess, spread: (1 - v) * spread)
+                let hottest = max(t, coreTemperature, flameTemperature)
+                t = min(t + excess * k.drawn * (1 - v) * (jet - 1), hottest)
+                lightMean = k.mean
+            }
+            add(gasExtinction * rho * cells * burnt, albedo: gasAlbedo, temperature: t, lightMean: lightMean)
         }
         // The film, a dark band at the edge until it burns.
         if sheathExtinction > 0 && x < sheathLength + 0.5 * de {
             let t = sheathThickness
             let band = Self.smoothstep(1 - t - 0.06, 1 - t + 0.04, q) * (1 - Self.smoothstep(1 + 0.4 * t, 1 + t, q))
             let along = 1 - Self.smoothstep(sheathLength - 0.3 * de, sheathLength + 0.3 * de, x)
-            add(sheathExtinction * band * along * min(1, dilution) * fade, albedo: gasAlbedo,
+            add(sheathExtinction * band * along * min(1, dilution) * fade * jet, albedo: gasAlbedo,
                 temperature: sheathTemperature)
         }
         // Ice frozen from the exhaust's water: as dense as the gas, where it
         // has expanded past saturation.
         if particleExtinction > 0 && condensationDensity > 0 {
-            let local = profile * dilution
-            let on = 1 - Self.smoothstep(condensationDensity / PlumeLook.Ice.ramp, condensationDensity, local)
-            add(particleExtinction * local * on * fade, albedo: particleAlbedo, temperature: 0, tint: iceTint)
+            // Frozen where the mean has expanded past saturation.
+            let mean = meanProfile * dilution
+            let on = 1 - Self.smoothstep(condensationDensity / PlumeLook.Ice.ramp, condensationDensity, mean)
+            add(particleExtinction * profile * dilution * on * fade, albedo: particleAlbedo, temperature: 0,
+                tint: iceTint)
         } else if particleExtinction > 0 {
             // Particles: alumina, or condensate.
             let tp = atan2(r, x + particleOffset)
             let ppv = tp < particleAngle ? pow(cos(0.5 * Double.pi * tp / particleAngle), 2) * confine : 0
-            let pp = pc + (ppv - pc) * v
+            let pp = pcf + (ppv - pcf) * v
             let dp2 = (x + particleOffset) * (x + particleOffset) + r * r
             let dil = (re / rx) * (re / rx) * (1 - v) + particleOffset * particleOffset / max(dp2, 1e-9) * v
             let on = particleOnset > 0 ? Self.smoothstep(0.5 * particleOnset, particleOnset, x) : 1
@@ -501,15 +546,15 @@ public struct PlumeMember: Equatable {
     /// from the bent centreline there; in the wall jet along the ground it
     /// meets, the equivalent free jet's, times the ground's share of the
     /// flow.
-    public func sample(at p: Vec3) -> Sample {
+    public func sample(at p: Vec3, noise: JetFluctuations.Noise? = nil) -> Sample {
         if let i = impingement, let w = i.wallJet(self, at: p) {
             var hot = self
             hot.coreTemperature = PlumeImpingement.recovered(static: coreTemperature, total: totalTemperature)
-            return hot.sample(x: w.x, r: w.r).scaled(by: i.deckShare * w.dilution)
+            return hot.sample(x: w.x, r: w.r, noise: noise).scaled(by: i.deckShare * w.dilution)
         }
         let d = p - exit, x = d.dot(axis)
         let r = (d - axis * x - bend.direction * bend.offset(atX: x)).length
-        return sample(x: x, r: r)
+        return sample(x: x, r: r, noise: noise)
     }
 }
 
@@ -851,12 +896,14 @@ public enum PlumeLook {
             m.machDiskTemperature = 0.85 * spec.chamberTemperature
         }
 
-        // Turbulence: mottled in air, still in vacuum, where a free
-        // expansion has no mixing layer to make eddies. The eddies at the
-        // lip, growing with the mixing layer between the jet and the stream
-        // (in vacuum with half the free expansion's cone), carried at the
-        // jet's speed (`PlumeTurbulence`).
-        m.turbulence = (0.15 + 0.7 * w) * (1 - v)
+        // Turbulence: the jet's mixing with the air, as much as the air
+        // bounds it (a free expansion has no mixing layer to make eddies:
+        // still in vacuum; `JetFluctuations` keeps the ballooned plume's
+        // interior still and billows its boundary). The eddies at the lip,
+        // growing with the mixing layer between the jet and the stream (in
+        // vacuum with half the free expansion's cone), carried at the jet's
+        // speed (`PlumeTurbulence`).
+        m.turbulence = inAir ? w : 0
         m.eddySize = PlumeTurbulence.lipEddy * re
         m.eddyGrowth = shear * (1 - v) + 0.5 * tan(max(half, 0.05)) * v
 
@@ -1069,7 +1116,7 @@ public enum PlumeLook {
             m.sheathThickness = 0.6
             m.sheathLength = 0.15 * length
         }
-        m.turbulence = 0.2
+        m.turbulence = k
         m.eddySize = PlumeTurbulence.lipEddy * re
         m.eddyGrowth = 0.05
         m.coflowShare = k
@@ -1182,13 +1229,15 @@ public enum PlumeLook {
     /// `around`, the steps are equiangular
     /// about the ray's point at `around.t` (Kulla and Fajardo 2012), as
     /// dense as 1 / (h² + (t - around.t)²), as the shader steps across a
-    /// small dense core. The shader's march without its jitter, noise and
-    /// shadows.
+    /// small dense core. With `noise`, the field fluctuates on the noise it
+    /// gives at each point (`JetFluctuations`). The shader's march without
+    /// its jitter and shadows.
     public static func march(_ members: [PlumeMember], from origin: Vec3, direction: Vec3,
                              range: ClosedRange<Double>, steps: Int,
                              sun: (direction: Vec3, illuminance: Photometry.RGB)? = nil,
                              ambient: Photometry.RGB = Photometry.RGB(0, 0, 0), phaseDirection: Vec3? = nil,
-                             around: (t: Double, h: Double)? = nil)
+                             around: (t: Double, h: Double)? = nil,
+                             noise: ((Vec3) -> JetFluctuations.Noise?)? = nil)
         -> (radiance: Photometry.RGB, transmittance: Double, ambientResponse: Double) {
         let n = max(steps, 1)
         let uniform = (range.upperBound - range.lowerBound) / Double(n)
@@ -1205,8 +1254,9 @@ public enum PlumeLook {
             }
             let p = origin + direction * at
             var s = PlumeMember.Sample(), phase = 0.0, weight = 0.0
+            let n = noise?(p)
             for m in members {
-                let x = m.sample(at: p)
+                let x = m.sample(at: p, noise: n)
                 s = s + x
                 weight += x.scattering
                 if sun != nil { phase += x.scattering * henyeyGreenstein(cosPhase, m.phaseG) }

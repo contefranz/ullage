@@ -49,7 +49,10 @@ import OrbitCore
 ///   Lagrangian time, per band and the same down the whole jet
 ///   (`streakRate`; a streak varying with x would warp the axial
 ///   coordinate). The F-1's fast near field shimmers in streaks; its slow
-///   far field billows.
+///   far field billows. The depth is returned beside the noise (`field`):
+///   `JetFluctuations` weighs its factor by it.
+/// - **What it does to the field** is `JetFluctuations`': the noise here
+///   has zero mean and unit variance.
 ///
 /// Deterministic: a function of the turbulence clock (real time × min(warp,
 /// 4), reset with the scene) and the cluster's seed.
@@ -110,10 +113,11 @@ public enum PlumeTurbulence {
     /// 0.12 ms (a J-2's lip in vacuum) to 64 s (smoke kilometres out).
     public static let bandCount = 20
     public static let shortestLife = 1.0 / 8_192
-    /// The noise's scale: its standard deviation as the single-octave
-    /// layers' blend, set so the depth's calibration (density ±70 %) holds
-    /// as it did with M1.6's first two-octave noise (`PlumeTurbulenceTests`).
-    public static let amplitude = 0.74
+    /// The volume noise's standard deviation, 2 n − 1 over its texels
+    /// (measured, `PlumeTurbulenceTests`): `field` divides by it, so that
+    /// the noise has unit variance, near enough a Gaussian's (kurtosis 2.7)
+    /// for `JetFluctuations`' factor to keep its mean.
+    public static let noiseDeviation = 0.29
     /// ln 16: the mean speed's Gaussian across the jet, exp(-ln 2 (r/r½)²)
     /// with r½ = R/2.
     public static let profileShape = 4 * log(2.0)
@@ -180,12 +184,16 @@ public enum PlumeTurbulence {
         m.eddySize + m.eddyGrowth * max(x, 0)
     }
 
-    /// Eddies from the exit to x, ∫dx/ℓ; upstream of the exit (where a
-    /// layer's pattern comes from before the flow carries it out) at the
-    /// lip's size.
-    public static func eddies(_ m: PlumeMember, atX x: Double) -> Double {
+    /// Eddies from the exit to x, ∫dx/ℓ. Upstream of the exit (where a
+    /// layer's pattern comes from before the flow carries it out) in cells
+    /// of `upstream` (m): the eddies where the sample now is, so that a
+    /// parcel that left the nozzle within the layer's life carries a pattern
+    /// as coarse as the eddies about it (in the lip's cells, the default, a
+    /// fast jet whose layers outlive its transit, a ballooned plume's, would
+    /// draw lip-sized stripes across its far field).
+    public static func eddies(_ m: PlumeMember, atX x: Double, upstream: Double? = nil) -> Double {
         let l0 = max(m.eddySize, 1e-6), k = m.eddyGrowth
-        guard x > 0 else { return x / l0 }
+        guard x > 0 else { return x / max(upstream ?? l0, 1e-6) }
         return k > 1e-5 ? log(1 + k * x / l0) / k : x / l0
     }
 
@@ -391,11 +399,13 @@ public enum PlumeTurbulence {
 
     /// The turbulence at camera-relative `p` in a cluster whose first
     /// member is `frame` (the noise's frame), carried by `flow` (the
-    /// cluster's there, `flow(_:merged:mergeX:origin:axis:at:)`), about 0
-    /// on average: the shader's `plume_noise`. `bands` from `bands(time:)`;
+    /// cluster's there, `flow(_:merged:mergeX:origin:axis:at:)`): the
+    /// noise, of zero mean and unit variance, and the depth the shutter's
+    /// average keeps of it (the bands' depths weighed as the blend weighs
+    /// them): the shader's `plume_noise`. `bands` from `bands(time:)`;
     /// `noise(c, channel)` the volume noise's value (0-1) at c in tiles.
-    public static func value(frame m: PlumeMember, flow f: Flow, at p: Vec3, bands: [Band], seed: UInt32,
-                             noise: (Vec3, Int) -> Double) -> Double {
+    public static func field(frame m: PlumeMember, flow f: Flow, at p: Vec3, bands: [Band], seed: UInt32,
+                             noise: (Vec3, Int) -> Double) -> (noise: Double, depth: Double) {
         let d0 = p - m.exit
         let x = max(d0.dot(m.axis), 0)
         let d = d0 - m.bend.direction * m.bend.offset(atX: x)
@@ -403,7 +413,7 @@ public enum PlumeTurbulence {
         let l = eddySize(m, atX: x)
         let b = f.band, sweep = f.sweep
         let j = Int(b), beta = blend(b - Double(j))
-        var total = 0.0, weight = 0.0
+        var total = 0.0, weight = 0.0, depths = 0.0
         for (band, wb) in [(j, 1 - beta), (j + 1, beta)] where wb > 1e-3 {
             let life = life(band: band)
             let (depth, stretch) = shutterAverage(life: life, sweep: sweep)
@@ -415,15 +425,25 @@ public enum PlumeTurbulence {
                 let age = phase * life
                 // Laid out where the flow carried it from since the layer's birth.
                 let from = x + f.carriedFrom(age: age) - f.x
-                let c = perp / l + m.axis * (eddies(m, atX: from) / stretch)
+                let c = perp / l + m.axis * (eddies(m, atX: from, upstream: l) / stretch)
                 let rotated = Vec3(basis[0].dot(c), basis[1].dot(c), basis[2].dot(c)) / eddiesPerTile
                 let shift = offset(cycle: cycle, band: band, layer: layer) + seedOffset(seed)
                 let n = 2 * noise(rotated + shift, layer) - 1
-                total += w * depth * n
+                total += w * n
                 weight += w * w
+                depths += w * w * depth * depth
             }
         }
-        return amplitude * total / max(weight, 1e-12).squareRoot()
+        let norm = max(weight, 1e-12)
+        return (total / (norm.squareRoot() * noiseDeviation), (depths / norm).squareRoot())
+    }
+
+    /// The turbulence as the camera sees it, `field`'s noise times its
+    /// depth: zero mean, a variance of the depth's square.
+    public static func value(frame m: PlumeMember, flow f: Flow, at p: Vec3, bands: [Band], seed: UInt32,
+                             noise: (Vec3, Int) -> Double) -> Double {
+        let v = field(frame: m, flow: f, at: p, bands: bands, seed: seed, noise: noise)
+        return v.noise * v.depth
     }
 
     /// Whether member `k`'s field reaches camera-relative `p` (as the
@@ -488,16 +508,25 @@ public enum PlumeTurbulence {
         return best ?? far
     }
 
-    /// The turbulence at `p` in a cluster of `members` (as `value(frame:
-    /// flow:)`, on the cluster's flow there; 0 where no member reaches it).
+    /// The turbulence at `p` in a cluster of `members` (as `field(frame:
+    /// flow:)`, on the cluster's flow there; nil where no member reaches it).
+    public static func field(_ members: [PlumeMember], merged: PlumeMember? = nil, mergeX: Double = 0,
+                             origin: Vec3 = .zero, axis: Vec3 = .unitX, at p: Vec3, bands: [Band], seed: UInt32,
+                             noise: (Vec3, Int) -> Double) -> (noise: Double, depth: Double)? {
+        guard let m = members.first,
+              let f = flow(members, merged: merged, mergeX: mergeX, origin: origin, axis: axis, at: p) else {
+            return nil
+        }
+        return field(frame: m, flow: f, at: p, bands: bands, seed: seed, noise: noise)
+    }
+
+    /// `field`'s noise times its depth at `p` in a cluster (0 where no
+    /// member reaches it).
     public static func value(_ members: [PlumeMember], merged: PlumeMember? = nil, mergeX: Double = 0,
                              origin: Vec3 = .zero, axis: Vec3 = .unitX, at p: Vec3, bands: [Band], seed: UInt32,
                              noise: (Vec3, Int) -> Double) -> Double {
-        guard let m = members.first,
-              let f = flow(members, merged: merged, mergeX: mergeX, origin: origin, axis: axis, at: p) else {
-            return 0
-        }
-        return value(frame: m, flow: f, at: p, bands: bands, seed: seed, noise: noise)
+        field(members, merged: merged, mergeX: mergeX, origin: origin, axis: axis, at: p, bands: bands, seed: seed,
+              noise: noise).map { $0.noise * $0.depth } ?? 0
     }
 
     /// The volume noise as its texels hold it, evaluated where it is asked

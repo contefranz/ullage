@@ -64,10 +64,18 @@ enum Plumes {
     }
 
     /// The turbulence's constants as PlumeFrame holds them (`flow`,
-    /// `flowRates`, `flowRates2` but its y, `lagrangian`).
+    /// `flowRates`, `flowRates2` but its y, `lagrangian`, the fluctuations'
+    /// `thresholds`).
     static func setTurbulence(_ u: inout PlumeFrameGPU) {
         typealias T = PlumeTurbulence
-        u.flow = SIMD4(Float(T.shutter), Float(T.similarFrom), Float(T.amplitude), Float(T.eddiesPerTile))
+        u.flow = SIMD4(Float(T.shutter), Float(T.similarFrom), Float(1 / T.noiseDeviation), Float(T.eddiesPerTile))
+        func table(_ v: [Double]) -> (SIMD4<Float>, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>) {
+            let j = v.map(Float.init)
+            return (SIMD4(j[0], j[1], j[2], j[3]), SIMD4(j[4], j[5], j[6], j[7]), SIMD4(j[8], j[9], j[10], j[11]),
+                    SIMD4(j[12], j[13], j[14], j[15]))
+        }
+        u.thresholds = table(JetFluctuations.thresholds)
+        u.spreads = table(JetFluctuations.spreads)
         u.flowRates = SIMD4(Float(T.shearIntensity), Float(T.similarIntensity), Float(T.decayRate),
                             Float(T.fadeIntegral))
         u.flowRates2 = SIMD4(Float(T.integralLength), u.flowRates2.y, Float(T.lagrangianStart), Float(T.lagrangianStep))
@@ -135,6 +143,18 @@ enum Plumes {
         guard b.offsets.count == PlumeBend.stations else { return .zero }
         return SIMD4(Float(b.offsets[first]), Float(b.offsets[first + 1]), Float(b.offsets[first + 2]),
                      Float(b.offsets[first + 3]))
+    }
+
+    /// Whether any of a cluster's members (its merged far field too) can
+    /// fluctuate (`JetFluctuations`): a jet the air mixes with, or a
+    /// smoky ballooned plume's boundary. An ice fan, a plume in vacuum or
+    /// one only its glow shows cannot; the march's still variant draws
+    /// those without the fluctuations' registers.
+    static func fluctuates(_ c: PlumeCluster) -> Bool {
+        (c.members + (c.merged.map { [$0] } ?? [])).contains { m in
+            m.turbulence > 0 && (m.vacuumBlend < 0.95 || (m.vacuumBlend > 0 && m.confinement > 0
+                                                         && JetFluctuations.billows(m)))
+        }
     }
 
     /// How far a marched cluster is for R6's back-to-front order: its
@@ -284,7 +304,7 @@ struct PlumeFrameGPU {
     var wienC = SIMD4<Float>.zero
     /// The turbulence (`PlumeTurbulence`, `Plumes.setTurbulence`): x the
     /// shutter (s), y where the far field is self-similar (core lengths), z
-    /// the noise's amplitude, w eddies per tile.
+    /// one over the noise's standard deviation, w eddies per tile.
     var flow = SIMD4<Float>.zero
     /// x: the intensity u'/ΔU in the shear layer, y: self-similar, z: the
     /// layers' decay rate, w: the cross-fade's integral.
@@ -295,6 +315,11 @@ struct PlumeFrameGPU {
     var flowRates2 = SIMD4<Float>.zero
     /// The Lagrangian integral time over L/u' at the four stations.
     var lagrangian = SIMD4<Float>.zero
+    /// The fluctuations' thresholds where the jet's mean is j/15 of its
+    /// centreline's (`JetFluctuations.thresholds`), four a vector.
+    var thresholds = (SIMD4<Float>.zero, SIMD4<Float>.zero, SIMD4<Float>.zero, SIMD4<Float>.zero)
+    /// The fluctuation's r.m.s. over the mean there (`JetFluctuations.spreads`).
+    var spreads = (SIMD4<Float>.zero, SIMD4<Float>.zero, SIMD4<Float>.zero, SIMD4<Float>.zero)
     /// Its bands' layers, two a band (`Plumes.layers`).
     var layers = PlumeFrameGPU.noLayers
 
@@ -421,6 +446,9 @@ struct PlumeGlowGPU {
 /// drawn in P3.
 struct PlumeFrameData {
     var marched: [PlumeClusterGPU] = []
+    /// Whether each marched cluster can fluctuate (`Plumes.fluctuates`):
+    /// else it is drawn by the march's still variant.
+    var fluctuates: [Bool] = []
     var members: [PlumeMemberGPU] = []
     var impostors: [PlumeVertex] = []
     /// The glowing nozzles: vessel, thruster, heat.
@@ -788,6 +816,7 @@ public final class PlumeSystem {
                                                    : max(16, settings.quality.steps / 2))
                 : solid ? max(16, settings.quality.steps / 2) : 0
             let vessel = c.vesselID.flatMap { id in scene.vessels.first { $0.id == id } }
+            data.fluctuates.append(settings.turbulence && Plumes.fluctuates(c))
             data.marched.append(Plumes.gpu(c, memberStart: data.members.count, light: e.light, sunlit: e.sunlit,
                                            steps: steps, ice: ice, caster: vessel.flatMap(Plumes.capsule)))
             let seed = Plumes.noiseSeed(c)
