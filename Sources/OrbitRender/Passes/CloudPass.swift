@@ -124,6 +124,9 @@ public final class CloudPass: RenderPass, HalfResEffect {
     var weatherOverrideName = "override"
 
     private var previous: CloudFrame?
+    /// The last frame whose state stepped on (on screen or for R3's probe
+    /// alone): a frame with its index and clock is a frame drawn again.
+    private var stepped: (frameIndex: Int, simTime: Epoch)?
     /// The last frame resolved, for a frame drawn again: its index and clock,
     /// its report, and how it resolved (reprojection, history).
     private var drawn: Drawn?
@@ -326,6 +329,7 @@ public final class CloudPass: RenderPass, HalfResEffect {
     public func startOver() {
         lastEpoch = nil
         previous = nil
+        stepped = nil
         drawn = nil
         lastWeather = nil
         proceduralState = nil
@@ -357,7 +361,7 @@ public final class CloudPass: RenderPass, HalfResEffect {
         // It does the frame's work again, at this frame's exposure, but moves
         // nothing on: no jump, no drift, no weather band, no history claimed
         // (the march and resolve below write targets of their own).
-        let again = drawn.map { $0.frameIndex == clock.frameIndex && $0.simTime == clock.simTime } ?? false
+        let again = stepped.map { $0.frameIndex == clock.frameIndex && $0.simTime == clock.simTime } ?? false
         if !again {
             let jump = lastEpoch.map { abs(clock.simTime - $0 - clock.simDt) > 60 } ?? true
             if clock.frameIndex <= 1 || jump {
@@ -438,6 +442,9 @@ public final class CloudPass: RenderPass, HalfResEffect {
             detailFrames.update(frame, streak: Self.streak(frame, wind: lowWind), wind: lowWind, dt: dt,
                                 realDt: f.scene.clock.realDt, period: Self.shapePeriod)
         }
+        // Recorded before the probe-only return: a frame drawn again with
+        // the Earth off screen moves nothing on either.
+        stepped = (clock.frameIndex, clock.simTime)
 
         // The uniforms.
         // The march target: R6's half resolution in the near field, half
@@ -498,7 +505,8 @@ public final class CloudPass: RenderPass, HalfResEffect {
         let historyValid: Bool
         let reprojects: Bool
         let marches = regimes.far < 0.999 || settings.regime == "march"
-        if again, let d = drawn, let hc = f.history.peek(Self.historyColor, descriptor: colorD),
+        if again, let d = drawn, d.frameIndex == clock.frameIndex, d.simTime == clock.simTime,
+           let hc = f.history.peek(Self.historyColor, descriptor: colorD),
            let hd = f.history.peek(Self.historyDepth, descriptor: depthD),
            let color = f.pool.texture(colorD), let depth = f.pool.texture(depthD) {
             history = (hc.current, hd.current, d.historyValid, hc.currentTag)
@@ -573,7 +581,7 @@ public final class CloudPass: RenderPass, HalfResEffect {
         probeState = ProbeState(frame: f, uniforms: u, air: airTables)
         f.textures[.cloudLayer] = out.color
         f.textures[.cloudDepth] = out.depth
-        if again, let d = drawn {
+        if again, let d = drawn, d.frameIndex == clock.frameIndex, d.simTime == clock.simTime {
             lastFrame = d.report
             return
         }
