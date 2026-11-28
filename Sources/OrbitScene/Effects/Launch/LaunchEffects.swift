@@ -345,11 +345,17 @@ public final class LaunchEffects: EffectProducer {
     /// journal's, and −∞ for each engine the count lost by the release
     /// (after commit): the journal has none for it, as only the release
     /// put the F-1s under the throttle, and it never fired after.
-    func rebuiltCutoffs(_ c: Context) -> [Epoch] {
-        var all = Array(cutoffs.values)
+    func rebuiltCutoffs(_ c: Context) -> [Epoch] { Array(engineCutoffs(c).values) }
+
+    /// Each F-1's cutoff by its name, as `rebuiltCutoffs` reckons them: the
+    /// journal's, and −∞ for one the count lost by the release. What the
+    /// trail's modelled hand-over takes each engine's flow from
+    /// (`ExhaustTrail.engineFlow`).
+    func engineCutoffs(_ c: Context) -> [String: Epoch] {
+        var all = cutoffs
         guard let r = c.ignition.record, let released = r.released else { return all }
-        for (i, s) in r.plan.starts.enumerated() where cutoffs[s.engine] == nil {
-            if let stop = r.stop(i), stop <= released { all.append(Epoch(tdbSecondsPastJ2000: -.infinity)) }
+        for (i, s) in r.plan.starts.enumerated() where all[s.engine] == nil {
+            if let stop = r.stop(i), stop <= released { all[s.engine] = Epoch(tdbSecondsPastJ2000: -.infinity) }
         }
         return all
     }

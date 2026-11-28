@@ -522,33 +522,19 @@ final class LaunchEffectsTests: XCTestCase {
         }
     }
 
-    /// The trail fades in as P2's plume fades out, on one clock: a puff laid
-    /// at the window's start, at rest in the air, lies V a further on at age
-    /// a, and its fade there plus the plume's linear fade-out over the
-    /// hand-over's window sums to one within 0.5 % (the share's 0.5 % steps),
-    /// for a grid of windows and
-    /// airspeeds to the S-IC's cutoff (2.4 km/s), and in flight from T+10 s
-    /// to CECO, from the materials the frames set (the lifetime one value,
-    /// so the share is its clock).
-    func testTrailFadesInAsThePlumeFadesOut() throws {
+    /// The puffs' fade-in time, the materials' share of their one lifetime:
+    /// the window's 2w crossed at the airspeed, on a grid of windows and
+    /// airspeeds with no acceleration (to the share's 0.5 % steps), and in
+    /// flight from T+10 s to CECO with the vehicle's, which lengthens it by
+    /// up to a third (T = 4w / (V + √(V² − 4Aw))). The fade's sum with P2's
+    /// as drawn is `ExhaustTrailTests.testJointsAxialProfile`'s.
+    func testTrailFadesInOverP2sWindow() throws {
         XCTAssertEqual(ExhaustTrail.lifetime.lowerBound, ExhaustTrail.lifetime.upperBound)
-        func worst(_ share: Double, window w: Double, airspeed v: Double) -> Double {
-            let seconds = share * ExhaustTrail.lifetime.upperBound
-            var e = 0.0
-            for k in 0...400 {
-                let x = -w + 2 * w * Double(k) / 400          // from the window's middle
-                let plume = 1 - min(max((x + w) / (2 * w), 0), 1)
-                let age = (x + ExhaustTrail.rampHalfWidth * w) / v
-                let trail = age <= 0 ? 0 : min(1, age / seconds)
-                e = max(e, abs(plume + trail - 1))
-            }
-            return e
-        }
         for w in [7.0, 20, 40, 67, 150] {
             for v in [20.0, 50, 100, 400, 800, 1_200, 1_460, 1_650, 2_400] {
-                let share = ExhaustTrail.fadeIn(window: w, airspeed: v)
-                guard 2 * ExhaustTrail.rampHalfWidth * w / v < ExhaustTrail.longestFadeIn else { continue }
-                XCTAssertLessThan(worst(share, window: w, airspeed: v), 0.005, "window \(w) m at \(v) m/s")
+                guard 2 * w / v < ExhaustTrail.longestFadeIn else { continue }
+                let seconds = ExhaustTrail.fadeIn(window: w, airspeed: v) * ExhaustTrail.lifetime.upperBound
+                XCTAssertEqual(seconds, 2 * w / v, accuracy: 0.003 * 2 * w / v, "window \(w) m at \(v) m/s")
             }
         }
         let (sim, camera) = try open()
@@ -563,14 +549,13 @@ final class LaunchEffectsTests: XCTestCase {
             let own = scene.emitters.filter { $0.name.hasPrefix("S-IC engine") }
             let head = try XCTUnwrap(PlumeAirflow.trailHandover(own), "T+\(t) s")
             let v = try XCTUnwrap(own.first).relativeWind.length
-            for id in materials.trail {
-                let share = run.session.materials[id].fadeIn
-                XCTAssertEqual(share, ExhaustTrail.fadeIn(window: head.window, airspeed: v), "T+\(t) s")
-            }
             let share = run.session.materials[materials.trail[0]].fadeIn
-            XCTAssertLessThan(worst(share, window: head.window, airspeed: v), 0.005, "T+\(t) s")
-            print(String(format: "LaunchEffectsTests: at T+%.0f s the trail fades in over %.0f m at %.0f m/s (%.3f s)",
-                         t, 2 * ExhaustTrail.rampHalfWidth * head.window, v, share * ExhaustTrail.lifetime.upperBound))
+            for id in materials.trail { XCTAssertEqual(run.session.materials[id].fadeIn, share, "T+\(t) s") }
+            let seconds = share * ExhaustTrail.lifetime.upperBound, steady = 2 * head.window / v
+            XCTAssertGreaterThanOrEqual(seconds, 0.997 * steady, "T+\(t) s")
+            XCTAssertLessThanOrEqual(seconds, 1.34 * steady, "T+\(t) s")
+            print(String(format: "LaunchEffectsTests: at T+%.0f s the trail fades in over %.0f m at %.0f m/s (%.3f s, steady %.3f s)",
+                         t, 2 * head.window, v, seconds, steady))
             checked += 1
         }
         XCTAssertEqual(checked, 7)
@@ -594,8 +579,33 @@ final class LaunchEffectsTests: XCTestCase {
                        accuracy: 1e-12)
         let framed = try trail(run.outputs, run, axes: axes), again = try trail([rebuilt], at100, axes: axes)
         let framedCount = framed.reduce(0) { $0 + $1.request.count }, againCount = again.reduce(0) { $0 + $1.request.count }
-        // Laid at full flow after the failure, the rebuild would have about
-        // a tenth more: the margin tells the two apart.
+        // What carries the flow now is the puffs' depth and size, not their
+        // count: by kilometre of height after the failure (from 10 km, below
+        // the trail's end), the extinction the rebuild lays (each puff's
+        // ∫ τ dA, τ0 π R²/3) is the frames' within 6 %; laid at five engines'
+        // flow it would be some 25 % more.
+        func extinction(_ l: [Laid], _ table: ParticleMaterialTable) -> [Int: Double] {
+            var b: [Int: Double] = [:]
+            for x in l where x.altitude > 10_000 {
+                let r = x.request, radius = 0.5 * (r.radius.lowerBound + r.radius.upperBound)
+                b[Int(x.altitude / 1_000), default: 0] += Double(r.count) * table[r.material].opticalDepth
+                    * Double.pi * radius * radius / 3
+            }
+            return b
+        }
+        let framedBands = extinction(framed, run.session.materials), againBands = extinction(again, at100.session.materials)
+        XCTAssertGreaterThan(framedBands.count, 5)
+        for band in framedBands.keys.sorted() {
+            print(String(format: "LaunchEffectsTests: engine out, %d km: rebuilt %.0f against the frames' %.0f (%.3f)", band,
+                         againBands[band] ?? 0, framedBands[band]!, (againBands[band] ?? 0) / framedBands[band]!))
+        }
+        // The highest band holds the trail's end, where the two stop a few
+        // metres apart: the full ones below.
+        let top = framedBands.keys.max() ?? 0
+        for (band, e) in framedBands where band < top {
+            XCTAssertEqual(againBands[band] ?? 0, e, accuracy: 0.06 * e, "\(band) km: the rebuild's extinction after the failure")
+        }
+        // The count, which no longer follows the flow, still agrees.
         let after = zip(run.outputs, run.epochs).filter { $0.1 > failure + LaunchEffects.tailOff }.map(\.0)
         let laidAfter = try trail(after, run, axes: axes).reduce(0) { $0 + $1.request.count }
         print("LaunchEffectsTests: engine out at T+100 s: frames \(framedCount) (\(laidAfter) after the failure), rebuilt \(againCount)")

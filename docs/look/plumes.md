@@ -278,9 +278,10 @@ field stays on the nozzle, gimbal and all.
     far field's column there, projected side-on and unfaded (its depth,
     cross-section, soot and albedo), and λ = ṁ/V_air; the trail's puffs
     carry it on, laid from the window's start and fading in as the plume
-    fades out, both linearly over the same window, at the airspeed they
-    recede at (`ExhaustTrail.fadeIn`): the two sum to one along it, within
-    the share's 0.5 % steps (docs/look/launch.md, the trail).
+    fades out, both linearly over the same window, at the rate they recede
+    at (`ExhaustTrail.fadeIn`). The puffs' size and the rising airspeed
+    leave the two within about 13 % of one across the window, side-on
+    (docs/look/launch.md, the trail); LR5's PR2 makes it exact.
 - **Continuity** (`PlumeAirflowTests`): sweeps through the angle of attack
   (-10° to 10° every quarter degree), the airspeed to beyond max-Q (every
   5 m/s) and AS-506's ascent (every half second). Each step moves the far

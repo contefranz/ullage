@@ -109,22 +109,30 @@ public final class ExhaustTrail {
 
     /// The puffs fade in linearly with age (P3's fade) as P2's plume fades
     /// out linearly over the hand-over's window [x − w, x + w]: laid at its
-    /// start, at rest in the air, a puff lies V a past it at age a, so the
-    /// two sum to one along it when its fade-in takes 2w/V. (The ramp spans
-    /// the whole window: its half-width in w.)
+    /// start, at rest in the air, a puff lies ∫V dt past it at age a, so the
+    /// two sum to one along it where the airspeed is steady and the puffs
+    /// are points. They are not: a puff's billboard spreads its depth ±R
+    /// along the axis (R 0.65-0.84 of the window), and the airspeed rises
+    /// while it crosses, so the sum strays from one by up to about 13 % at
+    /// the window's ends (`ExhaustTrailTests.testJointsAxialProfile`). PR2's
+    /// Gaussian nodes, fading by the distance each has gone, make it exact.
+    /// (The ramp spans the whole window: its half-width in w.)
     public static let rampHalfWidth = 1.0
     /// The fade-in never takes longer than this, s (the pad's slowest
     /// first metres; L).
     public static let longestFadeIn = 20.0
 
     /// The puffs' fade-in as a share of their life (the trail materials'
-    /// `fadeIn`): the window, 2w long, at the airspeed the puffs, at rest in
-    /// the air, recede from the joint at; at most `longestFadeIn`.
+    /// `fadeIn`): the time T in which a puff, at rest in the air, recedes
+    /// the window's 2w from the joint while the airspeed V grows at A, so
+    /// that the one crossing it now is wholly in: V T − ½ A T² = 2w, T =
+    /// 4w / (V + √(V² − 4Aw)) (2w/V when steady); at most `longestFadeIn`.
     /// Without a hand-over, 0.0002 (a tenth of a second). Quantised to
     /// 0.5 %, so the materials change seldom.
-    public static func fadeIn(window: Double?, airspeed: Double) -> Double {
+    public static func fadeIn(window: Double?, airspeed: Double, acceleration: Double = 0) -> Double {
         guard let w = window, w > 0 else { return 0.0002 }
-        let seconds = min(2 * rampHalfWidth * w / max(airspeed, 1), longestFadeIn)
+        let half = rampHalfWidth * w, v = max(airspeed, 1), d = v * v - 4 * max(acceleration, 0) * half
+        let seconds = d > 0 ? min(4 * half / (v + d.squareRoot()), longestFadeIn) : longestFadeIn
         let share = max(seconds / lifetime.upperBound, 1e-7)
         return exp((log(share) / 0.005).rounded() * 0.005)
     }
@@ -203,6 +211,15 @@ public final class ExhaustTrail {
     /// A frame's own column carries its pieces within this height of the
     /// vehicle, m; the model the rest (warp).
     public static let liveReach = 500.0
+
+    /// An F-1's flow at `t` over its full flow: 1 until its cutoff in
+    /// `cutoffs` (by name), tailing off linearly over `LaunchEffects.tailOff`,
+    /// none after (or ever, for one cut off at −∞).
+    static func engineFlow(_ name: String, at t: Epoch, cutoffs: [String: Epoch]) -> Double {
+        guard let cut = cutoffs[name] else { return 1 }
+        guard cut.tdb.isFinite else { return 0 }
+        return min(1, max(0, 1 - (t - cut) / LaunchEffects.tailOff))
+    }
 
     /// The hand-over's column for the S-IC of `vessel`, each F-1 at the
     /// flow over its rated `flow` gives for its name
@@ -342,7 +359,9 @@ public final class ExhaustTrail {
         // the ramp that fades them in as the plume fades out, at this
         // airspeed; else the fixed offset behind.
         let head = c.vehicle.trailHead
-        let share = Self.fadeIn(window: head?.window, airspeed: c.vehicle.airspeed)
+        // The airspeed's growth: the vehicle's acceleration along its motion.
+        let along = centre.velocity.length > 1 ? centre.acceleration.dot(centre.velocity.normalized) : 0
+        let share = Self.fadeIn(window: head?.window, airspeed: c.vehicle.airspeed, acceleration: along)
         for id in materials where c.frame.materials[id].fadeIn != share {
             var m = c.frame.materials[id]
             m.fadeIn = share
@@ -427,6 +446,8 @@ public final class ExhaustTrail {
     func lay(_ curve: Curve, _ c: inout LaunchEffects.Context, anchor a: EffectAnchorID, frame: AnchorFrame,
              materials: [ParticleMaterialID], owner: LaunchEffects, maxPieces: Int,
              live: (column: PlumeAirflow.Column, altitude: Double)?) {
+        // How long a puff takes to fade in now (the materials' share).
+        let fadeSeconds = c.frame.materials[materials[0]].fadeIn * Self.lifetime.upperBound
         let d = curve.duration
         guard d > 0 else { return }
         let n = min(maxPieces, max(1, Int((d / Self.pieceTime).rounded(.up)), Int((curve.length / Self.pieceLength).rounded(.up))))
@@ -471,10 +492,11 @@ public final class ExhaustTrail {
                     column = m
                 } else {
                     column = sample.flatMap {
-                        // Each F-1 at full flow until the journal's cutoff,
+                        // Each F-1 at full flow until its cutoff (the journal's,
+                        // or before the release for one the count lost),
                         // tailing off over `LaunchEffects.tailOff`.
-                        Self.modelColumn(c.vehicle.vessel, flow: { [cutoffs = owner.cutoffs, full = fullFlow] name in
-                            full * (cutoffs[name].map { min(1, max(0, 1 - (tm - $0) / LaunchEffects.tailOff)) } ?? 1)
+                        Self.modelColumn(c.vehicle.vessel, flow: { [cutoffs = owner.engineCutoffs(c), full = fullFlow] name in
+                            full * Self.engineFlow(name, at: tm, cutoffs: cutoffs)
                         }, density: $0.density, temperature: $0.temperature,
                                          pressure: $0.pressure, airspeed: (wind - along).length, settings: c.frame.plumes)
                     }
@@ -500,8 +522,16 @@ public final class ExhaustTrail {
             carry = w - Double(first)
             // The age where the piece is d metres from its older end.
             func age(_ d: Double) -> Double { c.now - t0 - d / length * (t1 - t0) }
-            for (k, count, start) in [(puffs.albedo[0].level, first, 0), (puffs.albedo[1].level, total - first, first)]
-                where count > 0 {
+            // The strata whose newer end is still within the fade (the
+            // newest, the piece's far end): each its own request, its puff at
+            // that end, so that it spawns faded out, not jittered up to a
+            // stratum into the fade. The older ones in two stratified
+            // requests, one an albedo.
+            let fading = fadeSeconds
+            var fresh = total
+            while fresh > 0 && age(from + Double(fresh) * puffs.spacing) < fading { fresh -= 1 }
+            func emit(_ k: Int, strata lo: Int, count: Int, single: Bool) {
+                guard count > 0 else { return }
                 let m = puffs.depthLevel * Self.albedoLevels.count + k
                 var r = EmitRequest(anchor: a, material: materials[m], count: count)
                 // A puff of age a began at p1 − along (a − (now − t1)).
@@ -512,12 +542,16 @@ public final class ExhaustTrail {
                 r.velocity = wind - along
                 r.radius = ((1 - Self.radiusSpread) * puffs.radius)...((1 + Self.radiusSpread) * puffs.radius)
                 r.lifetime = Self.lifetime
-                let near = from + Double(start) * puffs.spacing, far = near + Double(count) * puffs.spacing
-                r.ages = max(0, age(far))...max(0, age(near))
+                let near = from + Double(lo) * puffs.spacing, far = near + Double(count) * puffs.spacing
+                r.ages = single ? max(0, age(far))...max(0, age(far)) : max(0, age(far))...max(0, age(near))
                 r.seed = owner.nextSeed("trail \(m)")
                 c.frame.emit(r)
                 laid += count
             }
+            let (k0, k1) = (puffs.albedo[0].level, puffs.albedo[1].level)
+            emit(k0, strata: 0, count: min(first, fresh), single: false)
+            emit(k1, strata: min(first, fresh), count: fresh - min(first, fresh), single: false)
+            for j in fresh..<total { emit(j < first ? k0 : k1, strata: j, count: 1, single: true) }
         }
     }
 }

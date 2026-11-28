@@ -122,17 +122,34 @@ replaces the puffs).
   path from piece to piece; each puff starts in its own stratum where the
   path was at its age (a source velocity along the chord), at rest in the
   air. No step from a puff to the next exceeds 2.6 strata (random places
-  along a line, as before, left gaps of five to eight).
+  along a line, as before, left gaps of five to eight). A stratum still
+  within the fade when laid gets its own request, its puff at the
+  stratum's newer end, so it spawns faded out rather than jittered up to a
+  stratum into the fade. The spacing is per metre of ground path, so the
+  line's depth in the air is the column's times |V_ground| / |V_air| (the
+  wind's share; PR2's nodes are per metre of air).
 - **The fade:** P3's puffs fade in linearly with age, and P2's plume fades
   out linearly over the window x ± w (it was a smoothstep). The puffs are
-  laid at x − w and fade in over 2w at the airspeed, so the two sum to one
-  along it, within the share's 0.5 % steps; the lifetime is one value
-  (480 s) so that the share is a clock, at most 20 s at the pad.
+  laid at x − w and fade in over the time T a puff at rest in the air takes
+  to recede the window's 2w while the airspeed V grows at A (V T − ½ A T² =
+  2w), so the one crossing it now is wholly in; the lifetime is one value
+  (480 s) so that the share is a clock, at most 20 s at the pad. The two
+  would sum to one for point puffs at a steady airspeed. As drawn they do
+  not: each puff's billboard spreads its depth ±R along the axis (R about
+  1.3-1.6 w), and the airspeed still rises while the puffs cross. Seen
+  side-on, P2's faded field and the laid puffs together come to 1.006-1.134
+  of P2's unfaded field across the window at T+15 s, 0.988-1.105 at 30 s,
+  0.875-1.098 at 60 s and 0.912-1.073 at 120 s
+  (`ExhaustTrailTests.testJointsAxialProfile`). PR2's Gaussian nodes,
+  fading by the distance each has gone, make it exact.
 - **A rebuild** models the column at each piece's height, airspeed and
   flow (`ExhaustTrail.modelColumn`: the F-1s as the scene gives them,
-  along their axes in the air there), in 250 m bins: within 5 % of the
-  frames' along the flight. A frame at warp does the same away from the
-  vehicle.
+  along their axes in the air there, each at its own flow from
+  `LaunchEffects.engineCutoffs`, the journal's cutoffs and any engine the
+  count lost by the release), in 250 m bins: within 5 % of the frames'
+  along the flight. A frame at warp does the same away from the vehicle.
+  After an engine out the rebuild lays the frames' extinction per
+  kilometre of height within 6 %.
 - **Along AS-506's flight** the column goes from depth 1.9 and 36 m wide
   (T+3 s) through 1.2 and 56 m (T+60 s) to 0.37 and 219 m (T+120 s); its
   albedo is 0.58 (P2's soot at 0.25 and its condensate at 0.8) until the

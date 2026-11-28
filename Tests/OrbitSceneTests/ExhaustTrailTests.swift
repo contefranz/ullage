@@ -11,8 +11,9 @@ import OrbitCore
 /// - the puffs laid carry it on: their line's depth and cross-section are
 ///   the column's, its width within 10 % of the field's, its albedo the
 ///   column's;
-/// - the trail's fade and the plume's sum to one at the joint (both
-///   linear over P2's window);
+/// - the joint seen side-on, P2's faded field and the laid puffs, sums to
+///   within 15 % of P2's unfaded field (the puffs' footprints and the
+///   rising airspeed; PR2 makes it exact);
 /// - a rebuild's modelled column is the frames' within 5 %;
 /// - the puffs are spread evenly along the path (no beads).
 final class ExhaustTrailTests: XCTestCase {
@@ -29,6 +30,10 @@ final class ExhaustTrailTests: XCTestCase {
         var newest: [EmitRequest]
         var requests: [(request: EmitRequest, epoch: Double)]
         var fadeIn: Double
+        /// The pad's anchor at the checkpoint, and the trail materials'
+        /// optical depth, fade-in share and spread rate, by material index.
+        var anchor: AnchorFrame
+        var trailMaterials: [Int: (tau: Double, fadeIn: Double, spread: Double)]
     }
 
     /// One flight at 2 Hz from first motion, kept at the checkpoints, with
@@ -65,10 +70,19 @@ final class ExhaustTrailTests: XCTestCase {
             let recent = zip(run.outputs, run.epochs).suffix(40).flatMap { o in
                 run.requests(.trail, in: o.0).map { (request: $0, epoch: o.1 - zero) }
             }
+            let last = run.outputs.last!
+            // P4's one anchor, at the deck.
+            let anchor = last.anchors.first!.frame
+            var table: [Int: (tau: Double, fadeIn: Double, spread: Double)] = [:]
+            for id in materials.trail {
+                let m = run.session.materials[id]
+                table[id.index] = (m.opticalDepth, m.fadeIn, m.spreadRate)
+            }
             out.append(Checkpoint(t: at, scene: scene, head: PlumeAirflow.trailHandover(own)!, members: members,
                                   vehicle: LaunchEffects.vehicle(in: scene, site: site)!,
                                   newest: run.requests(.trail, in: run.outputs.last!), requests: recent,
-                                  fadeIn: run.session.materials[materials.trail[0]].fadeIn))
+                                  fadeIn: run.session.materials[materials.trail[0]].fadeIn, anchor: anchor,
+                                  trailMaterials: table))
         }
         return out
     }()
@@ -120,6 +134,12 @@ final class ExhaustTrailTests: XCTestCase {
             XCTAssertEqual(col.depth, peak, accuracy: 0.03 * peak, "T+\(c.t) s: depth")
             XCTAssertEqual(col.crossSection, cross, accuracy: 0.02 * cross, "T+\(c.t) s: cross-section")
             XCTAssertEqual(col.albedo, scattering / cross, accuracy: 0.01, "T+\(c.t) s: albedo")
+            // The puffs' line is as wide at half its depth as the marched
+            // field, within 10 %: 2 R √(1 − 2^(−2/5)) against the profile's.
+            let puffs = try XCTUnwrap(ExhaustTrail.puffs(col))
+            let fieldWidth = Double(profile.filter { $0 >= 0.5 * peak }.count) * d
+            XCTAssertEqual(2 * puffs.radius * (1 - pow(2, -0.4)).squareRoot(), fieldWidth, accuracy: 0.1 * fieldWidth,
+                           "T+\(c.t) s: the line's width")
             // λ: the F-1s' flow over the airspeed.
             let own = c.scene.emitters.filter { $0.name.hasPrefix("S-IC engine") && !$0.isJet }
             let flow = own.reduce(0) { $0 + $1.flowFraction } * ApolloExhaust.f1.ratedFlow
@@ -184,10 +204,6 @@ final class ExhaustTrailTests: XCTestCase {
             XCTAssertLessThanOrEqual(p.spacing, ExhaustTrail.spacingRadii * p.radius + 1e-9, "no beads: half a radius or nearer")
             XCTAssertEqual(p.albedo.reduce(0) { $0 + ExhaustTrail.albedoLevels[$1.level] * $1.weight },
                            min(max(col.albedo, 0.2), 0.95), accuracy: 1e-12)
-            // The line's half-maximum width, 2 R √(1 − 2^(−2/5)), against the
-            // column's Gaussian width.
-            let lineWidth = 2 * p.radius * (1 - pow(2, -0.4)).squareRoot()
-            XCTAssertEqual(lineWidth, col.width, accuracy: 0.1 * col.width, "T+\(c.t) s: width")
             // The frame's newest request (none while the joint is below the
             // deck): these radii.
             guard let newest = c.newest.min(by: { $0.ages.lowerBound < $1.ages.lowerBound }) else {
@@ -198,26 +214,84 @@ final class ExhaustTrailTests: XCTestCase {
         }
     }
 
-    /// The fade at the checkpoints: the frames' share against the plume's
-    /// window, summing to one within 0.5 % (the share's 0.5 % steps),
-    /// unless the pad's slow start caps it.
-    func testFadesSumToOneAtTheJoint() {
-        for c in Self.flight {
-            let w = c.head.window, v = c.vehicle.airspeed
-            XCTAssertEqual(c.fadeIn, ExhaustTrail.fadeIn(window: w, airspeed: v), "T+\(c.t) s")
-            let seconds = c.fadeIn * ExhaustTrail.lifetime.upperBound
-            guard 2 * ExhaustTrail.rampHalfWidth * w / v < ExhaustTrail.longestFadeIn else {
-                print("ExhaustTrailTests: T+\(c.t) s: the fade-in capped at \(ExhaustTrail.longestFadeIn) s")
-                continue
-            }
-            var worst = 0.0
-            for k in 0...200 {
-                let x = -w + 2 * w * Double(k) / 200
-                let trail = min(1, max(0, (x + ExhaustTrail.rampHalfWidth * w) / v / seconds))
-                worst = max(worst, abs(1 - min(max((x + w) / (2 * w), 0), 1) + trail - 1))
-            }
-            XCTAssertLessThan(worst, 0.005, "T+\(c.t) s")
+    /// P2's hand-over fade is linear over its window: its merged far field
+    /// sampled with and without it, along the axis.
+    func testHandoverFadeIsLinear() throws {
+        let c = try XCTUnwrap(Self.flight.first { $0.t == 60 })
+        let cluster = PlumeClusters.cluster(c.members)
+        var m = try XCTUnwrap(cluster.merged)
+        let window = try XCTUnwrap(m.handoverFade)
+        m.fadeStart = nil
+        m.length = 1e9
+        var unfaded = m
+        unfaded.handoverFade = nil
+        for k in 0...10 {
+            let x = window.lowerBound + (window.upperBound - window.lowerBound) * Double(k) / 10
+            let ratio = m.sample(x: x, r: 0).extinction / unfaded.sample(x: x, r: 0).extinction
+            XCTAssertEqual(ratio, 1 - Double(k) / 10, accuracy: 1e-9, "at \(k)/10 of the window")
         }
+    }
+
+    /// The joint seen side-on along the axis, as drawn: P2's merged far field
+    /// with its own fade (`PlumeMember.sample`) plus the puffs the frames
+    /// laid, each where it is now, faded and grown, its billboard's depth
+    /// (1 − u²/R²)² across it, over P2's unfaded field. The two do not sum
+    /// to one exactly: the puffs' footprints (R about 1.3-1.6 w) spread the
+    /// trail's ramp, and the airspeed rises while they cross. At T+15, 30,
+    /// 60 and 120 s the sum stays within 15 % of one across the window;
+    /// PR2's nodes, fading by the distance each has gone, make it exact.
+    func testJointsAxialProfile() throws {
+        var checked = 0
+        for c in Self.flight where [15.0, 30, 60, 120].contains(c.t) {
+            let cluster = PlumeClusters.cluster(c.members)
+            let merged = try XCTUnwrap(cluster.merged)
+            let start = (merged.exit - cluster.origin).dot(cluster.axis)
+            let lo = c.head.x - c.head.window, hi = c.head.x + c.head.window
+            func p2(_ x: Double, faded: Bool) -> Double {
+                var m = merged
+                if !faded {
+                    m.length = 1e9
+                    m.fadeStart = nil
+                    m.handoverFade = nil
+                }
+                let xm = x - start, e = m.fieldExtent(atX: xm), n = 96, dr = e / Double(n)
+                return (0..<n).reduce(0.0) { s, i in s + 2 * m.sample(x: xm, r: (Double(i) + 0.5) * dr).extinction * dr }
+            }
+            var puffs: [(x: Double, radius: Double, tau: Double)] = []
+            for (r, epoch) in c.requests {
+                guard let mat = c.trailMaterials[r.material.index] else { continue }
+                for i in 0..<r.count {
+                    let p = EmitSampler.sample(r, index: i)
+                    let age = p.age + (c.t - epoch)
+                    guard age < p.lifetime else { continue }
+                    let world = c.anchor.world(p.position + p.velocity * age)
+                    let radius = p.radius + mat.spread * age
+                    let fade = min(1, age / (mat.fadeIn * ExhaustTrail.lifetime.upperBound))
+                    puffs.append(((world - cluster.origin).dot(cluster.axis), radius,
+                                  mat.tau * (p.radius / radius) * (p.radius / radius) * fade))
+                }
+            }
+            guard !puffs.isEmpty else { continue }
+            func trail(_ x: Double) -> Double {
+                puffs.reduce(0.0) { s, p in
+                    let u = (x - p.x) / p.radius
+                    return abs(u) < 1 ? s + p.tau * (1 - u * u) * (1 - u * u) : s
+                }
+            }
+            var lowest = Double.infinity, highest = 0.0
+            for k in 0...40 {
+                let x = lo + (hi - lo) * Double(k) / 40
+                let sum = (p2(x, faded: true) + trail(x)) / p2(x, faded: false)
+                lowest = min(lowest, sum)
+                highest = max(highest, sum)
+            }
+            print(String(format: "ExhaustTrailTests: T+%3.0f s: the joint's side-on depth over P2's, across the window: %.3f to %.3f",
+                         c.t, lowest, highest))
+            XCTAssertGreaterThan(lowest, 0.85, "T+\(c.t) s")
+            XCTAssertLessThan(highest, 1.15, "T+\(c.t) s")
+            checked += 1
+        }
+        XCTAssertEqual(checked, 4)
     }
 
     /// A rebuild's column (`modelColumn`: the F-1s as the scene gives them,
