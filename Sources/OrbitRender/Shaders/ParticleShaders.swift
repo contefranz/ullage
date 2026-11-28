@@ -909,14 +909,25 @@ fragment EffectOITOut particle_smoke_fragment(ParticleSmokeOut in [[stage_in]],
     float r2 = dot(in.corner, in.corner);
     if (r2 > 1.0) { discard_fragment(); }
     float scene = orbit_effectSceneDistance(uint2(in.position.xy), halfResDepth, frame);
+    // The soft fade into the scene starts half a radius in front of the
+    // puff: from there on no scene cuts it (its clip code, LR0). A puff the
+    // texel's scene fades out entirely still writes its cut code, for the
+    // pixels around whose scene lies behind it.
+    float endsAt = in.viewDepth + 0.5 * in.radius;
     float fade = clamp((scene - in.viewDepth) / (0.5 * in.radius), 0.0, 1.0)
         * clamp((in.viewDepth - frame.camera.x) / max(in.radius, 1e-3), 0.0, 1.0);
     float3 at = in.noiseOrigin + float3(in.corner * 0.45, 0.0) + pf.noise.xyz;
     float2 n = noise.sample(noiseSampler, at).rg;
     float profile = (1.0 - r2) * (1.0 - r2);
     float tau = in.tau * profile * (0.35 + 1.3 * n.x);
-    float alpha = (1.0 - exp(-tau)) * fade;
-    if (alpha <= 1e-4) { discard_fragment(); }
+    float unfaded = 1.0 - exp(-tau);
+    if (unfaded <= 1e-4) { discard_fragment(); }
+    float alpha = unfaded * fade;
+    float clip = orbit_clipCode(endsAt, scene);
+    if (alpha <= 1e-4) {
+        if (clip > 0.0) { discard_fragment(); }
+        return orbit_oitOutput(float4(0.0), in.viewDepth, 0.0, e);
+    }
     float3 normal = float3(in.corner + 0.4 * (n - 0.5), sqrt(max(1.0 - r2, 0.0)));
     normal = normalize(normal);
     float wrap = 0.35 + 0.65 * clamp(dot(normal, in.sunView) * 0.5 + 0.5, 0.0, 1.0);
@@ -924,7 +935,7 @@ fragment EffectOITOut particle_smoke_fragment(ParticleSmokeOut in [[stage_in]],
     // diffuse wrap where it is thick, as many scatterings make it.
     float thin = exp(-tau);
     float3 c = (in.sunLight * (in.phase * thin + wrap / M_PI_F * (1.0 - thin)) + in.ambient) * frame.exposure.x;
-    return orbit_oitOutput(float4(c * alpha, alpha), in.viewDepth, e);
+    return orbit_oitOutput(float4(c * alpha, alpha), in.viewDepth, clip, e);
 }
 
 // -------------------------------------------------------------- chunks ---

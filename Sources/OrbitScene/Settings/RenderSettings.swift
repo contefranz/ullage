@@ -115,6 +115,11 @@ public enum DebugView: String, Codable, CaseIterable {
     case effectLayers
     /// R6: the nearest effect front's depth, tinted by its layer.
     case effectFront
+    /// R6 (LR0): how the composite reconstructs each covered pixel from
+    /// the half-resolution texels: bilinear grey (green where the texels'
+    /// depths differ and the writers' ends made it bilinear), renormalised
+    /// over the matching texels yellow, the nearest texel red.
+    case effectReconstruction
     /// The Sun's visible share from the shadow maps on every surface, tinted
     /// by the map that served it (R4's `ShadowDebugPass`).
     case sunShadow

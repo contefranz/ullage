@@ -43,28 +43,186 @@ public enum EffectSlots {
     /// Reversed-Z depths below this are the sky: log2 is taken of this instead.
     public static let skyDepth = 1e-30
 
-    /// The depth-aware upsample's weights for a full-resolution pixel over
-    /// its four nearest half-resolution texels (Bavoil's nearest-depth
-    /// upsampling, NVIDIA 2008):
-    /// - the bilinear weights where every texel's test depth is within
-    ///   `tolerance` of the pixel's (relative, in linear depth);
-    /// - otherwise all the weight on the texel nearest in depth, ties going
-    ///   to the larger bilinear weight, then to the lower index.
+    /// The upsample's weights for a full-resolution pixel over its four
+    /// nearest half-resolution texels: Kopf et al.'s joint bilateral
+    /// upsampling (SIGGRAPH 2007) with a binary range kernel. A texel
+    /// matches the pixel when
+    /// - its test depth is within `tolerance` of the pixel's (relative, in
+    ///   linear depth), or
+    /// - every effect drawn at it ended nearer than both scene depths, the
+    ///   texel's and the pixel's (`ended`, from the writers' back and clip
+    ///   codes: `texelEnded`), so neither depth cut it.
+    ///
+    /// Where all four match the weights are the bilinear ones, exactly;
+    /// otherwise the bilinear weights renormalised over the matching texels;
+    /// where none matches, all the weight on the texel nearest in depth,
+    /// ties going to the larger bilinear weight, then to the lower index.
     ///
     /// `bilinear` sums to 1 (texels in the order (0,0), (1,0), (0,1), (1,1));
     /// `depths` are the texels' test depths and `depth` the pixel's.
-    public static func upsampleWeights(bilinear: [Double], depths: [Double], depth: Double,
-                                       tolerance: Double) -> [Double] {
+    public static func upsampleWeights(bilinear: [Double], depths: [Double], depth: Double, tolerance: Double,
+                                       ended: [Bool] = [false, false, false, false]) -> [Double] {
+        reconstruction(bilinear: bilinear, depths: depths, depth: depth, tolerance: tolerance, ended: ended).weights
+    }
+
+    /// How a pixel was reconstructed (`upsampleWeights`).
+    public enum Reconstruction: Int {
+        /// All four texels match: plain bilinear.
+        case bilinear
+        /// Some match: bilinear renormalised over them.
+        case renormalised
+        /// None does: the texel nearest in depth.
+        case nearest
+    }
+
+    /// `upsampleWeights` and which of its three cases it took.
+    public static func reconstruction(bilinear: [Double], depths: [Double], depth: Double, tolerance: Double,
+                                      ended: [Bool]) -> (weights: [Double], kind: Reconstruction) {
         // In log2 of the depth, a relative distance: z = near / d, so
         // |log2 z_i - log2 z| = |log2 d_i - log2 d|, whatever the near plane.
         let here = log2(max(depth, skyDepth))
         let apart = depths.map { abs(log2(max($0, skyDepth)) - here) }
-        if apart.allSatisfy({ $0 <= log2(1 + tolerance) }) { return bilinear }
+        let matches = apart.indices.map { apart[$0] <= log2(1 + tolerance) || ended[$0] }
+        if matches.allSatisfy({ $0 }) { return (bilinear, .bilinear) }
+        let total = zip(bilinear, matches).reduce(0.0) { $0 + ($1.1 ? $1.0 : 0) }
+        if total > 0 {
+            return (zip(bilinear, matches).map { $0.1 ? $0.0 / total : 0 }, .renormalised)
+        }
         var best = 0
         for i in 1..<apart.count where apart[i] < apart[best] || apart[i] == apart[best] && bilinear[i] > bilinear[best] {
             best = i
         }
-        return apart.indices.map { $0 == best ? 1 : 0 }
+        return (apart.indices.map { $0 == best ? 1 : 0 }, .nearest)
+    }
+
+    // MARK: What the writers say about where their effects ended
+
+    /// A texel's effects can be used at a neighbouring pixel whose scene
+    /// depth differs from the texel's when neither scene depth cut them:
+    /// they ended nearer than both. The writers say where, for the
+    /// composite to check pixel by pixel (`texelEnded`):
+    /// - a volume (plumes) writes a back code into the fronts' a channel,
+    ///   blended with max (`backCode`);
+    /// - the clouds and the OIT fragments write a clip code each into the
+    ///   clip attachment (rg8Unorm: r clouds, g OIT), blended with min
+    ///   (`clipCode`).
+    /// A layer is reconstructed so only on frames when every effect that
+    /// draws it writes its codes (`HalfResEffect.reconstructedLayers`);
+    /// otherwise it matches by depth alone.
+
+    /// The fronts' a channel where no volume drew: nothing to cut.
+    public static let noBack = -noFront
+
+    /// Added to a back's log2 (1/32, 2.2 %), so that half's rounding (0.5
+    /// steps of 1/64 between 2^16 and 2^32 m) never brings it nearer.
+    public static let backMargin = 1.0 / 32
+
+    /// A volume's back code: log2 of the linear depth (m) where its last
+    /// visible step ended, plus `backMargin`; `noFront` where the scene cut
+    /// it (its proxy went on behind the texel's scene, or lay wholly behind
+    /// it). Blended with max: one cut proxy makes the texel cut.
+    public static func backCode(lastVisible z: Double?, cut: Bool) -> Double {
+        if cut { return noFront }
+        guard let z else { return noBack }
+        return min(log2(max(z, 1.0 / 16_384)) + backMargin, noFront - 1)
+    }
+
+    /// The clip codes' steps: 16 to an octave of depth (4.4 %) for the
+    /// first 12 octaves in front of the texel's scene (codes 1...192), where
+    /// precision matters; 2 octaves a step beyond (193...254), so that a
+    /// texel on the sky (taken at `skyDistance`) can still say its effect
+    /// ends a few metres out.
+    public static let clipStepsPerOctave = 16.0
+    public static let clipFineOctaves = 12.0
+    public static let clipCoarseStep = 2.0
+    /// The clip code where nothing drew (the attachment's clear): ended
+    /// everywhere. Writers write at most `clipEmpty - 1`.
+    public static let clipEmpty = 255
+
+    /// A clouds or OIT clip code (one byte): 0 where the effect was cut at
+    /// this texel's scene (or hidden behind it); else the octaves that
+    /// `endsAt`, the linear depth from which no scene cuts the effect, lies
+    /// in front of the texel's scene depth `s` (the sky's: `skyDistance`),
+    /// in the codes' steps, rounded down so that the code never claims more
+    /// than it knows, at most 254. A pixel whose scene lies at
+    /// s · 2^(−clipOctaves(code)) or beyond sees the effect whole.
+    public static func clipCode(endsAt x: Double, sceneDepth s: Double) -> Int {
+        guard x <= s else { return 0 }
+        let octaves = log2(max(s, 1e-30) / max(x, 1e-30))
+        let code = octaves < clipFineOctaves ? 1 + Int((octaves * clipStepsPerOctave).rounded(.down))
+            : 1 + Int(clipFineOctaves * clipStepsPerOctave) + Int(((octaves - clipFineOctaves) / clipCoarseStep).rounded(.down))
+        return min(clipEmpty - 1, code)
+    }
+
+    /// The octaves in front of the texel's scene a clip code (1...254) says
+    /// its effect ended.
+    public static func clipOctaves(code: Int) -> Double {
+        let fine = Int(clipFineOctaves * clipStepsPerOctave)
+        return code <= fine ? Double(code - 1) / clipStepsPerOctave
+            : clipFineOctaves + clipCoarseStep * Double(code - fine - 1)
+    }
+
+    /// Whether a pixel of linear depth `pixel` (m; infinity on the sky)
+    /// sees whole the effect a texel of linear test depth `texel` (the sky
+    /// at `skyDistance`) coded `code`: it lies at the code's depth or beyond.
+    public static func clipEnded(code: Int, texel: Double, pixel: Double) -> Bool {
+        if code >= clipEmpty { return true }
+        guard code > 0 else { return false }
+        return log2(min(max(texel, 1e-30), skyDistance)) - log2(min(max(pixel, 1e-30), skyDistance))
+            <= clipOctaves(code: code)
+    }
+
+    /// Whether every layer drawn at a texel ended nearer than both scene
+    /// depths, for a pixel: the volumes' back in front of the pixel's
+    /// scene, the clouds' and OIT's clip codes met. Depths are linear (m):
+    /// the texel's test depth (`skyDistance` on the sky), the pixel's
+    /// (infinity on the sky). A layer drawn but not `reconstructed` this
+    /// frame never ends.
+    public static func texelEnded(back: Double, clouds: Int, oit: Int, texel: Double, pixel: Double,
+                                  drawn: Set<Layer>, reconstructed: Set<Layer>) -> Bool {
+        for layer in drawn {
+            guard reconstructed.contains(layer) else { return false }
+            switch layer {
+            case .volumes: if !(back < log2(min(max(pixel, 1e-30), skyDistance))) { return false }
+            case .clouds: if !clipEnded(code: clouds, texel: texel, pixel: pixel) { return false }
+            case .oit: if !clipEnded(code: oit, texel: texel, pixel: pixel) { return false }
+            }
+        }
+        return true
+    }
+
+    /// A reversed-Z depth as the reconstruction's linear one: near / z, the
+    /// sky at `skyDistance` for a texel and at infinity for a pixel.
+    public static func linearDepth(reversedZ z: Double, near: Double, pixel: Bool) -> Double {
+        z > 0 ? near / z : (pixel ? .infinity : skyDistance)
+    }
+
+    /// The linear depth (m) the effects take the sky to be at
+    /// (ORBIT_EFFECT_SKY_DISTANCE): a cut back (`noFront`) is behind it.
+    public static let skyDistance = 1e30
+
+    /// The upsample's footprint of texel (x, y) at `scale` 2: the frame
+    /// pixels whose four nearest texels include it, 2x − 1 ... 2x + 2 along
+    /// each axis (fewer at the frame's edge); at `scale` 1 its own pixel.
+    public static func footprintPixels(x: Int, y: Int, scale: Int, width: Int, height: Int) -> [(x: Int, y: Int)] {
+        let r = scale > 1 ? (-1...2) : (0...0)
+        var out: [(x: Int, y: Int)] = []
+        for dy in r {
+            for dx in r {
+                let px = scale * x + dx, py = scale * y + dy
+                if px >= 0 && py >= 0 && px < width && py < height { out.append((px, py)) }
+            }
+        }
+        return out
+    }
+
+    /// The depth sprites test against (the depth attachment): the farthest
+    /// of the texel's footprint (`footprintPixels`, reversed-Z: the least).
+    /// A sprite behind it is behind every pixel that reads the texel; one in
+    /// front of it but behind the texel's own test depth still draws, faded
+    /// out there, to write a cut clip code.
+    public static func footprintFarthest(_ depths: [Double]) -> Double {
+        depths.min() ?? 0
     }
 
     /// The four texels around a full-resolution pixel's centre and their
@@ -80,6 +238,36 @@ public enum EffectSlots {
         let texels = [(x0, y0), (x0 + 1, y0), (x0, y0 + 1), (x0 + 1, y0 + 1)].map { (clamp($0.0, width), clamp($0.1, height)) }
         let bilinear = [(1 - fx) * (1 - fy), fx * (1 - fy), (1 - fx) * fy, fx * fy]
         return (texels, bilinear)
+    }
+
+    // MARK: Jitter
+
+    /// The fractional part of the golden ratio.
+    public static let goldenRatio = 0.618_033_988_749_894_9
+
+    /// The frame's rotation of the blue noise's values (Cranley and
+    /// Patterson's rotation, by the golden ratio each frame): over frames a
+    /// texel's jitter is the golden-ratio sequence from its noise value,
+    /// low-discrepancy in time, while each frame's pattern stays R1's blue
+    /// noise in space. In Double from the frame index modulo 2^24, as the
+    /// uniforms carry it (`EffectSlotUniforms.reconstruction.y`).
+    public static func jitterRotation(frameIndex: Int) -> Double {
+        let k = Double(frameIndex % (1 << 24))
+        return (k * goldenRatio).truncatingRemainder(dividingBy: 1)
+    }
+
+    /// The offset of `salt`'s copy of the tile, so that two uses of the
+    /// jitter in one effect are not the same numbers.
+    public static func jitterOffset(salt: Int) -> (x: Int, y: Int) { (salt * 37, salt * 61) }
+
+    /// A march's jitter in [0, 1) at texel (x, y) on frame `frameIndex`
+    /// (orbit_effectJitter): R1's blue-noise tile there, rotated by the
+    /// frame's rotation. The shader takes the rotation from the uniforms in
+    /// float, so it agrees to about 1e-7.
+    public static func jitter(x: Int, y: Int, salt: Int = 0, frameIndex: Int, noise: BlueNoise = .shared) -> Double {
+        let n = noise.size, o = jitterOffset(salt: salt)
+        let v = Double(noise.values[((y + o.y) % n) * n + (x + o.x) % n])
+        return (v + jitterRotation(frameIndex: frameIndex)).truncatingRemainder(dividingBy: 1)
     }
 
     // MARK: Front depth

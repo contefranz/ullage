@@ -93,6 +93,15 @@ public enum EffectTestScene {
         public var radius: Double
     }
 
+    /// A level square, opaque: centre, its east and north axes, half-width, m.
+    public struct Floor: Equatable {
+        public var center: Vec3
+        public var east: Vec3
+        public var north: Vec3
+        public var up: Vec3
+        public var halfWidth: Double
+    }
+
     /// A soft billboard: centre, radius (m), linear colour and peak opacity.
     public struct Sprite: Equatable {
         public var center: Vec3
@@ -126,6 +135,10 @@ public enum EffectTestScene {
 
     public static func column(_ e: EffectTestEmitter, in frame: EffectTargetFrame) -> Column {
         Column(base: frame.point(e.position), axis: frame.up, height: e.size, radius: 0.04 * e.size)
+    }
+
+    public static func floor(_ e: EffectTestEmitter, in frame: EffectTargetFrame) -> Floor {
+        Floor(center: frame.point(e.position), east: frame.east, north: frame.north, up: frame.up, halfWidth: e.size)
     }
 
     /// Two smoke tints, warm and cool, alternating, so that the order OIT

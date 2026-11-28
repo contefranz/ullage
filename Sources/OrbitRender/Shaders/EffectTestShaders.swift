@@ -30,12 +30,6 @@ vertex EffectTestOut effect_test_fullscreen_vertex(uint vid [[vertex_id]]) {
     return o;
 }
 
-// Interleaved gradient noise (Jimenez 2014), turned each frame.
-inline float effect_test_noise(float2 p, float frame) {
-    p += 5.588238 * fmod(frame, 64.0);
-    return fract(52.9829189 * fract(dot(p, float2(0.06711056, 0.00583715))));
-}
-
 // Henyey-Greenstein, normalised over the sphere.
 inline float effect_test_phase(float cosTheta, float g) {
     float d = 1.0 + g * g - 2.0 * g * cosTheta;
@@ -77,8 +71,20 @@ fragment EffectCloudOut effect_test_slab_fragment(EffectTestOut in [[stage_in]],
             discard_fragment();
         }
     }
-    exit = min(exit, orbit_effectSceneDistance(texel, halfResDepth, frame));
     if (exit <= enter) { discard_fragment(); }
+    // Its clip code (LR0): it ends at its far face, cut where the scene lies
+    // in front of that; hidden behind the scene it is written with no
+    // light and a cut code.
+    float scene = orbit_effectSceneDistance(texel, halfResDepth, frame);
+    float clip = orbit_clipCode(exit, scene);
+    exit = min(exit, scene);
+    if (exit <= enter) {
+        EffectCloudOut hidden;
+        hidden.color = float4(0.0);
+        hidden.front = float4(ORBIT_EFFECT_NO_FRONT);
+        hidden.clip = float4(0.0);
+        return hidden;
+    }
     float len = length(dir), sigma = u.slabCenter.w;
     float transmittance = exp(-sigma * (exit - enter) * len);
     float3 L = u.light.xyz;
@@ -96,16 +102,20 @@ fragment EffectCloudOut effect_test_slab_fragment(EffectTestOut in [[stage_in]],
     float visible = brightest > 0.0 ? min(e.front.x, e.front.z / brightest) : e.front.x;
     float front = enter - log(1.0 - visible) / (sigma * len);
     out.front = float4(front <= exit ? orbit_frontCode(front) : ORBIT_EFFECT_NO_FRONT);
+    out.clip = float4(clip);
     return out;
 }
 
 // ------------------------------------------------------------- the cone ---
 // The back faces of the cone's proxy (circumscribed, so every texel whose
 // ray meets the cone is covered); the fragment intersects the ray with the
-// cone, clamps the exit at the scene, and marches 24 jittered steps of an
-// emissive, slightly absorbing medium, hot at the apex with a few shock
-// cells, cooling along the axis. Energy-conserving steps (Hillaire 2015). Its
-// front is the first step where it becomes visible (orbit_frontReached).
+// cone, clamps the exit at the scene, and marches 24 steps of an emissive,
+// slightly absorbing medium, hot at the apex with a few shock cells,
+// cooling along the axis, jittered by the slots' blue noise
+// (orbit_effectJitter). Energy-conserving steps (Hillaire 2015). Its front
+// is the first step where it becomes visible (orbit_frontReached); its back
+// code the far end of its last visible step, or cut where the scene lies in
+// front of the cone's far side (LR0).
 struct EffectTestConeOut {
     float4 position [[position]];
 };
@@ -122,7 +132,8 @@ fragment EffectVolumeOut effect_test_cone_fragment(EffectTestConeOut in [[stage_
                                                    constant FrameUniforms &frame [[buffer(ORBIT_BUFFER_FRAME)]],
                                                    constant EffectSlotUniforms &e [[buffer(ORBIT_EFFECT_BUFFER_SLOTS)]],
                                                    constant EffectTestUniforms &u [[buffer(0)]],
-                                                   texture2d<float> halfResDepth [[texture(ORBIT_EFFECT_TEXTURE_HALFRES_DEPTH)]]) {
+                                                   texture2d<float> halfResDepth [[texture(ORBIT_EFFECT_TEXTURE_HALFRES_DEPTH)]],
+                                                   texture2d<float> blueNoise [[texture(ORBIT_TEXTURE_BLUE_NOISE)]]) {
     uint2 texel = uint2(in.position.xy);
     float3 dir = (frame.viewToWorld * float4(orbit_effectViewRay(in.position.xy, e, frame), 0.0)).xyz;
     float3 apex = u.coneApex.xyz, axis = u.coneAxis.xyz;
@@ -163,13 +174,21 @@ fragment EffectVolumeOut effect_test_cone_fragment(EffectTestConeOut in [[stage_
         }
     }
     if (enter < 0.0) { discard_fragment(); }
-    exit = min(exit, orbit_effectSceneDistance(texel, halfResDepth, frame));
-    if (exit <= enter) { discard_fragment(); }
+    float scene = orbit_effectSceneDistance(texel, halfResDepth, frame);
+    bool sceneCut = scene < exit;
+    exit = min(exit, scene);
+    if (exit <= enter) {
+        EffectVolumeOut hidden;
+        hidden.color = float4(0.0);
+        hidden.front = float4(ORBIT_EFFECT_NO_FRONT, ORBIT_EFFECT_NO_FRONT, ORBIT_EFFECT_NO_FRONT,
+                              orbit_backCode(0.0, true));
+        return hidden;
+    }
 
     const int steps = 24;
     float len = length(dir), ds = (exit - enter) / float(steps);
-    float jitter = effect_test_noise(in.position.xy, u.params.z);
-    float transmittance = 1.0, front = ORBIT_EFFECT_NO_FRONT;
+    float jitter = orbit_effectJitter(texel, 0u, e, blueNoise);
+    float transmittance = 1.0, front = ORBIT_EFFECT_NO_FRONT, lastVisible = 0.0;
     float3 radiance = float3(0.0);
     for (int i = 0; i < steps; i++) {
         float s = enter + (float(i) + jitter) * ds;
@@ -185,16 +204,26 @@ fragment EffectVolumeOut effect_test_cone_fragment(EffectTestConeOut in [[stage_
         float3 j = density * emission / radius;
         float dtau = sigma * ds * len;
         float stepT = exp(-dtau);
-        radiance += transmittance * (sigma > 1e-6 ? j / sigma * (1.0 - stepT) : j * ds * len);
+        float3 added = transmittance * (sigma > 1e-6 ? j / sigma * (1.0 - stepT) : j * ds * len);
+        // Anything visible (1/4096 of coverage or of the front's radiance):
+        // the back reaches this step's far end.
+        if (transmittance * (1.0 - stepT) >= 1.0 / 4096.0
+            || max(added.r, max(added.g, added.b)) * u.params.x >= e.front.z / 16.0) {
+            lastVisible = enter + float(i + 1) * ds;
+        }
+        radiance += added;
         transmittance *= stepT;
         if (front >= ORBIT_EFFECT_NO_FRONT && orbit_frontReached(1.0 - transmittance, radiance * u.params.x, e)) {
             front = orbit_frontCode(s);
         }
-        if (transmittance < 0.01) { break; }
+        if (transmittance < 0.01) {
+            sceneCut = false;
+            break;
+        }
     }
     EffectVolumeOut out;
     out.color = float4(orbit_effectRadiance(radiance * u.params.x), 1.0 - transmittance);
-    out.front = float4(front);
+    out.front = float4(front, front, front, orbit_backCode(lastVisible, sceneCut));
     return out;
 }
 
@@ -241,11 +270,13 @@ fragment EffectOITOut effect_test_sprite_fragment(EffectTestSpriteOut in [[stage
     if (r2 > 1.0) { discard_fragment(); }
     float scene = orbit_effectSceneDistance(uint2(in.position.xy), halfResDepth, frame);
     float fade = clamp((scene - in.viewDepth) / (0.5 * in.radius), 0.0, 1.0);
+    // Its clip code (LR0): no scene cuts it from where its fade starts.
+    float clip = orbit_clipCode(in.viewDepth + 0.5 * in.radius, scene);
     float alpha = in.color.a * exp(-3.0 * r2) * fade;
     float3 n = (frame.viewToWorld * float4(in.corner, sqrt(max(1.0 - r2, 0.0)), 0.0)).xyz;
     float lit = 0.3 + 0.7 * u.light.w * clamp(dot(n, u.light.xyz) * 0.5 + 0.5, 0.0, 1.0);
     float3 c = in.color.rgb * lit * u.params.x;
-    return orbit_oitOutput(float4(c * alpha, alpha), in.viewDepth, e);
+    return orbit_oitOutput(float4(c * alpha, alpha), in.viewDepth, clip, e);
 }
 
 // ----------------------------------------------------------- the sparks ---

@@ -811,7 +811,11 @@ fragment EffectVolumeOut plume_march_fragment(PlumeProxyOut in [[stage_in]],
     float3 op = o - a * ox, dp = dir - a * dx;
     int rings = int(c.origin.w);
     float2 first = plume_ringDevice(c, 0), last = plume_ringDevice(c, max(rings - 1, 0));
-    float enter = frame.camera.x, exit = orbit_effectSceneDistance(texel, halfResDepth, frame);
+    // The proxy's own interval along the ray, then cut at the scene; a
+    // proxy the scene cuts, or hides wholly, is drawn rather than discarded,
+    // to write a cut back code (orbit_backCode) for the reconstruction.
+    float enter = frame.camera.x, exit = 1e30;
+    float sceneExit = orbit_effectSceneDistance(texel, halfResDepth, frame);
     if (abs(dx) > 1e-9) {
         float t0 = (first.x - ox) / dx, t1 = (last.x - ox) / dx;
         enter = max(enter, min(t0, t1));
@@ -827,6 +831,15 @@ fragment EffectVolumeOut plume_march_fragment(PlumeProxyOut in [[stage_in]],
         exit = min(exit, span.y);
     }
     if (exit <= enter) { discard_fragment(); }
+    bool cut = sceneExit < exit;
+    exit = min(exit, sceneExit);
+    if (exit <= enter) {
+        EffectVolumeOut hidden;
+        hidden.color = float4(0.0);
+        hidden.front = float4(ORBIT_EFFECT_NO_FRONT, ORBIT_EFFECT_NO_FRONT, ORBIT_EFFECT_NO_FRONT,
+                              orbit_backCode(0.0, true));
+        return hidden;
+    }
 
     // The frame's steps, or the cluster's own (a glow-only one's fewer).
     int steps = c.reserved[0].z > 0.5 ? int(c.reserved[0].z) : max(int(pf.wienK.w), 1);
@@ -971,6 +984,11 @@ fragment EffectVolumeOut plume_march_fragment(PlumeProxyOut in [[stage_in]],
     float3 radianceC = float3(0.0);
     float meanDepth = 0.0, meanWeight = 0.0;
     float exposure = frame.exposure.x;
+    // The far end of the last step that added anything visible (1/4096 of
+    // coverage or of the front's radiance), for the back code; an opaque
+    // stop hides what is behind, so the scene no longer cuts it.
+    float lastVisible = 0.0;
+    bool opaque = false;
     for (int i = 0; i < steps; i++) {
         float s, ds;
         // The step's stratum [sA, sB], which its jittered s samples.
@@ -1064,6 +1082,10 @@ fragment EffectVolumeOut plume_march_fragment(PlumeProxyOut in [[stage_in]],
         float stepT = exp(-dtau);
         float3 added = sigma > 1e-7 ? source / sigma * (1.0 - stepT) : source * ds * len;
         float3 stepLight = transmittance * added;
+        if (transmittance * (1.0 - stepT) >= 1.0 / 4096.0
+            || max(stepLight.r, max(stepLight.g, stepLight.b)) * exposure >= e.front.z / 16.0) {
+            lastVisible = sB;
+        }
         radiance += stepLight;
         // The clouds' transmittance to here.
         float tc = s < cloudEntry ? 1.0
@@ -1080,15 +1102,19 @@ fragment EffectVolumeOut plume_march_fragment(PlumeProxyOut in [[stage_in]],
         if (frontC >= ORBIT_EFFECT_NO_FRONT && orbit_frontReached(1.0 - transmittanceC, radianceC * exposure, e)) {
             frontC = orbit_frontCode(s);
         }
-        if (transmittance < 0.02) { break; }
+        if (transmittance < 0.02) {
+            opaque = true;
+            break;
+        }
     }
+    cut = cut && !opaque;
     // In front of the clouds the composite lays the plume over them, so it
     // carries their dimming itself; behind their front they lie over it.
     bool overClouds = front < orbit_frontCode(cloudFront);
     float3 color = overClouds ? radianceC : radiance;
     float coverage = overClouds ? 1.0 - transmittanceC : 1.0 - transmittance;
     float frontOut = overClouds ? frontC : front;
-    if (coverage <= 1e-5 && max(color.r, max(color.g, color.b)) <= 0.0) { discard_fragment(); }
+    if (!cut && coverage <= 1e-5 && max(color.r, max(color.g, color.b)) <= 0.0) { discard_fragment(); }
     // A2's air in front of the plume.
     if (pf.params.y > 0.5) {
         float depthMean = meanWeight > 0.0 ? meanDepth / meanWeight : 0.5 * (enter + exit);
@@ -1099,7 +1125,7 @@ fragment EffectVolumeOut plume_march_fragment(PlumeProxyOut in [[stage_in]],
     if (orbit_isNotFinite(color) || orbit_isNotFinite(coverage)) { color = float3(0.0); coverage = 0.0; }
     EffectVolumeOut out;
     out.color = float4(orbit_effectRadiance(max(color, float3(0.0))), clamp(coverage, 0.0, 1.0));
-    out.front = float4(frontOut);
+    out.front = float4(frontOut, frontOut, frontOut, orbit_backCode(lastVisible, cut));
     return out;
 }
 

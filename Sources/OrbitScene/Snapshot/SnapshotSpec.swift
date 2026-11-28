@@ -64,6 +64,12 @@ public struct SnapshotSpec: Codable, Equatable {
         public var realTime = 0.0
         /// The NASA photograph the shot is matched against, for the contact sheet.
         public var reference: String?
+        /// Settle mode (decision 7): frames drawn before the shot's, the
+        /// frame index stepping by one each and the effects' clocks still
+        /// (a shot is paused), so that temporal history (C2's clouds) and
+        /// the slots' jitter (`EffectSlots.jitter`) converge; the shot's
+        /// frame is the settled one. 0: the first frame, as before.
+        public var settle = 0
 
         public init(name: String, scenario: String, advance: [String] = [], camera: CameraSpec = CameraSpec()) {
             self.name = name
@@ -74,7 +80,7 @@ public struct SnapshotSpec: Codable, Equatable {
 
         private enum CodingKeys: String, CodingKey {
             case name, scenario, advance, camera, width, height, pointScale, userTextures, showOrbit, settings, aovs
-            case realTime, reference
+            case realTime, reference, settle
         }
 
         public init(from decoder: Decoder) throws {
@@ -92,6 +98,7 @@ public struct SnapshotSpec: Codable, Equatable {
             aovs = try c.decodeIfPresent([DebugView].self, forKey: .aovs) ?? []
             realTime = try c.decodeIfPresent(Double.self, forKey: .realTime) ?? 0
             reference = try c.decodeIfPresent(String.self, forKey: .reference)
+            settle = max(try c.decodeIfPresent(Int.self, forKey: .settle) ?? 0, 0)
         }
     }
 

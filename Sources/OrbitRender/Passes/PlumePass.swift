@@ -60,6 +60,9 @@ public final class PlumeMarchEffect: HalfResEffect {
         fallback = s.device.makeTexture(descriptor: d)
     }
 
+    /// The reconstruction's codes (LR0): its march writes back codes.
+    public var reconstructedLayers: HalfResLayers { [.volumes] }
+
     public func halfResLayers(in f: FrameContext) -> HalfResLayers {
         pipeline != nil && system.noise != nil && system.marches(f) ? .volumes : []
     }

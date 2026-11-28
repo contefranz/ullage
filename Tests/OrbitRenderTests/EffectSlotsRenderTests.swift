@@ -27,7 +27,8 @@ final class EffectSlotsRenderTests: XCTestCase {
         let order = 2_000
         var reads: Set<ResourceID> { [.sceneDepth] }
         static let ids: [ResourceID] = [.sceneDepth, .halfResDepth, .halfResPixelDepths, .halfResClouds,
-                                        .halfResTransparent, .oitAccumulation, .oitRevealage, .halfResFronts]
+                                        .halfResTransparent, .oitAccumulation, .oitRevealage, .halfResFronts,
+                                        .halfResClips]
         var images: [ResourceID: (width: Int, height: Int, format: MTLPixelFormat, buffer: MTLBuffer)] = [:]
 
         func encode(_ f: FrameContext, _ e: PassEncoding) {
@@ -39,7 +40,7 @@ final class EffectSlotsRenderTests: XCTestCase {
                 switch t.pixelFormat {
                 case .rgba32Float: bpp = 16
                 case .rg32Float, .rgba16Float: bpp = 8
-                case .r16Float: bpp = 2
+                case .r16Float, .rg8Unorm: bpp = 2
                 default: bpp = 4
                 }
                 guard let b = f.device.makeBuffer(length: t.width * t.height * bpp, options: .storageModeShared) else {
@@ -70,6 +71,10 @@ final class EffectSlotsRenderTests: XCTestCase {
             case .r16Float:
                 let p = i.buffer.contents().bindMemory(to: UInt16.self, capacity: n)
                 return (i.width, i.height, (0..<n).map { [Double(Float(Float16(bitPattern: p[$0])))] })
+            case .rg8Unorm:
+                // The clip codes, as bytes (0...255).
+                let p = i.buffer.contents().bindMemory(to: UInt8.self, capacity: 2 * n)
+                return (i.width, i.height, (0..<n).map { [Double(p[2 * $0]), Double(p[2 * $0 + 1])] })
             default:
                 let p = i.buffer.contents().bindMemory(to: Float.self, capacity: n)
                 return (i.width, i.height, (0..<n).map { [Double(p[$0])] })
@@ -180,47 +185,206 @@ final class EffectSlotsRenderTests: XCTestCase {
 
     // MARK: Composite
 
-    /// Every pixel's composite is the maths' (upsample weights, the OIT
-    /// resolve, the front order) over the frame without effects, at half
-    /// and full resolution.
-    func testCompositeMatchesTheMaths() throws {
-        for resolution in EffectResolution.allCases {
-            let opaque = try render(Self.shot([Self.column], resolution: resolution))
-            let f = try render(Self.shot([Self.column, Self.slab, Self.cone, Self.sprites], resolution: resolution))
-            let c = f.capture
-            let scene = try XCTUnwrap(c.values(.sceneDepth)), depth = try XCTUnwrap(c.values(.halfResDepth))
-            let clouds = try XCTUnwrap(c.values(.halfResClouds)), volumes = try XCTUnwrap(c.values(.halfResTransparent))
-            let accumulation = try XCTUnwrap(c.values(.oitAccumulation)), revealage = try XCTUnwrap(c.values(.oitRevealage))
-            let fronts = try XCTUnwrap(c.values(.halfResFronts))
-            func p(_ v: [Double]) -> EffectSlots.Premultiplied { .init(v[0], v[1], v[2], v[3]) }
-            var off = 0, covered = 0, worst = 0.0
-            for y in 0..<100 {
-                for x in 0..<160 {
-                    let fp = EffectSlots.upsampleFootprint(pixelX: x, pixelY: y, scale: resolution.scale,
-                                                           width: depth.width, height: depth.height)
-                    let index = fp.texels.map { $0.y * depth.width + $0.x }
-                    let weights = EffectSlots.upsampleWeights(bilinear: fp.bilinear, depths: index.map { depth.texels[$0][0] },
-                                                              depth: scene.texels[y * 160 + x][0], tolerance: 0.1)
-                    let texels = index.map { i in
-                        EffectSlots.Texel(clouds: p(clouds.texels[i]), volumes: p(volumes.texels[i]),
-                                          accumulation: p(accumulation.texels[i]), revealage: revealage.texels[i][0],
-                                          fronts: Array(fronts.texels[i][0..<3]))
+    /// The texels' ends as the composite reads them (`EffectSlots.texelEnded`)
+    /// for pixel (x, y) of `f`, every layer drawn and reconstructed.
+    static func ended(_ f: Frame, texels index: [Int], pixel z: Double) throws -> [Bool] {
+        let depth = try XCTUnwrap(f.capture.values(.halfResDepth)), fronts = try XCTUnwrap(f.capture.values(.halfResFronts))
+        let clips = try XCTUnwrap(f.capture.values(.halfResClips))
+        let near = f.scene.camera.near
+        return index.map { i in
+            EffectSlots.texelEnded(back: fronts.texels[i][3], clouds: Int(clips.texels[i][0]), oit: Int(clips.texels[i][1]),
+                                   texel: EffectSlots.linearDepth(reversedZ: depth.texels[i][0], near: near, pixel: false),
+                                   pixel: EffectSlots.linearDepth(reversedZ: z, near: near, pixel: true),
+                                   drawn: [.clouds, .volumes, .oit], reconstructed: [.clouds, .volumes, .oit])
+        }
+    }
+
+    /// The GPU's composite against the maths', pixel by pixel.
+    struct CompositeReport {
+        var off = 0, covered = 0, worst = 0.0
+        /// Covered pixels by how they were reconstructed.
+        var kinds: [EffectSlots.Reconstruction: Int] = [:]
+        /// Covered pixels whose four texels' depths differ beyond the
+        /// tolerance, by how they were reconstructed, and how depth alone
+        /// would have.
+        var acrossDepths: [EffectSlots.Reconstruction: Int] = [:]
+        var acrossDepthsAlone: [EffectSlots.Reconstruction: Int] = [:]
+    }
+
+    /// Each pixel of `f` against `EffectSlots.compositePixel` over `opaque`
+    /// (the frame without effects), the weights from the depths and the
+    /// writers' codes (`ended`).
+    func composite(_ f: Frame, over opaque: Frame, scale: Int, width: Int = 160, height: Int = 100) throws -> CompositeReport {
+        let c = f.capture
+        let scene = try XCTUnwrap(c.values(.sceneDepth)), depth = try XCTUnwrap(c.values(.halfResDepth))
+        let clouds = try XCTUnwrap(c.values(.halfResClouds)), volumes = try XCTUnwrap(c.values(.halfResTransparent))
+        let accumulation = try XCTUnwrap(c.values(.oitAccumulation)), revealage = try XCTUnwrap(c.values(.oitRevealage))
+        let fronts = try XCTUnwrap(c.values(.halfResFronts))
+        func p(_ v: [Double]) -> EffectSlots.Premultiplied { .init(v[0], v[1], v[2], v[3]) }
+        var out = CompositeReport()
+        for y in 0..<height {
+            for x in 0..<width {
+                let fp = EffectSlots.upsampleFootprint(pixelX: x, pixelY: y, scale: scale, width: depth.width,
+                                                       height: depth.height)
+                let index = fp.texels.map { $0.y * depth.width + $0.x }
+                let z = scene.texels[y * width + x][0], depths = index.map { depth.texels[$0][0] }
+                let r = EffectSlots.reconstruction(bilinear: fp.bilinear, depths: depths, depth: z, tolerance: 0.1,
+                                                   ended: try Self.ended(f, texels: index, pixel: z))
+                let texels = index.map { i in
+                    EffectSlots.Texel(clouds: p(clouds.texels[i]), volumes: p(volumes.texels[i]),
+                                      accumulation: p(accumulation.texels[i]), revealage: revealage.texels[i][0],
+                                      fronts: Array(fronts.texels[i][0..<3]))
+                }
+                let mix = EffectSlots.compositePixel(texels, weights: r.weights, drawn: [.clouds, .volumes, .oit])
+                if mix.a > 0.01 {
+                    out.covered += 1
+                    out.kinds[r.kind, default: 0] += 1
+                    let alone = EffectSlots.reconstruction(bilinear: fp.bilinear, depths: depths, depth: z, tolerance: 0.1,
+                                                           ended: [false, false, false, false])
+                    if scale > 1 && alone.kind != .bilinear {
+                        out.acrossDepths[r.kind, default: 0] += 1
+                        out.acrossDepthsAlone[alone.kind, default: 0] += 1
                     }
-                    let mix = EffectSlots.compositePixel(texels, weights: weights, drawn: [.clouds, .volumes, .oit])
-                    if mix.a > 0.01 { covered += 1 }
-                    let i = 4 * (y * 160 + x)
-                    // BGRA: the composite over the frame without effects.
-                    for (k, channel) in [(2, mix.r), (1, mix.g), (0, mix.b)] {
-                        let want = Self.srgb(channel + (1 - mix.a) * Self.linear(opaque.pixels[i + k]))
-                        let error = abs(want - Double(f.pixels[i + k]))
-                        worst = max(worst, error)
-                        if error > 2.5 { off += 1 }
+                }
+                let i = 4 * (y * width + x)
+                // BGRA: the composite over the frame without effects.
+                for (k, channel) in [(2, mix.r), (1, mix.g), (0, mix.b)] {
+                    let want = Self.srgb(channel + (1 - mix.a) * Self.linear(opaque.pixels[i + k]))
+                    let error = abs(want - Double(f.pixels[i + k]))
+                    out.worst = max(out.worst, error)
+                    if error > 2.5 { out.off += 1 }
+                }
+            }
+        }
+        return out
+    }
+
+    /// Every pixel's composite is the maths' (the reconstruction's weights
+    /// from the depths and the writers' codes, the OIT resolve, the front
+    /// order) over the frame without effects, at half and full resolution,
+    /// around the column and over a floor.
+    func testCompositeMatchesTheMaths() throws {
+        let floor = EffectTestEmitter(.floor, position: [0, 0, -45], size: 4_000)
+        for resolution in EffectResolution.allCases {
+            let opaque = try render(Self.shot([Self.column, floor], resolution: resolution))
+            let f = try render(Self.shot([Self.column, floor, Self.slab, Self.cone, Self.sprites], resolution: resolution))
+            XCTAssertEqual(f.renderer.graph.passes.compactMap { $0 as? HalfResTransparentPass }.first?.reconstructed,
+                           [.clouds, .volumes, .oit])
+            let r = try composite(f, over: opaque, scale: resolution.scale)
+            print("Composite at \(resolution): \(r.covered) pixels covered, by kind \(r.kinds)")
+            XCTAssertGreaterThan(r.covered, 4_000, "\(resolution): the effects cover much of the frame")
+            XCTAssertLessThanOrEqual(r.off, 40, "\(resolution): channels off by more than 2.5/255 (worst \(r.worst))")
+            if resolution == .half {
+                XCTAssertGreaterThan(r.kinds[.renormalised] ?? 0, 0, "the column's edges")
+                XCTAssertGreaterThan(r.kinds[.bilinear] ?? 0, 3 * ((r.kinds[.renormalised] ?? 0) + (r.kinds[.nearest] ?? 0)))
+            }
+        }
+    }
+
+    /// LR0's ramp: a floor seen from 10 m above it, 1.5° down, its depth
+    /// changing 15 % a row and more toward the horizon, the slab (clouds), the
+    /// cone (volumes) and sprites (OIT) wholly in front of it. Every
+    /// covered pixel whose texels' depths differ is reconstructed exactly
+    /// bilinearly from the writers' codes, where depth alone would have
+    /// taken the stairs; and the GPU's composite is the maths'.
+    func testExactlyBilinearInFrontOfARamp() throws {
+        let emitters = Self.rampEmitters
+        var shot = Self.shot(emitters, width: 160, height: 100)
+        shot.camera = SnapshotSpec.CameraSpec(yaw: 30, pitch: 1.5, distance: 150, fov: 40)
+        var bare = shot
+        bare.settings.transparency.testEmitters = [emitters[0]]
+        let f = try render(shot), opaque = try render(bare)
+        // The ramp: depth from row to row across the floor.
+        let scene = try XCTUnwrap(f.capture.values(.sceneDepth))
+        var steep = 0, steeper = 0
+        for y in 1..<100 where scene.texels[y * 160 + 80][0] > 0 && scene.texels[(y - 1) * 160 + 80][0] > 0 {
+            let ratio = scene.texels[y * 160 + 80][0] / scene.texels[(y - 1) * 160 + 80][0]
+            if ratio > 1.15 { steep += 1 }
+            if ratio > 1.3 { steeper += 1 }
+        }
+        XCTAssertGreaterThanOrEqual(steep, 6, "rows whose depth changes over 15 %")
+        XCTAssertGreaterThanOrEqual(steeper, 2, "rows whose depth changes over 30 %")
+        let r = try composite(f, over: opaque, scale: 2)
+        let across = r.acrossDepths.values.reduce(0, +)
+        print("Ramp: \(r.covered) covered, across depths \(r.acrossDepths), by depth alone \(r.acrossDepthsAlone)")
+        XCTAssertGreaterThan(across, 300, "covered pixels whose texels' depths differ")
+        XCTAssertEqual(r.acrossDepths[.bilinear] ?? 0, across, "exactly bilinear")
+        XCTAssertLessThan(r.acrossDepthsAlone[.bilinear] ?? 0, 1, "depth alone: never bilinear there")
+        XCTAssertLessThanOrEqual(r.off, 20, "channels off by more than 2.5/255 (worst \(r.worst))")
+    }
+
+    /// The ramp's emitters: the floor 6 m below the target, the slab 4 m
+    /// above it, the cone level beside it (half a metre above it at its
+    /// widest), sprites over them.
+    static let rampEmitters = [
+        EffectTestEmitter(.floor, position: [0, 0, -6], size: 20_000),
+        EffectTestEmitter(.slab, position: [0, 0, 0], size: 20),
+        EffectTestEmitter(.cone, position: [-30, 15, 2], size: 30, axis: [1, 0, 0]),
+        EffectTestEmitter(.sprites, position: [10, -10, 5], size: 6, count: 8),
+    ]
+
+    /// The writers' codes against the geometry: the slab's clip code is its
+    /// far face in front of the texel's scene, rounded down (cut where the
+    /// column lies in front of that); the cone's back lies behind its last
+    /// visible step and in front of the texel's scene, or is cut; the
+    /// sprites' clip codes where their fade starts.
+    func testWritersReportWhereTheirEffectsEnded() throws {
+        let f = try render(Self.shot([Self.column, Self.slab, Self.cone, Self.sprites], width: 320, height: 200))
+        let depth = try XCTUnwrap(f.capture.values(.halfResDepth)), fronts = try XCTUnwrap(f.capture.values(.halfResFronts))
+        let clips = try XCTUnwrap(f.capture.values(.halfResClips)), clouds = try XCTUnwrap(f.capture.values(.halfResClouds))
+        let volumes = try XCTUnwrap(f.capture.values(.halfResTransparent))
+        let slab = EffectTestScene.slab(Self.slab, in: EffectTargetFrame(scene: f.scene))
+        let cam = f.scene.camera, t = tan(cam.fovY / 2), near = cam.near
+        let aspect = Double(depth.width) / Double(depth.height)
+        var slabCodes = 0, slabCut = 0, coneBacks = 0, coneCut = 0
+        for y in 0..<depth.height {
+            for x in 0..<depth.width {
+                let i = y * depth.width + x
+                let z = depth.texels[i][0], s = z > 0 ? near / z : EffectSlots.skyDistance
+                // The texel's ray, metres per metre of depth.
+                let vx = (2 * (Double(x) + 0.5) / Double(depth.width) - 1) * t * aspect
+                let vy = (1 - 2 * (Double(y) + 0.5) / Double(depth.height)) * t
+                let ray = cam.worldToView.transposed * Vec3(vx, vy, -1)
+                if let exit = Self.boxExit(ray, slab), clouds.texels[i][3] > 1e-3 || clips.texels[i][0] == 0 {
+                    let want = EffectSlots.clipCode(endsAt: exit, sceneDepth: s)
+                    XCTAssertLessThanOrEqual(abs(Int(clips.texels[i][0]) - want), 1, "slab at \(x), \(y)")
+                    if want == 0 { slabCut += 1 } else { slabCodes += 1 }
+                }
+                let back = fronts.texels[i][3]
+                if volumes.texels[i][3] > 0.01 {
+                    if back >= EffectSlots.noFront {
+                        coneCut += 1
+                    } else {
+                        XCTAssertLessThanOrEqual(back, log2(s) + 2 * EffectSlots.backMargin, "cone at \(x), \(y)")
+                        XCTAssertGreaterThan(back, fronts.texels[i][1], "behind its front")
+                        coneBacks += 1
                     }
                 }
             }
-            XCTAssertGreaterThan(covered, 4_000, "\(resolution): the effects cover much of the frame")
-            XCTAssertLessThanOrEqual(off, 40, "\(resolution): channels off by more than 2.5/255 (worst \(worst))")
         }
+        print("Writers: slab \(slabCodes) coded, \(slabCut) cut; cone \(coneBacks) backs, \(coneCut) cut")
+        XCTAssertGreaterThan(slabCodes, 500)
+        XCTAssertGreaterThan(slabCut, 20, "the column cuts the slab")
+        XCTAssertGreaterThan(coneBacks, 200)
+        XCTAssertGreaterThan(clips.texels.filter { $0[1] > 0 && $0[1] < 255 }.count, 50, "the sprites' codes")
+    }
+
+    /// Where a ray (metres per metre of depth, camera-relative) leaves the
+    /// slab's box, in linear depth; nil if it misses.
+    static func boxExit(_ ray: Vec3, _ b: EffectTestScene.Slab) -> Double? {
+        let axes = [b.axes.0, b.axes.1, b.axes.2], h = [b.halfExtents.x, b.halfExtents.y, b.halfExtents.z]
+        var enter = 0.0, exit = Double.infinity
+        for k in 0..<3 {
+            let o = -b.center.dot(axes[k]), d = ray.dot(axes[k])
+            if abs(d) < 1e-12 {
+                if abs(o) > h[k] { return nil }
+                continue
+            }
+            let t0 = (-h[k] - o) / d, t1 = (h[k] - o) / d
+            enter = max(enter, min(t0, t1))
+            exit = min(exit, max(t0, t1))
+        }
+        return exit > enter ? exit : nil
     }
 
     // MARK: Fronts
@@ -533,7 +697,7 @@ final class EffectSlotsRenderTests: XCTestCase {
         let module = ShaderModule(name: "EffectClamp", headers: [.effectSlots], source: """
             kernel void effect_clamp(device float4 *out [[buffer(0)]], constant EffectSlotUniforms &e [[buffer(1)]]) {
                 out[0] = float4(orbit_effectRadiance(float3(1e9, 5e4, 0.25)), 0.0);
-                out[1] = orbit_oitOutput(float4(1e9, 1e9, 1e9, 1.0), 10.0, e).accumulation;
+                out[1] = orbit_oitOutput(float4(1e9, 1e9, 1e9, 1.0), 10.0, 1.0, e).accumulation;
             }
             """)
         let library = try ShaderLibrary(device: device).library(module)
@@ -554,6 +718,134 @@ final class EffectSlotsRenderTests: XCTestCase {
         XCTAssertEqual(v[0], SIMD4(6e4, 5e4, 0.25, 0))
         for k in 0..<3 { XCTAssertLessThanOrEqual(v[1][k], Float(EffectSlots.oitMaxAccumulation)) }
         XCTAssertTrue(v[1].x.isFinite)
+    }
+
+    /// The downsample's depth attachment, which sprites test against, is
+    /// the farthest depth of each texel's upsample footprint
+    /// (`EffectSlots.footprintFarthest` over `footprintPixels`), gathered
+    /// four pixels at a time, on an odd-sized frame whose edges clamp.
+    func testDepthDownsampleWritesTheFootprintsFarthest() throws {
+        let device = try XCTUnwrap(RenderDevice.shared)
+        let (w, h) = (37, 23)
+        let shaders = ShaderLibrary(device: device)
+        // A scene depth of distinct values: a fullscreen pass writing them.
+        let fill = ShaderModule(name: "DepthFill", headers: [], source: """
+            struct FillOut { float4 position [[position]]; };
+            vertex FillOut fill_vertex(uint vid [[vertex_id]]) {
+                float2 p = float2(float((vid << 1) & 2), float(vid & 2));
+                FillOut o;
+                o.position = float4(p * 2.0 - 1.0, 0.0, 1.0);
+                return o;
+            }
+            struct FillDepth { float depth [[depth(any)]]; };
+            fragment FillDepth fill_fragment(FillOut in [[stage_in]]) {
+                uint2 p = uint2(in.position.xy);
+                FillDepth o;
+                o.depth = 0.05 + 0.9 * float((p.x * 7919u + p.y * 104729u) % 997u) / 997.0;
+                return o;
+            }
+            """)
+        func depthTexture(_ width: Int, _ height: Int) -> MTLTexture? {
+            let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .depth32Float, width: width, height: height,
+                                                             mipmapped: false)
+            d.usage = [.renderTarget, .shaderRead]
+            d.storageMode = .private
+            return device.makeTexture(descriptor: d)
+        }
+        func color(_ format: MTLPixelFormat, _ width: Int, _ height: Int) -> MTLTexture? {
+            let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: format, width: width, height: height, mipmapped: false)
+            d.usage = [.renderTarget, .shaderRead]
+            d.storageMode = .private
+            return device.makeTexture(descriptor: d)
+        }
+        let (tw, th) = EffectSlots.targetSize(width: w, height: h, scale: 2)
+        let scene = try XCTUnwrap(depthTexture(w, h)), test = try XCTUnwrap(depthTexture(tw, th))
+        let depths = try XCTUnwrap(color(HalfResFormats.sceneDepth, tw, th))
+        let pixels = try XCTUnwrap(color(HalfResFormats.pixelDepths, tw, th))
+        let fillLibrary = try shaders.library(fill), library = try shaders.library(.halfResTransparent)
+        let fd = MTLRenderPipelineDescriptor()
+        fd.vertexFunction = fillLibrary.makeFunction(name: "fill_vertex")
+        fd.fragmentFunction = fillLibrary.makeFunction(name: "fill_fragment")
+        fd.depthAttachmentPixelFormat = .depth32Float
+        let fillPipeline = try device.makeRenderPipelineState(descriptor: fd)
+        let dd = MTLRenderPipelineDescriptor()
+        dd.vertexFunction = library.makeFunction(name: "effect_fullscreen_vertex")
+        dd.fragmentFunction = library.makeFunction(name: "effect_depth_fragment")
+        dd.colorAttachments[0].pixelFormat = HalfResFormats.sceneDepth
+        dd.colorAttachments[1].pixelFormat = HalfResFormats.pixelDepths
+        dd.depthAttachmentPixelFormat = HalfResFormats.depth
+        let downsample = try device.makeRenderPipelineState(descriptor: dd)
+        let always = MTLDepthStencilDescriptor()
+        always.depthCompareFunction = .always
+        always.isDepthWriteEnabled = true
+        let write = try XCTUnwrap(device.makeDepthStencilState(descriptor: always))
+        let sd = MTLSamplerDescriptor()
+        sd.minFilter = .linear
+        sd.magFilter = .linear
+        sd.sAddressMode = .clampToEdge
+        sd.tAddressMode = .clampToEdge
+        let sampler = try XCTUnwrap(device.makeSamplerState(descriptor: sd))
+        var u = EffectSlotUniforms(size: RenderSize(width: tw, height: th), scale: 2, layers: [.oit],
+                                   settings: TransparencySettings(), reference: 100)
+
+        let queue = try XCTUnwrap(device.makeCommandQueue()), cb = try XCTUnwrap(queue.makeCommandBuffer())
+        let p1 = MTLRenderPassDescriptor()
+        p1.depthAttachment.texture = scene
+        p1.depthAttachment.loadAction = .clear
+        p1.depthAttachment.storeAction = .store
+        let e1 = try XCTUnwrap(cb.makeRenderCommandEncoder(descriptor: p1))
+        e1.setRenderPipelineState(fillPipeline)
+        e1.setDepthStencilState(write)
+        e1.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
+        e1.endEncoding()
+        let p2 = MTLRenderPassDescriptor()
+        p2.colorAttachments[0].texture = depths
+        p2.colorAttachments[0].storeAction = .store
+        p2.colorAttachments[1].texture = pixels
+        p2.colorAttachments[1].storeAction = .store
+        p2.depthAttachment.texture = test
+        p2.depthAttachment.loadAction = .dontCare
+        p2.depthAttachment.storeAction = .store
+        let e2 = try XCTUnwrap(cb.makeRenderCommandEncoder(descriptor: p2))
+        e2.setRenderPipelineState(downsample)
+        e2.setDepthStencilState(write)
+        e2.setFragmentBytes(&u, length: MemoryLayout<EffectSlotUniforms>.stride, index: HalfResTransparentPass.uniformsIndex)
+        e2.setFragmentSamplerState(sampler, index: Binding.linearClampSampler)
+        e2.setFragmentTexture(scene, index: 0)
+        e2.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
+        e2.endEncoding()
+        let sceneOut = try XCTUnwrap(device.makeBuffer(length: w * h * 4, options: .storageModeShared))
+        let testOut = try XCTUnwrap(device.makeBuffer(length: tw * th * 4, options: .storageModeShared))
+        let blit = try XCTUnwrap(cb.makeBlitCommandEncoder())
+        blit.copy(from: scene, sourceSlice: 0, sourceLevel: 0, sourceOrigin: MTLOrigin(),
+                  sourceSize: MTLSize(width: w, height: h, depth: 1), to: sceneOut, destinationOffset: 0,
+                  destinationBytesPerRow: w * 4, destinationBytesPerImage: w * h * 4)
+        blit.copy(from: test, sourceSlice: 0, sourceLevel: 0, sourceOrigin: MTLOrigin(),
+                  sourceSize: MTLSize(width: tw, height: th, depth: 1), to: testOut, destinationOffset: 0,
+                  destinationBytesPerRow: tw * 4, destinationBytesPerImage: tw * th * 4)
+        blit.endEncoding()
+        cb.commit()
+        cb.waitUntilCompleted()
+        XCTAssertNil(cb.error)
+        let z = sceneOut.contents().bindMemory(to: Float.self, capacity: w * h)
+        let got = testOut.contents().bindMemory(to: Float.self, capacity: tw * th)
+        XCTAssertGreaterThan(Set((0..<(w * h)).map { z[$0] }).count, 400, "distinct depths")
+        for ty in 0..<th {
+            for tx in 0..<tw {
+                let footprint = EffectSlots.footprintPixels(x: tx, y: ty, scale: 2, width: w, height: h)
+                let want = EffectSlots.footprintFarthest(footprint.map { Double(z[$0.y * w + $0.x]) })
+                XCTAssertEqual(Double(got[ty * tw + tx]), want, "texel \(tx), \(ty)")
+            }
+        }
+    }
+
+    /// A layer is reconstructed across depths only when every effect that
+    /// draws it reports where its effects ended.
+    func testReconstructedLayers() {
+        XCTAssertEqual(HalfResTransparentPass.reconstructed([([.clouds, .volumes], [.clouds, .volumes]), ([.volumes], [])]),
+                       [.clouds])
+        XCTAssertEqual(HalfResTransparentPass.reconstructed([([.oit], [.oit, .clouds])]), [.oit])
+        XCTAssertEqual(HalfResTransparentPass.reconstructed([]), [])
     }
 
     /// The slots' and the test emitters' Swift mirrors have MSL's sizes.

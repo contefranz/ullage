@@ -221,6 +221,25 @@ final class SnapshotToolTests: XCTestCase {
         XCTAssertEqual(Array(depth[0..<3]), [0, 0, 0])
     }
 
+    /// Settle mode (decision 7): the shot's frame comes after its settling
+    /// frames, the frame index stepped by one each (here the slots' jitter
+    /// moves the test cone's steps), and is the same from run to run.
+    func testSettleMode() throws {
+        let s = try snapper()
+        var shot = SnapshotSpec.Shot(name: "settle", scenario: "leo",
+                                     camera: SnapshotSpec.CameraSpec(yaw: 30, pitch: 10, distance: 120, fov: 40))
+        shot.width = 160
+        shot.height = 100
+        shot.showOrbit = false
+        shot.settings.transparency.testBackdrop = true
+        shot.settings.transparency.testEmitters = [EffectTestEmitter(.cone, position: [0, 0, 32], size: 64)]
+        let first = try s.render(shot)
+        shot.settle = 5
+        let settled = try s.render(shot), again = try s.render(shot)
+        XCTAssertEqual(settled.pixels, again.pixels, "deterministic")
+        XCTAssertNotEqual(settled.pixels, first.pixels, "the settled frame is a later one")
+    }
+
     /// PNGs round-trip exactly; PFMs hold the linear light.
     func testImageFilesRoundTrip() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("orbitsim-image-files")

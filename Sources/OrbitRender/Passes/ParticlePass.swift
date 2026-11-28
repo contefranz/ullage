@@ -120,6 +120,9 @@ public final class ParticleSmokeEffect: HalfResEffect {
                                   fragment: "particle_smoke_fragment", layer: .oit)
     }
 
+    /// The reconstruction's codes (LR0): its smoke writes clip codes.
+    public var reconstructedLayers: HalfResLayers { [.oit] }
+
     public func halfResLayers(in f: FrameContext) -> HalfResLayers {
         pipeline != nil && system.draws(.smoke, in: f) ? .oit : []
     }
