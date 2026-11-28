@@ -92,6 +92,7 @@ public final class ApolloSCS: FlightProgram, DeltaVCounting, GuidanceComputerHos
         if !smGone && !v.parts.contains(where: { $0.name == "SM" }) {
             smGone = true
             gnAuto = false   // the CM's entry program flies it now
+            computer.endFlight()
             sim.log("\(v.name): SM gone, \(successor == nil ? "SCS holds the CM" : "entry program")")
         }
         if smGone, let next = successor {
@@ -154,9 +155,20 @@ public final class ApolloSCS: FlightProgram, DeltaVCounting, GuidanceComputerHos
         return true
     }
 
+    /// 8 on the CSM: the SCS holds the attitude the vessel has now, whoever
+    /// commanded the hold before (G&N AUTO, or a scenario's standing
+    /// command, as Apollo 7's deorbit sets one).
+    public func holdAttitude(_ v: Vessel, in sim: Simulation) {
+        clearGNAuto(v, in: sim)
+        v.attitudeCommand = nil
+        v.autopilot = .attitudeHold
+        v.resetAttitudeReference()
+    }
+
     /// Hand the attitude back to the SCS (8): the hold captures the
     /// attitude now.
     public func clearGNAuto(_ v: Vessel, in sim: Simulation, reason: String = "SCS hold") {
+        computer.cancelAutoManeuverRequest()   // the pilot's choice wins over a Return not yet acted on
         guard gnAuto else { return }
         gnAuto = false
         v.attitudeCommand = nil
@@ -281,6 +293,7 @@ public final class ApolloSCS: FlightProgram, DeltaVCounting, GuidanceComputerHos
         if let dv = deltaVRemaining { line += String(format: ", ΔV %.1f m/s", dv) }
         if spsBurning(v) { line += computer.ownsThrust ? ", SPS on (CMC)" : ", SPS on" }
         if gnAuto { line += ", G&N AUTO" }
+        if let prompt = computer.flashingPrompt { line += " · CMC " + prompt }
         if armedAt != nil { line += ", CM/SM SEP armed" }
         return line
     }

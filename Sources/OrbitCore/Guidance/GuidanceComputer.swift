@@ -120,11 +120,20 @@ public protocol GuidanceComputer: AnyObject {
     /// The burn loaded (P30's), which the navball's marker and the HUD show;
     /// nil when none.
     var load: ManeuverPlan? { get }
+    /// A host steps the computer, so it can fly the vehicle; false while it
+    /// only observes (on the Saturn stack, after the SM has gone).
+    var controlsVehicle: Bool { get }
+    /// The major mode it runs (P00, P30...), whatever the display shows.
+    var program: Int { get }
     /// A key pressed on the DSKY at `now`.
     func press(_ key: DSKYKey, at now: Epoch)
     /// A load from the ground at `now`; it lands in the program that takes
     /// it, or is refused.
     func uplink(_ plan: ManeuverPlan, at now: Epoch) -> UplinkResult
+    /// The ground's CLR: drop the load while no program flies it; false when
+    /// one does (or there is none).
+    @discardableResult
+    func clearLoad(at now: Epoch) -> Bool
     /// One control step of `vessel` at `sim.time`.
     func update(_ vessel: Vessel, in sim: Simulation)
     /// `vessel`'s state for the displays where no host steps the computer

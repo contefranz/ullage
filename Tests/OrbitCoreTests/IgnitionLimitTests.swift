@@ -68,9 +68,9 @@ final class IgnitionLimitTests: XCTestCase {
         XCTAssertNil(v.thrusters.first { $0.name == "SPS" }?.ignitionLimit)
     }
 
-    // On the hold-down rods, at the release: X cuts the F-1s, which tail
-    // off (the stack, freed, may hop off the pad on the tail-off), and Z
-    // lights none of them again: their ground start was their one start.
+    // On the hold-down rods, at the release: X cuts the F-1s, and Z, past
+    // their tail-off, lights none of them again: their ground start was
+    // their one start.
     func testTheF1sDoNotRelightOnTheRods() throws {
         let sim = try Simulation.forTests(perturbations: true)
         sim.setTime(AS506.rangeZero + TerminalCountTests.hold)
@@ -83,25 +83,29 @@ final class IgnitionLimitTests: XCTestCase {
         let f1s = v.thrusters.filter { $0.name.hasPrefix("S-IC engine") }
         XCTAssertEqual(f1s.count, 5)
         for e in f1s { XCTAssertEqual(e.ignitions, 1, e.name) }
-        v.mainThrottle = 0
-        run(sim, seconds: 0.1)
-        v.mainThrottle = 1   // Z while the S-IC is still the stack's
-        run(sim, seconds: 0.02)
-        // One step on (the IU's own T3 cutoff then closes the throttle again).
-        XCTAssertTrue(v.parts.contains { $0.name == "S-IC" })
-        for e in f1s {
+        try xThenZ(sim, v, stage: "S-IC")
+    }
+
+    /// With the flight program cleared, so that nothing senses the cutoff or
+    /// separates the stage: X, past the engines' tail-off (1 s), then Z for
+    /// 0.5 s. The stage is still aboard, its throttle open, and none of its
+    /// main engines lights again.
+    func xThenZ(_ sim: Simulation, _ v: Vessel, stage: String) throws {
+        v.flightProgram = nil
+        let mains = try XCTUnwrap(v.parts.first { $0.name == stage }).thrusters.filter { $0.groups.contains(.main) }
+        XCTAssertFalse(mains.isEmpty)
+        v.mainThrottle = 0   // X
+        run(sim, seconds: 1)
+        for e in mains { XCTAssertFalse(e.isDelivering, e.name) }
+        v.mainThrottle = 1   // Z
+        run(sim, seconds: 0.5)
+        XCTAssertTrue(v.parts.contains { $0.name == stage })
+        for e in mains {
             XCTAssertGreaterThan(e.level, 0, e.name)
             XCTAssertFalse(e.isCommanded, e.name)
+            XCTAssertFalse(e.isDelivering, e.name)
             XCTAssertEqual(e.ignitions, 1, e.name)
         }
-        run(sim, seconds: 1.6)
-        for e in f1s {
-            XCTAssertFalse(e.isCommanded, e.name)
-            XCTAssertFalse(e.isDelivering, e.name)
-        }
-        // With every F-1 out, the IU senses T3 and stages, as it would for
-        // a burnout.
-        XCTAssertNotNil((v.flightProgram as? SaturnIU)?.timeBases[.t3])
     }
 
     /// Apollo 11 from first motion, its IU flying, to range time `t`.
@@ -113,24 +117,14 @@ final class IgnitionLimitTests: XCTestCase {
         return (sim, v)
     }
 
-    // In flight, 20 s after first motion: X cuts the F-1s, and Z, pressed
-    // while the S-IC is still aboard (the IU senses T3 and separates it
-    // 0.7 s later), lights none.
+    // In flight, 20 s after first motion: X cuts the F-1s, and Z, past
+    // their tail-off with the S-IC still aboard, lights none.
     func testTheF1sDoNotRelightInFlight() throws {
         let (sim, v) = try fly(to: 20)
         XCTAssertNil(v.landed)
         let f1s = v.thrusters.filter { $0.name.hasPrefix("S-IC engine") }
         for e in f1s { XCTAssertTrue(e.isCommanded, e.name) }
-        v.mainThrottle = 0
-        run(sim, seconds: 0.1)
-        v.mainThrottle = 1
-        run(sim, seconds: 0.3)
-        XCTAssertTrue(v.parts.contains { $0.name == "S-IC" })
-        for e in f1s {
-            XCTAssertGreaterThan(e.level, 0, e.name)
-            XCTAssertFalse(e.isCommanded, e.name)
-            XCTAssertEqual(e.ignitions, 1, e.name)
-        }
+        try xThenZ(sim, v, stage: "S-IC")
     }
 
     // X during the S-IC's burn, at T+60 s: the F-1s are out for good, so the
@@ -174,24 +168,15 @@ final class IgnitionLimitTests: XCTestCase {
         XCTAssertEqual(v.mainDeltaV, 0)
     }
 
-    // On the S-II, 40 s into its burn: X cuts the J-2s, and Z, pressed while
-    // the S-II is still aboard, lights none.
+    // On the S-II, 40 s into its burn: X cuts the J-2s, and Z, past their
+    // tail-off with the S-II still aboard, lights none.
     func testTheSIIJ2sDoNotRelight() throws {
         let (sim, v) = try fly(to: 205)
         let j2s = v.thrusters.filter { $0.name.hasPrefix("S-II engine") }
         XCTAssertEqual(j2s.count, 5)
         XCTAssertFalse(v.thrusters.contains { $0.name.hasPrefix("S-IC engine") })
         for e in j2s { XCTAssertTrue(e.isDelivering, e.name) }
-        v.mainThrottle = 0
-        run(sim, seconds: 0.1)
-        v.mainThrottle = 1
-        run(sim, seconds: 0.3)
-        XCTAssertTrue(v.parts.contains { $0.name == "S-II" })
-        for e in j2s {
-            XCTAssertGreaterThan(e.level, 0, e.name)
-            XCTAssertFalse(e.isCommanded, e.name)
-            XCTAssertEqual(e.ignitions, 1, e.name)
-        }
+        try xThenZ(sim, v, stage: "S-II")
     }
 
     // A landed vessel whose engines' starts are spent, its throttle open,

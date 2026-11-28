@@ -198,6 +198,8 @@ final class AppModel: ObservableObject {
         // Measure the achieved warp afresh after a pause or a change of warp.
         if sim.paused || sim.warp != rateWindow.warp { rateWindow = RateWindow(warp: sim.warp) }
 
+        // The computer reads TIG on the mission clock.
+        if let cmc = sim.focus?.guidanceComputer as? CMCLite { cmc.clockZero = missionClockZero(sim) }
         let wasLanded = sim.focus?.landed != nil
         let frameStart = sim.time
         sim.advance(by: dt)
@@ -229,6 +231,9 @@ final class AppModel: ObservableObject {
     }
 
     private func handleKeys(sim: Simulation, dt: Double) {
+        // The MFDs' keys first, so the CMC page's digits are in before a
+        // Return pressed after them.
+        MFDModel.shared(for: self).takeKeys()
         let pressed = input.takePressed()
         for key in pressed {
             // F, then a digit: the key after F is the capture's. A digit fails
@@ -245,49 +250,71 @@ final class AppModel: ObservableObject {
                 }
                 if key == .escape || key == .f { continue }
             }
-            if instruments.handle(key, sim: sim) { continue }
-            switch key {
-            case .h: showHelp.toggle()
-            case .m: showOrbit.toggle()
-            case .p: sim.paused.toggle()
-            case .period: setWarp(step: +1, sim: sim)
-            case .comma: setWarp(step: -1, sim: sim)
-            case .slash: sim.warp = 1
-            case .c: cycleCameraTarget(sim: sim)
-            case .v: cycleCameraFrame()
-            case .leftBracket: cycleFocus(sim: sim, by: -1)
-            case .rightBracket: cycleFocus(sim: sim, by: +1)
-            case .f9: cycleDebugView(sim: sim)
-            case .f10: renderSettings.debug.showPassTimings.toggle()
-            case .b: renderSettings.plume.readable.toggle()
-            case .f12: snapshotRequested = true
+            // Every unshifted key through the flight key map.
+            guard let command = FlightKeyMap.command(for: key) else { continue }
+            switch command {
+            case .speedMode, .target, .hudVisibility:
+                _ = instruments.handle(key, sim: sim)
+                continue
+            case .help: showHelp.toggle()
+            case .orbitLine: showOrbit.toggle()
+            case .pause: sim.paused.toggle()
+            case .warpUp: setWarp(step: +1, sim: sim)
+            case .warpDown: setWarp(step: -1, sim: sim)
+            case .warpReset: sim.warp = 1
+            case .cameraTarget: cycleCameraTarget(sim: sim)
+            case .cameraFrame: cycleCameraFrame()
+            case .previousVessel: cycleFocus(sim: sim, by: -1)
+            case .nextVessel: cycleFocus(sim: sim, by: +1)
+            case .debugView: cycleDebugView(sim: sim)
+            case .passTimings: renderSettings.debug.showPassTimings.toggle()
+            case .readablePlumes: renderSettings.plume.readable.toggle()
+            case .snapshot: snapshotRequested = true
             default: break
             }
             guard let v = sim.focus, v.status != .crashed else { continue }
-            switch key {
-            case .space: stageOrBackUpELS(v, sim: sim)
-            case .digit9: cycleEntryMode(of: v, sim: sim)
-            case .z: v.mainThrottle = 1
-            case .x: v.mainThrottle = 0
-            case .t: v.autopilot = v.autopilot == .killRotation ? nil : .killRotation
-            case .f:
+            // A pointing mode, kill rotation or 0 on the CSM ends G&N AUTO
+            // (and a Return at V50N18 not yet acted on) at once.
+            if [.killRotation, .prograde, .retrograde, .normal, .antinormal, .radialOut, .radialIn, .horizonLevel,
+                .autopilotOff].contains(command) {
+                (v.flightProgram as? ApolloSCS)?.clearGNAuto(v, in: sim, reason: command.rawValue)
+            }
+            switch command {
+            case .stage: stageOrBackUpELS(v, sim: sim)
+            case .entryMode: cycleEntryMode(of: v, sim: sim)
+            case .throttleOn: if pilotThrottles(v, sim: sim) { v.mainThrottle = 1 }
+            case .throttleOff: if pilotThrottles(v, sim: sim) { v.mainThrottle = 0 }
+            case .killRotation: v.autopilot = v.autopilot == .killRotation ? nil : .killRotation
+            case .failEngine:
                 if let stage = Self.failableStage(of: v) { failureCapture = (v, stage.part, stage.engines) }
-            case .digit1: v.autopilot = .prograde
-            case .digit2: v.autopilot = .retrograde
-            case .digit3: v.autopilot = .normal
-            case .digit4: v.autopilot = .antinormal
-            case .digit5: v.autopilot = .radialOut
-            case .digit6: v.autopilot = .radialIn
-            case .digit7: v.autopilot = .horizonLevel
-            case .digit8: v.autopilot = .attitudeHold
-            case .digit0: v.autopilot = nil
+            case .prograde: v.autopilot = .prograde
+            case .retrograde: v.autopilot = .retrograde
+            case .normal: v.autopilot = .normal
+            case .antinormal: v.autopilot = .antinormal
+            case .radialOut: v.autopilot = .radialOut
+            case .radialIn: v.autopilot = .radialIn
+            case .horizonLevel: v.autopilot = .horizonLevel
+            case .attitudeHold:
+                // On the CSM, the SCS's hold of the attitude now, whoever
+                // commanded the hold before; elsewhere the hold (the IU's
+                // command on the Saturn stack).
+                if let scs = v.flightProgram as? ApolloSCS, v.parts.contains(where: { $0.name == "SM" }) {
+                    scs.holdAttitude(v, in: sim)
+                } else {
+                    v.autopilot = .attitudeHold
+                }
+            case .autopilotOff: v.autopilot = nil
+            case .computerKey: v.guidanceComputer?.press(.returnKey, at: sim.time)
+            case .gnAuto: selectGNAuto(v, sim: sim)
             default: break
             }
         }
 
         guard let v = sim.focus else { return }
-        if input.isHeld(.equal) { v.mainThrottle = min(1, v.mainThrottle + 0.5 * dt) }
-        if input.isHeld(.minus) { v.mainThrottle = max(0, v.mainThrottle - 0.5 * dt) }
+        if v.flightProgram?.allowsPilotThrottle(of: v) ?? true {
+            if input.isHeld(.equal) { v.mainThrottle = min(1, v.mainThrottle + 0.5 * dt) }
+            if input.isHeld(.minus) { v.mainThrottle = max(0, v.mainThrottle - 0.5 * dt) }
+        }
 
         // The RCS keys: a tap fires one pulse, a key held past the hold delay
         // fires on until it goes up; with Control both are fine.
@@ -318,6 +345,26 @@ final class AppModel: ObservableObject {
                 if entryRoll { pulse.rotation.roll = 0 }
                 v.firePilotPulse(rotation: pulse.rotation, translation: pulse.translation, duration: pulse.duration)
             }
+        }
+    }
+
+    /// Whether the throttle keys may set `v`'s main throttle now (its
+    /// program may own the engines); logged when refused.
+    private func pilotThrottles(_ v: Vessel, sim: Simulation) -> Bool {
+        guard let program = v.flightProgram, !program.allowsPilotThrottle(of: v) else { return true }
+        sim.log("\(v.name): throttle refused, the \(Self.programLabel(v)) has the engines")
+        return false
+    }
+
+    /// G: G&N AUTO. On the CSM the computer's attitude (`ApolloSCS`); on the
+    /// Saturn stack the IU's (the same as 8 there); elsewhere refused.
+    private func selectGNAuto(_ v: Vessel, sim: Simulation) {
+        if let scs = v.flightProgram as? ApolloSCS, v.parts.contains(where: { $0.name == "SM" }) {
+            scs.selectGNAuto(v, in: sim)
+        } else if v.flightProgram is SaturnIU {
+            v.autopilot = .attitudeHold
+        } else {
+            sim.log("\(v.name): G&N AUTO refused, no computer attitude")
         }
     }
 

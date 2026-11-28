@@ -101,6 +101,8 @@ final class ExternalDeltaVTests: XCTestCase {
         // CM/SM separation at 259:43:33.8, then entry interface.
         f.fly(to: ApolloCSM.apollo7CMSMSeparation)
         XCTAssertNotNil(f.sim.stage(f.v, event: 7))
+        f.fly(to: f.get + 0.1)
+        XCTAssertFalse(f.scs.gnAuto, "the entry program flies the CM")
         var ei: (get: Double, speed: Double, gamma: Double)?
         var previous = (get: f.get, altitude: f.v.altitude, speed: f.v.velocity.length, gamma: f.state().gamma)
         let interface = ApolloCSM.apollo7EntryInterface.altitude * ft
@@ -158,7 +160,11 @@ final class ExternalDeltaVTests: XCTestCase {
         let r0 = try XCTUnwrap(cmc.residuals)
         print(String(format: "P41 at TIG: N85 %+.2f %+.2f %+.2f ft/s", r0.x / ft, r0.y / ft, r0.z / ft))
         XCTAssertEqual(r0.length, 3 * ft, accuracy: 0.1 * ft)
-        XCTAssertTrue(f.scs.warpEvents(after: f.sim.time).isEmpty)   // P41 at TIG: no caps
+        // P41 at TIG: 1x to TIG+5 s, then 10x while the crew thrusts.
+        func lowest() -> Double {
+            f.scs.warpEvents(after: f.sim.time).filter { $0.holds(at: f.sim.time) }.map(\.maxWarp).min() ?? .infinity
+        }
+        XCTAssertEqual(lowest(), 1)
 
         // Hold U past zero, then tap back.
         f.v.setPilotInput(rotation: RotationCommand(), translation: Vec3(1, 0, 0))
@@ -183,7 +189,10 @@ final class ExternalDeltaVTests: XCTestCase {
         let command = try XCTUnwrap(cmc.attitudeCommand).attitude
         XCTAssertLessThan(rotationVector(held.conjugate * command).length / deg, 1e-9)
         XCTAssertLessThan(rotationVector(held.conjugate * f.v.attitude).length / deg, 1)
-        f.press(.returnKey, .returnKey)
+        XCTAssertEqual(lowest(), 10)
+        f.press(.returnKey)   // N44: no caps
+        XCTAssertTrue(f.scs.warpEvents(after: f.sim.time).isEmpty)
+        f.press(.returnKey)
         XCTAssertEqual(cmc.program, 0)
         XCTAssertNil(cmc.load)
     }

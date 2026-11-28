@@ -111,3 +111,49 @@ public struct ManeuverPlan: Equatable {
     /// The thrust direction, ICRF.
     public var direction: Vec3 { deltaV.normalized }
 }
+
+extension ManeuverPlan {
+    /// A deorbit plan's Δv in P30's LVLH frame at its centred ignition, the
+    /// load's TIG (the planner gives it at the impulsive TIG, half the burn
+    /// later: re-keyed there, it would turn by the orbital rate times that).
+    public static func centredLocal(_ plan: DeorbitPlanner.Plan, mu: Double) -> Vec3 {
+        guard let bt = plan.burnTime else { return plan.deltaVLocal }
+        let atIgnition = Kepler.propagate(plan.preBurn, mu: mu, by: -bt / 2)
+        return DeorbitPlanner.localVerticalFrame(atIgnition) * plan.deltaV
+    }
+
+    /// What `v`'s main engines still give after a cutoff signal, m/s: each
+    /// one's vacuum thrust falling linearly to nothing over its shutdown
+    /// time, at `mass` (the mass at the cutoff; `v`'s now by default).
+    public static func tailOff(of v: Vessel, mass: Double? = nil) -> Double {
+        let mains = v.activeStage?.thrusters.filter { $0.groups.contains(.main) && $0.isAvailable && !$0.isSolid } ?? []
+        let impulse = mains.reduce(0) { $0 + $1.maxThrustVacuum * ($1.transients?.shutdown ?? 0) / 2 }
+        return impulse / max(mass ?? v.mass, 1e-9)
+    }
+
+    /// A deorbit plan (`DeorbitPlanner`) as the load DEORBIT's SET uplinks:
+    /// TIG the centred ignition (the impulsive one without a burn time), the
+    /// plan's Δv on the active stage's main engines (the SPS) or the RCS
+    /// when it has none, heads down, the EMS counter's setting ΔVC the Δv
+    /// less `v`'s tail-off at the burn's end, and the orbits without and
+    /// with the burn; solved from `v`'s state at `stateEpoch`.
+    public init(deorbit plan: DeorbitPlanner.Plan, vessel v: Vessel, stateEpoch: Epoch, name: String = "DEORBIT") {
+        let hasMain = v.activeStage?.thrusters.contains { $0.groups.contains(.main) && $0.isAvailable && !$0.isSolid }
+            ?? false
+        let r = v.reference.radius
+        let before = OrbitalElements(position: plan.preBurn.position, velocity: plan.preBurn.velocity,
+                                     mu: v.reference.gm)
+        let after = plan.postBurnElements
+        let endMass = v.mass - (plan.propellantMass ?? 0)
+        self.init(name: name, engine: hasMain ? .sps : .rcs, ignition: plan.centredIgnition ?? plan.ignition,
+                  deltaV: plan.deltaV, deltaVLocal: Self.centredLocal(plan, mu: v.reference.gm),
+                  burnTime: plan.burnTime, headsUp: false,
+                  deltaVCounter: plan.deltaVMagnitude - (hasMain ? Self.tailOff(of: v, mass: endMass) : 0),
+                  without: Prediction(apoapsisAltitude: before.isBound ? before.apoapsisRadius - r : nil,
+                                      periapsisAltitude: before.periapsisRadius - r),
+                  with: Prediction(apoapsisAltitude: after.isBound ? after.apoapsisRadius - r : nil,
+                                   periapsisAltitude: after.periapsisRadius - r,
+                                   entry: plan.entry.map { ($0.time, $0.inertialFlightPathAngle) }),
+                  stateEpoch: stateEpoch, source: .deorbit)
+    }
+}

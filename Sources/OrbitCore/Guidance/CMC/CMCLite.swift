@@ -91,6 +91,8 @@ public final class CMCLite: GuidanceComputer {
     public private(set) var scsBurn = false
     private var pendingCutoff: Epoch?
     private var autoManeuverRequested = false
+    /// The SPS has burned on the SCS while a load waited outside P40/P41.
+    private var scsBurnSeen = false
     private var lamps: DSKYDisplay.Lamps = []
     private var reason: String?
     /// The digits keyed and their sign.
@@ -132,6 +134,7 @@ public final class CMCLite: GuidanceComputer {
         var state: Kepler.State
         var mu: Double
         var radius: Double
+        var body: CelestialBody
         var attitude: Quat
         var controlFrame: Quat
         var mass: Double
@@ -143,10 +146,30 @@ public final class CMCLite: GuidanceComputer {
 
     // MARK: Host interface
 
+    /// Withdraw a request for G&N AUTO not yet taken (the pilot chose 8 or
+    /// a pointing mode before the host's next step).
+    public func cancelAutoManeuverRequest() { autoManeuverRequested = false }
+
     /// Return at V50N18 asked for G&N AUTO since the last call.
     public func takeAutoManeuverRequest() -> Bool {
         defer { autoManeuverRequested = false }
         return autoManeuverRequested
+    }
+
+    /// A host steps the computer, so it can fly the vehicle (false on the
+    /// Saturn stack, where it only observes, and once the SM has gone).
+    public var controlsVehicle: Bool { stepping }
+
+    /// The flight ends for this computer (the SM has gone): any program is
+    /// left for P00 and the load goes.
+    public func endFlight() {
+        guard program != 0 || load != nil else { return }
+        if let l = load { note("CMC: \(l.name) load cleared, the SM has gone") }
+        load = nil
+        keyedTIG = nil
+        keyedDeltaV = nil
+        clearKeys()
+        finish(keepLoad: true)
     }
 
     /// G at V50N18: the crew's consent to slew, as Return gives it.
@@ -165,7 +188,7 @@ public final class CMCLite: GuidanceComputer {
     /// TIG.
     public func nextEvent(at now: Epoch) -> (name: String, at: Epoch)? {
         if let c = pendingCutoff { return ("SPS cutoff (CMC)", c) }
-        if let l = load, ignition == nil, l.ignition > now { return ("TIG \(l.name)", l.ignition) }
+        if let l = load, ignition == nil, l.ignition > now { return ("\(l.name) TIG", l.ignition) }
         return nil
     }
 
@@ -187,6 +210,19 @@ public final class CMCLite: GuidanceComputer {
         lamps.insert(.uplinkActivity)
         note("CMC: \(plan.name) uplink accepted, P30")
         return .accepted
+    }
+
+    /// In P00, or P30 checking it, the load goes and the program is P00.
+    @discardableResult
+    public func clearLoad(at now: Epoch) -> Bool {
+        guard load != nil, program == 0 || program == 30 else { return false }
+        load = nil
+        keyedTIG = nil
+        keyedDeltaV = nil
+        clearKeys()
+        finish(keepLoad: true)
+        note("CMC: load cleared by the ground")
+        return true
     }
 
     public func press(_ key: DSKYKey, at now: Epoch) {
@@ -259,6 +295,7 @@ public final class CMCLite: GuidanceComputer {
             flushLog()
         }
         situation = Situation(v, at: now)
+        watchSCSBurn(v)
         switch program {
         case 40, 41: updateBurn(v, in: sim, now: now)
         case 47: monitor?.sense(v, in: sim, now: now)
@@ -290,7 +327,9 @@ public final class CMCLite: GuidanceComputer {
     /// lit (late, or longer than planned) until its cutoff.
     public func warpEvents(after now: Epoch) -> [WarpEvent] {
         guard let l = load, cutoff == nil else { return [] }
-        if program == 41, ignition != nil { return [] }   // P41 at TIG: the crew thrusts, at any warp
+        // P41 after its TIG: the caps (1x to TIG+5 s, then 10x) while the
+        // crew thrusts at N85; none from N44.
+        if program == 41, ignition != nil, step != .residuals { return [] }
         let tig = l.ignition
         var end = tig + ((l.burnTime ?? 0) + 30)
         if ignition != nil { end = max(end, now + 60) }
@@ -507,7 +546,10 @@ public final class CMCLite: GuidanceComputer {
             error(tig > s.time ? "NO DV" : "TIG PASSED")
             return false
         }
-        let atTIG = Kepler.propagate(s.state, mu: s.mu, by: tig - s.time)
+        // The LVLH frame at TIG on the vacuum coast with J2, as DEORBIT plans
+        // on it: N81 re-keyed as shown is the same burn.
+        let pole = sim?.snapshot.orientation(s.body).pole ?? .unitZ
+        let atTIG = VacuumCoast(body: s.body, pole: pole).propagate(s.state, by: tig - s.time)
         let dv = DeorbitPlanner.localVerticalFrame(atTIG).transposed * local
         let engine: ManeuverPlan.Engine = local.length <= Self.rcsBelow ? .rcs : .sps
         var bt: Double?
@@ -521,11 +563,16 @@ public final class CMCLite: GuidanceComputer {
         plan.deltaV = dv
         plan.deltaVLocal = local
         plan.engine = engine
-        plan.burnTime = bt ?? plan.burnTime
         if keyedDeltaV != nil || keyedTIG != nil {
+            // Re-keyed: the ground's figures for its burn no longer hold. Its
+            // burn time is worked out here, or by P40 on the CSM (nil).
+            plan.burnTime = bt
             plan.source = .keyed
             plan.stateEpoch = s.time
             plan.attitude = nil
+            plan.deltaVCounter = nil
+            plan.without = nil
+            plan.with = nil
         }
         load = plan
         keyedTIG = nil
@@ -604,6 +651,28 @@ public final class CMCLite: GuidanceComputer {
     private func toResiduals(_ b: ExternalDeltaVSteering) {
         b.freeze()
         step = .residuals
+    }
+
+    /// Outside P40 and P41, a load is flown on the SCS (Z, the EMS cutting
+    /// off) when the SPS burns after TIG−30 s: once that burn is over the
+    /// load goes, and the program is P00.
+    private func watchSCSBurn(_ v: Vessel) {
+        guard program != 40, program != 41, let l = load, let t = situation?.time else {
+            scsBurnSeen = false
+            return
+        }
+        if spsDelivering(v) {
+            if t >= l.ignition + -ExternalDeltaVSteering.averageGLead { scsBurnSeen = true }
+        } else if scsBurnSeen {
+            scsBurnSeen = false
+            note("CMC: \(l.name) flown on the SCS, load cleared")
+            load = nil
+            guard program != 47 else { return }   // P47 keeps its N83 for the crew
+            keyedTIG = nil
+            keyedDeltaV = nil
+            clearKeys()
+            finish(keepLoad: true)
+        }
     }
 
     private func ignite(_ v: Vessel, now: Epoch, tig: Epoch) {
@@ -784,6 +853,17 @@ public final class CMCLite: GuidanceComputer {
         return d
     }
 
+    /// The display in one line while it flashes ("P40 V99N40 ENABLE ENGINE
+    /// IGNITION? RETURN"), for the HUD to repeat; nil otherwise.
+    public var flashingPrompt: String? {
+        let d = display
+        guard d.flashing else { return nil }
+        let vn = [d.verb.map { String(format: "V%02d", $0) }, d.noun.map { String(format: "N%02d", $0) }]
+            .compactMap { $0 }.joined()
+        return [d.program.map { String(format: "P%02d", $0) }, vn.isEmpty ? nil : vn, d.prompt]
+            .compactMap { $0 }.joined(separator: " ")
+    }
+
     /// VG in the crew's body axes (Apollo X, Y, Z), m/s.
     public var residuals: Vec3? {
         guard let b = burn, let s = situation else { return nil }
@@ -826,7 +906,8 @@ extension CMCLite.Situation {
     init(_ v: Vessel, at now: Epoch) {
         let sps = v.thrusters.first { $0.name == "SPS" && $0.isAvailable }
         self.init(time: now, state: Kepler.State(position: v.position, velocity: v.velocity), mu: v.reference.gm,
-                  radius: v.reference.radius, attitude: v.attitude, controlFrame: v.controlFrame, mass: v.mass,
+                  radius: v.reference.radius, body: v.reference, attitude: v.attitude, controlFrame: v.controlFrame,
+                  mass: v.mass,
                   sps: sps.map { ($0.maxThrustVacuum, $0.ispVacuum) })
     }
 }

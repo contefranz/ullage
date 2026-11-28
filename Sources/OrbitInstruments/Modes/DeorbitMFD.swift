@@ -16,13 +16,30 @@ import OrbitCore
 ///   equatorial radius, as ORBIT gives them);
 /// - the predicted EI: time, speed, angle and place.
 ///
-/// SET loads the Δv into the vessel's ΔV counter (`DeltaVCounting`, the
-/// Apollo SCS's EMS counter), which cuts the engine off when it has counted
-/// the Δv down, and the burn into the navball's manoeuvre marker
-/// (`ActiveManeuver`); CLR clears both. Both do nothing on a vessel
-/// without one.
+/// SET loads the plan into the core (docs/m2/design-flight-controls.md §4):
+/// - an uplink of the burn (`ManeuverPlan(deorbit:)`) to the vessel's
+///   computer, when the computer flies the vehicle (not the CM's standby
+///   computer on a Saturn stack), which lands in its P30 when it is in P00
+///   with UP TLM at ACCEPT;
+/// - the vessel's ΔV counter (`DeltaVCounting`, the Apollo SCS's EMS
+///   counter) with ΔVC, the Δv less the engine's tail-off (decision 10),
+///   which cuts the engine off on Z when it has counted it down;
+/// - the burn into the navball's manoeuvre marker (`ActiveManeuver`).
+/// With a computer it is all or nothing: a refused uplink changes nothing
+/// (the page says so, and why). CLR clears the counter and the marker, and
+/// the computer's load if it is DEORBIT's and no program flies it; while
+/// P40 or P41 has it, CLR is refused and changes nothing. Both do nothing
+/// on a vessel with neither a computer nor a counter.
 /// Once TIG has passed, the page plans from now: its Δv is the Δv still to
 /// go to the target.
+///
+/// The planner burns retrograde only (Franz, 2026-11-23): it cannot
+/// reproduce a historical burn that was not retrograde. Apollo 7's SPS-8
+/// pointed 54° from retrograde (53° below the horizontal), and DEORBIT's
+/// best PAD for its entry angle reaches entry interface 150 s later and
+/// 91 ft/s slower than the flight;
+/// fly such burns from a PAD keyed by hand into the CMC's P30
+/// (docs/m2/design-flight-controls.md §7).
 public final class DeorbitMFD: MFDMode {
     public enum Target: Hashable, Sendable {
         /// The inertial flight-path angle at EI, rad (negative).
@@ -47,13 +64,24 @@ public final class DeorbitMFD: MFDMode {
     /// The centred ignition of the last plan made before TIG: the time the
     /// page keeps showing once the burn has started.
     public private(set) var centredIgnition: Epoch?
+    /// The last SET's uplink: accepted, or refused with the reason.
+    public private(set) var uplink: UplinkResult?
+    /// The latest refusal, of a SET's uplink or a CLR ("UPLINK REFUSED: ..."),
+    /// until a SET or CLR is accepted.
+    public private(set) var refusal: String?
+
+    /// The vessel's computer, if it flies the vehicle (a host steps it).
+    static func liveComputer(_ c: MFDContext?) -> GuidanceComputer? {
+        guard let computer = c?.vessel.guidanceComputer, computer.controlsVehicle else { return nil }
+        return computer
+    }
 
     public init() {}
 
     public var id: MFDModeID { .deorbit }
 
     public func buttons(_ c: MFDContext?) -> [MFDButton?] {
-        let counter = c?.deltaVCounter != nil
+        let counter = c?.deltaVCounter != nil || Self.liveComputer(c) != nil
         return [
             MFDButton("AP", .a, "TIG at the next apoapsis"),
             MFDButton("PE", .e, "TIG at the next periapsis"),
@@ -65,8 +93,8 @@ public final class DeorbitMFD: MFDMode {
             MFDButton("V-", .leftBracket, "Target down a step"),
             MFDButton("V+", .rightBracket, "Target up a step"),
             nil,
-            MFDButton("SET", .s, "Load the dV counter", active: counter && plan != nil),
-            MFDButton("CLR", .c, "Clear the dV counter", active: counter),
+            MFDButton("SET", .s, "Uplink, dV counter, marker", active: counter && plan != nil),
+            MFDButton("CLR", .c, "Clear the three", active: counter),
         ]
     }
 
@@ -97,13 +125,36 @@ public final class DeorbitMFD: MFDMode {
             case .perigeeAltitude(let h): target = .perigeeAltitude(h + (up ? 5_000 : -5_000))
             }
         case .s:
-            guard let counter = c?.deltaVCounter, let plan else { return false }
-            counter.loadDeltaV(plan.deltaVMagnitude)
-            c?.data.maneuver = ActiveManeuver(deorbit: plan)
+            guard let c, let plan else { return false }
+            let computer = Self.liveComputer(c)
+            guard c.deltaVCounter != nil || computer != nil else { return false }
+            let load = ManeuverPlan(deorbit: plan, vessel: c.vessel, stateEpoch: c.time)
+            if let computer {
+                // All or nothing: refused, the counter and the marker stay
+                // with the burn the computer holds.
+                let result = computer.uplink(load, at: c.time)
+                uplink = result
+                if case .refused(let why) = result {
+                    refusal = "UPLINK REFUSED: " + why
+                    c.sim.log("\(c.vessel.name): DEORBIT uplink refused, \(why)")
+                    return true
+                }
+            }
+            refusal = nil
+            c.deltaVCounter?.loadDeltaV(load.deltaVCounter ?? plan.deltaVMagnitude)
+            c.data.maneuver = ActiveManeuver(deorbit: plan)
         case .c:
-            guard let counter = c?.deltaVCounter else { return false }
-            counter.loadDeltaV(nil)
-            c?.data.maneuver = nil
+            guard let c, c.deltaVCounter != nil || Self.liveComputer(c) != nil else { return false }
+            if let computer = Self.liveComputer(c), computer.load?.source == .deorbit, !computer.clearLoad(at: c.time) {
+                let why = String(format: "P%02d HAS THE LOAD", computer.program)
+                refusal = "CLR REFUSED: " + why
+                c.sim.log("\(c.vessel.name): DEORBIT CLR refused, \(why)")
+                return true
+            }
+            c.deltaVCounter?.loadDeltaV(nil)
+            c.data.maneuver = nil
+            uplink = nil
+            refusal = nil
         default: return false
         }
         return true
@@ -172,7 +223,8 @@ public final class DeorbitMFD: MFDMode {
             return page
         }
         put(passed ? "DV TO GO" : "DV", MFDFormat.fixed(plan.deltaVMagnitude, 1) + " m/s")
-        let x = plan.deltaVLocal
+        // In the frame of the TIG shown (the centred ignition), as P30's N81.
+        let x = passed ? plan.deltaVLocal : ManeuverPlan.centredLocal(plan, mu: c.body.gm)
         page.add(4, row, "X", .reference)
         page.add(11, row, MFDFormat.fixed(x.x, 1, signed: true), alignment: .trailing)
         page.add(13, row, "Y", .reference)
@@ -215,8 +267,14 @@ public final class DeorbitMFD: MFDMode {
         row += 1
     }
 
-    /// The ΔV counter's line, and the predictions' caveat.
+    /// The uplink's and the ΔV counter's lines, and the predictions' caveat.
     func counter(_ page: inout MFDPage, _ c: MFDContext) {
+        // DEORBIT's load in the computer, while it has it; then the last
+        // SET's or CLR's refusal.
+        if let computer = Self.liveComputer(c), computer.load?.source == .deorbit {
+            page.add(4, 20, String(format: "LOAD IN CMC P%02d", computer.program), .target)
+        }
+        if let refusal { page.add(4, 21, String(refusal.prefix(32)), .warn) }
         if let counter = c.deltaVCounter {
             page.field(4, 22, "DVC", counter.deltaVRemaining.map { MFDFormat.fixed($0, 1) + " m/s" } ?? "not set",
                        valueEnd: 20, .target, labelStyle: .reference)

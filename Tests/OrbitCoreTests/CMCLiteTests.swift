@@ -170,6 +170,33 @@ final class CMCLiteTests: XCTestCase {
         XCTAssertTrue(f.logged("CMC: SPS ignition, 3.0 s late"))
     }
 
+    // 8 hands the attitude back to the SCS where the vessel is: after the
+    // computer has slewed it 20° (an SPS-8 load turned 20° in pitch), the
+    // hold keeps it there and does not swing back to where it held before.
+    func testEightHandsTheAttitudeBackWhereItIs() throws {
+        let f = try CMCFlight()
+        var load = f.sps8AsFlown()
+        let axis = f.v.position.cross(f.v.velocity).normalized
+        load.deltaV = Quat(axis: axis, angle: 20 * CMCFlight.deg).rotate(load.deltaV)
+        XCTAssertEqual(f.cmc.uplink(load, at: f.sim.time), .accepted)
+        f.press(.returnKey, .returnKey, .next, .returnKey)
+        let start = f.v.attitude
+        f.fly(to: f.get + 20)
+        XCTAssertTrue(f.scs.gnAuto)
+        let turned = rotationVector(start.conjugate * f.v.attitude).length / CMCFlight.deg
+        XCTAssertGreaterThan(turned, 8)   // under way at 0.5°/s
+        f.scs.clearGNAuto(f.v, in: f.sim)   // 8
+        f.v.autopilot = .attitudeHold
+        XCTAssertFalse(f.scs.gnAuto)
+        let handed = f.v.attitude
+        f.fly(to: f.get + 20)
+        XCTAssertLessThan(rotationVector(handed.conjugate * f.v.attitude).length / CMCFlight.deg, 1.5)
+        XCTAssertTrue(f.logged("G&N AUTO off, SCS hold"))
+        // G gives it back to the computer, from where it is.
+        XCTAssertTrue(f.scs.selectGNAuto(f.v, in: f.sim))
+        XCTAssertTrue(f.scs.gnAuto)
+    }
+
     // Z in P40 before TIG makes the burn an SCS burn: the SPS lights at
     // once, the EMS counter (the scenario's load) cuts it off, and the
     // computer only monitors, then shows N85.
@@ -474,5 +501,54 @@ final class CMCLiteTests: XCTestCase {
         XCTAssertEqual(cmc.display.noun, 42)
         XCTAssertEqual(cmc.load?.engine, .sps)
         XCTAssertNil(cmc.load?.burnTime)
+    }
+
+    // P47 monitoring an SCS burn while a load waits: once the burn is over
+    // the load goes, but P47 and its N83 stay for the crew to read.
+    func testP47KeepsItsN83AfterAnSCSBurn() throws {
+        let f = try CMCFlight()
+        XCTAssertEqual(f.cmc.uplink(f.sps8AsFlown(), at: f.sim.time), .accepted)
+        f.press(.returnKey, .returnKey)
+        f.press(.program)
+        f.key("47")
+        f.press(.returnKey)
+        XCTAssertEqual(f.cmc.program, 47)
+        f.fly(to: CMCFlight.tigGET)
+        f.v.mainThrottle = 1   // Z; the scenario's EMS load cuts it off
+        f.fly(to: CMCFlight.tigGET + 20)
+        XCTAssertTrue(f.logged("SPS cutoff (ΔV counter)"))
+        XCTAssertNil(f.cmc.load)
+        XCTAssertEqual(f.cmc.program, 47)
+        XCTAssertEqual(f.cmc.display.noun, 83)
+        XCTAssertGreaterThan(abs(Double(f.cmc.display.registers[0].value) ?? 0), 300)   // ft/s along X
+    }
+
+    // A load uplinked on the Saturn stack and re-keyed there drops its burn
+    // time (nothing there can work it out from the CSM's mass); after the
+    // CSM/LV separation P40 estimates it on the CSM.
+    func testAReKeyOnTheStackIsEstimatedOnTheCSM() throws {
+        let sim = try Simulation.forTests(perturbations: true)
+        let v = VesselLibrary.apollo11InParkingOrbit(in: sim)
+        let cmc = try XCTUnwrap(v.guidanceComputer as? CMCLite)
+        cmc.clockZero = AS506.rangeZero
+        for _ in 0..<5 { sim.tick() }
+        let plan = ManeuverPlan(name: "TEST", ignition: sim.time + 1_800, deltaV: -v.velocity.normalized * 30,
+                                deltaVLocal: Vec3(-30, 0, 0), burnTime: 99, stateEpoch: sim.time, source: .transfer)
+        XCTAssertEqual(cmc.uplink(plan, at: sim.time), .accepted)
+        for k: DSKYKey in [.minus, .digit(9), .digit(0), .digit(0), .returnKey, .returnKey] { cmc.press(k, at: sim.time) }
+        XCTAssertEqual(cmc.display.noun, 42)
+        XCTAssertEqual(cmc.load?.source, .keyed)
+        XCTAssertNil(cmc.load?.burnTime)
+        cmc.press(.returnKey, at: sim.time)   // P00
+        XCTAssertNotNil(sim.stage(v))        // CSM/LV separation: the SCS takes the CSM
+        XCTAssertTrue(v.flightProgram is ApolloSCS)
+        for _ in 0..<5 { sim.tick() }
+        XCTAssertTrue(cmc.controlsVehicle)
+        cmc.press(.next, at: sim.time)
+        XCTAssertEqual(cmc.program, 40)
+        let bt = try XCTUnwrap(cmc.load?.burnTime)
+        print(String(format: "P40's burn time on the CSM: %.2f s", bt))
+        XCTAssertGreaterThan(bt, 1)
+        XCTAssertLessThan(bt, 10)
     }
 }

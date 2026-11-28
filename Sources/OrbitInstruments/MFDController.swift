@@ -133,6 +133,11 @@ public final class MFDController {
         }
     }
 
+    /// Whether a powered display shows mode `id`'s page.
+    public func shows(_ id: MFDModeID) -> Bool {
+        [MFDSide.left, .right].contains { panels[$0]!.power && panels[$0]!.mode == id && panels[$0]!.screen == .mode }
+    }
+
     /// The burn a powered display shows on its DEORBIT page (the left one's
     /// first), for the navball's manoeuvre marker: its thrust direction (ICRF).
     public var deorbitBurnDirection: Vec3? {
@@ -233,10 +238,11 @@ public final class MFDController {
     func menuPage(_ mode: MFDMode, buttons: [MFDButton?]) -> MFDPage {
         var page = MFDPage(title: mode.id.name.uppercased() + " MENU")
         var row = 2
+        let keyWidth = buttons.compactMap { $0?.key.shortName.count }.max() ?? 1
         for b in buttons.compactMap({ $0 }) {
             page.add(4, row, b.label, b.active ? .own : .ownDim)
-            page.add(8, row, b.key.rawValue.uppercased(), .target)
-            page.add(10, row, b.help, b.active ? .reference : .referenceDim)
+            page.add(8, row, b.key.shortName, .target)
+            page.add(9 + keyWidth, row, b.help, b.active ? .reference : .referenceDim)
             row += 1
         }
         if buttons.compactMap({ $0 }).isEmpty { page.add(4, row, "No buttons", .referenceDim) }

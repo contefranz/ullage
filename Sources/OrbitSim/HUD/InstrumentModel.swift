@@ -132,15 +132,7 @@ final class InstrumentModel: ObservableObject {
     /// A short name for the vessel's flight program: the Saturn's IU, the
     /// CSM's SCS, the CM's entry program (also when the SCS hosts it, the
     /// SM gone); nil without one.
-    static func programName(_ v: Vessel) -> String? {
-        switch v.flightProgram {
-        case nil: return nil
-        case is SaturnIU: return "IU"
-        case is CMEntryProgram, is EarthLandingSystem: return "CM"
-        case is ApolloSCS: return v.parts.contains { $0.name == "SM" } ? "SCS" : "CM"
-        default: return "PGM"
-        }
-    }
+    static func programName(_ v: Vessel) -> String? { AttitudeOwner.program(v) }
 
     // MARK: Target
 
