@@ -20,8 +20,7 @@ final class GroundCloudFieldTests: XCTestCase {
         let each = film.massFraction * ApolloExhaust.f1.ratedFlow
         s.startSmoke = Double(plan.starts.filter { range >= $0.command && range < $0.ignition }.count) * each
         let climb = range < fm ? 0 : LiftoffRise.rise(after: range - fm)
-        s.deckRadius = max(PadExhaust.envelopeRadius(atDeckFrom: PadExhaust.exitHeightOnPad + climb),
-                           PadExhaust.openingHalf)
+        s.deckRadius = PadExhaust.footprint(height: PadExhaust.exitHeightOnPad + climb)
         return s
     }
 
@@ -283,13 +282,19 @@ final class GroundCloudFieldTests: XCTestCase {
         let exit = hot.sample(at: jet.origin + jet.axis * (jet.start + 1))
         XCTAssertGreaterThan(exit.temperature, 600)
         XCTAssertEqual(exit.condensate, 0)
-        let late = Self.field(Self.cloud(to: 12), at: 12)
-        let wet = try XCTUnwrap(late.primitives.first { $0.shape == .roundJet })
-        let steam = late.sample(at: wet.origin + wet.axis * (0.5 * (wet.start + wet.end)))
-        XCTAssertGreaterThan(steam.condensate, 0, "the deluge's steam, its exhaust faded")
-        for t in [10.0, 30, 60, 120, 180] {
+        // The trench's exhaust fades as the jets outgrow the opening while
+        // its water runs on: find when its jet first holds condensate.
+        var white: Double?
+        for t in stride(from: 4.0, through: 40, by: 2) {
             let f = Self.field(Self.cloud(to: t), at: t)
-            for p in f.primitives where p.shape == .thermal {
+            guard let jet = f.primitives.first(where: { $0.shape == .roundJet }) else { continue }
+            if f.sample(at: jet.origin + jet.axis * (0.5 * (jet.start + jet.end))).condensate > 0 { white = t; break }
+        }
+        let t = try XCTUnwrap(white, "the deluge's steam, its exhaust faded")
+        print(String(format: "the trench jets first hold condensate at T+%.0f s", t))
+        for t in [10.0, 30, 60, 120, 180, 240, 300] {
+            let f = Self.field(Self.cloud(to: t), at: t)
+            for p in f.primitives where p.shape == .thermal && p.lobe != .startSmoke(0) {
                 let core = f.sample(at: p.origin), top = f.sample(at: p.origin + Vec3(0, 0, p.radius))
                 let a = f.ambient(height: p.origin.z)
                 print(String(format: "T+%3.0f s %@: %4.0f m up, R %4.0f m; core %5.1f K (air %5.1f K, RH %3.0f %%) %.2e kg/m³ condensate, %.2e soot; top %5.1f K %.2e kg/m³",
@@ -304,8 +309,11 @@ final class GroundCloudFieldTests: XCTestCase {
     // The launch day's humidity is TM X-64796's surface observation for
     // AS-506 (its Table 1, tools/data/tmx64796_table1_saturn.csv): 29.4 °C
     // and 73 % at 10.203 N/cm², a mixing ratio of 18.8 g/kg and a dew point
-    // of 24.0 °C, held through the mixed layer.
-    func testHumidityIsTMX64796s() throws {
+    // of 24.0 °C. Lifted, it saturates at about 0.7 km: the base FER-506's
+    // Appendix A gives the launch's 1/10 cumulus. Aloft it is the 1983 Cape
+    // RRA's July means (12-18Z): 72.4 % at 1 km, 65.1 % at 2 km, 57.5 % at
+    // 3 km (the relative humidity of its mean temperature and vapour pressure).
+    func testHumidityIsTMX64796sAndTheRRAs() throws {
         let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().appendingPathComponent("tools/data/tmx64796_table1_saturn.csv")
         let text = try String(contentsOf: url, encoding: .utf8)
@@ -323,19 +331,22 @@ final class GroundCloudFieldTests: XCTestCase {
             if MoistAir.saturationPressure(m) < h.vapourPressure { lo = m } else { hi = m }
         }
         XCTAssertEqual(lo - 273.15, 24.05, accuracy: 0.05)
-        // Through the mixed layer the mixing ratio holds; above it, the
-        // relative humidity it reaches there.
-        let profile = h.profile(Self.air, surfaceHeight: Self.deck)
-        let f = Self.field(Self.cloud(to: -5), at: -5)
-        for z in [0.0, 500, 999] {
-            let q = f.ambient(height: z).humidity
-            XCTAssertEqual(q / (1 - q), h.mixingRatio, accuracy: 1e-6, "\(z) m")
+        let base = h.condensationLevel(Self.air, surfaceHeight: Self.deck)
+        XCTAssertEqual(base, 700, accuracy: 100, "FER-506: the cumulus's base at 0.7 km")
+        // Aloft: the RRA's means, and the field's air.
+        for (z, rh) in [(1_000.0, 0.724), (2_000, 0.651), (3_000, 0.575)] {
+            XCTAssertEqual(h.relativeHumidity(height: z), rh, accuracy: 0.001, "\(z) m")
         }
-        let above = f.ambient(height: 2_000)
-        let rh = MoistAir.vapourPressure(specificHumidity: above.humidity, pressure: above.pressure)
-            / MoistAir.saturationPressure(above.temperature)
-        XCTAssertEqual(rh, profile.topHumidity, accuracy: 1e-6)
-        print(String(format: "relative humidity held above the mixed layer: %.1f %%", 100 * profile.topHumidity))
+        XCTAssertEqual(h.relativeHumidity(height: 500), 0.5 * (0.73 + h.relativeHumidity(height: 1_000)), accuracy: 1e-12)
+        let f = Self.field(Self.cloud(to: -5), at: -5)
+        for z in [0.0, 1_000, 2_000] {
+            let a = f.ambient(height: z)
+            let rh = MoistAir.vapourPressure(specificHumidity: a.humidity, pressure: a.pressure)
+                / MoistAir.saturationPressure(a.temperature)
+            XCTAssertEqual(rh, h.relativeHumidity(height: z), accuracy: 1e-6, "\(z) m")
+        }
+        print(String(format: "the surface air's condensation level %.0f m; RH 1 km %.1f %%, 2 km %.1f %%", base,
+                     100 * h.relativeHumidity(height: 1_000), 100 * h.relativeHumidity(height: 2_000)))
     }
 
     // The field at a few moments of AS-506's launch, printed.

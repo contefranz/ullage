@@ -47,7 +47,7 @@ import OrbitCore
 /// - What each cloud carries, for its medium (`GroundCloudField`): the
 ///   exhaust, the water it boiled, the soot (`LaunchCloudOptics.sootYield`),
 ///   the air it entrained and that air's vapour (the launch day's humidity,
-///   `LaunchHumidity`: TM X-64796's surface value), and the jet's fluxes at
+///   `LaunchHumidity`: TM X-64796's surface value, July's RRA aloft), and the jet's fluxes at
 ///   the last step, so that the medium is built from the state alone.
 /// - The F-1s' start (`startSmoke`): from each engine's start command to
 ///   its ignition its gas generator's fuel-rich turbine exhaust, 2.9 % of its
@@ -145,9 +145,9 @@ public struct GroundCloud: Equatable {
         /// The gas generators' turbine exhaust of the engines starting, kg/s
         /// (each from its start command to its ignition).
         public var startSmoke: Double
-        /// Where the deck's wall jet starts, m from the pad's axis: the
-        /// plume's envelope where it meets the deck (`PadExhaust`), at least
-        /// the ML's opening.
+        /// Where the deck's wall jet starts, m from the pad's axis: the jets'
+        /// footprint on the deck (`PadExhaust.footprint`), at least the ML's
+        /// opening.
         public var deckRadius: Double
 
         public init(exhaust: Double, thrust: Double, trench: Double, deck: Double, trenchWater: Double,

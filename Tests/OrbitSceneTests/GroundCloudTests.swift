@@ -202,4 +202,59 @@ final class GroundCloudTests: XCTestCase {
                            accuracy: 1e-9 * given, "drawn in the trench's cloud")
         }
     }
+
+    // The jets reach the pad as a fountain (Turner 1966): a hot jet aimed
+    // down turns back at z_m = 2.46 M^¾ F^−½ with the physical fluxes, the
+    // five F-1s' M = thrust/ρ and F = g (ρ − ρe)/ρ ṁ/ρe at the exits (P1's
+    // 0.078 kg/m³). About 760 m at the rated flow; Seban et al.'s (1978)
+    // 2.35 for heated air jets aimed down gives 4.5 % less. It goes as f^¼.
+    func testJetsReachThePadAsAFountain() {
+        let m = LiftoffRise.thrust / 1.225
+        let f = 9.80665 * (1.225 - PadExhaust.exitDensity) / 1.225 * LiftoffRise.flow / PadExhaust.exitDensity
+        XCTAssertEqual(PadExhaust.exitDensity, 0.078, accuracy: 0.005)
+        let zm = PadExhaust.penetration()
+        XCTAssertEqual(zm, 2.46 * pow(m, 0.75) / f.squareRoot(), accuracy: 1e-9 * zm)
+        XCTAssertEqual(zm, 760, accuracy: 30)
+        XCTAssertEqual(PadExhaust.penetration(constant: PadExhaust.sebanConstant) / zm, 2.35 / 2.46, accuracy: 1e-12)
+        XCTAssertEqual(PadExhaust.penetration(flowFraction: 0.5) / zm, pow(0.5, 0.25), accuracy: 1e-12)
+        print(String(format: "fountain: M %.3e m4/s2, F %.3e m4/s3, z_m %.0f m (Seban %.0f m), gone by %.0f m",
+                     m, f, zm, PadExhaust.penetration(constant: PadExhaust.sebanConstant),
+                     PadExhaust.initialPenetration * zm))
+    }
+
+    // Apollo 16's cloud stabilised with its centre line at about 2.2 km by
+    // T+2.5 min, some 800 m deep, under a subsidence inversion at about 2 km
+    // (Gregory, Hulten and Wornom 1974, NASA TM X-2910, conclusion 3:
+    // photographs from 5.5 km west, then aircraft); TM X-2935's Fig. 3 has
+    // its south plume at 0.8, 1.65, 2.2 and 2.35 km at 1-4 min. Apollo 16 is
+    // another vehicle (AS-511) and another day (16 April 1972) than this
+    // AS-506 sounding, which has no such inversion: the model's clouds,
+    // their centre (volume-weighted) at T+2.5 min 25 % below Apollo 16's
+    // and their top 16-48 % above Fig. 3's, rise on more slowly, not capped.
+    func testCloudRisesNearApollo16s() throws {
+        var centre: [Double: Double] = [:], top: [Double: Double] = [:], rise: [Double: Double] = [:]
+        var each: [Double: String] = [:]
+        _ = cloud(to: 240) { t, c in
+            let l = c.lobes.prefix(3)
+            let v = l.reduce(0) { $0 + $1.volume }
+            centre[t.rounded()] = l.reduce(0) { $0 + $1.volume * $1.centre.z } / v
+            top[t.rounded()] = l.map(\.top).max()!
+            rise[t.rounded()] = l.reduce(0) { $0 + $1.volume * $1.rise } / v
+            each[t.rounded()] = l.map { String(format: "%.0f", $0.centre.z) }.joined(separator: "/")
+        }
+        let all = cloud(to: 240)
+        print(String(format: "exhaust in the ground clouds by T+240 s: %.0f t (trench %.0f t, deck %.0f t)",
+                     all.lobes.prefix(3).reduce(0) { $0 + $1.exhaust } / 1e3,
+                     all.lobes.prefix(2).reduce(0) { $0 + $1.exhaust } / 1e3, all.lobes[2].exhaust / 1e3))
+        for t in [60.0, 120, 150, 180, 240] {
+            print(String(format: "T+%3.0f s: centre %4.0f m (lobes N/S/deck %@ m), top %4.0f m, rising %.1f m/s",
+                         t, centre[t]!, each[t]!, top[t]!, rise[t]!))
+        }
+        let c150 = try XCTUnwrap(centre[150])
+        XCTAssertEqual(c150, 2_200, accuracy: 0.3 * 2_200, "TM X-2910: the centre line at about 2.2 km by T+2.5 min")
+        XCTAssertLessThan(rise[240]!, 0.5 * rise[60]!, "slowing")
+        for (t, z) in [(60.0, 800.0), (120, 1_650), (180, 2_200), (240, 2_350)] {
+            XCTAssertEqual(top[t]!, z, accuracy: 0.5 * z, "TM X-2935 Fig. 3 at \(t) s")
+        }
+    }
 }

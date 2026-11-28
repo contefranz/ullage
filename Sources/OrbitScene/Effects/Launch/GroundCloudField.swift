@@ -86,58 +86,104 @@ public enum MoistAir {
 
 // MARK: - The launch day's humidity
 
-/// The water vapour in the air round the pad (look round 2, decision 6):
-/// the launch day's surface observation, with a stated profile above it,
-/// until a measured dew-point profile for 16 July 1969 is chosen (FER-506's
-/// atmospheric data or IGRA v2 station 74794, whichever has dew points:
-/// Franz decides on data).
-///
-/// - The surface: NASA TM X-64796 Table 1, AS-506's row (seq. 145, 13:32 UT,
-///   LC-39A): 10.203 N/cm², 29.4 °C, 73 % relative humidity
-///   (tools/data/tmx64796_table1_saturn.csv, M as the row is graded): a
-///   mixing ratio of 18.8 g/kg, dew point 24.0 °C.
-/// - The mixed layer (L): its mixing ratio holds the surface's up to
-///   `mixedLayerTop` (a July morning's convective boundary layer at 09:32
-///   local, its top near the 1/10 cumulus's base: 1 km, L), as a well-mixed
-///   layer's does; nowhere more than saturation.
-/// - Above it (L): the relative humidity it has at the mixed layer's top,
-///   held. The sounding (`AirProfile`) gives the temperature and pressure
-///   everywhere.
+/// The water vapour in the air round the pad (look round 2, decision 6),
+/// until a measured dew-point profile for 16 July 1969 is chosen (IGRA v2
+/// station 74794 has soundings for 1950-2026; FER-506's Appendix A gives
+/// dew points at the surface only: Franz decides on data):
+/// - **The surface** is the launch's own observation: NASA TM X-64796
+///   Table 1, AS-506's row (seq. 145, 13:32 UT, LC-39A): 10.203 N/cm²,
+///   29.4 °C, 73 % relative humidity (tools/data/tmx64796_table1_saturn.csv,
+///   M as the row is graded): a mixing ratio of 18.8 g/kg, dew point
+///   24.0 °C. Lifted, that air saturates at about 0.7 km, the base FER-506
+///   (Appendix A) gives the launch's 1/10 cumulus.
+/// - **Aloft** it is July's at Cape Canaveral: the 1983 Range Reference
+///   Atmosphere's means for station 74794 over 1957-1979, its 12-18Z window
+///   (Apollo 11's 13:32 UT within it), Table II-7's temperature and Table
+///   III-7's vapour pressure every kilometre (NASA, NTRS 19830021664, H for
+///   the tables, L for the day): the relative humidity of the means, 72 %
+///   at 1 km, 65 % at 2 km, 58 % at 3 km. The 5 km vapour pressure's digit
+///   is blurred in the scan and is left out (4 to 6 km interpolated).
+/// - **Between** the relative humidity is linear in height; above 6 km
+///   it holds 6 km's. The sounding (`AirProfile`) gives the temperature
+///   and pressure everywhere.
 public struct LaunchHumidity: Equatable {
     /// The surface observation: K, 0-1, Pa.
     public var temperature: Double
     public var relativeHumidity: Double
     public var pressure: Double
-    /// The mixed layer's top, m above the deck (L).
-    public var mixedLayerTop: Double
+    /// The relative humidity aloft: heights above the deck (m) and values,
+    /// rising.
+    public var aloft: [(height: Double, humidity: Double)]
 
-    public init(temperature: Double, relativeHumidity: Double, pressure: Double, mixedLayerTop: Double) {
+    public init(temperature: Double, relativeHumidity: Double, pressure: Double,
+                aloft: [(height: Double, humidity: Double)] = LaunchHumidity.julyAloft) {
         self.temperature = temperature
         self.relativeHumidity = relativeHumidity
         self.pressure = pressure
-        self.mixedLayerTop = mixedLayerTop
+        self.aloft = aloft
     }
 
-    /// AS-506's launch (TM X-64796), its mixed layer 1 km deep (L).
-    public static let as506 = LaunchHumidity(temperature: 273.15 + 29.4, relativeHumidity: 0.73,
-                                             pressure: 102_030, mixedLayerTop: 1_000)
+    public static func == (a: LaunchHumidity, b: LaunchHumidity) -> Bool {
+        a.temperature == b.temperature && a.relativeHumidity == b.relativeHumidity && a.pressure == b.pressure
+            && a.aloft.map(\.height) == b.aloft.map(\.height) && a.aloft.map(\.humidity) == b.aloft.map(\.humidity)
+    }
+
+    /// The 1983 Cape Canaveral RRA's July means (12-18Z, 1957-1979): height
+    /// (km), temperature (K, Table II-7) and vapour pressure (hPa, Table
+    /// III-7).
+    public static let rraJuly: [(height: Double, temperature: Double, vapourPressure: Double)] = [
+        (1, 293.86, 17.705), (2, 287.88, 10.911), (3, 282.22, 6.630), (4, 276.50, 4.133), (6, 265.10, 1.519),
+    ]
+    /// Their relative humidity, over water.
+    public static let julyAloft: [(height: Double, humidity: Double)] = rraJuly.map {
+        ($0.height * 1_000, $0.vapourPressure * 100 / MoistAir.saturationPressure($0.temperature))
+    }
+
+    /// AS-506's launch (TM X-64796), July's aloft (the RRA).
+    public static let as506 = LaunchHumidity(temperature: 273.15 + 29.4, relativeHumidity: 0.73, pressure: 102_030)
 
     /// The surface air's vapour pressure (Pa) and mixing ratio (kg/kg of dry air).
     public var vapourPressure: Double { relativeHumidity * MoistAir.saturationPressure(temperature) }
     public var mixingRatio: Double { MoistAir.epsilon * vapourPressure / (pressure - vapourPressure) }
 
-    /// The profile in the sounding `air` (nil: the standard 288 K and
-    /// 101,325 Pa at the deck, 6.5 K/km), the deck `surfaceHeight` m above
-    /// sea level.
-    public func profile(_ air: AirProfile?, surfaceHeight: Double) -> Profile {
-        let top = Self.state(air, height: mixedLayerTop, surfaceHeight: surfaceHeight)
-        let r = mixingRatio
-        let e = min(r * top.pressure / (MoistAir.epsilon + r), MoistAir.saturationPressure(top.temperature))
-        return Profile(mixingRatio: r, mixedLayerTop: mixedLayerTop,
-                       topHumidity: e / MoistAir.saturationPressure(top.temperature))
+    /// The relative humidity `z` m above the deck.
+    public func relativeHumidity(height z: Double) -> Double {
+        var a = (height: 0.0, humidity: relativeHumidity)
+        for b in aloft {
+            if z <= b.height {
+                let w = (z - a.height) / max(b.height - a.height, 1e-9)
+                return a.humidity + (b.humidity - a.humidity) * min(max(w, 0), 1)
+            }
+            a = b
+        }
+        return a.humidity
     }
 
-    /// The sounding's temperature and pressure `z` m above the deck.
+    /// The height (m above the deck) at which the surface air, lifted dry
+    /// adiabatically with its mixing ratio, saturates: its lifting
+    /// condensation level, in the sounding `air` (nil: the standard).
+    public func condensationLevel(_ air: AirProfile?, surfaceHeight: Double) -> Double {
+        let r = mixingRatio, kappa = 0.2857
+        func excess(_ z: Double) -> Double {
+            let p = Self.state(air, height: z, surfaceHeight: surfaceHeight).pressure
+            let t = temperature * pow(p / pressure, kappa)
+            let e = r * p / (MoistAir.epsilon + r)
+            return MoistAir.saturationPressure(t) - e
+        }
+        var lo = 0.0, hi = 5_000.0
+        for _ in 0..<60 {
+            let mid = 0.5 * (lo + hi)
+            if excess(mid) > 0 { lo = mid } else { hi = mid }
+        }
+        return 0.5 * (lo + hi)
+    }
+
+    /// The profile in the sounding `air`, the deck `surfaceHeight` m above
+    /// sea level.
+    public func profile(_ air: AirProfile?, surfaceHeight: Double) -> Profile { Profile(humidity: self) }
+
+    /// The sounding's temperature and pressure `z` m above the deck (nil:
+    /// the standard 288 K and 101,325 Pa at the deck, 6.5 K/km).
     static func state(_ air: AirProfile?, height z: Double, surfaceHeight: Double)
         -> (temperature: Double, pressure: Double) {
         if let a = air {
@@ -148,18 +194,14 @@ public struct LaunchHumidity: Equatable {
         return (t, 101_325 * pow(t / 288.15, 9.80665 / (287.05 * 0.0065)))
     }
 
-    /// The humidity with height, from the sounding.
+    /// The humidity with height.
     public struct Profile: Equatable {
-        public var mixingRatio: Double
-        public var mixedLayerTop: Double
-        /// The relative humidity held above the mixed layer.
-        public var topHumidity: Double
+        public var humidity: LaunchHumidity
 
         /// The air's specific humidity (kg of vapour a kilogram of moist
         /// air) `z` m above the deck, where it is at `t` K and `p` Pa.
         public func specificHumidity(height z: Double, temperature t: Double, pressure p: Double) -> Double {
-            let es = MoistAir.saturationPressure(t)
-            let e = z <= mixedLayerTop ? min(mixingRatio * p / (MoistAir.epsilon + mixingRatio), es) : topHumidity * es
+            let e = humidity.relativeHumidity(height: z) * MoistAir.saturationPressure(t)
             return MoistAir.specificHumidity(vapourPressure: min(e, 0.99 * p), pressure: p)
         }
     }

@@ -108,22 +108,36 @@ and the buoyant cloud each feeds:
 |---|---|---|---|
 | exhaust heat | 11.7 MJ/kg: c_p (T_c − T_a) at 3,616 K (c_p from the exit's γ 1.233 and 23.04 g/mol) and the afterburning of its CO (34.6 %) and H2 (10.3 %) | CEA row F-1 | H (the run) |
 | radiated by the sooty flames | 25 % | a kerosene pool fire's 20-35 % | L |
-| water | the trench's 28,000 gpm while the exhaust reaches it; the deck's 50,000 then 20,000 gpm in the deck's share; boiled as far as the heat goes | P4's (LC39A datasheet §12, A11PK) | M |
+| water | the trench-side nozzles' 8,000 gpm while the exhaust reaches the trench; the deck's 29 nozzles' 50,000 gpm for 30 s from liftoff, then 20,000, in the deck's share; boiled as far as the heat goes. Apollo 16's report gives 8,000 into the trench and 20,000 onto the ML, pad and trench, 28,000 in all (TM X-2935, p. 18), and SA-501's caption 28,000 "to cool the flame deflector and trench": P4 had 28,000 in the trench and 50,000 on the deck, counting the 20,000 twice | AS-506's press kit (NASA 69-83K, pp. 167-168) | H |
 | buoyancy flux at full thrust | about 3.1 × 10⁶ m⁴/s³ (g Q / (ρ c_p T)) | derived | — |
 | deflector | each face 46° (12 m over 11.5 m); an inviscid jet keeps sin θ cos θ, half its momentum, on each side | LC39A datasheet §8 (MOON) | L |
 | jets | round momentum jets from the deflector: u = 7.0 √(M/ρ)/x, b = 0.107 x, Q = 0.25 √(M/ρ) x; at the exits (68.6 m) about 270 m/s and 7.3 m in half-width, the trench's own size | Fischer et al. 1979, Table 9.1 | H (the law) |
 | jet front | half the centreline speed (a starting jet) | Turner 1962 | M |
 | runout | 3 jet lengths l_M = (M/ρ)^¾ / F^½ (about 280 m beyond the exits) before buoyancy lifts the jet | a wall jet's lift-off | L |
 | deck | the plume striking the deck turned radial with all its momentum | a jet on a plate, inviscid | M |
+| the split (look round 2) | P2's per-jet geometry, one model with P2's wall jet: each F-1 jet's cross-section where its axis meets the deck, P1's R(h), against the ML opening's square; the rest goes down the opening. At T+8 s (65 m of climb) a third meets the deck | `PlumeImpingement`, P1 | M |
+| the reach (look round 2) | the jets' penetration as a fountain: z_m = 2.46 M^¾ F^−½ with the physical fluxes, M = thrust/ρ, F = g (ρ − ρe)/ρ ṁ/ρe at the exits; all of the exhaust reaches the pad below z_m, none from the fountain's initial height 1.5 z_m, smoothly between. About 760 m at the rated flow (Seban et al.'s 2.35 for heated air jets aimed down: 727 m). It replaces P4's fade of half at 45 m of climb (L) | Turner 1966, J. Fluid Mech. 26, 779; Seban, Behnia and Abreu 1978 | H (the law) |
 | clouds | Morton-Taylor-Turner thermals, α 0.25, fed at their jets' ends with the jets' volume and buoyancy, on the launch day's sounding (its stability N² and winds) | MTT 1956 | M |
 
-Plausibility, not a fit (`GroundCloudTests`): the jets 250 m beyond the exits
-by T+5 s; the clouds past the tower within seconds; at 15 s the cloud
-960 m across (Apollo 16: 750 m), at 30 s 1.07 km (Apollo 10 and 16: 1.2-1.3
-km) with its top at 0.68 km (Apollo 16's south lobe: 0.5 km), at 60 s
-1.06 km (1 km), at 180 s 1.95 km (2.1 km, stabilising near 2 km)
-(TM X-2935 Figs. 3 and 4; CR-61326 Fig. E-9). Nothing in the model was
-adjusted to them.
+Plausibility, not a fit (`GroundCloudTests`):
+- the jets 250 m beyond the exits by T+5 s, and the clouds past the tower
+  within seconds;
+- at 15 s the cloud is 954 m across (Apollo 16: 750 m);
+- at 30 s it is 1.09 km across (Apollo 10 and 16: 1.2-1.3 km), its top at
+  0.74 km (Apollo 16's south lobe: 0.5 km);
+- its top is at 1.18 km at 60 s (Apollo 16: 0.8 km) and 2.56 km at 180 s
+  (2.2 km).
+
+Sources: TM X-2935 Figs. 3 and 4; Apollo 10's plume in CR-61326 (Dumbauld
+et al.'s handbook) Fig. E-9.
+
+Apollo 16's cloud stabilised with its centre line at about 2.2 km by
+T+2.5 min, under a subsidence inversion at about 2 km (TM X-2910). The
+model's, volume-weighted, is 1.64 km then, 25 % lower, and still rising at
+6 m/s, slowing; AS-506's sounding has no such inversion. That is another
+vehicle (AS-511) and another day (16 April 1972). By T+240 s the clouds
+hold 390 t of exhaust: 155 t from the trench, 236 t from the deck. Nothing
+in the model was adjusted to these.
 
 **Filling them.** P3's particles are parcels that entrain and drag on their
 own; a crowd of small ones would rise as small thermals, far slower than
@@ -213,32 +227,52 @@ L(T) q_c (`MoistAir.adjust`). Saturation over water is Wagner and Pruss's
 (IAPWS-95 within 0.01 %, H), Murphy and Koop's below the triple point. This
 replaces P4's "all of the water condensed" (L).
 
-**Humidity** (`LaunchHumidity`, decision 6). TM X-64796's surface
-observation for AS-506 (Table 1, seq. 145): 29.4 °C and 73 % at 10.203
-N/cm², which gives 18.8 g/kg and a dew point of 24.0 °C (M). Through a 1 km
-mixed layer the mixing ratio holds (L); above it the relative humidity
-holds the 97 % it reaches there (L). This is the stated profile until a
-measured dew-point profile for 16 July 1969 is chosen: FER-506's or IGRA v2
-station 74794's, a data decision for Franz.
+**Humidity** (`LaunchHumidity`, decision 6).
+- At the surface, TM X-64796's observation for AS-506 (Table 1, seq. 145):
+  29.4 °C and 73 % at 10.203 N/cm². That gives 18.8 g/kg and a dew point of
+  24.0 °C (M). Lifted, this air saturates at 0.65 km. That matches the
+  launch's 1/10 cumulus, whose base FER-506's Appendix A gives at 0.7 km.
+- Aloft, July's means at Cape Canaveral: the 1983 Range Reference
+  Atmosphere for station 74794, 1957-1979, its 12-18Z window (Apollo 11's
+  13:32 UT is inside it), Tables II-7 and III-7. The relative humidity of
+  its means is 72.4 % at 1 km, 65.1 % at 2 km and 57.5 % at 3 km. The 5 km
+  vapour pressure's digit is blurred in the scan, so 5 km is left out.
+- Between those, the humidity is linear in height.
 
-**What the physics gives.** P4's model boils all of the deluge's water that
-the exhaust's heat can boil, and the heat is ten times what the water can
-take. So the mixture is far from saturation: about 60 K above the air at
-T+10 s, 15 K at T+30 s and 4 K at T+60 s, with 77-92 % humidity. Until
-about T+3 minutes, when the clouds reach 1.2-1.5 km, they hold no
-condensate (`testCondensateIsTheSaturationAdjustments`). Until then they
-show only their soot: at P2's 0.096 %, an optical depth of a few through a
-trench cloud at T+30 s, a grey-brown smoke. The one white part is a trench
-jet once the climb has faded its exhaust: the deluge still runs, and its
-steam condenses. The photographs show white clouds at the pad within
-seconds. By decision 5 that questions these L inputs:
-- the share of the deluge that boils: spray drops that do not boil would
-  whiten the cloud;
-- whether the trench's afterburning is complete;
-- the radiant fraction;
-- the humidity above the mixed layer.
+This is a climatology, not the day's profile. Fetching IGRA v2 station
+74794's sounding for 16 July 1969 is a data decision for Franz. FER-506
+gives dew points at the surface only.
 
-No fit was added for this.
+**The look: grey near the pad, condensing aloft.** The model boils all of
+the deluge's water that the exhaust's heat can boil, and that heat is about
+ten times what the water can take. So the mixture is far from saturation:
+about 55-100 K above the air at T+10 s, 15-50 K at T+30 s and 7-12 K at
+T+60 s.
+
+With July's humidity aloft, the clouds hold no condensate for the first
+five minutes; the first appears at a trench cloud's top at about 2.5 km
+(`testCondensateIsTheSaturationAdjustments`). They show their soot: at
+P2's 0.096 %, an optical depth of 15-20 through a trench cloud at
+T+5-10 s and a few at T+30 s, a grey smoke.
+
+The white part is a trench jet from T+20 s. By then the climb has carried
+most of the jets onto the deck while the trench's water still runs, so the
+little exhaust left there boils it, and its steam condenses.
+
+This is what the S-IC static firings at NASA's Mississippi Test Facility
+showed (Forbes, Smith and Farrell 1972, NASA CR-2049), with about four
+times LC-39's water:
+- the LOX/RP-1 exhaust was "dark gray";
+- the white, condensing part was "delineated from the gray non-condensible
+  exhaust" and first condensed at about 1,740 m;
+- aircraft psychrometers read up to about 125 % in the cloud.
+
+A sensitivity study found the onset unmoved by any listed L input: the
+boiled share, the radiant fraction (0.25-0.5), the afterburning (none to
+complete), the entrainment (0.15-0.35), the exhaust's own water and the
+humidity aloft. It moves only with ten times the water. Decision 5 keeps
+the physics. Whether to model the deluge's spray drops, which the film's
+white near the pad may be, is Franz's call.
 
 **Turbulence** (`LaunchTurbulence`).
 - The eddies and their lifetimes are LR3's `TurbulenceSpectrum`'s: the
@@ -271,9 +305,6 @@ the box the far field's grids cover (at T+8 s, 1,360 × 685 × 541 m: High's
 cells are 5-11 m) and the air's humidity by `AirProfile` level.
 
 **Open, for the pass:**
-- P2 and P4 split the deck's share differently. At T+8 s P2's jets put 0.33
-  of their flow on the deck and PadExhaust's envelope 0.26. The wall jet's
-  thickness carries on from P2's, but its flow is P4's.
 - The condensate's latent heat warms the adjusted mixture but is not fed
   back into GroundCloud's buoyancy.
 - Beyond the ML, the wall jet runs on at the deck's level.

@@ -229,7 +229,8 @@ public final class LaunchEffects: EffectProducer {
         let climb: Double
         /// The five F-1s' flow over their full flow, from the scene's emitters.
         let flow: Double
-        let clusterRadius: Double
+        /// The exits about their centroid, horizontal (`PadExhaust.pattern`).
+        let pattern: [Vec3]
         /// Where P2's plume hands the exhaust over to the trail, slowed to
         /// the air (`PlumeAirflow.trailHandover`): its distance along the
         /// nozzles' axis and its point from their exits, world axes.
@@ -320,7 +321,7 @@ public final class LaunchEffects: EffectProducer {
         let own = scene.emitters.filter { $0.vesselID == v.id }
         return Vehicle(vessel: v, exits: exits, exitByEngine: byEngine, exitHeight: height,
                        climb: max(0, height - PadExhaust.exitHeightOnPad), flow: flow,
-                       clusterRadius: PadExhaust.clusterRadius(exits: exits),
+                       pattern: PadExhaust.pattern(exits: exits.map(\.centre)),
                        trailHead: PlumeAirflow.trailHandover(own),
                        airspeed: own.first { $0.name.hasPrefix("S-IC engine") }?.relativeWind.length ?? 0)
     }
@@ -460,15 +461,16 @@ public final class LaunchEffects: EffectProducer {
     func sources(_ c: Context, _ t: Epoch, previousClimb: Double?) -> GroundCloud.Sources {
         let fraction = flow(c, t)
         let z = PadExhaust.exitHeightOnPad + climb(c, t, previous: previousClimb)
-        let shares = PadExhaust.shares(exitHeight: z, radius: c.vehicle.clusterRadius)
+        let rho = deckAir(c).rho
+        let shares = PadExhaust.shares(exitHeight: z, pattern: c.vehicle.pattern, flowFraction: max(fraction, 1e-3),
+                                       airDensity: rho)
         let gpm = GroundCloud.gallon / GroundCloud.minute
         return GroundCloud.Sources(exhaust: LiftoffRise.flow * fraction, thrust: LiftoffRise.thrust * fraction,
                                    trench: shares.trench, deck: shares.deck,
                                    trenchWater: PadExhaust.trenchWater * gpm,
                                    deckWater: PadExhaust.deckWater(sinceFirstMotion: t - c.firstMotion) * gpm,
                                    startSmoke: Self.startSmokeFlow(c.ignition, at: t),
-                                   deckRadius: max(PadExhaust.envelopeRadius(atDeckFrom: z, radius: c.vehicle.clusterRadius),
-                                                   PadExhaust.openingHalf))
+                                   deckRadius: PadExhaust.footprint(height: z, pattern: c.vehicle.pattern))
     }
 
     /// The gas generators' turbine exhaust at `t`, kg/s: 2.9 % of an F-1's
@@ -549,8 +551,7 @@ public final class LaunchEffects: EffectProducer {
             let s = sources(ctx, t, previousClimb: previousClimb)
             guard s.deck > 0, s.exhaust > 0 else { return (0, 0, 0, air.temperature) }
             let z = PadExhaust.exitHeightOnPad + climb(ctx, t, previous: previousClimb)
-            let r0 = max(PadExhaust.envelopeRadius(atDeckFrom: z, radius: ctx.vehicle.clusterRadius),
-                         PadExhaust.openingHalf)
+            let r0 = PadExhaust.footprint(height: z, pattern: ctx.vehicle.pattern)
             let j = Self.deckJet(s, from: r0, density: air.rho, ambient: air.temperature)
             return (j.speed, j.rate, r0, j.temperature)
         }
